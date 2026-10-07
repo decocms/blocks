@@ -35,12 +35,12 @@ export type Snapshot = {
    */
   schemaHash?: string;
   /**
-   * When `deco content` generated this content (an ISO 8601 string, the build
-   * machine's clock). A hosted release is swapped in only when its
+   * The commit time of the git HEAD `deco content` built this content from
+   * (committer date, ISO 8601). A hosted release is swapped in only when its
    * `publishedAt` is later; without one (a custom loader, an older content
-   * module), the bundled content counts as the oldest.
+   * module, a build outside git), the bundled content counts as the oldest.
    */
-  builtAt?: string;
+  committedAt?: string;
 };
 
 /**

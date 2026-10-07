@@ -12,14 +12,17 @@
  *   `{ revision, schemaHash, publishedAt }`. Whoever is newer wins: when it
  *   names a revision other than the one this process last swapped in, its
  *   `schemaHash` equals the fallback's, and its `publishedAt` is later than
- *   the fallback's `builtAt` (the time `deco content` generated it), it
- *   downloads `sites/<site>/revisions/<revision>.json`,
- *   `{ revision, schemaHash, blocks }`, and swaps it in whole. Otherwise, and
- *   on any error, memory stays as it is. A fallback without a `schemaHash`
- *   never swaps; one without a `builtAt` (a custom loader, an older content
- *   module) counts as the oldest. Studio writes `publishedAt` on Publish, on
- *   "Make current" (a rollback) and on Resync, so a rollback wins over the
- *   bundles built before it and a later deploy wins over the rollback.
+ *   the fallback's `committedAt` (the commit time of the git HEAD
+ *   `deco content` built it from), it downloads
+ *   `sites/<site>/revisions/<revision>.json`, `{ revision, schemaHash, blocks }`,
+ *   and swaps it in whole. Otherwise, and on any error, memory stays as it is.
+ *   A fallback without a `schemaHash` never swaps; one without a `committedAt`
+ *   (a custom loader, an older content module, a build outside git) counts as
+ *   the oldest. Studio writes `publishedAt` on Publish, on "Make current" (a
+ *   rollback) and on Resync, so a rollback wins over the bundles of earlier
+ *   commits and a deploy of a later commit wins over the rollback. Commit
+ *   time, not build time: a slow build of an older commit that finishes after
+ *   a publish still loses to it.
  *   Pointers aren't ordered among themselves, and the fallback's content is
  *   never compared: only the two timestamps are.
  * - In development (`NODE_ENV=development`), it never swaps, so local files win.
@@ -104,7 +107,7 @@ class RemoteLoader implements Loader {
     if (latest.schemaHash !== fallback.schemaHash) return { updated: false };
     // The bundle is newer: keep what this process serves.
     // OPEN: a process that already swapped a release in keeps it (memory stays as it is).
-    if (!isNewer(latest.publishedAt, fallback.builtAt)) return { updated: false };
+    if (!isNewer(latest.publishedAt, fallback.committedAt)) return { updated: false };
     if (latest.revision === this.#current?.revision) return { updated: false };
     const blocks = await this.#revision(site, latest);
     const next: Snapshot = { revision: latest.revision, blocks, schemaHash: latest.schemaHash };
@@ -219,13 +222,14 @@ export function resetRemoteLoaders(): void {
 }
 
 /**
- * Whether a release published at `publishedAt` is newer than content built at
- * `builtAt`. Content without a `builtAt` is the oldest.
- * OPEN: a `builtAt` that doesn't parse as a date counts as missing.
+ * Whether a release published at `publishedAt` is newer than content built
+ * from a commit made at `committedAt`. Content without a `committedAt` is the
+ * oldest.
+ * OPEN: a `committedAt` that doesn't parse as a date counts as missing.
  */
-function isNewer(publishedAt: string, builtAt: string | undefined): boolean {
-  const built = builtAt === undefined ? Number.NaN : Date.parse(builtAt);
-  return Number.isNaN(built) || Date.parse(publishedAt) > built;
+function isNewer(publishedAt: string, committedAt: string | undefined): boolean {
+  const committed = committedAt === undefined ? Number.NaN : Date.parse(committedAt);
+  return Number.isNaN(committed) || Date.parse(publishedAt) > committed;
 }
 
 /** No credentials: delivery is public. */

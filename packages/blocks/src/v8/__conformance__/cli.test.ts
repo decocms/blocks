@@ -424,16 +424,14 @@ describe("cli.mdx", () => {
       ".deco/blocks/notes.txt": "not a block",
       ".deco/blocks/README.md": "# nope",
     });
-    const before = Date.now();
     const r = await deco(["content"], f.root);
     expect(r.code, r.out).toBe(0);
     const mod = f.read(".deco/blocks.gen.ts");
     expect(mod).toContain('"Home"');
-    // builtAt: the build machine's clock when deco content ran (hosted releases: newer wins).
-    const builtAt = /^ {2}builtAt: "([^"]+)",$/m.exec(mod)?.[1];
-    expect(new Date(builtAt!).toISOString()).toBe(builtAt);
-    expect(Date.parse(builtAt!)).toBeGreaterThanOrEqual(before - 1000);
-    expect(Date.parse(builtAt!)).toBeLessThanOrEqual(Date.now());
+    // committedAt: the commit time of git HEAD (hosted releases: newer wins). The
+    // fixture isn't a git repository, so there is none, and deco content says so.
+    expect(mod).not.toContain("committedAt");
+    expect(r.out).toMatch(/^no git commit found, so \.deco\/blocks\.gen\.ts has no committedAt/m);
     expect(mod).not.toContain("notes");
     expect(mod).not.toContain("README");
     expect(mod).not.toContain("index");

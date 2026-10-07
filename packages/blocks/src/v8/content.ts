@@ -57,7 +57,7 @@ export function isSnapshot(content: unknown): content is Snapshot {
     isPlainObject(content.blocks) &&
     (content.aliases === undefined || isPlainObject(content.aliases)) &&
     (content.schemaHash === undefined || typeof content.schemaHash === "string") &&
-    (content.builtAt === undefined || typeof content.builtAt === "string")
+    (content.committedAt === undefined || typeof content.committedAt === "string")
   );
 }
 

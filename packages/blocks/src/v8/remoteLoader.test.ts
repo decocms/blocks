@@ -27,13 +27,13 @@ afterEach(() => {
 });
 
 /** The bundled content module: a content-hash revision and the schema it was built with. */
-function bundled(schemaHash: string | null = SCHEMA, builtAt?: string): Snapshot {
+function bundled(schemaHash: string | null = SCHEMA, committedAt?: string): Snapshot {
   const snapshot: Snapshot = {
     ...docsSnapshot(),
     aliases: { "website/sections/Seo.tsx": "seo" },
   };
   if (schemaHash !== null) snapshot.schemaHash = schemaHash;
-  if (builtAt !== undefined) snapshot.builtAt = builtAt;
+  if (committedAt !== undefined) snapshot.committedAt = committedAt;
   return snapshot;
 }
 
@@ -304,10 +304,10 @@ describe("remoteLoader: update()", () => {
   });
 });
 
-describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's builtAt)", () => {
+describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's committedAt)", () => {
   const T = (hour: number) => `2026-10-07T${String(hour).padStart(2, "0")}:00:00.000Z`;
 
-  it("publish, then deploy: the bundle built later wins; nothing is downloaded", async () => {
+  it("publish, then deploy: the bundle of the later commit wins; nothing is downloaded", async () => {
     const api = delivery();
     api.publish(SHA_1, "Published", SCHEMA, T(10));
     const fallback = bundled(SCHEMA, T(11));
@@ -325,7 +325,7 @@ describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's built
     expect((await loader.load()).blocks).toEqual(blocksAt("Published"));
   });
 
-  it("a publish at the bundle's exact builtAt keeps the bundle", async () => {
+  it("a publish at the bundle's exact committedAt keeps the bundle", async () => {
     const api = delivery();
     api.publish(SHA_1, "Published", SCHEMA, T(11));
     const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
@@ -342,7 +342,7 @@ describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's built
     expect((await loader.load()).revision).toBe(SHA_1);
   });
 
-  it("deploy after a rollback: the bundle built later wins", async () => {
+  it("deploy after a rollback: the bundle of the later commit wins", async () => {
     const api = delivery();
     api.publish(SHA_1, "One", SCHEMA, T(9));
     api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: T(12) }); // the rollback
@@ -350,6 +350,15 @@ describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's built
     const loader = remoteLoader(fallback, { site: SITE });
     expect(await loader.update?.()).toEqual({ updated: false });
     expect(await loader.load()).toBe(fallback);
+  });
+
+  it("a build of an older commit that finishes after a publish loses to the CDN", async () => {
+    const api = delivery();
+    // Commit at 10:00, publish at 11:00, the slow build of that commit finishes at 12:00.
+    api.publish(SHA_1, "Published", SCHEMA, T(11));
+    const loader = remoteLoader(bundled(SCHEMA, T(10)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).blocks).toEqual(blocksAt("Published"));
   });
 
   it("a newer release with another schema keeps the bundle", async () => {
@@ -361,7 +370,7 @@ describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's built
     expect(await loader.load()).toBe(fallback);
   });
 
-  it("a bundle without builtAt is the oldest: a release with its schema wins", async () => {
+  it("a bundle without committedAt is the oldest: a release with its schema wins", async () => {
     const api = delivery();
     api.publish(SHA_1, "Published", SCHEMA, "1970-01-01T00:00:00.000Z");
     const loader = remoteLoader(bundled(SCHEMA), { site: SITE });
@@ -369,7 +378,7 @@ describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's built
     expect((await loader.load()).revision).toBe(SHA_1);
   });
 
-  it("a fallback loader's builtAt is read from what it loads", async () => {
+  it("a fallback loader's committedAt is read from what it loads", async () => {
     const api = delivery();
     api.publish(SHA_1, "Published", SCHEMA, T(10));
     const custom: Loader = { load: async () => bundled(SCHEMA, T(11)) };

@@ -1622,7 +1622,7 @@ describe("hosted-releases-internals", () => {
     expect(sdk).not.toMatch(/webhook|addEventListener\(|createServer/i);
   });
 
-  it("HRI-6: no ordering among pointers: an older publishedAt is followed like any other (it's compared only with the bundle's builtAt)", async () => {
+  it("HRI-6: no ordering among pointers: an older publishedAt is followed like any other (it's compared only with the bundle's committedAt)", async () => {
     const api = deliveryApi();
     const loader = remote(docsSnapshot());
     const five = await hashed("Five");
@@ -1744,11 +1744,11 @@ describe("hosted-releases-internals", () => {
     expect(typeof (root as Record<string, unknown>).resetForTests).toBe("function");
   });
 
-  describe("HRI-16..HRI-21: whoever is newer wins (latest.json publishedAt vs the bundle's builtAt)", () => {
+  describe("HRI-16..HRI-21: whoever is newer wins (latest.json publishedAt vs the bundle's committedAt)", () => {
     const at = (hour: number) => `2026-10-07T${String(hour).padStart(2, "0")}:00:00.000Z`;
-    /** The content module `deco content` wrote at `builtAt`. */
-    const built = (builtAt?: string): Snapshot =>
-      builtAt === undefined ? docsSnapshot() : { ...docsSnapshot(), builtAt };
+    /** The content module `deco content` wrote from a commit made at `committedAt`. */
+    const built = (committedAt?: string): Snapshot =>
+      committedAt === undefined ? docsSnapshot() : { ...docsSnapshot(), committedAt };
     /** Studio's Publish / Make current / Resync, at `publishedAt`. */
     async function release(
       api: ReturnType<typeof deliveryApi>,
@@ -1807,7 +1807,7 @@ describe("hosted-releases-internals", () => {
       expect(await titleOf(cms.forRelease())).toBe("Sunny!");
     });
 
-    it("HRI-21: a bundle without builtAt (custom loader, older module) is the oldest: the CDN wins", async () => {
+    it("HRI-21: a bundle without committedAt (custom loader, older module, built outside git) is the oldest: the CDN wins", async () => {
       const api = deliveryApi();
       await release(api, "Published", "1970-01-01T00:00:00.000Z");
       const cms = createCMS({ blocks: docsBlocks(), content: built(), site: SITE });
@@ -1819,15 +1819,26 @@ describe("hosted-releases-internals", () => {
       expect(await viaLoader.update()).toEqual({ updated: true });
     });
 
-    it("HRI-16..21: the SDK reads no git API and no environment besides NODE_ENV", () => {
+    it("HRI-22: a build of an older commit that finishes after a publish loses to the CDN", async () => {
+      const api = deliveryApi();
+      // Commit at 10:00, publish at 11:00, the slow build of that commit finishes at 12:00:
+      // the stamp is the commit time, so the build finishing last doesn't make it newer.
+      await release(api, "Published", at(11));
+      const cms = createCMS({ blocks: docsBlocks(), content: built(at(10)), site: SITE });
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await titleOf(cms.forRelease())).toBe("Published");
+    });
+
+    it("HRI-16..22: the SDK reads no git API and no environment besides NODE_ENV", () => {
       const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
       expect(sdk).not.toMatch(/github|rev-parse|GIT_[A-Z]/i);
       expect(new Set([...sdk.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]))).toEqual(
         new Set(["NODE_ENV"]),
       );
       const cli = fs.readFileSync(path.join(HERE, "../cli/content.ts"), "utf8");
-      expect(cli).toMatch(/builtAt: string = new Date\(\)\.toISOString\(\)/);
-      expect(cli).not.toMatch(/process\.env|execSync|git log/);
+      // The CLI stamps the commit time of git HEAD; it reads no environment.
+      expect(cli).toMatch(/execFileSync\("git", \["log", "-1", "--format=%cI"\]/);
+      expect(cli).not.toMatch(/process\.env/);
     });
   });
 });

@@ -3,6 +3,7 @@
  * module, `.deco/blocks.gen.ts` (spec: content › The content module). It never
  * reads the block map.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { canonicalJson, computeContentRevision, sha256Hex } from "../../protocol/canonical.ts";
@@ -195,17 +196,36 @@ async function readSchemaHash(schemaFile: string): Promise<string | undefined> {
 }
 
 /**
+ * The commit time of git HEAD in `dir` (committer date, ISO 8601), or
+ * undefined when git is missing, `dir` isn't in a repository, or it has no
+ * commits. Commit time, not build time: a slow build of an older commit that
+ * finishes after a publish must not win over it.
+ */
+export function readCommittedAt(dir: string): string | undefined {
+  try {
+    const out = execFileSync("git", ["log", "-1", "--format=%cI"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return out === "" || Number.isNaN(Date.parse(out)) ? undefined : out;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The source of `.deco/blocks.gen.ts` for a set of saved blocks, with the
  * `schemaHash` of the schema it was built with when there is one, and
- * `builtAt`: when it was generated (the build machine's clock, ISO 8601). A
- * hosted release replaces the bundled content only when it was published
- * later (see ../remoteLoader.ts).
+ * `committedAt`: the commit time of git HEAD it was built from (ISO 8601),
+ * when there is one. A hosted release replaces the bundled content only when
+ * it was published later (see ../remoteLoader.ts).
  */
 export async function renderContentModule(
   saved: SavedBlocks,
   root = ".deco",
   schemaHash?: string,
-  builtAt: string = new Date().toISOString(),
+  committedAt?: string,
 ): Promise<string> {
   const names = Object.keys(saved.blocks).sort();
   const revision = await computeContentRevision(saved.blocks);
@@ -235,14 +255,14 @@ export async function renderContentModule(
     "const content: {",
     "  revision: string;",
     ...(schemaHash === undefined ? [] : ["  schemaHash: string;"]),
-    "  builtAt: string;",
+    ...(committedAt === undefined ? [] : ["  committedAt: string;"]),
     "  blocks: Record<string, unknown>;",
     "  aliases: Record<string, string>;",
     "  root: string;",
     "} = {",
     `  revision: ${JSON.stringify(revision)},`,
     ...(schemaHash === undefined ? [] : [`  schemaHash: ${JSON.stringify(schemaHash)},`]),
-    `  builtAt: ${JSON.stringify(builtAt)},`,
+    ...(committedAt === undefined ? [] : [`  committedAt: ${JSON.stringify(committedAt)},`]),
     "  blocks: {",
     ...entries,
     "  },",
@@ -264,12 +284,12 @@ export interface ContentResult {
   /** The hash of `.deco/schema.gen.json`, written into the module; absent without one. */
   schemaHash?: string;
   count: number;
-  /** When the module was generated; written into it as `builtAt`. */
-  builtAt: string;
   /**
-   * False when the file already had this content. The module carries
-   * `builtAt`, so it changes on every run unless two runs share a millisecond.
+   * The commit time of git HEAD in the root, written into the module as
+   * `committedAt`; absent when git isn't available there.
    */
+  committedAt?: string;
+  /** False when the file already had this content. */
   changed: boolean;
   /** Files written into the module instead of imported (see `inlinedFiles`). */
   inlined: string[];
@@ -298,15 +318,15 @@ export async function writeContent(paths: DecoPaths): Promise<ContentResult> {
     throw new CliError(errors.map((d) => `.deco/blocks/${d.file}: ${d.message}`).join("\n"));
   }
   const schemaHash = await readSchemaHash(paths.schema);
-  const builtAt = new Date().toISOString();
-  const source = await renderContentModule(saved, contentRoot(paths.deco), schemaHash, builtAt);
+  const committedAt = readCommittedAt(paths.root);
+  const source = await renderContentModule(saved, contentRoot(paths.deco), schemaHash, committedAt);
   const changed = writeIfChanged(paths.content, source);
   return {
     root: paths.root,
     file: paths.content,
     revision: await computeContentRevision(saved.blocks),
     ...(schemaHash === undefined ? {} : { schemaHash }),
-    builtAt,
+    ...(committedAt === undefined ? {} : { committedAt }),
     count: Object.keys(saved.blocks).length,
     changed,
     inlined: inlinedFiles(saved),
@@ -328,6 +348,11 @@ export async function content(options: ContentOptions = {}): Promise<number> {
   const paths = decoPaths(findDecoRoot(options));
   const result = await writeContent(paths);
   for (const d of result.diagnostics) reporter.warn(`.deco/blocks/${d.file}: ${d.message}`);
+  if (result.committedAt === undefined) {
+    reporter.info(
+      "no git commit found, so .deco/blocks.gen.ts has no committedAt: hosted releases with the same schema will replace it",
+    );
+  }
   reporter.info(
     `${result.changed ? "wrote" : "unchanged"} .deco/blocks.gen.ts (${result.count} blocks, revision ${result.revision.slice(0, 12)})`,
   );

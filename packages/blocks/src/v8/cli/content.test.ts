@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,6 +16,20 @@ afterEach(() => {
   vi.useRealTimers();
   fixture?.remove();
 });
+
+/** An (empty) commit in `root` at `date`, in a new repository if needed. */
+function commitAt(root: string, date: string): void {
+  const git = (...args: string[]) => {
+    const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+  };
+  if (!fs.existsSync(path.join(root, ".git"))) git("init", "-q");
+  git("commit", "-q", "--allow-empty", "-m", date);
+}
 
 const home = { __resolveType: "page", name: "Home", path: "/", sections: [] };
 
@@ -238,28 +254,49 @@ describe("the content module", () => {
     expect(mod.default.aliases).toEqual(LEGACY_ALIASES);
   });
 
-  it("stamps builtAt with the build machine's clock on every run (no git, no env)", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-07T10:00:00.000Z"));
+  it("stamps committedAt with the commit time of git HEAD in the root (committer date)", async () => {
     fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    commitAt(fixture.root, "2026-10-07T10:00:00-03:00");
     const paths = decoPaths(fixture.root);
     const first = await writeContent(paths);
-    expect(first.builtAt).toBe("2026-10-07T10:00:00.000Z");
-    expect(fixture.read(".deco/blocks.gen.ts")).toContain('  builtAt: "2026-10-07T10:00:00.000Z",');
-    expect(fixture.read(".deco/blocks.gen.ts")).toContain("  builtAt: string;");
+    expect(first.committedAt).toBe("2026-10-07T10:00:00-03:00");
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain(
+      '  committedAt: "2026-10-07T10:00:00-03:00",',
+    );
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain("  committedAt: string;");
     const mod = await import(/* @vite-ignore */ pathToFileURL(first.file).href);
-    expect(mod.default.builtAt).toBe("2026-10-07T10:00:00.000Z");
-    // Same content, same millisecond: nothing to write.
+    expect(mod.default.committedAt).toBe("2026-10-07T10:00:00-03:00");
+    // Same commit, built again later: the same stamp, nothing to write.
     expect((await writeContent(paths)).changed).toBe(false);
-    // Same content, later build: a new stamp, so a later deploy wins over earlier publishes.
-    vi.setSystemTime(new Date("2026-10-07T11:00:00.000Z"));
+    // A later commit: a new stamp, so its deploy wins over earlier publishes.
+    commitAt(fixture.root, "2026-10-07T11:00:00-03:00");
     const later = await writeContent(paths);
     expect(later.changed).toBe(true);
     expect(later.revision).toBe(first.revision);
-    expect(fixture.read(".deco/blocks.gen.ts")).toContain('  builtAt: "2026-10-07T11:00:00.000Z",');
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain(
+      '  committedAt: "2026-10-07T11:00:00-03:00",',
+    );
   });
 
-  it("renders the same module for the same content and builtAt", async () => {
+  it("writes no committedAt outside a git repository, and says so in one line", async () => {
+    fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    const result = await writeContent(decoPaths(fixture.root));
+    expect(result.committedAt).toBeUndefined();
+    expect(fixture.read(".deco/blocks.gen.ts")).not.toContain("committedAt");
+    const mod = await import(/* @vite-ignore */ pathToFileURL(result.file).href);
+    expect("committedAt" in mod.default).toBe(false);
+    const out = recorder();
+    expect(await content({ cwd: fixture.root, reporter: out })).toBe(0);
+    expect(out.lines.filter((l) => /git/.test(l.message))).toEqual([
+      {
+        level: "info",
+        message:
+          "no git commit found, so .deco/blocks.gen.ts has no committedAt: hosted releases with the same schema will replace it",
+      },
+    ]);
+  });
+
+  it("renders the same module for the same content and committedAt", async () => {
     fixture = createFixture({ ".deco/blocks/HomePage.json": home });
     const saved = readSavedBlocks(decoPaths(fixture.root).blocks);
     const at = "2026-10-07T10:00:00.000Z";
@@ -280,6 +317,7 @@ describe("the content module", () => {
       ".deco/blocks/HomePage.json": home,
       ".deco/index.ts": "this is not valid TypeScript (",
     });
+    commitAt(fixture.root, "2026-10-07T10:00:00Z");
     const out = recorder();
     expect(await content({ cwd: path.join(fixture.root, "src"), reporter: out })).toBe(0);
     expect(out.text()).toMatch(
