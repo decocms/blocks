@@ -366,7 +366,7 @@ describe("cms.settings(): always the release in memory", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
-        String(input).startsWith("https://studio.decocms.com/")
+        String(input).startsWith("https://delivery.decocms.com/")
           ? studio.fetch(input, init)
           : new Response(null),
       ),

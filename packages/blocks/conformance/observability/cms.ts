@@ -27,7 +27,20 @@ export const sampled = () =>
     },
   });
 
-// telemetry.mdx: `telemetry: { site, token }` and `telemetry: false`.
-export const hostedForm = (site: string, token: string) =>
-  createCMS({ blocks, content, telemetry: { site, token } });
+// telemetry.mdx › Resource attributes, verbatim inside createCMS: the app reads its own env.
+export const described = () =>
+  createCMS({
+    blocks,
+    content,
+    telemetry: {
+      endpoint: process.env.OTLP_ENDPOINT!,
+      resource: {
+        "service.version": process.env.COMMIT_SHA ?? "unknown",    // e.g. the deployed commit
+        "deployment.environment.name": "preview",
+      },
+    },
+  });
+
+// telemetry.mdx: a top-level `token` (the hosted collector) and `telemetry: false`.
+export const hostedForm = (site: string, token: string) => createCMS({ blocks, content, site, token });
 export const off = () => createCMS({ blocks, content, telemetry: false });

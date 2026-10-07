@@ -413,11 +413,11 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
       load: async () => current,
       update: async () => ({ updated: true }),
     };
-    vi.stubGlobal("fetch", async () => Response.json({ format: 1, set: {}, delete: [] }));
+    vi.stubGlobal("fetch", async () => Response.json({ set: {}, delete: [] }));
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     expect(await cms.forRelease().revision()).toBe("rev-1");
     const draftRevision = await cms
-      .forDraft("studio.decocms.com/api/acme/decofile/store/x/changes?token=t@v1")
+      .forDraft("delivery.decocms.com/sites/acme/drafts/x.json@v1")
       .revision();
     expect(draftRevision).toBe("rev-1~v1");
     current = docsSnapshot("rev-2");
@@ -480,9 +480,9 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     });
   });
 
-  it("X25 api-reference: site and token never send telemetry by themselves", () => {
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "");
+  it("X25 api-reference: site never sends telemetry by itself; a token does, to the hosted collector", () => {
     expect(resolveDestination(undefined, "acme")).toBeNull();
+    expect(resolveDestination(undefined, "acme", "t")?.endpoint).toBe("https://otel.decocms.com");
   });
 });
 

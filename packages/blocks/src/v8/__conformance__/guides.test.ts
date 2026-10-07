@@ -594,27 +594,30 @@ describe("renames and migrations", () => {
     expect(a).not.toHaveBeenCalled();
   });
 
-  it("mig-08/tr-18: telemetry option wins; env OTEL_EXPORTER_OTLP_* when left out; false disables", () => {
+  it("mig-08/tr-18: telemetry is code's params only; v7's OTEL_*/DECO_OTEL_* variables aren't read; false disables", () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://env.example.com");
-    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-api-key=abc%20d");
-    expect(resolveDestination(undefined)).toMatchObject({
-      endpoint: "https://env.example.com",
-      headers: { "x-api-key": "abc d" },
-    });
-    expect(
-      resolveDestination({ endpoint: "https://code.example.com", headers: { a: "b" } }),
-    ).toMatchObject({ endpoint: "https://code.example.com", headers: { a: "b" } });
-    expect(resolveDestination(false)).toBeNull();
-    vi.unstubAllEnvs();
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "");
+    vi.stubEnv("DECO_OTEL_HEADERS", "x-api-key=abc%20d");
     expect(resolveDestination(undefined)).toBeNull();
+    expect(
+      resolveDestination({
+        endpoint: "https://code.example.com",
+        headers: { "x-api-key": "abc d" },
+        resource: { "service.version": "abc123" },
+      }),
+    ).toMatchObject({
+      endpoint: "https://code.example.com",
+      headers: { "x-api-key": "abc d" },
+      resource: { "service.version": "abc123" },
+    });
+    expect(resolveDestination(false, "my-site", "t")).toBeNull();
   });
 
-  it("mig-09: telemetry: { site, token } is accepted and goes to the hosted collector", () => {
-    const destination = resolveDestination({ site: "my-site", token: "t" });
-    expect(destination?.endpoint).toMatch(/^https:\/\//);
+  it("mig-09: createCMS({ site, token }) sends telemetry to the hosted collector; the telemetry: { site, token } form is gone", () => {
+    const destination = resolveDestination(undefined, "my-site", "t");
+    expect(destination?.endpoint).toBe("https://otel.decocms.com");
+    expect(destination?.headers.authorization).toBe("Bearer t");
     expect(() =>
-      createCMS({ blocks: {}, content: snap({}), telemetry: { site: "my-site", token: "t" } }),
+      createCMS({ blocks: {}, content: snap({}), site: "my-site", token: "t" }),
     ).not.toThrow();
   });
 
@@ -789,11 +792,11 @@ describe("internals", () => {
       /* @vite-ignore */ `../cms?copy=${Date.now()}`
     )) as typeof import("../cms");
     expect(instanceOf(copy.createCMS({ blocks: {}, content }))).toBe(instanceOf(first));
-    const r1 = remoteLoader(content, { site: "s", token: "t" });
+    const r1 = remoteLoader(content, { site: "s" });
     const copyRemote = (await import(
       /* @vite-ignore */ `../remoteLoader?copy=${Date.now()}`
     )) as typeof import("../remoteLoader");
-    expect(copyRemote.remoteLoader(content, { site: "s", token: "t" })).toBe(r1);
+    expect(copyRemote.remoteLoader(content, { site: "s" })).toBe(r1);
   });
 
   it("in-13: remoteLoader is exported from the root", () => {
@@ -974,7 +977,7 @@ describe("design decisions", () => {
       ...snap({ X: { __resolveType: "always" } }, "build"),
       root: ".deco-offline",
     };
-    const cms = createCMS({ blocks: {}, content: fallback, site: "s", token: "t" });
+    const cms = createCMS({ blocks: {}, content: fallback, site: "s" });
     const client = cms.forRelease();
     expect(await client.revision()).toBe("build");
     expect(await client.resolve("X")).toEqual([true, null]);

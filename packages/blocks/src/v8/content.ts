@@ -10,7 +10,13 @@
  * with a pointer.
  */
 import { formatDraftPointer, parseDraftPointer } from "./draft.ts";
-import { type DraftChanges, fetchDraftChanges, LOCAL_VERSION, layerDraft } from "./draftChanges.ts";
+import {
+  DEFAULT_PREVIEW_API_DOMAINS,
+  type DraftChanges,
+  fetchDraftChanges,
+  LOCAL_VERSION,
+  layerDraft,
+} from "./draftChanges.ts";
 import { errors, isResolutionError } from "./errors.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
@@ -18,13 +24,11 @@ import type { Loader, Snapshot } from "./types.ts";
 const SERVED_REVISIONS = 16;
 /** Fetched drafts kept per CMS. */
 const CACHED_DRAFTS = 3;
-/** How long a fetched draft is reused before it's fetched again, so its token is checked again. */
-const DRAFT_TTL_MS = 60_000;
 
-/** A fetched draft, and the views of it over each release it was layered on. */
+/** A fetched draft body, its ETag, and the views of it over each release it was layered on. */
 interface CachedDraft {
-  changes: Promise<DraftChanges>;
-  at: number;
+  changes: DraftChanges;
+  etag: string | null;
   views: WeakMap<Snapshot, Snapshot>;
 }
 
@@ -55,7 +59,8 @@ export function isSnapshot(content: unknown): content is Snapshot {
     isPlainObject(content) &&
     typeof content.revision === "string" &&
     isPlainObject(content.blocks) &&
-    (content.aliases === undefined || isPlainObject(content.aliases))
+    (content.aliases === undefined || isPlainObject(content.aliases)) &&
+    (content.schemaHash === undefined || typeof content.schemaHash === "string")
   );
 }
 
@@ -64,12 +69,19 @@ export class ContentStore {
   #release: Promise<Snapshot> | undefined;
   #updating: Promise<{ updated: boolean }> | undefined;
   readonly #drafts = new BoundedMap<string, CachedDraft>(CACHED_DRAFTS);
+  /** Draft reads in flight, so concurrent renders of one draft share one request. */
+  readonly #draftReads = new Map<string, Promise<CachedDraft>>();
+  readonly #apiDomains: readonly string[];
   readonly #served = new BoundedMap<string, Snapshot>(SERVED_REVISIONS);
   /** The release this store last handed a client, for a loader that can't peek. */
   #latest: Snapshot | undefined;
 
-  constructor(source: Snapshot | Loader) {
+  constructor(
+    source: Snapshot | Loader,
+    apiDomains: readonly string[] = DEFAULT_PREVIEW_API_DOMAINS,
+  ) {
     this.#source = source;
+    this.#apiDomains = apiDomains;
   }
 
   /** Whether the source can change while the process runs (has `update()`). */
@@ -103,7 +115,8 @@ export class ContentStore {
    * `LOADER_FAILED`, never a silent fallback to the release. A pointer whose
    * version is `local` names no draft: the release, with nothing fetched. The
    * changes are keyed by the pointer without its `__variant` parameters (every
-   * variant of one draft shares one fetch) and reused for a minute.
+   * variant of one draft shares one body) and revalidated on every read: a
+   * `304` reuses the body held, a `200` replaces it.
    */
   draft(pointer: string): Promise<Snapshot> {
     const parsed = parseDraftPointer(pointer);
@@ -113,28 +126,38 @@ export class ContentStore {
     if (parsed.version === LOCAL_VERSION) return this.release();
     const { host, path, version } = parsed;
     const key = formatDraftPointer({ host, path, version });
-    let entry = this.#drafts.get(key);
-    if (entry === undefined || Date.now() - entry.at >= DRAFT_TTL_MS) {
-      const fetched: CachedDraft = {
-        changes: fetchDraftChanges(parsed).catch((error: unknown) => {
-          throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
-        }),
-        at: Date.now(),
-        views: new WeakMap(),
+    let read = this.#draftReads.get(key);
+    if (read === undefined) {
+      const held = this.#drafts.get(key);
+      read = fetchDraftChanges(parsed, { domains: this.#apiDomains, etag: held?.etag }).then(
+        (result) => {
+          if (result.status === 304 && held !== undefined) return held;
+          if (result.status === 304) throw new Error("draft changes: 304 without a held body");
+          const entry: CachedDraft = {
+            changes: result.changes,
+            etag: result.etag,
+            views: new WeakMap(),
+          };
+          this.#drafts.set(key, entry);
+          return entry;
+        },
+      );
+      const pending = read;
+      this.#draftReads.set(key, pending);
+      const settle = () => {
+        if (this.#draftReads.get(key) === pending) this.#draftReads.delete(key);
       };
-      this.#drafts.set(key, fetched);
-      // A failure isn't reused: the next client fetches again.
-      fetched.changes.catch(() => {
-        if (this.#drafts.get(key) === fetched) this.#drafts.delete(key);
-      });
-      entry = fetched;
+      pending.then(settle, settle);
     }
-    const { changes, views } = entry;
-    return Promise.all([this.release(), changes]).then(([base, draft]) => {
-      let view = views.get(base);
+    const changes = read.catch((error: unknown) => {
+      throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
+    });
+    return Promise.all([this.release(), changes]).then(([base, entry]) => {
+      let view = entry.views.get(base);
       if (view === undefined) {
-        view = layerDraft(base, draft, version);
-        views.set(base, view);
+        // OPEN: the view is keyed by the body's ETag (the pointer outlives later saves); the version without one.
+        view = layerDraft(base, entry.changes, entry.etag ?? version);
+        entry.views.set(base, view);
       }
       return view;
     });

@@ -2,11 +2,10 @@
  * Telemetry: OpenTelemetry over OTLP/HTTP (JSON, gzipped), with no SDK. See
  * /next/telemetry and /next/telemetry-internals.
  *
- * - **Where** comes from code: `createCMS({ telemetry })`, or the standard
- *   `OTEL_EXPORTER_OTLP_ENDPOINT`/`OTEL_EXPORTER_OTLP_HEADERS` (and the
- *   per-signal `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_ENDPOINT`) when it's
- *   left out. v7's `DECO_OTEL_*` names are read as aliases; the standard name
- *   wins when both are set. `false` sends nothing.
+ * - **Where** comes from code only: `createCMS({ telemetry: { endpoint,
+ *   headers } })`, else the hosted Deco CMS collector when `createCMS` has a
+ *   `token` (sent as a Bearer token), else nowhere. `false` sends nothing.
+ *   Nothing is read from the environment.
  * - **How much** comes from content: the `telemetry` section of the CMS
  *   settings (`cms.settings()`, the release's `CMS` block), capped by
  *   `telemetry.limits`. The CMS reads it outside any request, when the
@@ -21,10 +20,9 @@
 import { hasBackgroundHook, later, runInBackground } from "./background.ts";
 import { rate, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
 import { isResolutionError } from "./errors.ts";
-import { readEnv } from "./identity.ts";
 import type { CMSError, Snapshot, Telemetry, TelemetryConfig } from "./types.ts";
 
-/** The hosted Deco CMS collector, for `telemetry: { site, token }`. */
+/** The hosted Deco CMS collector, for `createCMS({ token })`. */
 const HOSTED_TELEMETRY_ENDPOINT = "https://otel.decocms.com";
 
 const SINK = Symbol.for("decocms.blocks.telemetry");
@@ -54,12 +52,12 @@ type Attributes = Record<string, string | number | boolean | undefined>;
 type Signal = "metrics" | "logs" | "traces";
 
 interface Destination {
-  /** The base URL each signal's `/v1/<signal>` is appended to; `""` with per-signal URLs only. */
+  /** The base URL each signal's `/v1/<signal>` is appended to. */
   endpoint: string;
-  /** Full per-signal URLs, used as they are (the `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` form). */
-  signals?: Partial<Record<Signal, string>>;
   headers: Record<string, string>;
   site?: string;
+  /** `telemetry.resource`: merged over the default resource attributes. */
+  resource: Record<string, string>;
   limits: { errorSampleRate: number; traceSampleRate: number };
 }
 
@@ -98,67 +96,30 @@ interface LogRecord {
 }
 
 /**
- * Where telemetry goes, or `null` for nowhere. `{ site, token }` or
- * `{ endpoint }` with an empty value (an unset environment variable) is off.
+ * Where telemetry goes, or `null` for nowhere: `false` is off; a non-empty
+ * `endpoint` is that collector, with `headers`; otherwise a `token` is the
+ * hosted Deco CMS collector, with the token as a Bearer credential.
  */
 export function resolveDestination(
   config: false | TelemetryConfig | undefined,
   site?: string,
+  token?: string,
 ): Destination | null {
   if (config === false) return null;
-  if (config === undefined || config === null) return destinationFromEnv(site);
+  // OPEN: no per-signal URLs (v7's OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT): every signal goes to `<endpoint>/v1/<signal>`.
   const limits = telemetryLimits(config);
-  if ("endpoint" in config) {
-    if (typeof config.endpoint !== "string" || !config.endpoint) return null;
-    return { endpoint: config.endpoint, headers: { ...config.headers }, site, limits };
+  const resource = { ...config?.resource };
+  if (typeof config?.endpoint === "string" && config.endpoint) {
+    return { endpoint: config.endpoint, headers: { ...config.headers }, site, resource, limits };
   }
-  if (!config.site || !config.token) return null;
+  if (!token) return null;
   return {
     endpoint: HOSTED_TELEMETRY_ENDPOINT,
-    headers: { authorization: `Bearer ${config.token}` },
-    site: config.site,
+    headers: { authorization: `Bearer ${token}` },
+    site,
+    resource,
     limits,
   };
-}
-
-/** v7's names for the standard OTLP variables, read when the standard one is unset. */
-const V7_ALIASES = {
-  OTEL_EXPORTER_OTLP_HEADERS: "DECO_OTEL_HEADERS",
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "DECO_OTEL_METRICS_ENDPOINT",
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "DECO_OTEL_LOGS_ENDPOINT",
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "DECO_OTEL_TRACES_ENDPOINT",
-} as const;
-
-/** The standard variable, else its v7 alias. */
-function readOtlpEnv(name: keyof typeof V7_ALIASES | "OTEL_EXPORTER_OTLP_ENDPOINT") {
-  return (
-    readEnv(name) ||
-    (name in V7_ALIASES ? readEnv(V7_ALIASES[name as keyof typeof V7_ALIASES]) : undefined)
-  );
-}
-
-/**
- * The destination the environment names: the standard OTLP variables, with
- * v7's `DECO_OTEL_*` names as aliases. `DECO_OTEL_AUTH_TOKEN` (v7's secret
- * for the collector) becomes the `authorization` header unless the headers
- * set one. `null` when no endpoint is set.
- */
-function destinationFromEnv(site: string | undefined): Destination | null {
-  const endpoint = readOtlpEnv("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "";
-  const signals: Partial<Record<Signal, string>> = {};
-  for (const signal of ["metrics", "logs", "traces"] as const) {
-    const url = readOtlpEnv(
-      `OTEL_EXPORTER_OTLP_${signal.toUpperCase() as Uppercase<Signal>}_ENDPOINT`,
-    );
-    if (url) signals[signal] = url;
-  }
-  if (!endpoint && Object.keys(signals).length === 0) return null;
-  const token = readEnv("DECO_OTEL_AUTH_TOKEN");
-  const headers = {
-    ...(token ? { authorization: token } : {}),
-    ...parseKeyValues(readOtlpEnv("OTEL_EXPORTER_OTLP_HEADERS")),
-  };
-  return { endpoint, signals, headers, site, limits: DEFAULT_LIMITS };
 }
 
 export class TelemetryPipeline {
@@ -430,24 +391,19 @@ export class TelemetryPipeline {
   #resource(): Attributes {
     const site = this.#destination.site;
     return {
-      "service.name": readEnv("OTEL_SERVICE_NAME") || site || "decocms-site",
-      "service.version": firstEnv(COMMIT_VARIABLES) ?? "unknown",
-      "deployment.environment.name":
-        readEnv("VERCEL_ENV") ||
-        (readEnv("NODE_ENV") === "development" ? "development" : "production"),
+      "service.name": site || "decocms-site",
+      "service.version": "unknown",
+      // OPEN: the environment name defaults to "production"; `telemetry.resource` overrides it.
+      "deployment.environment.name": "production",
       ...(site ? { "deco.site": site } : {}),
       ...(this.#release ? { "deco.release": this.#release } : {}),
-      // The standard OTel override wins: service.version=<commit>,
-      // deployment.environment.name=preview, service.name=…
-      ...parseKeyValues(readEnv("OTEL_RESOURCE_ATTRIBUTES")),
+      // `telemetry.resource` wins: service.version=<commit>, deployment.environment.name=preview, …
+      ...this.#destination.resource,
     };
   }
 
   async #send(signal: Signal, payload: unknown): Promise<void> {
-    const { endpoint, signals } = this.#destination;
-    const url =
-      signals?.[signal] ?? (endpoint ? `${endpoint.replace(/\/+$/, "")}/v1/${signal}` : "");
-    if (!url) return; // this signal has no destination
+    const url = `${this.#destination.endpoint.replace(/\/+$/, "")}/v1/${signal}`;
     const { body, gzipped } = await gzip(JSON.stringify(payload));
     const headers: Record<string, string> = {
       ...this.#destination.headers,
@@ -485,26 +441,6 @@ export function setCurrentTelemetry(pipeline: TelemetryPipeline | undefined): vo
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Where hosts put the deployed commit, tried in order (`service.version`). */
-const COMMIT_VARIABLES = [
-  "DECO_COMMIT_SHA",
-  "WORKERS_CI_COMMIT_SHA",
-  "CF_PAGES_COMMIT_SHA",
-  "VERCEL_GIT_COMMIT_SHA",
-  "GITHUB_SHA",
-  "RENDER_GIT_COMMIT",
-  "SOURCE_VERSION",
-  "COMMIT_SHA",
-];
-
-function firstEnv(names: readonly string[]): string | undefined {
-  for (const name of names) {
-    const value = readEnv(name);
-    if (value) return value;
-  }
-  return undefined;
-}
-
 const QUERY = /(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/gi;
 const CREDENTIAL = /\b(Bearer|Basic)\s+[\w~+/.=-]+/gi;
 const SENSITIVE =
@@ -535,23 +471,6 @@ export function describe(error: unknown): string {
 function randomHex(bytes: number): string {
   const values = crypto.getRandomValues(new Uint8Array(bytes));
   return Array.from(values, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** `k1=v1,k2=v2` with URL-encoded values, the format of the OTEL_* environment variables. */
-function parseKeyValues(raw: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const pair of raw?.split(",") ?? []) {
-    const at = pair.indexOf("=");
-    if (at <= 0) continue;
-    try {
-      out[decodeURIComponent(pair.slice(0, at).trim())] = decodeURIComponent(
-        pair.slice(at + 1).trim(),
-      );
-    } catch {
-      // A malformed pair is skipped.
-    }
-  }
-  return out;
 }
 
 function encodeAttributes(attributes: Attributes, scrub: (text: string) => string) {

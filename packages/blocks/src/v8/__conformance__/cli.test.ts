@@ -2213,22 +2213,23 @@ describe("studio-implementation.mdx", () => {
     const s = await serveFixture(f.root);
     expect((await call(s, "describe")).result.pollIntervalMs).toBe(2000);
   });
-  describe("si-08 / si-09 / si-10: the SDK's release channel", () => {
+  describe("si-08 / si-09 / si-10: the SDK's release pointer (latest.json)", () => {
     const ORIGIN = "https://delivery.decocms.com";
-    const MANIFEST = `${ORIGIN}/sites/acme/channels/production.json`;
-    let manifest: Json | undefined;
+    const LATEST = `${ORIGIN}/sites/acme/latest.json`;
+    const SCHEMA = "5".repeat(64);
+    let latest: Json | undefined;
     const assets = new Map<string, unknown>();
     const gates = new Map<string, Promise<void>>();
 
     beforeEach(() => {
       resetForTests();
-      manifest = undefined;
+      latest = undefined;
       assets.clear();
       gates.clear();
       vi.stubGlobal("fetch", async (input: string | URL | Request) => {
         const url = String(input);
-        if (url === MANIFEST)
-          return manifest ? Response.json(manifest) : new Response("", { status: 404 });
+        if (url === LATEST)
+          return latest ? Response.json(latest) : new Response("", { status: 404 });
         const p = url.slice(ORIGIN.length).split("?")[0];
         await gates.get(p);
         return assets.has(p) ? Response.json(assets.get(p)) : new Response("", { status: 404 });
@@ -2236,15 +2237,15 @@ describe("studio-implementation.mdx", () => {
     });
     afterAll(() => vi.unstubAllGlobals());
 
-    async function snap(title: string): Promise<Snapshot> {
-      const { computeContentRevision } = await import("@decocms/blocks/protocol");
+    function snap(title: string, revision: string): Snapshot {
       const blocks = { S: { __resolveType: "seo", title, description: "d" } };
-      return { revision: await computeContentRevision(blocks), blocks };
+      return { revision, blocks, schemaHash: SCHEMA };
     }
-    function publish(generation: number, s: Snapshot) {
+    /** Studio's publish of commit `s.revision`: the revision object, then latest.json. */
+    function publish(s: Snapshot) {
       const p = `/sites/acme/revisions/${s.revision}.json`;
-      assets.set(p, s);
-      manifest = { format: 1, generation, revision: s.revision, snapshot: p };
+      assets.set(p, { revision: s.revision, schemaHash: SCHEMA, blocks: s.blocks });
+      latest = { revision: s.revision, schemaHash: SCHEMA, publishedAt: new Date().toISOString() };
       return p;
     }
 
@@ -2254,62 +2255,51 @@ describe("studio-implementation.mdx", () => {
       expect(src).toMatch(/JITTER = 10_000/);
     });
 
-    it("si-09: a stale fetch completion is discarded; a rollback by generation is accepted", async () => {
-      const fallback = await snap("bundled");
-      const loader = remoteLoader(fallback, { site: "acme", token: "t" }) as Loader;
-      const a = await snap("A");
-      const b = await snap("B");
-      // Gen 5 (B) is slow; gen 6 (A) lands first.
-      let release!: () => void;
-      const pB = publish(5, b);
-      gates.set(
-        pB,
-        new Promise<void>((r) => {
-          release = r;
-        }),
-      );
-      const slow = loader.update!();
-      await new Promise((r) => setTimeout(r, 10));
-      publish(6, a);
-      await loader.update!();
-      release();
-      await slow;
-      expect((await loader.load()).revision).toBe(a.revision);
-      // Rollback: gen 7 selects the older revision B.
-      publish(7, b);
+    it("si-09: the SDK follows the revision latest.json names; a rollback (Make current) is accepted", async () => {
+      const fallback = snap("bundled", "rev-bundled");
+      const loader = remoteLoader(fallback, { site: "acme" }) as Loader;
+      const a = snap("A", "a".repeat(40));
+      const b = snap("B", "b".repeat(40));
+      publish(a);
+      expect(await loader.update!()).toEqual({ updated: true });
+      publish(b);
       expect(await loader.update!()).toEqual({ updated: true });
       expect((await loader.load()).revision).toBe(b.revision);
+      // Make current: latest.json names the older revision again; nothing else changes.
+      latest = { revision: a.revision, schemaHash: SCHEMA, publishedAt: new Date().toISOString() };
+      expect(await loader.update!()).toEqual({ updated: true });
+      expect((await loader.load()).revision).toBe(a.revision);
     });
 
-    it("si-09: a generation change with the same content hash still signals an update", async () => {
-      const fallback = await snap("bundled");
-      const loader = remoteLoader(fallback, { site: "acme", token: "t" }) as Loader;
-      const a = await snap("A");
-      publish(1, a);
+    it("si-09: the same revision as the one loaded is not an update", async () => {
+      const fallback = snap("bundled", "rev-bundled");
+      const loader = remoteLoader(fallback, { site: "acme" }) as Loader;
+      const a = snap("A", "a".repeat(40));
+      publish(a);
       expect(await loader.update!()).toEqual({ updated: true });
-      publish(2, a); // a new generation (e.g. a re-promotion or rollback) of the same revision
-      expect(await loader.update!()).toEqual({ updated: true });
+      publish(a); // republished: same commit, new publishedAt
+      expect(await loader.update!()).toEqual({ updated: false });
     });
 
     it("si-10: a draft's changes apply to the production this server has; no matching base is fetched", async () => {
-      const fallback = await snap("bundled");
-      const published = await snap("published");
-      publish(1, published);
+      const fallback = snap("bundled", "rev-bundled");
+      const published = snap("published", "c".repeat(40));
+      publish(published);
       gates.set(`/sites/acme/revisions/${published.revision}.json`, new Promise(() => {})); // never arrives
-      const studio = "https://studio.decocms.com/api/acme/decofile/store/b/changes";
+      const drafts = `${ORIGIN}/sites/acme/drafts/b.json`;
       const fetch = globalThis.fetch;
       const urls: string[] = [];
       vi.stubGlobal("fetch", async (input: string | URL | Request) => {
         urls.push(String(input));
-        return String(input).startsWith(studio)
-          ? Response.json({ format: 1, set: { New: { __resolveType: "seo" } }, delete: [] })
+        return String(input).startsWith(drafts)
+          ? Response.json({ set: { New: { __resolveType: "seo" } }, delete: [] })
           : fetch(input);
       });
-      const cms = createCMS({ blocks: {}, content: fallback, site: "acme", token: "t" });
-      const draft = cms.forDraft("studio.decocms.com/api/acme/decofile/store/b/changes?token=x@c1");
+      const cms = createCMS({ blocks: {}, content: fallback, site: "acme" });
+      const draft = cms.forDraft("delivery.decocms.com/sites/acme/drafts/b.json@c1");
       const [entry] = await draft.resolve("S", { run: false });
       expect(entry).toEqual(fallback.blocks.S); // the bundled release, never waiting for the new one
-      expect(urls.filter((url) => url.startsWith(studio))).toHaveLength(1);
+      expect(urls.filter((url) => url.startsWith(drafts))).toHaveLength(1);
       expect(urls.filter((url) => url.includes("/revisions/"))).toHaveLength(0);
     });
   });

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeContentRevision } from "../canonical";
+import { canonicalJson, computeContentRevision, sha256Hex } from "../canonical";
 import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 import { LEGACY_ALIASES } from "./builtins";
 import { content, readSavedBlocks, renderContentModule, writeContent } from "./content";
@@ -111,6 +111,69 @@ describe("reading .deco/blocks", () => {
     const saved = readSavedBlocks(decoPaths(fixture.root).blocks);
     expect(saved.blocks).toEqual({});
     expect(saved.diagnostics[0]).toMatchObject({ file: "nested", severity: "warning" });
+  });
+});
+
+/**
+ * The schemaHash test vector Studio's publish shares: the same file must give
+ * the same hash on both sides (sha256Hex(canonicalJson(JSON.parse(text)))).
+ */
+const SCHEMA_TEXT =
+  '{\n  "version": "8.1.0-next.7",\n  "blocksMajor": 8,\n  "definitions": { "seo": { "type": "object", "title": "Seo" } },\n  "root": {}\n}\n';
+const SCHEMA_HASH = "00b083655ee7af02aa92dbff85e402857bb1e50c253a579dbab23498a7842c98";
+
+describe("schemaHash", () => {
+  it("is written into the module from .deco/schema.gen.json, as sha256Hex(canonicalJson(schema))", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": SCHEMA_TEXT,
+    });
+    expect(await sha256Hex(canonicalJson(JSON.parse(SCHEMA_TEXT)))).toBe(SCHEMA_HASH);
+    const result = await writeContent(decoPaths(fixture.root));
+    expect(result.schemaHash).toBe(SCHEMA_HASH);
+    const source = fixture.read(".deco/blocks.gen.ts");
+    expect(source).toContain(`  schemaHash: "${SCHEMA_HASH}",`);
+    expect(source).toContain("  schemaHash: string;");
+    const mod = await import(/* @vite-ignore */ pathToFileURL(result.file).href);
+    expect(mod.default.schemaHash).toBe(SCHEMA_HASH);
+  });
+
+  it("ignores formatting and key order: the parsed JSON is hashed", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": JSON.stringify(JSON.parse(SCHEMA_TEXT)),
+    });
+    expect((await writeContent(decoPaths(fixture.root))).schemaHash).toBe(SCHEMA_HASH);
+  });
+
+  it("is left out without a schema file, so hosted releases never swap", async () => {
+    fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    const result = await writeContent(decoPaths(fixture.root));
+    expect(result.schemaHash).toBeUndefined();
+    expect(fixture.read(".deco/blocks.gen.ts")).not.toContain("schemaHash");
+  });
+
+  it("a schema file that isn't JSON fails deco content", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": "{",
+    });
+    await expect(writeContent(decoPaths(fixture.root))).rejects.toThrow(
+      /schema\.gen\.json: not valid JSON/,
+    );
+  });
+
+  it("a schema change rewrites the module", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": SCHEMA_TEXT,
+    });
+    const paths = decoPaths(fixture.root);
+    expect((await writeContent(paths)).changed).toBe(true);
+    fixture.write(".deco/schema.gen.json", { blocksMajor: 8, version: "other" });
+    const next = await writeContent(paths);
+    expect(next.changed).toBe(true);
+    expect(next.schemaHash).not.toBe(SCHEMA_HASH);
   });
 });
 

@@ -3,15 +3,17 @@
  * Docs conformance: content-delivery, draft-synchronization,
  * releases-and-deployment, hosted, hosted-publishing, hosted-drafts and
  * hosted-releases-internals (src/content/docs/en/storefront/blocks/next/*.mdx in
- * deco-sites/docs-tanstack). Each test names the claim it checks (CD-*, RD-*, H-*, HP-*, HD-*,
- * HRI-*, DP-*). A failing test is a claim the code doesn't meet yet.
+ * deco-sites/docs-tanstack), as the hosted contract (2026-10-06) defines them:
+ * `sites/<site>/latest.json` and `revisions/<sha>.json` on delivery.decocms.com,
+ * drafts on the CDN. Each test names the claim it checks (CD-*, RD-*, H-*, HP-*,
+ * HD-*, HRI-*, DP-*). A failing test is a claim the code doesn't meet yet.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as root from "../../index";
-import { computeContentRevision } from "../../protocol/canonical";
+import { computeContentRevision, sha256Hex } from "../../protocol/canonical";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import { instanceOf } from "../cms";
 import {
@@ -23,7 +25,12 @@ import {
   resetForTests,
 } from "../index";
 import { resolveDestination } from "../telemetry";
-import { docsBlocks, docsSnapshot, fakeStudio, STUDIO_HOST, STUDIO_TOKEN } from "../testFixtures";
+import {
+  DRAFT_HOST,
+  docsBlocks,
+  fakeStudio,
+  docsSnapshot as unhashedSnapshot,
+} from "../testFixtures";
 import type { Loader, RequestLike, Snapshot } from "../types";
 
 /** cms.draftPointer and cms.draftCookie on a CMS with no settings: every host may preview. */
@@ -36,35 +43,36 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
 const TOKEN = "site-token";
-const MANIFEST_URL = `${ORIGIN}/sites/acme/channels/production.json`;
+const LATEST_URL = `${ORIGIN}/sites/acme/latest.json`;
+/** The schemaHash of the schema the deployed code was built with (`deco content` writes it). */
+const SCHEMA = "5".repeat(64);
 /** A pointer string, for the cookie and parsing claims; drafts that load come from api.draft(). */
-const POINTER = `${STUDIO_HOST}/api/acme/decofile/store/summer-sale/changes?token=abc@9f3c1a`;
-/** Where the fake Studio answers drafts. */
-const STUDIO = `https://${STUDIO_HOST}`;
+const POINTER = `${DRAFT_HOST}/sites/acme/drafts/summer-sale.json@9f3c1a`;
+/** Where the fake CDN answers drafts. */
+const DRAFTS = `https://${DRAFT_HOST}/sites/acme/drafts/`;
 
-const remote = (fallback: Snapshot | Loader) =>
-  remoteLoader(fallback, { site: SITE, token: TOKEN }) as Loader;
+/** The bundled content module: the docs' snapshot, built with the deployed schema. */
+const docsSnapshot = (revision?: string): Snapshot => ({
+  ...unhashedSnapshot(revision),
+  schemaHash: SCHEMA,
+});
+
+const remote = (fallback: Snapshot | Loader) => remoteLoader(fallback, { site: SITE }) as Loader;
 const flush = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms));
 
-let savedInterval: string | undefined;
-beforeEach(() => {
-  resetForTests();
-  savedInterval = process.env.DECO_CONTENT_INTERVAL;
-  delete process.env.DECO_CONTENT_INTERVAL;
-});
+beforeEach(() => resetForTests());
 afterEach(async () => {
   await flush(); // let background checks a test started finish against its own fetch stub
-  if (savedInterval === undefined) delete process.env.DECO_CONTENT_INTERVAL;
-  else process.env.DECO_CONTENT_INTERVAL = savedInterval;
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   resetForTests();
 });
 
+/** A release as Studio publishes it for a commit: the blocks at that commit, keyed by its SHA. */
 async function hashed(title: string, extra: Record<string, unknown> = {}): Promise<Snapshot> {
   const blocks = { SummerSEO: { __resolveType: "seo", title, description: "d" }, ...extra };
-  return { revision: await computeContentRevision(blocks), blocks };
+  return { revision: (await sha256Hex(title)).slice(0, 40), blocks };
 }
 
 /** A content module whose revision is its real content hash, as `deco content` writes it. */
@@ -89,14 +97,13 @@ function deferred(): Deferred {
 const seoEntry = (title: string) => ({ __resolveType: "seo", title, description: "d" });
 
 /**
- * A fake delivery API (a channel manifest and immutable revision assets) and
- * a fake Studio API answering draft pointers (see testFixtures' fakeStudio).
+ * A fake delivery CDN: `sites/acme/latest.json`, immutable
+ * `sites/acme/revisions/<sha>.json`, and drafts (see testFixtures' fakeStudio).
  */
 function deliveryApi() {
-  const studio = fakeStudio();
-  const assets = new Map<string, unknown>();
+  const drafts = fakeStudio();
+  const objects = new Map<string, unknown>();
   const gates = new Map<string, Deferred>();
-  let manifest: Record<string, unknown> | undefined;
   let failAll = false;
   const requests: { url: string; headers: Record<string, string>; init?: RequestInit }[] = [];
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -105,49 +112,49 @@ function deliveryApi() {
     requests.push({ url, headers, init });
     if (failAll) throw new TypeError("fetch failed");
     await gates.get(new URL(url).pathname)?.promise;
-    if (url.startsWith(`${STUDIO}/`)) return studio.fetch(url, init);
+    if (url.startsWith(DRAFTS)) return drafts.fetch(url, init);
     if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
     const p = url.slice(ORIGIN.length).split("?")[0] ?? "";
-    if (url === MANIFEST_URL) {
-      if (!manifest) return new Response("missing", { status: 404 });
-      return Response.json(manifest);
-    }
-    if (assets.has(p)) {
-      const body = assets.get(p);
+    if (objects.has(p)) {
+      const body = objects.get(p);
       if (body instanceof Response) return body;
       return Response.json(body);
     }
     return new Response("not found", { status: 404 });
   });
   vi.stubGlobal("fetch", fetch);
+  const latest = (revision: string, schemaHash = SCHEMA) => ({
+    revision,
+    schemaHash,
+    publishedAt: new Date().toISOString(),
+  });
   return {
     fetch,
     requests,
     assetPath: (revision: string) => `/sites/acme/revisions/${revision}.json`,
-    publish(generation: number, snapshot: Snapshot, body: unknown = snapshot) {
-      const p = `/sites/acme/revisions/${snapshot.revision}.json`;
-      assets.set(p, body);
-      manifest = { format: 1, generation, revision: snapshot.revision, snapshot: p };
+    /** Studio's publish: `revisions/<sha>.json`, then `latest.json` naming it. */
+    publish(snapshot: Snapshot, body?: unknown, schemaHash = SCHEMA) {
+      objects.set(
+        `/sites/acme/revisions/${snapshot.revision}.json`,
+        body ?? { revision: snapshot.revision, schemaHash, blocks: snapshot.blocks },
+      );
+      objects.set("/sites/acme/latest.json", latest(snapshot.revision, schemaHash));
     },
-    point(generation: number, revision: string) {
-      manifest = {
-        format: 1,
-        generation,
-        revision,
-        snapshot: `/sites/acme/revisions/${revision}.json`,
-      };
+    /** Studio's "Make current" (or a pointer to a revision that isn't there): `latest.json` only. */
+    point(revision: string, schemaHash = SCHEMA) {
+      objects.set("/sites/acme/latest.json", latest(revision, schemaHash));
     },
-    setManifest(value: Record<string, unknown>) {
-      manifest = value;
+    setLatest(value: unknown) {
+      objects.set("/sites/acme/latest.json", value);
     },
     asset(p: string, body: unknown) {
-      assets.set(p, body);
+      objects.set(p, body);
     },
-    /** Saves a draft branch's changes on the fake Studio; returns the pointer it would mint. */
-    draft: studio.draft,
-    /** Answers a draft branch with this response instead. */
-    respond: studio.respond,
-    draftFetches: () => requests.filter((r) => r.url.startsWith(`${STUDIO}/`)),
+    /** Saves a draft on the fake CDN; returns the pointer Studio would hand out. */
+    draft: drafts.draft,
+    /** Answers a draft with this response instead. */
+    respond: drafts.respond,
+    draftFetches: () => requests.filter((r) => r.url.startsWith(DRAFTS)),
     gate(p: string) {
       const d = deferred();
       gates.set(p, d);
@@ -157,7 +164,7 @@ function deliveryApi() {
       failAll = value;
     },
     assetFetches: () => requests.filter((r) => r.url.includes("/revisions/")).length,
-    manifestFetches: () => requests.filter((r) => r.url === MANIFEST_URL).length,
+    latestFetches: () => requests.filter((r) => r.url === LATEST_URL).length,
   };
 }
 
@@ -172,75 +179,88 @@ const titleOf = async (client: ReturnType<ReturnType<typeof createCMS>["forRelea
 // ---------------------------------------------------------------------------
 
 describe("content-delivery", () => {
-  it("CD-1: the SDK never calls GitHub; releases come from the delivery origin, drafts from the pointer's Studio host", async () => {
-    for (const file of ["../remoteLoader.ts", "../draftChanges.ts"]) {
+  it("CD-1: the SDK never calls GitHub; releases come from the delivery origin, drafts from the pointer's host", async () => {
+    for (const file of ["../remoteLoader.ts", "../draftChanges.ts", "../content.ts", "../cms.ts"]) {
       expect(fs.readFileSync(path.join(HERE, file), "utf8")).not.toMatch(/github/i);
     }
     const api = deliveryApi();
-    api.publish(1, await hashed("Published"));
+    api.publish(await hashed("Published"));
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
     await cms.update();
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     const urls = api.requests.map((r) => r.url);
-    expect(urls.filter((url) => url.startsWith(`${ORIGIN}/`))).toHaveLength(2); // manifest, release
-    expect(urls.filter((url) => url.startsWith(`${STUDIO}/`))).toHaveLength(1);
+    expect(urls.filter((url) => url.startsWith(DRAFTS))).toHaveLength(1);
+    expect(urls.filter((url) => url.startsWith(`${ORIGIN}/`) && !url.startsWith(DRAFTS))).toEqual([
+      LATEST_URL,
+      expect.stringMatching(/\/sites\/acme\/revisions\/[0-9a-f]{40}\.json$/),
+    ]);
     expect(urls).toHaveLength(3);
   });
 
-  it("CD-3: one canonical hash, insertion-order independent, shared by the CLI and remoteLoader", async () => {
+  it("CD-3: the bundled module's revision is the canonical content hash; a release's is its commit SHA", async () => {
     const a = { A: { __resolveType: "seo", x: 1, y: 2 }, B: { z: [1, 2] } };
     const b = { B: { z: [1, 2] }, A: { y: 2, __resolveType: "seo", x: 1 } };
     expect(await computeContentRevision(a)).toBe(await computeContentRevision(b));
     const cli = fs.readFileSync(path.join(HERE, "../cli/content.ts"), "utf8");
+    expect(cli).toMatch(
+      /import \{[^}]*\bcomputeContentRevision\b[^}]*\} from "[./]+(protocol\/)?canonical\.ts"/,
+    );
+    // No content-hash verification of releases: the SDK never hashes what it downloads.
     const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
-    const shared =
-      // remoteLoader imports the SDK's leaf module; the CLI may go through the protocol's re-export.
-      /import \{[^}]*\bcomputeContentRevision\b[^}]*\} from "[./]+(protocol\/)?canonical\.ts"/;
-    expect(cli).toMatch(shared);
-    expect(sdk).toMatch(shared);
+    expect(sdk).not.toMatch(/computeContentRevision|sha256/);
   });
 
-  it("CD-4/CD-5/CD-6: reads /sites/<site>/channels/production.json and the { revision, blocks } asset it names", async () => {
+  it("CD-4/CD-5/CD-6: reads /sites/<site>/latest.json and the { revision, schemaHash, blocks } it names", async () => {
     const api = deliveryApi();
-    const release = await hashed("Generation 184");
-    // The docs' manifest example, with a real content hash as the revision.
-    api.setManifest({
-      format: 1,
-      generation: 184,
+    const release = await hashed("Commit C");
+    // The docs' examples: latest.json and the revision object Studio writes for commit C.
+    api.setLatest({
       revision: release.revision,
-      snapshot: `/sites/acme/revisions/${release.revision}.json`,
+      schemaHash: SCHEMA,
+      publishedAt: "2026-10-06T12:00:00.000Z",
     });
-    api.asset(`/sites/acme/revisions/${release.revision}.json`, release);
-    const loader = remote(docsSnapshot());
+    api.asset(`/sites/acme/revisions/${release.revision}.json`, {
+      revision: release.revision,
+      schemaHash: SCHEMA,
+      blocks: release.blocks,
+    });
+    const fallback = docsSnapshot();
+    const loader = remote(fallback);
     expect(await loader.update?.()).toEqual({ updated: true });
     expect(api.requests.map((r) => r.url)).toEqual([
-      MANIFEST_URL,
+      LATEST_URL,
       `${ORIGIN}/sites/acme/revisions/${release.revision}.json`,
     ]);
+    expect(api.requests.every((r) => r.headers.authorization === undefined)).toBe(true);
     const loaded = await loader.load();
-    expect(Object.keys(loaded).sort()).toEqual(["blocks", "revision"]);
-    expect(loaded.revision).toBe(release.revision);
+    expect(loaded).toEqual({
+      revision: release.revision,
+      schemaHash: SCHEMA,
+      blocks: release.blocks,
+      aliases: fallback.aliases,
+    });
   });
 
-  it("CD-7: refuses unknown formats and snapshot paths outside the origin or site namespace", async () => {
+  it("CD-7: refuses a latest.json that isn't { revision: <commit SHA>, schemaHash, publishedAt }", async () => {
     const release = await hashed("Evil");
     const bad = [
-      { format: 2, snapshot: `/sites/acme/revisions/${release.revision}.json` },
-      { format: 1, snapshot: `/sites/other/revisions/${release.revision}.json` },
-      { format: 1, snapshot: `https://evil.example/sites/acme/revisions/${release.revision}.json` },
-      { format: 1, snapshot: `/sites/acme/revisions/../../other/revisions/x.json` },
+      { revision: release.revision, schemaHash: SCHEMA }, // no publishedAt
+      { revision: "../../other/revisions/x", schemaHash: SCHEMA, publishedAt: "x" },
+      { revision: `${release.revision}/../x`, schemaHash: SCHEMA, publishedAt: "x" },
+      { revision: "f".repeat(64), schemaHash: SCHEMA, publishedAt: "x" }, // a content hash
+      { revision: release.revision, schemaHash: "x", publishedAt: "x" },
+      { format: 1, generation: 1, revision: release.revision, snapshot: "/x.json" }, // v0 channels
     ];
-    for (const fields of bad) {
+    for (const value of bad) {
       resetForTests();
       const api = deliveryApi();
-      api.asset(`/sites/acme/revisions/${release.revision}.json`, release);
-      api.setManifest({ generation: 1, revision: release.revision, ...fields });
+      api.asset(api.assetPath(release.revision), {
+        revision: release.revision,
+        schemaHash: SCHEMA,
+        blocks: release.blocks,
+      });
+      api.setLatest(value);
       const fallback = docsSnapshot();
       const loader = remote(fallback);
       await expect(loader.update?.()).rejects.toThrow();
@@ -249,42 +269,74 @@ describe("content-delivery", () => {
     }
   });
 
+  it("CD-8: swaps only when latest.json's schemaHash equals the bundled content's; otherwise keeps what it serves", async () => {
+    const api = deliveryApi();
+    const one = await hashed("One");
+    const two = await hashed("Two");
+    const fallback = docsSnapshot();
+    const cms = createCMS({ blocks: docsBlocks(), content: fallback, site: SITE });
+    api.publish(one, undefined, "6".repeat(64));
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(api.assetFetches()).toBe(0);
+    expect(await cms.forRelease().revision()).toBe(fallback.revision);
+    api.publish(one);
+    expect(await cms.update()).toEqual({ updated: true });
+    api.publish(two, undefined, "6".repeat(64));
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(await titleOf(cms.forRelease())).toBe("One");
+  });
+
+  it("CD-9: bundled content without a schemaHash (no schema.gen.json at build) never swaps", async () => {
+    const api = deliveryApi();
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), content: unhashedSnapshot(), site: SITE });
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(api.fetch).not.toHaveBeenCalled();
+  });
+
+  it("CD-10: no comparison with the bundle: the first check downloads the pointer's revision even when it holds the bundled content", async () => {
+    const api = deliveryApi();
+    const bundled = docsSnapshot();
+    const sameContent = { revision: "c".repeat(40), blocks: bundled.blocks };
+    api.publish(sameContent);
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled, site: SITE });
+    expect(await cms.update()).toEqual({ updated: true });
+    expect(api.assetFetches()).toBe(1);
+    expect(await cms.forRelease().revision()).toBe(sameContent.revision);
+    expect(await cms.update()).toEqual({ updated: false }); // the revision it already loaded
+    expect(api.assetFetches()).toBe(1);
+  });
+
   it("CD-11: a missing or failing asset keeps the last good content", async () => {
     const api = deliveryApi();
     const good = await hashed("Good");
-    api.publish(1, good);
+    api.publish(good);
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     await cms.update();
     expect(await titleOf(cms.forRelease())).toBe("Good");
     const missing = await hashed("Missing");
-    api.point(2, missing.revision); // 404
+    api.point(missing.revision); // 404
     await expect(cms.update()).resolves.toEqual({ updated: false });
     api.asset(api.assetPath(missing.revision), new Response("boom", { status: 500 }));
     await expect(cms.update()).resolves.toEqual({ updated: false });
     expect(await titleOf(cms.forRelease())).toBe("Good");
   });
 
-  it("CD-12: a rollback (higher generation, older revision) is adopted", async () => {
+  it('CD-12: a rollback (Studio\'s "Make current" pointing latest.json at an older revision) is adopted', async () => {
     const api = deliveryApi();
     const a = await hashed("A");
     const b = await hashed("B");
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
-    api.publish(183, a);
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    api.publish(a);
     await cms.update();
-    api.publish(184, b);
+    api.publish(b);
     await cms.update();
     expect(await titleOf(cms.forRelease())).toBe("B");
-    api.publish(185, a);
+    api.point(a.revision);
     expect(await cms.update()).toEqual({ updated: true });
     expect(await titleOf(cms.forRelease())).toBe("A");
   });
@@ -302,8 +354,8 @@ describe("content-delivery", () => {
         controller.enqueue(CHUNK);
       },
     });
-    const revision = "f".repeat(64);
-    api.point(1, revision);
+    const revision = "f".repeat(40);
+    api.point(revision);
     api.asset(api.assetPath(revision), new Response(body));
     const fallback = docsSnapshot();
     const loader = remote(fallback);
@@ -344,7 +396,7 @@ describe("draft previews", () => {
   };
   const FAILED = { value: null, code: "LOADER_FAILED", list: null, listCode: "LOADER_FAILED" };
 
-  it("DP-1: GET https://<host><path>&v=<version>: forced variants removed, no cookies or credentials, fetched once", async () => {
+  it("DP-1: GET https://<host><path>?v=<version>: forced variants removed, no cookies or credentials", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const withVariant = formatDraftPointer({
@@ -353,12 +405,9 @@ describe("draft previews", () => {
     });
     const cms = cmsOf({ site: SITE, token: TOKEN });
     expect(await titleOf(cms.forDraft(withVariant))).toBe("Draft");
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     const [request, ...more] = api.draftFetches();
     expect(more).toEqual([]);
-    expect(request!.url).toBe(
-      `${STUDIO}/api/acme/decofile/store/summer-sale/changes?token=${STUDIO_TOKEN}&v=9f3c1a`,
-    );
+    expect(request!.url).toBe(`${DRAFTS}summer-sale.json?v=9f3c1a`);
     expect(request!.headers).not.toHaveProperty("cookie");
     expect(request!.headers).not.toHaveProperty("authorization"); // never the site token
     expect(request!.init?.credentials).not.toBe("include");
@@ -401,11 +450,10 @@ describe("draft previews", () => {
   it("DP-3: a client captures production once; the next client gets the new release and fetches the draft again", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = cmsOf({ site: SITE, token: TOKEN });
+    const cms = cmsOf({ site: SITE });
     const first = cms.forDraft(pointer);
     expect(await titleOf(first)).toBe("Draft");
     api.publish(
-      1,
       await hashed("Published", {
         HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
       }),
@@ -427,14 +475,18 @@ describe("draft previews", () => {
     const draft = cmsOf().forDraft(pointer);
     const revision = await draft.revision();
     expect(revision).toContain("rev-1");
-    expect(revision).toContain("9f3c1a");
+    expect(revision).toContain('"etag-1"'); // the draft body's ETag: the pointer outlives saves
     expect(revision).not.toBe("rev-1");
+    api.draft({ set: { SummerSEO: seoEntry("Saved again") } });
+    const saved = cmsOf().forDraft(pointer);
+    expect(await titleOf(saved)).toBe("Saved again");
+    expect(await saved.revision()).not.toBe(revision);
   });
 
   it("DP-5: only *.decocms.com and loopback hosts by default; any other host, or a look-alike, is refused before anything is fetched", async () => {
     const api = deliveryApi();
     const cms = cmsOf();
-    const changes = "/api/acme/decofile/store/summer-sale/changes?token=t";
+    const changes = "/sites/acme/drafts/summer-sale.json";
     for (const pointer of [
       `evil.example${changes}@1`,
       `studio.decocms.com.evil.example${changes}@1`,
@@ -451,33 +503,36 @@ describe("draft previews", () => {
       expect({ pointer, ...(await failed(cms.forDraft(pointer))) }).toEqual({ pointer, ...FAILED });
     }
     expect(api.fetch).not.toHaveBeenCalled();
-    // The host is compared lowercase, so an uppercase pointer still reaches Studio.
+    // The host is compared lowercase, so an uppercase pointer still reaches the CDN.
     const upper = api
       .draft({ set: { SummerSEO: seoEntry("Draft") } })
-      .replace(STUDIO_HOST, STUDIO_HOST.toUpperCase());
+      .replace(DRAFT_HOST, DRAFT_HOST.toUpperCase());
     expect(await titleOf(cms.forDraft(upper))).toBe("Draft");
   });
 
-  it("DP-6: DECO_PREVIEW_API_DOMAINS replaces the default list; content can't widen it", async () => {
+  it("DP-6: createCMS({ preview: { apiDomains } }) replaces the default list; no environment variable does; content can't widen it", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "studio.example.com");
-    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    expect(
+      await failed(cmsOf({ preview: { apiDomains: ["studio.example.com"] } }).forDraft(pointer)),
+    ).toEqual(FAILED);
     expect(api.fetch).not.toHaveBeenCalled();
     resetForTests();
-    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", " .decocms.com , studio.example.com ");
+    const both = cmsOf({ preview: { apiDomains: [" .decocms.com ", "studio.example.com"] } });
+    expect(await titleOf(both.forDraft(pointer))).toBe("Draft");
+    // DECO_PREVIEW_API_DOMAINS (v7's variable) is read by the site, if at all, never by the SDK.
+    resetForTests();
+    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "studio.example.com");
     expect(await titleOf(cmsOf().forDraft(pointer))).toBe("Draft");
+    vi.unstubAllEnvs();
     // Content can't widen it: the CMS block has no say over where drafts come from.
     resetForTests();
-    vi.unstubAllEnvs();
     const release = docsSnapshot();
     release.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
     const fromContent = cmsOf({ content: release });
-    expect(
-      await failed(
-        fromContent.forDraft("evil.example/api/acme/decofile/store/x/changes?token=t@1"),
-      ),
-    ).toEqual(FAILED);
+    expect(await failed(fromContent.forDraft("evil.example/sites/acme/drafts/x.json@1"))).toEqual(
+      FAILED,
+    );
     expect(api.requests.filter((r) => r.url.includes("evil.example"))).toEqual([]);
   });
 
@@ -487,7 +542,7 @@ describe("draft previews", () => {
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
         urls.push(String(input));
-        return Response.json({ format: 1, set: {}, delete: [] });
+        return Response.json({ set: {}, delete: [] });
       }),
     );
     const cms = cmsOf();
@@ -517,14 +572,18 @@ describe("draft previews", () => {
     expect(await failed(cms.forDraft("[::1]:4000/changes?token=t@v2"))).toEqual(FAILED);
     expect(urls).toEqual([]);
     // Configured, it is a loopback domain like the others: plain HTTP, any port.
-    vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "[::1]");
+    resetForTests();
     expect(
-      (await cmsOf().forDraft("[::1]:4000/changes?token=t@v3").revision()).endsWith("~v3"),
+      (
+        await cmsOf({ preview: { apiDomains: ["[::1]"] } })
+          .forDraft("[::1]:4000/changes?token=t@v3")
+          .revision()
+      ).endsWith("~v3"),
     ).toBe(true);
     expect(urls).toEqual(["http://[::1]:4000/changes?token=t&v=v3"]);
   });
 
-  it("DP-8: only a 200 is accepted: an error status, or a redirect, is a failed draft", async () => {
+  it("DP-8: only a 200 (or a 304 to the ETag it sent) is accepted: an error status, or a redirect, is a failed draft", async () => {
     for (const status of [201, 204, 301, 302, 400, 401, 403, 404, 413, 500, 502]) {
       resetForTests();
       const api = deliveryApi();
@@ -532,7 +591,7 @@ describe("draft previews", () => {
       api.respond("summer-sale", () =>
         status === 204
           ? new Response(null, { status })
-          : new Response(JSON.stringify({ format: 1, set: {}, delete: [] }), {
+          : new Response(JSON.stringify({ set: {}, delete: [] }), {
               status,
               headers: status >= 300 && status < 400 ? { location: "https://evil.example/" } : {},
             }),
@@ -593,19 +652,19 @@ describe("draft previews", () => {
     expect(await result).toEqual(FAILED);
   });
 
-  it("DP-11: the shape is checked: exactly format 1, set and delete, disjoint", async () => {
+  it("DP-11: the shape is checked: exactly { set, delete }, disjoint", async () => {
     const bodies: unknown[] = [
-      { format: 2, set: {}, delete: [] },
-      { set: {}, delete: [] },
-      { format: 1, set: {}, delete: [], baseRevision: "x" },
-      { format: 1, set: [], delete: [] },
-      { format: 1, set: null, delete: [] },
-      { format: 1, set: {} },
-      { format: 1, set: {}, delete: "HelloWorld" },
-      { format: 1, set: {}, delete: [1] },
-      { format: 1, set: {}, delete: ["A", "A"] },
-      { format: 1, set: { A: seoEntry("x") }, delete: ["A"] },
-      [{ format: 1, set: {}, delete: [] }],
+      { format: 1, set: {}, delete: [] }, // the old git-branch form
+      { set: {}, delete: [], baseRevision: "x" },
+      { set: [], delete: [] },
+      { set: null, delete: [] },
+      { set: {} },
+      { delete: [] },
+      { set: {}, delete: "HelloWorld" },
+      { set: {}, delete: [1] },
+      { set: {}, delete: ["A", "A"] },
+      { set: { A: seoEntry("x") }, delete: ["A"] },
+      [{ set: {}, delete: [] }],
       "changes",
       null,
     ];
@@ -622,8 +681,8 @@ describe("draft previews", () => {
 
   it("DP-12: a failed draft is LOADER_FAILED on every call, never published content, and isn't reused", async () => {
     const api = deliveryApi();
-    api.publish(1, await hashed("Release"));
-    const cms = cmsOf({ site: SITE, token: TOKEN });
+    api.publish(await hashed("Release"));
+    const cms = cmsOf({ site: SITE });
     await cms.update();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     api.respond("summer-sale", () => new Response("bad gateway", { status: 502 }));
@@ -633,46 +692,54 @@ describe("draft previews", () => {
     const [, error] = await client.resolve("SummerSEO");
     expect(String((error?.cause as Error | undefined)?.message)).toContain("HTTP 502");
     api.respond("summer-sale", () =>
-      Response.json({ format: 1, set: { SummerSEO: seoEntry("Back") }, delete: [] }),
+      Response.json({ set: { SummerSEO: seoEntry("Back") }, delete: [] }),
     );
     expect(await titleOf(cms.forDraft(pointer))).toBe("Back");
     expect(api.draftFetches()).toHaveLength(2);
   });
 
-  it("DP-13: an expired or wrong token gets no content", async () => {
+  it("DP-13: a draft that isn't there (a wrong or deleted slug) gets no content", async () => {
     const api = deliveryApi();
-    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } }, { token: "expired" });
-    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
+    api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const wrong = `${DRAFT_HOST}/sites/acme/drafts/guessed.json@9f3c1a`;
+    expect(await failed(cmsOf().forDraft(wrong))).toEqual(FAILED);
     expect(api.draftFetches()).toHaveLength(1);
   });
 
-  it("DP-14: a fetched draft is reused for up to a minute per pointer, at most three per CMS", async () => {
-    let now = 1_000_000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+  it("DP-14: every read revalidates with If-None-Match; a 304 reuses the body; at most three bodies per CMS", async () => {
     const api = deliveryApi();
-    const pointer = (branch: string) =>
-      api.draft({ set: { SummerSEO: seoEntry(branch) } }, { branch });
+    const pointer = (slug: string) => api.draft({ set: { SummerSEO: seoEntry(slug) } }, { slug });
     const cms = cmsOf();
-    expect(await titleOf(cms.forDraft(pointer("a")))).toBe("a");
-    now += 59_000;
-    expect(await titleOf(cms.forDraft(pointer("a")))).toBe("a");
-    expect(api.draftFetches()).toHaveLength(1);
-    now += 2_000;
-    await titleOf(cms.forDraft(pointer("a")));
-    expect(api.draftFetches()).toHaveLength(2); // a minute passed: fetched (and its token checked) again
-    for (const branch of ["b", "c", "d"]) await titleOf(cms.forDraft(pointer(branch)));
-    expect(api.draftFetches()).toHaveLength(5);
-    await titleOf(cms.forDraft(pointer("a"))); // the fourth evicted the oldest
-    expect(api.draftFetches()).toHaveLength(6);
-    await titleOf(cms.forDraft(pointer("d")));
-    expect(api.draftFetches()).toHaveLength(6);
+    const a = pointer("a");
+    expect(await titleOf(cms.forDraft(a))).toBe("a");
+    expect(api.draftFetches()[0]?.headers["if-none-match"]).toBeUndefined();
+    expect(await titleOf(cms.forDraft(a))).toBe("a");
+    expect(api.draftFetches()).toHaveLength(2);
+    expect(api.draftFetches()[1]?.headers["if-none-match"]).toBe('"etag-1"');
+    expect((await api.fetch.mock.results.at(-1)?.value)?.status).toBe(304);
+    // A save gives the object a new ETag: the next read gets the new body (a 200).
+    api.draft({ set: { SummerSEO: seoEntry("a, saved") } }, { slug: "a" });
+    expect(await titleOf(cms.forDraft(a))).toBe("a, saved");
+    expect((await api.fetch.mock.results.at(-1)?.value)?.status).toBe(200);
+    for (const slug of ["b", "c", "d"]) await titleOf(cms.forDraft(pointer(slug)));
+    await titleOf(cms.forDraft(a)); // the fourth evicted the oldest: no ETag to send
+    expect(api.draftFetches().at(-1)?.headers["if-none-match"]).toBeUndefined();
+    await titleOf(cms.forDraft(`${DRAFT_HOST}/sites/acme/drafts/d.json@9f3c1a`));
+    expect(api.draftFetches().at(-1)?.headers["if-none-match"]).toBeDefined();
+  });
+
+  it("DP-14b: a 304 to a request that sent no ETag is a failed draft", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({});
+    api.respond("summer-sale", () => new Response(null, { status: 304 }));
+    expect(await failed(cmsOf().forDraft(pointer))).toEqual(FAILED);
   });
 
   it("DP-15: drafts need no site or token, and never send them", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     expect(await titleOf(cmsOf().forDraft(pointer))).toBe("Draft");
-    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
+    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([DRAFT_HOST]);
     resetForTests();
     const hosted = deliveryApi();
     const hostedPointer = hosted.draft({ set: { SummerSEO: seoEntry("Draft") } });
@@ -705,7 +772,7 @@ describe("draft previews", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("DP-17: forced variants apply on top of the draft's changes; every variant shares one fetch", async () => {
+  it("DP-17: forced variants apply on top of the draft's changes; every variant shares one body", async () => {
     const api = deliveryApi();
     const banner = {
       __resolveType: "multivariate",
@@ -722,12 +789,17 @@ describe("draft previews", () => {
     expect(await cms.forDraft(forced(1)).resolve("Banner")).toEqual(["draft summer", null]);
     expect(await cms.forDraft(forced(0)).resolve("Banner")).toEqual(["draft fallback", null]);
     expect(await cms.forDraft(pointer).resolve("Banner")).toEqual([undefined, null]); // the rules
-    expect(api.draftFetches()).toHaveLength(1);
+    // One body for every variant: the first read downloads it, the others revalidate it (304).
+    expect(api.draftFetches().map((r) => r.headers["if-none-match"])).toEqual([
+      undefined,
+      '"etag-1"',
+      '"etag-1"',
+    ]);
   });
 
-  it("DP-18: empty changes (a branch before its first save) show production", async () => {
+  it("DP-18: empty changes (a draft before its first change) show production", async () => {
     const api = deliveryApi();
-    const pointer = api.draft({}, { branch: "not-saved-yet" });
+    const pointer = api.draft({}, { slug: "not-saved-yet" });
     const cms = cmsOf();
     expect(await titleOf(cms.forDraft(pointer))).toBe("Sunny!");
     const [pages] = await cms.forDraft(pointer).list("page");
@@ -737,20 +809,19 @@ describe("draft previews", () => {
   it("DP-19: release checks don't depend on drafts: a draft client schedules the same check, never in front of it", async () => {
     const api = deliveryApi();
     api.publish(
-      1,
       await hashed("Published", {
         HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
       }),
     );
-    const channel = api.gate("/sites/acme/channels/production.json"); // the background check hangs
+    const channel = api.gate("/sites/acme/latest.json"); // the background check hangs
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = cmsOf({ site: SITE, token: TOKEN });
+    const cms = cmsOf({ site: SITE });
     const first = cms.forDraft(pointer);
     expect((await first.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
       "Hello, world",
     ]); // cold: the fallback is the base
     expect(api.assetFetches()).toBe(0);
-    expect(api.manifestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
+    expect(api.latestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
     channel.resolve();
     await flush();
     const next = cms.forDraft(pointer);
@@ -773,7 +844,7 @@ describe("draft previews", () => {
   });
 
   it("DP-21: a response that was redirected anyway (a fetch polyfill ignoring redirect: manual) is refused", async () => {
-    const changes = { format: 1, set: { SummerSEO: seoEntry("Elsewhere") }, delete: [] };
+    const changes = { set: { SummerSEO: seoEntry("Elsewhere") }, delete: [] };
     const redirected = (url: string, flag: boolean) => {
       const response = Response.json(changes);
       Object.defineProperty(response, "redirected", { value: flag });
@@ -782,7 +853,7 @@ describe("draft previews", () => {
     };
     for (const [url, flag] of [
       ["https://evil.example/changes", false],
-      [`https://${STUDIO_HOST}/elsewhere`, true],
+      [`https://${DRAFT_HOST}/elsewhere`, true],
     ] as const) {
       resetForTests();
       const api = deliveryApi();
@@ -854,7 +925,6 @@ describe("releases-and-deployment", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const draft = cms.forDraft(pointer);
     expect(await titleOf(draft)).toBe("Secret draft");
@@ -880,10 +950,11 @@ describe("hosted", () => {
     expect(await cms.forRelease().revision()).toBe("rev-1");
   });
 
-  it("H-3: with site or token undefined the CMS reads content only, with no network", async () => {
+  it("H-3: without site the CMS reads content only, with no delivery request; a token alone turns on nothing but telemetry", async () => {
     const api = deliveryApi();
     for (const [site, token] of [
-      [SITE, undefined],
+      [undefined, undefined],
+      ["", undefined],
       [undefined, TOKEN],
     ] as const) {
       resetForTests();
@@ -896,49 +967,44 @@ describe("hosted", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("H-4/HRI-1: with site and token, content is the fallback while the API is unreachable", async () => {
+  it("H-4/HRI-1: with site, content is the fallback while delivery is unreachable", async () => {
     const api = deliveryApi();
     api.fail(true);
     const content = docsSnapshot();
-    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN });
+    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE });
     const client = cms.forRelease();
     const [entries, error] = await client.list("seo");
     expect(error).toBeNull();
     expect(entries).toHaveLength(1);
     expect(await titleOf(client)).toBe("Sunny!");
     await expect(cms.update()).resolves.toEqual({ updated: false });
-    expect(api.manifestFetches()).toBeGreaterThan(0); // remoteLoader wrapped it
+    expect(api.latestFetches()).toBeGreaterThan(0); // remoteLoader wrapped it
   });
 
   it("H-5: in development, releases stay on local files but ?__draft= still loads", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const api = deliveryApi();
-    api.publish(1, await hashed("Published"));
+    api.publish(await hashed("Published"));
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     cms.forRelease();
     await flush();
     await cms.update();
-    expect(api.manifestFetches()).toBe(0);
+    expect(api.latestFetches()).toBe(0);
     expect(await titleOf(cms.forRelease())).toBe("Sunny!");
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
   });
 
-  it("H-6: site and token alone never send telemetry", async () => {
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "");
+  it("H-6: site alone never sends telemetry; site reads no environment variable", async () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel.example.com");
+    vi.stubEnv("DECO_SITE_TOKEN", TOKEN);
     const api = deliveryApi();
-    api.publish(1, await hashed("Published"));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
     await cms.update();
     const client = cms.forRelease();
     await client.resolve("SummerPage");
@@ -947,10 +1013,11 @@ describe("hosted", () => {
     for (const { url } of api.requests) expect(url.startsWith(`${ORIGIN}/`)).toBe(true);
   });
 
-  it("H-12: telemetry { site, token } goes to the hosted collector; analytics defaults to the hosted one", async () => {
-    const destination = resolveDestination({ site: SITE, token: TOKEN });
-    expect(destination?.endpoint).toMatch(/^https:\/\/[^/]*decocms\.com/);
+  it("H-12: a token sends telemetry to the hosted collector as a Bearer token; analytics defaults to the hosted one", async () => {
+    const destination = resolveDestination(undefined, SITE, TOKEN);
+    expect(destination?.endpoint).toBe("https://otel.decocms.com");
     expect(destination?.headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(resolveDestination(undefined, SITE)).toBeNull();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const { analytics } = await cms.settings();
     expect(analytics.collector).toBe(HOSTED_ANALYTICS_COLLECTOR);
@@ -970,7 +1037,6 @@ describe("hosted-publishing", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     void cms.update(); // a check that never finishes
     const client = cms.forRelease();
@@ -985,11 +1051,10 @@ describe("hosted-publishing", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const before = cms.forRelease();
     expect(await titleOf(before)).toBe("Sunny!");
-    api.publish(1, await hashed("New release"));
+    api.publish(await hashed("New release"));
     await cms.update();
     expect(await titleOf(before)).toBe("Sunny!");
     expect(await titleOf(cms.forRelease())).toBe("New release");
@@ -1017,11 +1082,10 @@ describe("hosted-publishing", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     await expect(cms.update()).resolves.toEqual({ updated: false });
     api.fail(false);
-    api.publish(1, await hashed("Now"));
+    api.publish(await hashed("Now"));
     await expect(cms.update()).resolves.toEqual({ updated: true });
     expect(await titleOf(cms.forRelease())).toBe("Now");
   });
@@ -1082,23 +1146,18 @@ describe("hosted-publishing", () => {
       expect(await measured({ interval: 120_000 })).toBe(120_000);
     });
 
-    it("HP-6: interval defaults to DECO_CONTENT_INTERVAL, else 60 000 ms", async () => {
+    it("HP-6: interval defaults to 60 000 ms; DECO_CONTENT_INTERVAL isn't read", async () => {
       expect(await measured()).toBe(60_000);
       resetForTests();
-      process.env.DECO_CONTENT_INTERVAL = "90000";
-      expect(await measured()).toBe(90_000);
+      vi.stubEnv("DECO_CONTENT_INTERVAL", "90000");
+      expect(await measured()).toBe(60_000);
+      resetForTests();
+      expect(await measured({ interval: 90_000 })).toBe(90_000);
     });
 
-    it("HP-6: values below 60 000 ms, from interval or DECO_CONTENT_INTERVAL, are raised with a warning", async () => {
+    it("HP-6: values below 60 000 ms are raised with a warning", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       expect(await measured({ interval: 1000 })).toBe(60_000);
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("interval 1000 ms is below the minimum; raised to 60000 ms"),
-      );
-      resetForTests();
-      warn.mockClear();
-      process.env.DECO_CONTENT_INTERVAL = "1000";
-      expect(await measured()).toBe(60_000);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("interval 1000 ms is below the minimum; raised to 60000 ms"),
       );
@@ -1128,36 +1187,30 @@ describe("hosted-publishing", () => {
     });
   });
 
-  it("HP-9: an unchanged manifest costs one small request, no snapshot download", async () => {
+  it("HP-9: an unchanged latest.json costs one small request, no revision download", async () => {
     const api = deliveryApi();
-    api.publish(1, await hashed("Once"));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
+    api.publish(await hashed("Once"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
     await cms.update();
     const assets = api.assetFetches();
     await cms.update();
     await cms.update();
     expect(api.assetFetches()).toBe(assets);
-    expect(api.manifestFetches()).toBe(3);
+    expect(api.latestFetches()).toBe(3);
   });
 
   it("HP-10: a network error or an unparseable snapshot leaves memory as it was", async () => {
     const api = deliveryApi();
     const good = await hashed("Good");
-    api.publish(1, good);
+    api.publish(good);
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     await cms.update();
     const broken = await hashed("Broken");
-    api.point(2, broken.revision);
+    api.point(broken.revision);
     api.asset(api.assetPath(broken.revision), new Response("{not json", { status: 200 }));
     await expect(cms.update()).resolves.toEqual({ updated: false });
     api.fail(true);
@@ -1171,12 +1224,10 @@ describe("hosted-publishing", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const client = cms.forRelease();
     const [first] = await client.list("seo");
     api.publish(
-      1,
       await hashed("New", { Other: { __resolveType: "seo", title: "o", description: "o" } }),
     );
     await cms.update();
@@ -1185,27 +1236,15 @@ describe("hosted-publishing", () => {
     expect(await client.revision()).toBe("rev-1");
   });
 
-  it("HP-12/HRI-7: a manifest naming the content module's revision is served from the bundle", async () => {
-    const api = deliveryApi();
-    const content = await contentModule();
-    api.point(7, content.revision);
-    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN });
-    await cms.update();
-    expect(api.assetFetches()).toBe(0);
-    expect(await cms.forRelease().revision()).toBe(content.revision);
-  });
-
   it("HP-13: a type the deployed code lacks fails that block with UNKNOWN_BLOCK", async () => {
     const api = deliveryApi();
     api.publish(
-      1,
       await hashed("x", { NewBanner: { __resolveType: "brand-new-banner", title: "t" } }),
     );
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     await cms.update();
     const client = cms.forRelease();
@@ -1216,41 +1255,22 @@ describe("hosted-publishing", () => {
     expect(seo).toMatchObject({ title: "x" });
   });
 
-  it("HP-15: the bundled content stays in memory beside the live release", async () => {
-    const api = deliveryApi();
-    const content = await contentModule();
-    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN });
-    api.publish(1, await hashed("Live"));
-    await cms.update();
-    expect(await titleOf(cms.forRelease())).toBe("Live");
-    const downloads = api.assetFetches();
-    api.point(2, content.revision); // roll back to what the build shipped
-    await cms.update();
-    expect(api.assetFetches()).toBe(downloads);
-    expect(await cms.forRelease().revision()).toBe(content.revision);
-  });
-
-  it("HP-16: remoteLoader(content, { site, token }) is a loader whose load() reports the served revision", async () => {
+  it("HP-16: remoteLoader(content, { site }) is a loader whose load() reports the served revision", async () => {
     deliveryApi();
     const content = docsSnapshot();
-    const connected = remoteLoader(content, { site: SITE, token: TOKEN }) as Loader;
+    const connected = remoteLoader(content, { site: SITE }) as Loader;
     expect((await connected.load()).revision).toBe(content.revision);
-    // The docs' troubleshooting snippet passes process.env values, which can be undefined.
-    const env = { DECO_SITE: undefined, DECO_SITE_TOKEN: undefined } as Record<
-      string,
-      string | undefined
-    >;
-    const loader = remoteLoader(content, {
-      site: env.DECO_SITE as string,
-      token: env.DECO_SITE_TOKEN as string,
-    });
+    // The site reads its own env and passes it; an unset value is a plain loader.
+    const env = { DECO_SITE: undefined } as Record<string, string | undefined>;
+    const loader = remoteLoader(content, { site: env.DECO_SITE as string });
     expect(typeof (loader as Loader).load).toBe("function");
+    expect((loader as Loader).update).toBeUndefined();
   });
 
   it("HP-17: a server that hasn't fetched a release reports its fallback's revision", async () => {
     deliveryApi().fail(true);
     const content = await contentModule();
-    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN });
+    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE });
     expect(await cms.forRelease().revision()).toBe(content.revision);
   });
 });
@@ -1273,18 +1293,14 @@ describe("hosted-drafts", () => {
     expect(await draftPointer(new Request(link))).toBe(raw);
   });
 
-  it("HD-2: forDraft fetches the pointer once and serves it from memory afterwards", async () => {
+  it("HD-2: forDraft revalidates the draft on every read; an unchanged one is a 304 served from memory", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    expect(api.draftFetches()).toHaveLength(1);
+    expect(api.draftFetches()).toHaveLength(2);
+    expect(api.draftFetches()[1]?.headers["if-none-match"]).toBe('"etag-1"');
   });
 
   it("HD-3: a draft holds only changed blocks and deletions; every other block is inherited", async () => {
@@ -1297,7 +1313,6 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const draft = cms.forDraft(pointer);
     expect(await titleOf(draft)).toBe("Draft");
@@ -1316,7 +1331,6 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const client = cms.forDraft(POINTER);
     const [value, error] = await client.resolve("SummerSEO");
@@ -1356,7 +1370,6 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const render = async (client: ReturnType<typeof cms.forRelease>, _request: Request) =>
       new Response(await titleOf(client));
@@ -1382,12 +1395,12 @@ describe("hosted-drafts", () => {
     expect(await visitor.text()).toBe("Sunny!");
   });
 
-  it("HD-8: without site and token, forDraft layers the draft over the content module; only Studio is asked", async () => {
+  it("HD-8: without site and token, forDraft layers the draft over the content module; only the draft's host is asked", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([STUDIO_HOST]);
+    expect(api.requests.map((r) => new URL(r.url).host)).toEqual([DRAFT_HOST]);
   });
 
   it("HD-10: __deco_draft is the cookie draftCookie writes and draftPointer reads", async () => {
@@ -1422,7 +1435,6 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const url = `mystore://preview?__draft=${encodeURIComponent(POINTER)}`;
     const pointer = new URL(url).searchParams.get("__draft");
@@ -1442,7 +1454,6 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     const [value, error] = await cms.forDraft("evil.example/x?token=t@1").resolve("SummerSEO");
     expect(value).toBeNull();
@@ -1456,9 +1467,8 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
-    for (const pointer of ["garbage", "https://x/y@1", "@1", `${STUDIO_HOST}/x@`]) {
+    for (const pointer of ["garbage", "https://x/y@1", "@1", `${DRAFT_HOST}/x@`]) {
       const [value, error] = await cms.forDraft(pointer).list("seo");
       expect(value).toBeNull();
       expect(error?.code).toBe("LOADER_FAILED");
@@ -1480,7 +1490,7 @@ describe("hosted-drafts", () => {
       __resolveType: "cms-settings",
       preview: { hosts: ["staging.store.example.com"] },
     };
-    const cms = createCMS({ blocks: docsBlocks(), content: release, site: SITE, token: TOKEN });
+    const cms = createCMS({ blocks: docsBlocks(), content: release, site: SITE });
     const pick = async (request: Request) => {
       const pointer = await cms.draftPointer(request);
       const cookie = await cms.draftCookie(request);
@@ -1523,7 +1533,7 @@ describe("CMS settings from hosted releases", () => {
   it("S-1: offline, at boot, settings come from the bundled content module, with no fetch", async () => {
     const api = deliveryApi();
     api.fail(true);
-    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE, token: TOKEN });
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
     const settings = await cms.settings();
     expect(settings.preview.hosts).toEqual(["staging.example.com"]);
     expect(settings.analytics.collector).toBe("https://bundled.example/events");
@@ -1543,8 +1553,8 @@ describe("CMS settings from hosted releases", () => {
     const next = await hashed("Published", {
       CMS: { __resolveType: "cms-settings", preview: { hosts: ["www.example.com"] } },
     });
-    api.publish(1, next);
-    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE, token: TOKEN });
+    api.publish(next);
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
     expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
     expect(api.fetch).not.toHaveBeenCalled();
     expect(await cms.update()).toEqual({ updated: true });
@@ -1557,7 +1567,7 @@ describe("CMS settings from hosted releases", () => {
 // ---------------------------------------------------------------------------
 
 describe("hosted-releases-internals", () => {
-  it("HRI-3: update() runs on first use, then a manifest check every interval", async () => {
+  it("HRI-3: update() runs on first use, then a latest.json check every interval", async () => {
     let now = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     vi.spyOn(Math, "random").mockReturnValue(0.5);
@@ -1566,16 +1576,15 @@ describe("hosted-releases-internals", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
-    expect(api.manifestFetches()).toBe(0); // nothing at construction
+    expect(api.latestFetches()).toBe(0); // nothing at construction
     cms.forRelease();
     await flush();
-    expect(api.manifestFetches()).toBe(1);
+    expect(api.latestFetches()).toBe(1);
     now += 60_000;
     cms.forRelease();
     await flush();
-    expect(api.manifestFetches()).toBe(2);
+    expect(api.latestFetches()).toBe(2);
   });
 
   describe("HRI-4: idle scheduling", () => {
@@ -1640,65 +1649,41 @@ describe("hosted-releases-internals", () => {
     expect(sdk).not.toMatch(/webhook|addEventListener\(|createServer/i);
   });
 
-  it("HRI-6: a manifest older than the newest observed generation is ignored", async () => {
+  it("HRI-6: no ordering of pointers: an older publishedAt is followed like any other", async () => {
     const api = deliveryApi();
     const loader = remote(docsSnapshot());
     const five = await hashed("Five");
-    api.publish(5, five);
+    const four = await hashed("Four");
+    api.publish(five);
     await loader.update?.();
-    api.publish(4, await hashed("Four"));
-    expect(await loader.update?.()).toEqual({ updated: false });
-    expect((await loader.load()).revision).toBe(five.revision);
+    api.publish(four);
+    api.setLatest({
+      revision: four.revision,
+      schemaHash: SCHEMA,
+      publishedAt: "1970-01-01T00:00:00Z",
+    });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).revision).toBe(four.revision);
+    const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
+    expect(sdk).not.toMatch(/generation|channels/);
   });
 
-  it("HRI-7: a same-revision manifest adopts its generation without downloading", async () => {
-    const api = deliveryApi();
-    const loader = remote(docsSnapshot());
-    const r = await hashed("R");
-    api.publish(5, r);
-    await loader.update?.();
-    const downloads = api.assetFetches();
-    api.point(6, r.revision);
-    await loader.update?.();
-    expect(api.assetFetches()).toBe(downloads);
-    api.publish(5, await hashed("Stale gen 5")); // older than the adopted 6
-    await loader.update?.();
-    expect((await loader.load()).revision).toBe(r.revision);
-  });
-
-  it("HRI-8: a snapshot that doesn't hash to its revision is rejected", async () => {
+  it("HRI-8: a revision object that isn't the one latest.json names is rejected", async () => {
     const api = deliveryApi();
     const real = await hashed("Real");
-    const tampered = { revision: real.revision, blocks: { Other: { __resolveType: "seo" } } };
-    api.publish(1, real, tampered);
+    const wrong = { revision: "e".repeat(40), schemaHash: SCHEMA, blocks: real.blocks };
+    api.publish(real, wrong);
     const fallback = docsSnapshot();
     const loader = remote(fallback);
-    await expect(loader.update?.()).rejects.toThrow(/doesn't match/);
+    await expect(loader.update?.()).rejects.toThrow(/not the revision latest\.json names/);
     expect(await loader.load()).toBe(fallback);
-  });
-
-  it("HRI-8: a slower earlier check can't undo a newer promotion", async () => {
-    const api = deliveryApi();
-    const loader = remote(docsSnapshot());
-    const one = await hashed("Gen 1");
-    const two = await hashed("Gen 2");
-    api.publish(1, one);
-    const gate = api.gate(api.assetPath(one.revision));
-    const slow = loader.update?.();
-    for (let i = 0; i < 50 && api.assetFetches() === 0; i++) await flush(2);
-    expect(api.assetFetches()).toBe(1);
-    api.publish(2, two);
-    await loader.update?.();
-    gate.resolve();
-    expect(await slow).toEqual({ updated: false });
-    expect((await loader.load()).revision).toBe(two.revision);
   });
 
   it("HRI-9: a loader with its own revision scheme is downloaded once", async () => {
     const api = deliveryApi();
     const custom: Loader = { load: async () => docsSnapshot("my-own-scheme-1") };
     const loader = remote(custom);
-    api.publish(1, await hashed("Hosted"));
+    api.publish(await hashed("Hosted"));
     await loader.update?.();
     await loader.update?.();
     await loader.update?.();
@@ -1707,12 +1692,11 @@ describe("hosted-releases-internals", () => {
 
   it("HRI-10/HD-4: a draft that can't be fetched is LOADER_FAILED on every call; published content is never substituted", async () => {
     const api = deliveryApi();
-    api.publish(1, await hashed("Release"));
+    api.publish(await hashed("Release"));
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
-      token: TOKEN,
     });
     await cms.update();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
@@ -1740,19 +1724,17 @@ describe("hosted-releases-internals", () => {
     expect(keys.join("\n")).not.toContain(TOKEN);
   });
 
-  it("HRI-12: the key is site, token and content identity, never the revision", async () => {
+  it("HRI-12: the key is the site and the content identity, never the revision or the token", async () => {
     const blocks = docsBlocks();
     const a = createCMS({
       blocks,
       content: { ...docsSnapshot("rev-1"), root: ".deco" },
       site: SITE,
-      token: TOKEN,
     });
     const reloaded = createCMS({
       blocks,
       content: { ...docsSnapshot("rev-2"), root: ".deco" },
       site: SITE,
-      token: TOKEN,
     });
     expect(reloaded).toBe(a);
     expect(await reloaded.forRelease().revision()).toBe("rev-2");
@@ -1760,14 +1742,12 @@ describe("hosted-releases-internals", () => {
       blocks,
       content: { ...docsSnapshot("rev-2"), root: ".deco" },
       site: "other",
-      token: TOKEN,
     });
     expect(other).not.toBe(a);
     const otherFolder = createCMS({
       blocks,
       content: { ...docsSnapshot("rev-2"), root: "apps/b/.deco" },
       site: SITE,
-      token: TOKEN,
     });
     expect(otherFolder).not.toBe(a);
   });
@@ -1783,11 +1763,11 @@ describe("hosted-releases-internals", () => {
 
   it("HRI-14: resetForTests() clears every stored instance", () => {
     const content = { ...docsSnapshot(), root: ".deco" };
-    const a = createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN });
-    const loaderA = remoteLoader(content, { site: SITE, token: TOKEN });
+    const a = createCMS({ blocks: docsBlocks(), content, site: SITE });
+    const loaderA = remoteLoader(content, { site: SITE });
     resetForTests();
-    expect(createCMS({ blocks: docsBlocks(), content, site: SITE, token: TOKEN })).not.toBe(a);
-    expect(remoteLoader(content, { site: SITE, token: TOKEN })).not.toBe(loaderA);
+    expect(createCMS({ blocks: docsBlocks(), content, site: SITE })).not.toBe(a);
+    expect(remoteLoader(content, { site: SITE })).not.toBe(loaderA);
     expect(typeof (root as Record<string, unknown>).resetForTests).toBe("function");
   });
 });

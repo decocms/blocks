@@ -3,36 +3,41 @@
  * pointer's address answers, and how the CMS layers it over production.
  *
  * - The pointer's host must fall under one of the preview API domains (the
- *   same rule as v7): by default `*.decocms.com` (Studio, its PR previews,
- *   `local.studio.decocms.com`) and the loopback hosts; `DECO_PREVIEW_API_DOMAINS`
- *   replaces the list. Any other host is refused before anything is fetched.
- * - `GET <scheme>://<host><path>&v=<version>`: the scheme comes from the
+ *   same rule as v7): by default `*.decocms.com` (Studio, the delivery CDN,
+ *   `local.studio.decocms.com`) and the loopback hosts;
+ *   `createCMS({ preview: { apiDomains } })` replaces the list. Any other host
+ *   is refused before anything is fetched.
+ * - `GET <scheme>://<host><path>?v=<version>`: the scheme comes from the
  *   domain that admitted the host, never from the pointer: plain `http` only
  *   for loopback hosts. The pointer's `__variant` parameters are already gone (the parser
  *   lifts them out), no cookies or credentials are sent, and redirects aren't
  *   followed (a response that was redirected anyway is refused).
- * - Only a 200 is accepted, within 10 s and up to 16 MiB, shaped exactly
- *   `{ format: 1, set: { <name>: <block JSON> }, delete: [<name>…] }` with
- *   `set` and `delete` disjoint.
+ * - Every read revalidates: with a body this process already holds, it sends
+ *   `If-None-Match` with that body's ETag, and a `304` reuses the body. Only
+ *   a 200 or that 304 is accepted, within 10 s; a 200 is up to 16 MiB, shaped
+ *   exactly `{ set: { <name>: <block JSON> }, delete: [<name>…] }` with `set`
+ *   and `delete` disjoint.
  */
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
-import { readEnv } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import type { DraftPointer, Snapshot } from "./types.ts";
 
 /** The version a pointer has when it names no draft: `deco serve`'s working tree. */
 export const LOCAL_VERSION = "local";
 
-const FORMAT = 1;
 const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 16 * 1024 * 1024;
 
 /** What a draft changed compared with production: whole blocks, and deletions. */
 export interface DraftChanges {
-  format: typeof FORMAT;
   set: Record<string, unknown>;
   delete: string[];
 }
+
+/** A draft read: new changes (and their ETag), or `304`, the held body is current. */
+export type DraftRead =
+  | { status: 200; changes: DraftChanges; etag: string | null }
+  | { status: 304 };
 
 /**
  * The domains a draft pointer's host may fall under, the defaults v7 shipped.
@@ -47,16 +52,24 @@ export const DEFAULT_PREVIEW_API_DOMAINS: readonly string[] = [
   "localhost",
   "127.0.0.1",
   ".localhost",
-  ".decocms.com", // Studio and its preview deployments
+  ".decocms.com", // Studio, its preview deployments and delivery.decocms.com
 ];
 
-/** `DECO_PREVIEW_API_DOMAINS` (a comma list) when set, else the defaults. */
-function previewApiDomains(): readonly string[] {
-  const configured = (readEnv("DECO_PREVIEW_API_DOMAINS") ?? "")
-    .split(",")
-    .map((domain) => domain.trim().toLowerCase())
-    .filter(Boolean);
-  return configured.length > 0 ? configured : DEFAULT_PREVIEW_API_DOMAINS;
+/**
+ * `createCMS`'s `preview.apiDomains`, trimmed and lowercased, or the defaults
+ * when it's left out. Throws a `TypeError` on anything but a list of
+ * non-empty strings.
+ */
+export function parseApiDomains(preview: { apiDomains?: unknown } | undefined): readonly string[] {
+  const domains = preview?.apiDomains;
+  if (domains === undefined) return DEFAULT_PREVIEW_API_DOMAINS;
+  if (
+    !Array.isArray(domains) ||
+    domains.some((domain) => typeof domain !== "string" || domain.trim() === "")
+  ) {
+    throw new TypeError("createCMS: `preview.apiDomains` must be a list of domains");
+  }
+  return domains.map((domain: string) => domain.trim().toLowerCase());
 }
 
 /**
@@ -65,14 +78,17 @@ function previewApiDomains(): readonly string[] {
  * carry a port; a public domain may not, so a pointer can't aim the fetch at
  * an odd port. Loopback hosts are `http`; everything else is `https`.
  */
-export function previewApiOrigin(authority: string): string | null {
+export function previewApiOrigin(
+  authority: string,
+  domains: readonly string[] = DEFAULT_PREVIEW_API_DOMAINS,
+): string | null {
   const lower = authority.toLowerCase();
   const end = lower.startsWith("[") ? lower.indexOf("]") + 1 : -1;
   const host = end > 0 ? lower.slice(0, end) : lower.split(":")[0]!;
   const rest = end > 0 ? lower.slice(end) : lower.slice(host.length);
   const port = rest.startsWith(":") ? rest.slice(1) : undefined;
   if (!host) return null;
-  const domain = previewApiDomains().find((d) =>
+  const domain = domains.find((d) =>
     d.startsWith(".") ? host.length > d.length && host.endsWith(d) : host === d,
   );
   if (domain === undefined) return null;
@@ -94,24 +110,37 @@ function isLoopbackDomain(domain: string): boolean {
  * The URL the SDK fetches for a pointer: the origin its host is admitted
  * under, the version as `v`. `null` when no preview API domain admits the host.
  */
-export function draftChangesUrl(pointer: DraftPointer): string | null {
-  const origin = previewApiOrigin(pointer.host);
+export function draftChangesUrl(
+  pointer: DraftPointer,
+  domains: readonly string[] = DEFAULT_PREVIEW_API_DOMAINS,
+): string | null {
+  const origin = previewApiOrigin(pointer.host, domains);
   if (origin === null) return null;
   const separator = pointer.path.includes("?") ? "&" : "?";
   return `${origin}${pointer.path}${separator}v=${encodeURIComponent(pointer.version)}`;
 }
 
-/** Fetches a draft's changes; rejects on a host no preview API domain admits (without fetching) or on any failure. */
-export async function fetchDraftChanges(pointer: DraftPointer): Promise<DraftChanges> {
-  const url = draftChangesUrl(pointer);
+/**
+ * Reads a draft's changes, revalidating `etag` (the ETag of the body the
+ * caller holds) when given. Rejects on a host no preview API domain admits
+ * (without fetching), on a `304` to a request that sent no ETag, and on any
+ * other failure.
+ */
+export async function fetchDraftChanges(
+  pointer: DraftPointer,
+  options: { domains?: readonly string[]; etag?: string | null } = {},
+): Promise<DraftRead> {
+  const url = draftChangesUrl(pointer, options.domains);
   if (url === null) {
     throw new Error(
       `draft pointer names "${pointer.host}", which isn't under a preview API domain ` +
-        "(DECO_PREVIEW_API_DOMAINS); nothing was fetched",
+        "(createCMS({ preview: { apiDomains } })); nothing was fetched",
     );
   }
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (options.etag) headers["if-none-match"] = options.etag;
   const response = await fetch(url, {
-    headers: { accept: "application/json" },
+    headers,
     redirect: "manual",
     signal: timeoutSignal(TIMEOUT_MS),
   });
@@ -124,18 +153,24 @@ export async function fetchDraftChanges(pointer: DraftPointer): Promise<DraftCha
     await response.body?.cancel();
     throw new Error("draft changes: the pointer's address redirected; nothing was read");
   }
+  if (response.status === 304 && options.etag) {
+    await response.body?.cancel();
+    return { status: 304 };
+  }
   if (response.status !== 200) {
     await response.body?.cancel();
     throw new Error(`draft changes: HTTP ${response.status}`);
   }
-  return parseDraftChanges(await readBoundedJson(response, "draft changes", MAX_BYTES));
+  const etag = response.headers.get("etag");
+  const changes = parseDraftChanges(await readBoundedJson(response, "draft changes", MAX_BYTES));
+  return { status: 200, changes, etag };
 }
 
-/** Validates a draft changes response; throws on an unknown format or any unexpected shape. */
+/** Validates a draft changes response; throws on any unexpected shape. */
 export function parseDraftChanges(body: unknown): DraftChanges {
   const invalid = (why: string) => new Error(`draft changes: ${why}`);
-  if (!isPlainObject(body) || body.format !== FORMAT) throw invalid("unknown format");
-  if (Object.keys(body).some((key) => key !== "format" && key !== "set" && key !== "delete")) {
+  if (!isPlainObject(body)) throw invalid("expected an object");
+  if (Object.keys(body).some((key) => key !== "set" && key !== "delete")) {
     throw invalid("unexpected field");
   }
   const { set, delete: deleted } = body;
@@ -152,9 +187,11 @@ export function parseDraftChanges(body: unknown): DraftChanges {
  * The draft as a snapshot: production's entries, with the changed ones
  * replaced whole and the deleted ones gone. A shallow copy: every unchanged
  * entry is production's own object, and production is never mutated. Its
- * revision is an opaque identity of the pair, never a release's.
+ * revision, `<base revision>~<view>`, is an opaque identity of the pair,
+ * never a release's; `view` names the draft body (its ETag), so each save
+ * re-keys what's cached by revision.
  */
-export function layerDraft(base: Snapshot, changes: DraftChanges, version: string): Snapshot {
+export function layerDraft(base: Snapshot, changes: DraftChanges, view: string): Snapshot {
   const blocks: Record<string, unknown> = { ...base.blocks };
   for (const name of changes.delete) delete blocks[name];
   for (const [name, entry] of Object.entries(changes.set)) {
@@ -166,7 +203,7 @@ export function layerDraft(base: Snapshot, changes: DraftChanges, version: strin
       configurable: true,
     });
   }
-  const view: Snapshot = { revision: `${base.revision}~${version}`, blocks };
-  if (base.aliases !== undefined) view.aliases = base.aliases;
-  return view;
+  const layered: Snapshot = { revision: `${base.revision}~${view}`, blocks };
+  if (base.aliases !== undefined) layered.aliases = base.aliases;
+  return layered;
 }
