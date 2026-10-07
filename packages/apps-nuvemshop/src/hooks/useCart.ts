@@ -14,10 +14,22 @@
  * <button onClick={() => addItem({ productId, variantId, quantity: 1 })}>Comprar</button>
  * ```
  */
-import { useSyncExternalStore } from "react";
-import type { CartItem } from "../actions/createCheckout";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import type { CartItem, CheckoutErrorCode, CreateCheckoutResult } from "../actions/createCheckout";
+import type { Cart } from "../loaders/cart";
 
-export type { CartItem };
+export type { Cart, CartItem, CheckoutErrorCode };
+
+/** A checkout the buyer can fix: rejected coupon, stock changed, variant removed… */
+export class CheckoutError extends Error {
+  constructor(
+    readonly code: CheckoutErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CheckoutError";
+  }
+}
 
 export const CART_STORAGE_KEY = "nuvemshop:cart";
 /** The API sums repeated variants up to 99. */
@@ -96,8 +108,42 @@ export async function checkout(
     body: JSON.stringify({ items, coupon }),
   });
   if (!res.ok) throw new Error(`Checkout failed (${res.status}): ${await res.text()}`);
-  const { checkoutUrl } = (await res.json()) as { checkoutUrl: string };
-  navigate(checkoutUrl);
+  const result = (await res.json()) as CreateCheckoutResult;
+  if ("error" in result) throw new CheckoutError(result.error, result.message);
+  navigate(result.checkoutUrl);
+}
+
+/** Minicart data (names, images, prices, totals) for the given items, from the `cart` loader. */
+export async function fetchCartDetails(items: CartItem[]): Promise<Cart | null> {
+  if (!items.length) return null;
+  const res = await fetch("/deco/invoke/nuvemshop/loaders/cart", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error(`Cart failed (${res.status})`);
+  return (await res.json()) as Cart;
+}
+
+/** `useCart()` items resolved into minicart data; refetches when the items change. */
+export function useCartDetails() {
+  const items = useSyncExternalStore(cartStore.subscribe, cartStore.get, () => EMPTY);
+  const [state, setState] = useState<{ cart: Cart | null; loading: boolean; error?: Error }>({
+    cart: null,
+    loading: false,
+  });
+  useEffect(() => {
+    let live = true;
+    setState((s) => ({ ...s, loading: true }));
+    fetchCartDetails(items).then(
+      (cart) => live && setState({ cart, loading: false }),
+      (error: Error) => live && setState((s) => ({ ...s, loading: false, error })),
+    );
+    return () => {
+      live = false;
+    };
+  }, [items]);
+  return state;
 }
 
 export function useCart() {

@@ -5,6 +5,7 @@ import * as actions_account_login from "./actions/account/login";
 import * as actions_account_logout from "./actions/account/logout";
 import * as actions_account_register from "./actions/account/register";
 import * as actions_createCheckout from "./actions/createCheckout";
+import * as loaders_cart from "./loaders/cart";
 import * as loaders_categories from "./loaders/categories";
 import * as loaders_productDetailsPage from "./loaders/productDetailsPage";
 import * as loaders_productList from "./loaders/productList";
@@ -17,6 +18,7 @@ import * as loaders_user from "./loaders/user";
 const manifest = {
   name: "nuvemshop",
   loaders: {
+    "nuvemshop/loaders/cart": loaders_cart,
     "nuvemshop/loaders/categories": loaders_categories,
     "nuvemshop/loaders/productDetailsPage": loaders_productDetailsPage,
     "nuvemshop/loaders/productList": loaders_productList,
