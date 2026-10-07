@@ -13,14 +13,14 @@ import { getNuvemshopConfig, nuvemshopFetch } from "./client";
 
 const STORE_COOKIE = /^store_/;
 
-export function storeOrigin(): string {
+function storeOrigin(): string {
   const { storeUrl } = getNuvemshopConfig();
   if (!storeUrl) throw new Error("Nuvemshop storeUrl is not configured (the store's own domain)");
   return new URL(storeUrl).origin;
 }
 
 /** `store_*` cookies of the current request, as a Cookie header ("" when none). */
-export function storeCookies(): string {
+function storeCookies(): string {
   const raw = RequestContext.current?.request.headers.get("cookie") ?? "";
   return raw
     .split(/;\s*/)
@@ -45,7 +45,7 @@ function mergeCookies(header: string, setCookies: string[]) {
   return [...jar.values()].join("; ");
 }
 
-export interface StoreResponse {
+interface StoreResponse {
   status: number;
   location: string | null;
   text: () => Promise<string>;
@@ -85,4 +85,21 @@ export async function storeFetch(
     text: () => res.text(),
     cookie: mergeCookies(cookie, setCookies),
   };
+}
+
+/**
+ * The logged-in customer id, from the store session (`LS.customer` on /account/);
+ * null when logged out. The ONLY source of a customer id for account loaders/actions —
+ * never take one from props. Fails closed: every `LS.customer = N;` in the page must
+ * agree, so user-controlled text rendered in the page can't override it.
+ */
+export async function sessionCustomerId(): Promise<number | null> {
+  if (!storeCookies()) return null;
+  const page = await storeFetch("/account/");
+  if (page.status !== 200) return null;
+  const ids = new Set(
+    [...(await page.text()).matchAll(/LS\.customer\s*=\s*(\d+)\s*;/g)].map((m) => m[1]),
+  );
+  const id = ids.size === 1 ? Number([...ids][0]) : 0;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }

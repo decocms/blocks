@@ -24,3 +24,45 @@ login) + `store_login_session`. `store.ts`:
 `adminToken` is a custom-app token, server-only, often created with full
 access. Never return it or Admin API payloads wholesale to the browser —
 `user` returns only id/name/email/phone of the session's own customer.
+
+## Customer data: profile, addresses, orders
+
+| Export | Upstream | Notes |
+|---|---|---|
+| `loaders/account/profile` | Admin `GET /customers/<id>` | Picks id/name/email/phone/identification/`billing_*`. |
+| `actions/account/updateProfile` | Admin `PUT /customers/<id>` | Allow-list: name, phone, identification (CPF checked), `billing_*`. Never email/password/note. |
+| `loaders/account/addresses` | Admin `GET /customers/<id>?fields=addresses,default_address` | `default` flag derived. |
+| `actions/account/addAddress` | Admin `PUT /customers/<id>` `{addresses:[…]}` | The PUT **appends**. Country forced to BR. |
+| `actions/account/updateAddress` | store form `POST /account/address/<id>/` (trailing slash required) | Admin PUT would create a duplicate. Success = 302 to `/account/addresses…`; rejected = 302 back to the form. |
+| `loaders/account/orders` | Admin `GET /orders?customer_ids=<id>` | `page` clamped 1..1000, `perPage` 1..50. Empty = 404 "Last page is 0" → `[]`. |
+| `loaders/account/order` | Admin `GET /orders/<id>?aggregates=fulfillment_orders` | |
+
+Code: `utils/accountData.ts` (operations), `utils/account.ts` (validation, `AccountError`,
+pt-BR error mapping), `utils/orders.ts` (mapping + status labels). `sessionCustomerId()`
+(`store.ts`, exported from the barrel) is the only source of the customer id.
+All loaders are `cache = "no-store"` and go through `nuvemshopAdmin` (raw instrumented
+transport, **not** `createFetchCache`): per-user data must never hit the shared GET cache.
+Errors are `AccountError` (`.status`, pt-BR message); a site's server-fn layer should
+surface only those and keep everything else generic.
+
+### Security rules (each is tested in `__tests__/accountData.test.ts`)
+
+- The customer id comes from the session only (`LS.customer` on `/account/`), never props. No session → 401, nothing sent to the Admin API.
+- The scrape fails closed: every `LS.customer = N;` in the page must agree (user text rendered in the page can't override it).
+- Ids from callers (`orderId`, `addressId`) go through `parseId` (digits only, safe integer > 0) before touching a URL.
+- Ownership compares `String(a) === String(b)`; not-yours is the same 404 as not-found (same message, one upstream call).
+- `orders` is post-filtered by `customer.id` regardless of the upstream filter; address updates only accept ids from the session customer's own list.
+- Writes are allow-listed field by field; extra keys (`id`, `customer_id`, `email`) are dropped.
+- **Same-origin / CSRF is the site's job** (server-fn layer): reject cross-origin browser requests (`Sec-Fetch-Site` not `same-origin`/`none`, or `Origin` host ≠ request host), set `Cache-Control: private, no-store`, and map errors. The package has no request-origin policy.
+
+### Unsupported (no upstream support)
+
+- Address delete / set default: neither the Admin API nor the store form exposes them.
+- Logged-in password change: no endpoint.
+- Password recovery: the store form needs a reCAPTCHA bound to the store domain.
+
+### Client bundles
+
+`admin.ts` carries no secrets itself (the token is read from server config at call time), but
+the barrel (`index.ts`) re-exports server-only code (`store.ts`, loaders). Import loaders/actions
+from server code (invoke/server fns) — never from client components.
