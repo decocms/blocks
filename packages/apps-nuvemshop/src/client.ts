@@ -32,6 +32,21 @@ export interface NuvemshopConfig {
    * category's configured sort and returns oldest-first. Default "created-descending".
    */
   defaultSort?: string;
+  /**
+   * The store's own domain (e.g. https://demodeco.lojavirtualnuvem.com.br).
+   * Needed for the session endpoints the API doesn't cover (login/logout/account).
+   */
+  storeUrl?: string;
+  /**
+   * Admin API token from a custom app (Configurações → Aplicativos sob medida).
+   * Server-only: used for customer registration and account data. It is NOT a
+   * Storefront token (the Storefront API rejects it).
+   */
+  adminToken?: string;
+  /** Cloudflare Turnstile secret, verified before registering a customer. */
+  turnstileSecret?: string;
+  /** Skip bot verification on registration (demos only — the Admin API has no captcha). */
+  allowUnverifiedRegistration?: boolean;
 }
 
 /**
@@ -99,6 +114,9 @@ export function clearNuvemshopCache() {
 }
 
 const transport = () => (_fetch ??= createNuvemshopFetch() as FetchFn);
+
+/** The instrumented transport shared by every Nuvemshop egress (Storefront, store, Admin). */
+export const nuvemshopFetch: FetchFn = (input, init) => transport()(input, init);
 
 function storeUrl(path: string, params: Record<string, string | number | undefined> = {}) {
   const {
