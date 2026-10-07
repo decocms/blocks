@@ -133,6 +133,7 @@ One folder, `.agents/skills/`, and only skills that describe the framework and i
 | Touching / debugging | Skill |
 |---|---|
 | `packages/apps-vtex/**`, cart (`useCart`, `createCart`, orderForm), VTEX cookies/auth, sales channel | `apps-vtex` |
+| `packages/apps-nuvemshop/**`, Nuvemshop Storefront API fields/facets/sort, store login/register/`store_session_payload`, `/comprar/` 403 | `apps-nuvemshop` |
 | Any cache layer: `workerEntry.ts`, `sdk/cacheHeaders.ts`, `sdk/cachedLoader.ts`, `sdk/fetchCache.ts`, layout caches in `cms/resolve.ts`/`cms/sectionLoaders.ts`, `staleTime`/`gcTime`, `X-Cache` | `deco-caching` |
 | A site's `src/routes/*`, `cmsRouteConfig`, admin route configs, SEO/head | `deco-cms-route-config` |
 | `invoke.gen.ts`/`invoke.ts`, `createServerFn`, CORS on cart/checkout | `deco-server-functions-invoke` |

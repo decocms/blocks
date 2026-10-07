@@ -47,6 +47,27 @@ export interface Props {
    * @default v2026-11
    */
   apiVersion?: string;
+  /**
+   * @title Store URL
+   * @description The store's own domain (e.g. https://minhaloja.lojavirtualnuvem.com.br). Required for login/logout/account.
+   */
+  storeUrl?: string;
+  /**
+   * @title Admin API token
+   * @description Custom app token (Configurações → Aplicativos sob medida). Server-only; enables registration and account data.
+   */
+  adminToken?: Secret;
+  /**
+   * @title Turnstile secret
+   * @description Cloudflare Turnstile secret verified before registering customers (the Admin API has no captcha).
+   */
+  turnstileSecret?: Secret;
+  /**
+   * @title Allow registration without bot verification
+   * @description Demos only.
+   * @default false
+   */
+  allowUnverifiedRegistration?: boolean;
 }
 
 export interface NuvemshopState {
@@ -64,9 +85,19 @@ export async function configure(
     (await resolveSecret(block.token, "NUVEMSHOP_STOREFRONT_TOKEN")) ??
     (typeof block.token === "string" ? block.token : undefined);
 
+  const secret = async (key: string, env: string) =>
+    (await resolveSecret(block[key], env)) ??
+    (typeof block[key] === "string" ? (block[key] as string) : undefined);
+  const adminToken = await secret("adminToken", "NUVEMSHOP_ADMIN_TOKEN");
+  const turnstileSecret = await secret("turnstileSecret", "NUVEMSHOP_TURNSTILE_SECRET");
+
   const config: NuvemshopConfig = {
     storeId,
     token: token || undefined,
+    storeUrl: block.storeUrl as string | undefined,
+    adminToken: adminToken || undefined,
+    turnstileSecret: turnstileSecret || undefined,
+    allowUnverifiedRegistration: block.allowUnverifiedRegistration === true,
     apiVersion: block.apiVersion as string | undefined,
     currency: block.currency as string | undefined,
     defaultSort: block.defaultSort as string | undefined,

@@ -23,13 +23,41 @@ describe("configure", () => {
     }
   });
 
-  it("resolves the token through the secret resolver (env fallback key)", async () => {
-    let envKey = "";
-    await configure({ storeId: "1", token: { encrypted: "x" } }, async (_v, key) => {
-      envKey = key;
-      return "tok";
+  it("resolves the admin token and Turnstile secret as secrets and keeps storeUrl", async () => {
+    const keys: string[] = [];
+    await configure(
+      {
+        storeId: "1",
+        storeUrl: "https://loja.example/",
+        adminToken: { e: 1 },
+        turnstileSecret: { e: 2 },
+        allowUnverifiedRegistration: true,
+      },
+      async (_v, key) => {
+        keys.push(key);
+        return `secret-for-${key}`;
+      },
+    );
+    expect(keys).toEqual([
+      "NUVEMSHOP_STOREFRONT_TOKEN",
+      "NUVEMSHOP_ADMIN_TOKEN",
+      "NUVEMSHOP_TURNSTILE_SECRET",
+    ]);
+    expect(getNuvemshopConfig()).toMatchObject({
+      storeUrl: "https://loja.example/",
+      adminToken: "secret-for-NUVEMSHOP_ADMIN_TOKEN",
+      turnstileSecret: "secret-for-NUVEMSHOP_TURNSTILE_SECRET",
+      allowUnverifiedRegistration: true,
     });
-    expect(envKey).toBe("NUVEMSHOP_STOREFRONT_TOKEN");
+  });
+
+  it("resolves the token through the secret resolver (env fallback key)", async () => {
+    const keys: string[] = [];
+    await configure({ storeId: "1", token: { encrypted: "x" } }, async (_v, key) => {
+      keys.push(key);
+      return key === "NUVEMSHOP_STOREFRONT_TOKEN" ? "tok" : null;
+    });
+    expect(keys[0]).toBe("NUVEMSHOP_STOREFRONT_TOKEN");
     expect(getNuvemshopConfig().token).toBe("tok");
   });
 });
@@ -63,6 +91,12 @@ describe("nuvemshopOperationRouter", () => {
     [`${base}/categories/calcados`, "categories.get"],
     [`${base}/shipping-options`, "shipping.options"],
     [`${base}/checkouts`, "checkout.create"],
+    ["https://demodeco.lojavirtualnuvem.com.br/account/login/", "store.account.login"],
+    ["https://demodeco.lojavirtualnuvem.com.br/account/logout/", "store.account.logout"],
+    ["https://demodeco.lojavirtualnuvem.com.br/account/", "store.account.page"],
+    ["https://api.nuvemshop.com.br/v1/1/customers", "admin.customers"],
+    ["https://api.nuvemshop.com.br/v1/1/customers/42", "admin.customers"],
+    ["https://challenges.cloudflare.com/turnstile/v0/siteverify", "turnstile.verify"],
     ["https://example.com/other", undefined],
   ])("%s → %s", (url, op) => {
     expect(nuvemshopOperationRouter(url, "GET")).toBe(op);
