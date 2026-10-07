@@ -662,7 +662,6 @@ describe("draft previews", () => {
       { delete: [] },
       { set: {}, delete: "HelloWorld" },
       { set: {}, delete: [1] },
-      { set: {}, delete: ["A", "A"] },
       { set: { A: seoEntry("x") }, delete: ["A"] },
       [{ set: {}, delete: [] }],
       "changes",

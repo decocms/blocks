@@ -11,7 +11,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ENV_READ = /process\s*\.\s*env|Deno\s*\.\s*env|import\.meta\.env|\.env\s*\[|\.env\s*\?\./;
+const ENV_READ =
+  /\bprocess\b\s*\??\.\s*env\b|\{\s*env\s*\}\s*=\s*(globalThis\s*\??\.\s*)?process\b|Bun\s*\??\.\s*env\b|Deno\s*\??\.\s*env\b|import\.meta\.env|\.env\s*\[|\.env\s*\?\./;
 const ALLOWED = [
   { file: "v8/remoteLoader.ts", line: 'return process.env.NODE_ENV === "development";' },
 ];
@@ -28,6 +29,22 @@ function sources(dir: string): string[] {
 }
 
 describe("no environment variables", () => {
+  it("the guard catches every spelling of an env read", () => {
+    for (const read of [
+      "process.env.X",
+      "process?.env.X",
+      "globalThis.process?.env.X",
+      "const { env } = process;",
+      "const { env } = globalThis.process;",
+      "Bun.env.X",
+      "Deno.env.get('X')",
+      "import.meta.env.X",
+      "globalThis.env?.X",
+    ]) {
+      expect(ENV_READ.test(read), read).toBe(true);
+    }
+  });
+
   it("packages/blocks/src reads none, except NODE_ENV=development in remoteLoader.ts", () => {
     const hits: string[] = [];
     for (const file of sources(SRC)) {

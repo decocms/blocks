@@ -178,7 +178,6 @@ export function parseDraftChanges(body: unknown): DraftChanges {
   if (!Array.isArray(deleted) || deleted.some((name) => typeof name !== "string")) {
     throw invalid("delete must be a list of names");
   }
-  if (new Set(deleted).size !== deleted.length) throw invalid("delete repeats a name");
   if (deleted.some((name) => Object.hasOwn(set, name))) throw invalid("set and delete overlap");
   return body as unknown as DraftChanges;
 }
