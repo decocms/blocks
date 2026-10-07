@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addItem,
   CART_STORAGE_KEY,
+  CheckoutError,
   cartStore,
   checkout,
+  fetchCartDetails,
   removeItem,
   setQuantity,
 } from "../useCart";
@@ -69,6 +71,20 @@ describe("checkout", () => {
     fetchSpy.mockRestore();
   });
 
+  it("throws a typed CheckoutError (e.g. rejected coupon) instead of navigating", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ error: "coupon_rejected", message: "nope" })),
+      );
+    const navigate = vi.fn();
+    const err = await checkout([shirt], "BAD", navigate).catch((e) => e);
+    expect(err).toBeInstanceOf(CheckoutError);
+    expect(err.code).toBe("coupon_rejected");
+    expect(navigate).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it("throws the server error instead of navigating", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -76,6 +92,27 @@ describe("checkout", () => {
     const navigate = vi.fn();
     await expect(checkout([shirt], undefined, navigate)).rejects.toThrow(/500/);
     expect(navigate).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});
+
+describe("fetchCartDetails", () => {
+  it("invokes the cart loader with the items and returns its result", async () => {
+    const details = { lines: [], itemCount: 0, subtotal: 0 };
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(details)));
+    expect(await fetchCartDetails([shirt])).toEqual(details);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("/deco/invoke/nuvemshop/loaders/cart");
+    expect(JSON.parse(String(init!.body))).toEqual({ items: [shirt] });
+    fetchSpy.mockRestore();
+  });
+
+  it("skips the request for an empty cart", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    expect(await fetchCartDetails([])).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 });

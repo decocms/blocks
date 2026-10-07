@@ -1,5 +1,23 @@
 # Cart and checkout
 
+## The supported path (API)
+
+The cart lives on the client (`hooks/useCart`: items in `localStorage`), the
+minicart reads `loaders/cart` (`useCartDetails`), and "finalizar" calls
+`actions/createCheckout` → `POST /checkouts` → hosted `checkout_url`.
+
+- `cart` fetches the products by `ids` (≤30 per call, cached) and returns lines
+  with name, variant, image, price/list price, subtotal, `maxQuantity`, plus
+  totals and savings. It **clamps quantity to stock**: the API answers
+  `422 checkout_rejected` for a line above stock. Missing/hidden variants and
+  sold-out ones go to `unavailable` instead of the totals.
+- `createCheckout` returns `{ checkoutUrl }` or `{ error, message }`:
+  `422 coupon_rejected` → `coupon_rejected`, `422 checkout_rejected` →
+  `out_of_stock`, `404 resource_not_found` → `unavailable`, `400` → `invalid`.
+  `useCart().checkout()` throws `CheckoutError(code)` so the UI can react.
+- No coupon preview before the checkout (the API has none); the checkout's
+  totals equal the `cart` loader's subtotal (checked live).
+
 ## What exists
 
 - **API**: `POST /checkouts {line_items, coupon_code?}` → `checkout_url`
@@ -24,7 +42,8 @@ challenge, including a real browser clicking the theme's button, for 35+ min.
 No merchant setting changes it. A server-side proxy sends every buyer through
 the Worker's egress IPs, so this can block a whole store's add-to-cart. The
 API path (`/checkouts` with a Storefront token + buyer IP) doesn't have this.
-Ask Nuvemshop before shipping a classic-cart proxy.
+Ask Nuvemshop before shipping a classic-cart proxy — that's why the API path
+above is the supported one.
 
 ## Checkout proxy (spike)
 

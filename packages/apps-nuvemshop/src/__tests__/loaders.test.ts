@@ -205,7 +205,7 @@ describe("createCheckout", () => {
       items: [{ productId: 372190453, variantId: 1612648502, quantity: 2 }],
       coupon: " TEST ",
     });
-    expect(res.checkoutUrl).toBe(checkoutFixture.checkout_url);
+    expect(res).toEqual({ checkoutUrl: checkoutFixture.checkout_url });
     const body = JSON.parse(String(fetchMock.mock.calls.at(-1)![1]!.body));
     expect(body).toEqual({
       line_items: [{ product_id: 372190453, variant_id: 1612648502, quantity: 2 }],
@@ -213,8 +213,27 @@ describe("createCheckout", () => {
     });
   });
 
-  it("rejects an empty cart without calling the API", async () => {
-    await expect(createCheckout({ items: [] })).rejects.toThrow(/empty/);
+  it("returns a typed error for an empty cart without calling the API", async () => {
+    expect(await createCheckout({ items: [] })).toEqual({
+      error: "invalid",
+      message: "Cannot checkout an empty cart",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [422, "coupon_rejected", "coupon_rejected"],
+    [422, "checkout_rejected", "out_of_stock"],
+    [404, "resource_not_found", "unavailable"],
+    [400, "invalid_request", "invalid"],
+    [500, "boom", "unknown"],
+  ])("maps the API's %i %s to a typed error (%s)", async (status, code, error) => {
+    fetchMock.mockImplementationOnce(async () =>
+      json({ error: { code, message: `msg ${code}` } }, status),
+    );
+    expect(await createCheckout({ items: [{ productId: 1, variantId: 2, quantity: 1 }] })).toEqual({
+      error,
+      message: `msg ${code}`,
+    });
   });
 });

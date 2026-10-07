@@ -6,12 +6,14 @@ export {
   clearNuvemshopCache,
   configureNuvemshop,
   getNuvemshopConfig,
+  NuvemshopApiError,
   type NuvemshopConfig,
   nuvemshopGet,
   nuvemshopPost,
   PRODUCT_FIELDS,
   setNuvemshopFetch,
 } from "./client";
+export { default as cart } from "./loaders/cart";
 export { default as categories } from "./loaders/categories";
 export { default as productDetailsPage } from "./loaders/productDetailsPage";
 export { default as productList } from "./loaders/productList";

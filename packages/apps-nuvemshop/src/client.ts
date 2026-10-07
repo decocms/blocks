@@ -141,12 +141,26 @@ function headers(extra?: Record<string, string>) {
   };
 }
 
+/** A non-2xx Storefront API response, with the API's `error.code` (e.g. `coupon_rejected`). */
+export class NuvemshopApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(`Nuvemshop ${status} ${code}: ${message}`);
+    this.name = "NuvemshopApiError";
+  }
+}
+
 async function errorFrom(res: Response) {
   const body = (await res.json().catch(() => null)) as {
     error?: { code?: string; message?: string };
   } | null;
-  return new Error(
-    `Nuvemshop ${res.status} ${body?.error?.code ?? ""}: ${body?.error?.message ?? res.statusText}`,
+  return new NuvemshopApiError(
+    res.status,
+    body?.error?.code ?? "",
+    body?.error?.message ?? res.statusText,
   );
 }
 
