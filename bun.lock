@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "@decocms/start",
+      "name": "decocms-blocks",
       "devDependencies": {
         "@biomejs/biome": "^2.5.3",
         "@semantic-release/exec": "^7.1.0",
