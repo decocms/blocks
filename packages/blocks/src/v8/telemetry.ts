@@ -14,11 +14,11 @@
  * - Everything is scrubbed before encoding: no query strings, tokens,
  *   cookies or authorization values, and no value a secret block decrypted.
  */
-import { hasBackgroundHook, later, runInBackground } from "./background";
-import { isResolutionError } from "./errors";
-import { readEnv } from "./identity";
-import { isPlainObject } from "./json";
-import type { CMSError, Snapshot, TelemetryConfig } from "./types";
+import { hasBackgroundHook, later, runInBackground } from "./background.ts";
+import { isResolutionError } from "./errors.ts";
+import { readEnv } from "./identity.ts";
+import { isPlainObject } from "./json.ts";
+import type { CMSError, Snapshot, TelemetryConfig } from "./types.ts";
 
 /** The hosted Deco CMS collector, for `telemetry: { site, token }`. */
 const HOSTED_TELEMETRY_ENDPOINT = "https://otel.decocms.com";

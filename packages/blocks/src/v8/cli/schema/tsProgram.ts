@@ -17,7 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type * as TS from "typescript";
-import { CliError } from "../root";
+import { CliError } from "../root.ts";
 
 type TypeScript = typeof TS;
 

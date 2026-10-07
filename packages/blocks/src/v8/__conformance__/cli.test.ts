@@ -372,7 +372,11 @@ describe("cli.mdx", () => {
 
   it("cli-02: the CLI is importable from @decocms/blocks/cli", async () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8"));
-    expect(pkg.exports["./cli"]).toBe("./src/v8/cli/index.ts");
+    expect(pkg.exports["./cli"]).toEqual({
+      types: "./dist/v8/cli/index.d.ts",
+      source: "./src/v8/cli/index.ts",
+      default: "./dist/v8/cli/index.js",
+    });
     const cli = await import("@decocms/blocks/cli");
     const f = fixture({ ".deco/blocks/A.json": { __resolveType: "hero", title: "x" } });
     const code = await cli.runCli(["content"], { cwd: f.root, reporter: cli.silentReporter });
@@ -1830,9 +1834,9 @@ describe("content-protocol.mdx", () => {
 
   it("cp-40: deco content, deco serve and the fs storage import the protocol's keys", () => {
     const read = (p: string) => fs.readFileSync(path.join(PKG, "src", p), "utf8");
-    expect(read("v8/cli/content.ts")).toMatch(/from "\.\.\/\.\.\/protocol\/keys"/);
-    expect(read("v8/cli/serve/server.ts")).toMatch(/protocol\/keys"/);
-    expect(read("protocol/storage/fs/index.ts")).toMatch(/from "\.\.\/\.\.\/keys"/);
+    expect(read("v8/cli/content.ts")).toMatch(/from "\.\.\/\.\.\/protocol\/keys\.ts"/);
+    expect(read("v8/cli/serve/server.ts")).toMatch(/protocol\/keys\.ts"/);
+    expect(read("protocol/storage/fs/index.ts")).toMatch(/from "\.\.\/\.\.\/keys\.ts"/);
   });
 
   it("cp-43: Host must be the server's own loopback address", async () => {
@@ -1897,7 +1901,9 @@ describe("content-protocol.mdx", () => {
       for (const m of src.matchAll(/(?:^|[\s}])from\s+"([^"]+)"|import\(\s*"([^"]+)"/gm)) {
         const spec = m[1] ?? m[2];
         if (spec.startsWith(".")) {
-          const target = path.resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec);
+          const target = path
+            .resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec)
+            .replace(/\.tsx?$/, "");
           // The canonical hash and the ciphertext format are the SDK's own
           // dependency-free leaf modules (no imports at all); the protocol
           // re-exports them rather than keep a second copy.
@@ -2235,7 +2241,7 @@ describe("studio-implementation.mdx", () => {
       expect(await computeContentRevision(fx.blocks)).toBe(fx.revision ?? fx.hash);
     }
     const content = fs.readFileSync(path.join(PKG, "src/v8/cli/content.ts"), "utf8");
-    expect(content).toMatch(/protocol\/canonical"/);
+    expect(content).toMatch(/protocol\/canonical\.ts"/);
   });
 
   it("si-07: the local poll interval is 2 seconds", async () => {

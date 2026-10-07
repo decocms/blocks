@@ -1,5 +1,5 @@
 /** The `deco` bin's entry: run the command line, then exit with its code. */
-import { runCli } from "./run";
+import { runCli } from "./run.ts";
 
 runCli(process.argv.slice(2)).then(
   (code) => {

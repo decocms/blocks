@@ -12,17 +12,17 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { SCHEMA_FORMAT } from "../../../protocol/types";
-import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "../builtins";
-import { CliError, type DecoPaths, packageVersion } from "../root";
+import { SCHEMA_FORMAT } from "../../../protocol/types.ts";
+import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "../builtins.ts";
+import { CliError, type DecoPaths, packageVersion } from "../root.ts";
 import {
   BUILT_IN_GROUPS,
   builtInDefinition,
   flatDefinition,
   legacyMultivariateValue,
   type ManifestGroup,
-} from "./builtinSchemas";
-import { createTsProject, type TsNode as Node, type TsType as Type } from "./tsProgram";
+} from "./builtinSchemas.ts";
+import { createTsProject, type TsNode as Node, type TsType as Type } from "./tsProgram.ts";
 import {
   awaitedOf,
   getJsDocTags,
@@ -35,7 +35,7 @@ import {
   stableFileId,
   toBase64,
   typeToJsonSchema,
-} from "./typeToSchema";
+} from "./typeToSchema.ts";
 
 const MANIFEST_GROUPS: ManifestGroup[] = [
   "sections",

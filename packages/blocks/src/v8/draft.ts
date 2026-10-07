@@ -3,7 +3,7 @@
  * `<host[:port]><path[?query]>@<version>` that names a draft, and the two
  * helpers that carry one from a `?__draft=` link into a cookie.
  */
-import type { DraftPointer } from "./types";
+import type { DraftPointer } from "./types.ts";
 
 /** The draft cookie's name, for frameworks whose cookie API has no Request (Next.js `cookies()`). */
 export const DRAFT_COOKIE = "deco-draft";

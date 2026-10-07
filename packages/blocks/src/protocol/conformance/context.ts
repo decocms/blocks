@@ -2,10 +2,10 @@
  * What every conformance case gets: a client, raw HTTP access, the endpoint's
  * `describe`, unique names and assertion helpers.
  */
-import { canonicalJson } from "../canonical";
-import { type ContentClient, createContentClient, readResponseJson } from "../client";
-import { ContentProtocolError } from "../errors";
-import type { DescribeResult } from "../types";
+import { canonicalJson } from "../canonical.ts";
+import { type ContentClient, createContentClient, readResponseJson } from "../client.ts";
+import { ContentProtocolError } from "../errors.ts";
+import type { DescribeResult } from "../types.ts";
 
 export interface ConformanceOptions {
   /** The endpoint URL, such as `http://127.0.0.1:4545/rpc`. */

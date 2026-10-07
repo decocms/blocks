@@ -1,8 +1,8 @@
 import path from "node:path";
-import { writeIfChanged } from "../content";
-import { consoleReporter, type Reporter } from "../log";
-import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "../root";
-import { generateSchema, type SchemaResult } from "./generate";
+import { writeIfChanged } from "../content.ts";
+import { consoleReporter, type Reporter } from "../log.ts";
+import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "../root.ts";
+import { generateSchema, type SchemaResult } from "./generate.ts";
 
 export interface SchemaOptions {
   root?: string;

@@ -7,7 +7,7 @@
  * Default senders, recipients and subjects belong to the site.
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
-import type { CreateEmailOptions, CreateEmailResponseSuccess } from "./types";
+import type { CreateEmailOptions, CreateEmailResponseSuccess } from "./types.ts";
 
 export interface ResendClientConfig {
   apiKey: string;

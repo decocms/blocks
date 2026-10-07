@@ -151,7 +151,7 @@ describe("AR-01 the root exports exactly the documented v8 surface", () => {
   });
 
   it("the root's v8 block re-exports only documented names (no extra types)", () => {
-    const names = exportedNames(readSource("src/index.ts"), "./v8/index");
+    const names = exportedNames(readSource("src/index.ts"), "./v8/index.ts");
     expect(names).toEqual([...DOCUMENTED_ROOT_VALUES, ...DOCUMENTED_ROOT_TYPES].sort());
   });
 });
@@ -159,9 +159,13 @@ describe("AR-01 the root exports exactly the documented v8 surface", () => {
 describe("AR-02 fetch, analytics and secrets live on their own subpaths", () => {
   it("package.json maps the subpaths to the v8 modules", () => {
     const pkg = JSON.parse(readSource("package.json"));
-    expect(pkg.exports["./fetch"]).toBe("./src/v8/fetch.ts");
-    expect(pkg.exports["./analytics"]).toBe("./src/v8/analytics.ts");
-    expect(pkg.exports["./secrets"]).toBe("./src/v8/secrets.ts");
+    for (const name of ["fetch", "analytics", "secrets"]) {
+      expect(pkg.exports[`./${name}`]).toEqual({
+        types: `./dist/v8/${name}.d.ts`,
+        source: `./src/v8/${name}.ts`,
+        default: `./dist/v8/${name}.js`,
+      });
+    }
   });
 
   it("each subpath exports exactly the documented runtime names", () => {

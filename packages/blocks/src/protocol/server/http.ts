@@ -4,7 +4,7 @@
  * only (Request, Response, CompressionStream), so it runs on Node, Bun,
  * Workers and Deno.
  */
-import { sha256Hex } from "../canonical";
+import { sha256Hex } from "../canonical.ts";
 
 /** The body was larger than allowed (after decompression). */
 export class BodyTooLargeError extends Error {

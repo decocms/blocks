@@ -2,9 +2,9 @@
  * Uploads beside the protocol: `PUT /assets/<name>`. These cases run only
  * when the harness passes `assetsEndpoint`.
  */
-import { ErrorCode } from "../../errors";
-import { assert, assertEqual, type ConformanceContext, rawErrorCode } from "../context";
-import type { ConformanceCase } from "./types";
+import { ErrorCode } from "../../errors.ts";
+import { assert, assertEqual, type ConformanceContext, rawErrorCode } from "../context.ts";
+import type { ConformanceCase } from "./types.ts";
 
 /** The smallest PNG header: enough bytes for an upload, never executed. */
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

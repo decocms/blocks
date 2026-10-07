@@ -1,10 +1,10 @@
 /**
  * The wire format: JSON-RPC 2.0 envelopes, batches, HTTP status codes, gzip.
  */
-import { ErrorCode } from "../../errors";
-import { MAX_BATCH_CALLS } from "../../types";
-import { assert, assertEqual, rawErrorCode } from "../context";
-import type { ConformanceCase } from "./types";
+import { ErrorCode } from "../../errors.ts";
+import { MAX_BATCH_CALLS } from "../../types.ts";
+import { assert, assertEqual, rawErrorCode } from "../context.ts";
+import type { ConformanceCase } from "./types.ts";
 
 const req = (id: unknown, method: string, params?: unknown) =>
   params === undefined ? { jsonrpc: "2.0", id, method } : { jsonrpc: "2.0", id, method, params };

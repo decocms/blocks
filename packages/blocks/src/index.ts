@@ -32,4 +32,4 @@ export {
   type Telemetry,
   type TelemetryConfig,
   type Variant,
-} from "./v8/index";
+} from "./v8/index.ts";

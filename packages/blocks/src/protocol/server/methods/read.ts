@@ -1,8 +1,8 @@
 /**
  * The three read methods: `describe`, `schema.get` and `blocks.list`.
  */
-import { publicKeyDerFromPem } from "../../ciphertext";
-import { limitExceeded, notFound, unavailable } from "../../errors";
+import { publicKeyDerFromPem } from "../../ciphertext.ts";
+import { limitExceeded, notFound, unavailable } from "../../errors.ts";
 import {
   ASSETS_URL_PREFIX,
   type BlocksListResult,
@@ -13,9 +13,9 @@ import {
   type ReadParams,
   SCHEMA_FORMAT,
   type SchemaGetResult,
-} from "../../types";
-import { loadCurrentContent } from "../content";
-import type { Core } from "../core";
+} from "../../types.ts";
+import { loadCurrentContent } from "../content.ts";
+import type { Core } from "../core.ts";
 
 const DEFAULT_SERVER = { name: "deco-blocks", version: "unknown" };
 

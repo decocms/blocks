@@ -3,4 +3,4 @@
  * Storefront GraphQL schema, one `<Operation>Query`/`<Operation>Mutation` and
  * `...Variables` pair per operation in `@decocms/apps-wake/storefront`.
  */
-export type * from "./utils/graphql/storefront.graphql.gen";
+export type * from "./utils/graphql/storefront.graphql.gen.ts";

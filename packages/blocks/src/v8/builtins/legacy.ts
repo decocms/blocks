@@ -16,7 +16,7 @@
  * - Legacy variants are saved as plain values; on the way to `multivariate`
  *   each one is wrapped in a `lazy` block, so only the chosen one runs.
  */
-import { isPlainObject, type JsonObject } from "../json";
+import { isPlainObject, type JsonObject } from "../json.ts";
 
 /**
  * Legacy type name → built-in. The one table: the runtime falls back to it,

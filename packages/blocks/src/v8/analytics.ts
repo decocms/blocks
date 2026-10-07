@@ -17,8 +17,8 @@
  * `navigator.sendBeacon` or a `POST`.
  */
 import { createElement, type ReactNode } from "react";
-import { HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data";
-import type { Analytics } from "./types";
+import { HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data.ts";
+import type { Analytics } from "./types.ts";
 
 const GLOBAL = "__decoAnalytics";
 

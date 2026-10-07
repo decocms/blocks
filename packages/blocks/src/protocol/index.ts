@@ -24,7 +24,7 @@ export {
   canonicalJson,
   computeContentRevision,
   sha256Hex,
-} from "./canonical";
+} from "./canonical.ts";
 export {
   assertSupportedEndpoint,
   type BatchCall,
@@ -32,8 +32,8 @@ export {
   type ContentClient,
   type ContentClientOptions,
   createContentClient,
-} from "./client";
-export * from "./errors";
-export * from "./keys";
-export * from "./storage";
-export * from "./types";
+} from "./client.ts";
+export * from "./errors.ts";
+export * from "./keys.ts";
+export * from "./storage.ts";
+export * from "./types.ts";

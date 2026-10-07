@@ -26,9 +26,9 @@
  * never repeated. Pass `retry: false` / `circuitBreaker: false` to turn them off.
  */
 import { createInstrumentedFetch } from "@decocms/blocks/fetch";
-import { DEFAULT_RESILIENCE_CONFIG } from "./utils/constants";
-import { sanitizeOutboundCookieHeader } from "./utils/cookieSanitizer";
-import { vtexOperationRouter } from "./utils/operationRouter";
+import { DEFAULT_RESILIENCE_CONFIG } from "./utils/constants.ts";
+import { sanitizeOutboundCookieHeader } from "./utils/cookieSanitizer.ts";
+import { vtexOperationRouter } from "./utils/operationRouter.ts";
 import type {
   Category,
   CrossSellingType,
@@ -46,7 +46,7 @@ import type {
   SimulationOrderForm,
   Sort,
   Suggestion,
-} from "./utils/types";
+} from "./utils/types.ts";
 
 export interface VtexClientConfig {
   /** The VTEX account name, e.g. `mystore`. */

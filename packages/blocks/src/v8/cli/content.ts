@@ -5,7 +5,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { computeContentRevision } from "../../protocol/canonical";
+import { computeContentRevision } from "../../protocol/canonical.ts";
 import {
   blockNameFromFile,
   checkBlockName,
@@ -13,11 +13,11 @@ import {
   isBlockFileName,
   resolveSpellings,
   type SpellingCandidate,
-} from "../../protocol/keys";
-import { isPlainObject } from "../json";
-import { LEGACY_ALIASES } from "./builtins";
-import { consoleReporter, type Reporter } from "./log";
-import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "./root";
+} from "../../protocol/keys.ts";
+import { isPlainObject } from "../json.ts";
+import { LEGACY_ALIASES } from "./builtins.ts";
+import { consoleReporter, type Reporter } from "./log.ts";
+import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "./root.ts";
 
 export interface ContentDiagnostic {
   /** The file name inside `.deco/blocks`. */

@@ -17,8 +17,8 @@
  * telemetry). A decrypted value stays on the server because it's resolved
  * there; tainting it (React's taint API) is up to the site's own code.
  */
-import { parseCiphertext } from "../ciphertext";
-import type { BlockFunction } from "../types";
+import { parseCiphertext } from "../ciphertext.ts";
+import type { BlockFunction } from "../types.ts";
 
 /** True in a browser, where a secret must never be decrypted. */
 function inBrowser(): boolean {

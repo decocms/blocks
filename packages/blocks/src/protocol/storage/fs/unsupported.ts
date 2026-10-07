@@ -4,9 +4,9 @@
  * filesystem storage needs `node:fs`; on Workers or in a browser, implement
  * `ContentStorage` over the storage you have instead.
  */
-import type { createFsStorage as nodeCreateFsStorage } from "./index";
+import type { createFsStorage as nodeCreateFsStorage } from "./index.ts";
 
-export type { FsStorage, FsStorageOptions } from "./index";
+export type { FsStorage, FsStorageOptions } from "./index.ts";
 
 export const createFsStorage: typeof nodeCreateFsStorage = () => {
   throw new Error(

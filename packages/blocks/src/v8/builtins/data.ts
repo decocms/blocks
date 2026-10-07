@@ -1,4 +1,4 @@
-import type { Analytics, Redirect, Telemetry } from "../types";
+import type { Analytics, Redirect, Telemetry } from "../types.ts";
 
 /** The hosted Deco CMS collector: where page views go when `collector` is left out. */
 export const HOSTED_ANALYTICS_COLLECTOR = "https://d.lilstts.com/events";

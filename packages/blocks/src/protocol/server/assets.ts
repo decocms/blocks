@@ -17,7 +17,7 @@ import {
   assetNameForType,
   isAcceptedAssetType,
   sanitizeAssetName,
-} from "../assets";
+} from "../assets.ts";
 import {
   type ContentProtocolError,
   ErrorCode,
@@ -27,11 +27,11 @@ import {
   readOnly,
   unauthorized,
   unsupported,
-} from "../errors";
-import type { ContentStorage } from "../storage";
-import { ASSETS_URL_PREFIX } from "../types";
-import { type AuthOptions, assertAuthOptions, authenticate } from "./auth";
-import { BodyEncodingError, BodyTooLargeError, jsonResponse, readBody } from "./http";
+} from "../errors.ts";
+import type { ContentStorage } from "../storage.ts";
+import { ASSETS_URL_PREFIX } from "../types.ts";
+import { type AuthOptions, assertAuthOptions, authenticate } from "./auth.ts";
+import { BodyEncodingError, BodyTooLargeError, jsonResponse, readBody } from "./http.ts";
 
 const STATUS: Record<number, number> = {
   [ErrorCode.Unauthorized]: 401,

@@ -6,6 +6,6 @@
  * and Deno. (`deco serve`'s asset uploads use `./assets`, which isn't public.)
  */
 
-export type { AuthOptions, AuthorizeResult } from "./auth";
-export type { ContentHandlerOptions } from "./core";
-export { type ContentHandler, createContentHandler } from "./handler";
+export type { AuthOptions, AuthorizeResult } from "./auth.ts";
+export type { ContentHandlerOptions } from "./core.ts";
+export { type ContentHandler, createContentHandler } from "./handler.ts";

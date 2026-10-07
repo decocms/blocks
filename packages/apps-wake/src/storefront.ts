@@ -10,4 +10,4 @@
  * const data = await wake.graphql<GetProductQuery, GetProductQueryVariables>(GetProduct, { productId: 1 });
  * ```
  */
-export * from "./utils/graphql/queries";
+export * from "./utils/graphql/queries.ts";

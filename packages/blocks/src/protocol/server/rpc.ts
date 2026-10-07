@@ -15,12 +15,12 @@ import {
   invalidRequest,
   limitExceeded,
   methodNotFound,
-} from "../errors";
-import { validateParams } from "../params";
-import { MAX_BATCH_CALLS, METHOD_NAMES, type MethodName, type RpcId } from "../types";
-import { type Core, toProtocolError } from "./core";
-import { blocksApply } from "./methods/apply";
-import { blocksList, describe, schemaGet } from "./methods/read";
+} from "../errors.ts";
+import { validateParams } from "../params.ts";
+import { MAX_BATCH_CALLS, METHOD_NAMES, type MethodName, type RpcId } from "../types.ts";
+import { type Core, toProtocolError } from "./core.ts";
+import { blocksApply } from "./methods/apply.ts";
+import { blocksList, describe, schemaGet } from "./methods/read.ts";
 
 const utf8 = new TextEncoder();
 

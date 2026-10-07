@@ -4,4 +4,4 @@
  * content revisions too; the protocol re-exports it so the CLI, the server
  * and the site editor share one definition.
  */
-export * from "../v8/canonical";
+export * from "../v8/canonical.ts";
