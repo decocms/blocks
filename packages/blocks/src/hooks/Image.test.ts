@@ -237,3 +237,30 @@ describe("getSrcSet — legacy decoims.com sources", () => {
 		for (const entry of result.split(", ")) expect(entry).toContain("&src=site/b.png");
 	});
 });
+
+describe("getOptimizedMediaUrl — Nuvemshop CDN", () => {
+	const SRC = "https://dcdn-us.mitiendanube.com/stores/008/336/778/products/3-76a3e88b446d6a938417912361162212-1024-1024.webp";
+	const at = (width: number) => getOptimizedMediaUrl({ originalSrc: SRC, width, fit: "cover" });
+	const base = SRC.replace(/-1024-1024\.webp$/, "");
+
+	it("serves the CDN's own fixed size that covers the width (no deco image proxy, which 403s it)", () => {
+		expect(at(50)).toBe(`${base}-50-0.webp`);
+		expect(at(287)).toBe(`${base}-320-0.webp`);
+		expect(at(480)).toBe(`${base}-480-0.webp`);
+		expect(at(574)).toBe(`${base}-640-0.webp`);
+		expect(at(700)).toBe(`${base}-1024-1024.webp`);
+		expect(at(4000)).toBe(`${base}-1024-1024.webp`);
+	});
+
+	it("keeps the original extension and works from any size variant", () => {
+		const jpg = "https://acdn-us.mitiendanube.com/stores/003/520/762/products/cadeira-1-480-0.jpg";
+		expect(getOptimizedMediaUrl({ originalSrc: jpg, width: 100, fit: "cover" })).toBe(
+			"https://acdn-us.mitiendanube.com/stores/003/520/762/products/cadeira-1-100-0.jpg",
+		);
+	});
+
+	it("leaves non-product Nuvemshop URLs to the default path", () => {
+		const logo = "https://dcdn-us.mitiendanube.com/stores/008/336/778/themes/common/logo.png";
+		expect(getOptimizedMediaUrl({ originalSrc: logo, width: 100, fit: "cover" })).toContain("/image?");
+	});
+});
