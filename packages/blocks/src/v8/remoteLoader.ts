@@ -9,13 +9,19 @@
  *   across restarts: every boot starts from the fallback.
  * - `update()` (the CMS calls it in the background, on first use and then
  *   every interval) reads `sites/<site>/latest.json`,
- *   `{ revision, schemaHash, publishedAt }`. When it names a revision other
- *   than the one this process last swapped in, and its `schemaHash` equals
- *   the fallback's, it downloads `sites/<site>/revisions/<revision>.json`,
+ *   `{ revision, schemaHash, publishedAt }`. Whoever is newer wins: when it
+ *   names a revision other than the one this process last swapped in, its
+ *   `schemaHash` equals the fallback's, and its `publishedAt` is later than
+ *   the fallback's `builtAt` (the time `deco content` generated it), it
+ *   downloads `sites/<site>/revisions/<revision>.json`,
  *   `{ revision, schemaHash, blocks }`, and swaps it in whole. Otherwise, and
  *   on any error, memory stays as it is. A fallback without a `schemaHash`
- *   never swaps. There's no ordering of pointers and no comparison with the
- *   fallback's content: it follows the pointer it reads.
+ *   never swaps; one without a `builtAt` (a custom loader, an older content
+ *   module) counts as the oldest. Studio writes `publishedAt` on Publish, on
+ *   "Make current" (a rollback) and on Resync, so a rollback wins over the
+ *   bundles built before it and a later deploy wins over the rollback.
+ *   Pointers aren't ordered among themselves, and the fallback's content is
+ *   never compared: only the two timestamps are.
  * - In development (`NODE_ENV=development`), it never swaps, so local files win.
  * - A release larger than `MAX_SNAPSHOT_BYTES` is refused while it downloads,
  *   before it's buffered whole (a Worker isolate has 128 MB).
@@ -96,6 +102,9 @@ class RemoteLoader implements Loader {
     const latest = await this.#latest(site);
     // Another schema: keep what this process serves (the fallback, or the last swap).
     if (latest.schemaHash !== fallback.schemaHash) return { updated: false };
+    // The bundle is newer: keep what this process serves.
+    // OPEN: a process that already swapped a release in keeps it (memory stays as it is).
+    if (!isNewer(latest.publishedAt, fallback.builtAt)) return { updated: false };
     if (latest.revision === this.#current?.revision) return { updated: false };
     const blocks = await this.#revision(site, latest);
     const next: Snapshot = { revision: latest.revision, blocks, schemaHash: latest.schemaHash };
@@ -124,7 +133,8 @@ class RemoteLoader implements Loader {
       !REVISION.test(body.revision) ||
       typeof body.schemaHash !== "string" ||
       !SCHEMA_HASH.test(body.schemaHash) ||
-      typeof body.publishedAt !== "string"
+      typeof body.publishedAt !== "string" ||
+      Number.isNaN(Date.parse(body.publishedAt))
     ) {
       throw new Error("latest.json: unexpected format");
     }
@@ -206,6 +216,16 @@ export function remoteLoader(fallback: Snapshot | Loader, options: RemoteLoaderO
 
 export function resetRemoteLoaders(): void {
   clearGlobals(INSTANCE_PREFIX);
+}
+
+/**
+ * Whether a release published at `publishedAt` is newer than content built at
+ * `builtAt`. Content without a `builtAt` is the oldest.
+ * OPEN: a `builtAt` that doesn't parse as a date counts as missing.
+ */
+function isNewer(publishedAt: string, builtAt: string | undefined): boolean {
+  const built = builtAt === undefined ? Number.NaN : Date.parse(builtAt);
+  return Number.isNaN(built) || Date.parse(publishedAt) > built;
 }
 
 /** No credentials: delivery is public. */

@@ -27,12 +27,13 @@ afterEach(() => {
 });
 
 /** The bundled content module: a content-hash revision and the schema it was built with. */
-function bundled(schemaHash: string | null = SCHEMA): Snapshot {
+function bundled(schemaHash: string | null = SCHEMA, builtAt?: string): Snapshot {
   const snapshot: Snapshot = {
     ...docsSnapshot(),
     aliases: { "website/sections/Seo.tsx": "seo" },
   };
   if (schemaHash !== null) snapshot.schemaHash = schemaHash;
+  if (builtAt !== undefined) snapshot.builtAt = builtAt;
   return snapshot;
 }
 
@@ -58,7 +59,12 @@ function delivery() {
     requests,
     urls: () => requests.map((r) => r.url),
     /** Studio's publish: the revision, then the pointer. */
-    publish(sha: string, title: string, schemaHash = SCHEMA) {
+    publish(
+      sha: string,
+      title: string,
+      schemaHash = SCHEMA,
+      publishedAt = "2026-10-06T12:00:00.000Z",
+    ) {
       objects.set(`/sites/acme/revisions/${sha}.json`, {
         revision: sha,
         schemaHash,
@@ -67,7 +73,7 @@ function delivery() {
       objects.set("/sites/acme/latest.json", {
         revision: sha,
         schemaHash,
-        publishedAt: "2026-10-06T12:00:00.000Z",
+        publishedAt,
       });
     },
     /** Studio's "Make current": rewrites the pointer only. */
@@ -127,7 +133,7 @@ describe("remoteLoader: update()", () => {
       schemaHash: SCHEMA,
       blocks: fallback.blocks,
     });
-    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "x" });
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "2026-10-06T12:00:00.000Z" });
     const loader = remoteLoader(fallback, { site: SITE });
     expect(await loader.update?.()).toEqual({ updated: true });
     expect(api.urls()).toHaveLength(2);
@@ -147,7 +153,7 @@ describe("remoteLoader: update()", () => {
     ]);
   });
 
-  it("follows the pointer it reads, older revisions included (a rollback), with no ordering", async () => {
+  it("follows the pointer it reads, older revisions included (a rollback), with no ordering among pointers", async () => {
     const api = delivery();
     api.publish(SHA_1, "One");
     api.publish(SHA_2, "Two");
@@ -295,6 +301,88 @@ describe("remoteLoader: update()", () => {
     const loader = remoteLoader(failing, { site: SITE });
     await expect(loader.update?.()).rejects.toThrow("no key");
     expect(api.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's builtAt)", () => {
+  const T = (hour: number) => `2026-10-07T${String(hour).padStart(2, "0")}:00:00.000Z`;
+
+  it("publish, then deploy: the bundle built later wins; nothing is downloaded", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(10));
+    const fallback = bundled(SCHEMA, T(11));
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(api.urls()).toEqual([LATEST_URL]);
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("deploy, then publish: the release published later wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(12));
+    const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).blocks).toEqual(blocksAt("Published"));
+  });
+
+  it("a publish at the bundle's exact builtAt keeps the bundle", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(11));
+    const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+  });
+
+  it("rollback after a deploy: Make current writes publishedAt = now, so the CDN wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "One", SCHEMA, T(9));
+    const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: T(12) });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).revision).toBe(SHA_1);
+  });
+
+  it("deploy after a rollback: the bundle built later wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "One", SCHEMA, T(9));
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: T(12) }); // the rollback
+    const fallback = bundled(SCHEMA, T(13));
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("a newer release with another schema keeps the bundle", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", OTHER_SCHEMA, T(12));
+    const fallback = bundled(SCHEMA, T(11));
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("a bundle without builtAt is the oldest: a release with its schema wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, "1970-01-01T00:00:00.000Z");
+    const loader = remoteLoader(bundled(SCHEMA), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).revision).toBe(SHA_1);
+  });
+
+  it("a fallback loader's builtAt is read from what it loads", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(10));
+    const custom: Loader = { load: async () => bundled(SCHEMA, T(11)) };
+    const loader = remoteLoader(custom, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+  });
+
+  it("refuses a latest.json whose publishedAt isn't a date", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "yesterday-ish" });
+    const loader = remoteLoader(bundled(), { site: SITE });
+    await expect(loader.update?.()).rejects.toThrow(/latest\.json: unexpected format/);
   });
 });
 

@@ -1622,7 +1622,7 @@ describe("hosted-releases-internals", () => {
     expect(sdk).not.toMatch(/webhook|addEventListener\(|createServer/i);
   });
 
-  it("HRI-6: no ordering of pointers: an older publishedAt is followed like any other", async () => {
+  it("HRI-6: no ordering among pointers: an older publishedAt is followed like any other (it's compared only with the bundle's builtAt)", async () => {
     const api = deliveryApi();
     const loader = remote(docsSnapshot());
     const five = await hashed("Five");
@@ -1742,5 +1742,92 @@ describe("hosted-releases-internals", () => {
     expect(createCMS({ blocks: docsBlocks(), content, site: SITE })).not.toBe(a);
     expect(remoteLoader(content, { site: SITE })).not.toBe(loaderA);
     expect(typeof (root as Record<string, unknown>).resetForTests).toBe("function");
+  });
+
+  describe("HRI-16..HRI-21: whoever is newer wins (latest.json publishedAt vs the bundle's builtAt)", () => {
+    const at = (hour: number) => `2026-10-07T${String(hour).padStart(2, "0")}:00:00.000Z`;
+    /** The content module `deco content` wrote at `builtAt`. */
+    const built = (builtAt?: string): Snapshot =>
+      builtAt === undefined ? docsSnapshot() : { ...docsSnapshot(), builtAt };
+    /** Studio's Publish / Make current / Resync, at `publishedAt`. */
+    async function release(
+      api: ReturnType<typeof deliveryApi>,
+      title: string,
+      publishedAt: string,
+      schemaHash = SCHEMA,
+    ) {
+      const snapshot = await hashed(title);
+      api.publish(snapshot, undefined, schemaHash);
+      api.setLatest({ revision: snapshot.revision, schemaHash, publishedAt });
+      return snapshot;
+    }
+
+    it("HRI-16: publish, then deploy: the bundle wins", async () => {
+      const api = deliveryApi();
+      await release(api, "Published", at(10));
+      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
+      expect(await cms.update()).toEqual({ updated: false });
+      expect(api.assetFetches()).toBe(0);
+      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    });
+
+    it("HRI-17: deploy, then publish: the CDN wins", async () => {
+      const api = deliveryApi();
+      await release(api, "Published", at(12));
+      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await titleOf(cms.forRelease())).toBe("Published");
+    });
+
+    it("HRI-18: rollback after deploy: Make current writes publishedAt = now, so the CDN wins", async () => {
+      const api = deliveryApi();
+      const old = await release(api, "Old", at(9));
+      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
+      expect(await cms.update()).toEqual({ updated: false });
+      api.setLatest({ revision: old.revision, schemaHash: SCHEMA, publishedAt: at(12) });
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await titleOf(cms.forRelease())).toBe("Old");
+    });
+
+    it("HRI-19: deploy after rollback: the bundle wins", async () => {
+      const api = deliveryApi();
+      const old = await release(api, "Old", at(9));
+      api.setLatest({ revision: old.revision, schemaHash: SCHEMA, publishedAt: at(12) });
+      const cms = createCMS({ blocks: docsBlocks(), content: built(at(13)), site: SITE });
+      expect(await cms.update()).toEqual({ updated: false });
+      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    });
+
+    it("HRI-20: a newer release built for another schema: the bundle wins", async () => {
+      const api = deliveryApi();
+      await release(api, "Published", at(12), "6".repeat(64));
+      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
+      expect(await cms.update()).toEqual({ updated: false });
+      expect(api.assetFetches()).toBe(0);
+      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    });
+
+    it("HRI-21: a bundle without builtAt (custom loader, older module) is the oldest: the CDN wins", async () => {
+      const api = deliveryApi();
+      await release(api, "Published", "1970-01-01T00:00:00.000Z");
+      const cms = createCMS({ blocks: docsBlocks(), content: built(), site: SITE });
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await titleOf(cms.forRelease())).toBe("Published");
+      resetForTests();
+      const custom: Loader = { load: async () => built() };
+      const viaLoader = createCMS({ blocks: docsBlocks(), content: remote(custom) });
+      expect(await viaLoader.update()).toEqual({ updated: true });
+    });
+
+    it("HRI-16..21: the SDK reads no git API and no environment besides NODE_ENV", () => {
+      const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
+      expect(sdk).not.toMatch(/github|rev-parse|GIT_[A-Z]/i);
+      expect(new Set([...sdk.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]))).toEqual(
+        new Set(["NODE_ENV"]),
+      );
+      const cli = fs.readFileSync(path.join(HERE, "../cli/content.ts"), "utf8");
+      expect(cli).toMatch(/builtAt: string = new Date\(\)\.toISOString\(\)/);
+      expect(cli).not.toMatch(/process\.env|execSync|git log/);
+    });
   });
 });

@@ -34,6 +34,13 @@ export type Snapshot = {
    * `schemaHash` equals the bundled content's; without one, never.
    */
   schemaHash?: string;
+  /**
+   * When `deco content` generated this content (an ISO 8601 string, the build
+   * machine's clock). A hosted release is swapped in only when its
+   * `publishedAt` is later; without one (a custom loader, an older content
+   * module), the bundled content counts as the oldest.
+   */
+  builtAt?: string;
 };
 
 /**

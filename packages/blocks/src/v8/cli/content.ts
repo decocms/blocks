@@ -154,7 +154,8 @@ function inlinedFiles(saved: SavedBlocks): string[] {
 /**
  * The `.deco` folder's identity for `createCMS` (one instance per folder, so
  * a hot-reloaded module keeps its instance): its path from the repository
- * root, or `.deco` outside a repository. Relative, so builds are reproducible.
+ * root, or `.deco` outside a repository. Relative, so it doesn't depend on
+ * where the repository is checked out.
  */
 export function contentRoot(deco: string): string {
   for (let dir = path.dirname(deco); ; dir = path.dirname(dir)) {
@@ -195,12 +196,16 @@ async function readSchemaHash(schemaFile: string): Promise<string | undefined> {
 
 /**
  * The source of `.deco/blocks.gen.ts` for a set of saved blocks, with the
- * `schemaHash` of the schema it was built with when there is one.
+ * `schemaHash` of the schema it was built with when there is one, and
+ * `builtAt`: when it was generated (the build machine's clock, ISO 8601). A
+ * hosted release replaces the bundled content only when it was published
+ * later (see ../remoteLoader.ts).
  */
 export async function renderContentModule(
   saved: SavedBlocks,
   root = ".deco",
   schemaHash?: string,
+  builtAt: string = new Date().toISOString(),
 ): Promise<string> {
   const names = Object.keys(saved.blocks).sort();
   const revision = await computeContentRevision(saved.blocks);
@@ -230,12 +235,14 @@ export async function renderContentModule(
     "const content: {",
     "  revision: string;",
     ...(schemaHash === undefined ? [] : ["  schemaHash: string;"]),
+    "  builtAt: string;",
     "  blocks: Record<string, unknown>;",
     "  aliases: Record<string, string>;",
     "  root: string;",
     "} = {",
     `  revision: ${JSON.stringify(revision)},`,
     ...(schemaHash === undefined ? [] : [`  schemaHash: ${JSON.stringify(schemaHash)},`]),
+    `  builtAt: ${JSON.stringify(builtAt)},`,
     "  blocks: {",
     ...entries,
     "  },",
@@ -257,7 +264,12 @@ export interface ContentResult {
   /** The hash of `.deco/schema.gen.json`, written into the module; absent without one. */
   schemaHash?: string;
   count: number;
-  /** False when the file already had this content. */
+  /** When the module was generated; written into it as `builtAt`. */
+  builtAt: string;
+  /**
+   * False when the file already had this content. The module carries
+   * `builtAt`, so it changes on every run unless two runs share a millisecond.
+   */
   changed: boolean;
   /** Files written into the module instead of imported (see `inlinedFiles`). */
   inlined: string[];
@@ -286,13 +298,15 @@ export async function writeContent(paths: DecoPaths): Promise<ContentResult> {
     throw new CliError(errors.map((d) => `.deco/blocks/${d.file}: ${d.message}`).join("\n"));
   }
   const schemaHash = await readSchemaHash(paths.schema);
-  const source = await renderContentModule(saved, contentRoot(paths.deco), schemaHash);
+  const builtAt = new Date().toISOString();
+  const source = await renderContentModule(saved, contentRoot(paths.deco), schemaHash, builtAt);
   const changed = writeIfChanged(paths.content, source);
   return {
     root: paths.root,
     file: paths.content,
     revision: await computeContentRevision(saved.blocks),
     ...(schemaHash === undefined ? {} : { schemaHash }),
+    builtAt,
     count: Object.keys(saved.blocks).length,
     changed,
     inlined: inlinedFiles(saved),

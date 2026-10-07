@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalJson, computeContentRevision, sha256Hex } from "../canonical";
 import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 import { LEGACY_ALIASES } from "./builtins";
@@ -10,7 +10,10 @@ import { content, readSavedBlocks, renderContentModule, writeContent } from "./c
 import { decoPaths } from "./root";
 
 let fixture: Fixture;
-afterEach(() => fixture?.remove());
+afterEach(() => {
+  vi.useRealTimers();
+  fixture?.remove();
+});
 
 const home = { __resolveType: "page", name: "Home", path: "/", sections: [] };
 
@@ -235,18 +238,34 @@ describe("the content module", () => {
     expect(mod.default.aliases).toEqual(LEGACY_ALIASES);
   });
 
-  it("only rewrites the file when it changes", async () => {
+  it("stamps builtAt with the build machine's clock on every run (no git, no env)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T10:00:00.000Z"));
     fixture = createFixture({ ".deco/blocks/HomePage.json": home });
     const paths = decoPaths(fixture.root);
-    expect((await writeContent(paths)).changed).toBe(true);
+    const first = await writeContent(paths);
+    expect(first.builtAt).toBe("2026-10-07T10:00:00.000Z");
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain('  builtAt: "2026-10-07T10:00:00.000Z",');
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain("  builtAt: string;");
+    const mod = await import(/* @vite-ignore */ pathToFileURL(first.file).href);
+    expect(mod.default.builtAt).toBe("2026-10-07T10:00:00.000Z");
+    // Same content, same millisecond: nothing to write.
     expect((await writeContent(paths)).changed).toBe(false);
-    fixture.write(".deco/blocks/Other.json", {
-      __resolveType: "page",
-      name: "O",
-      path: "/o",
-      sections: [],
-    });
-    expect((await writeContent(paths)).changed).toBe(true);
+    // Same content, later build: a new stamp, so a later deploy wins over earlier publishes.
+    vi.setSystemTime(new Date("2026-10-07T11:00:00.000Z"));
+    const later = await writeContent(paths);
+    expect(later.changed).toBe(true);
+    expect(later.revision).toBe(first.revision);
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain('  builtAt: "2026-10-07T11:00:00.000Z",');
+  });
+
+  it("renders the same module for the same content and builtAt", async () => {
+    fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    const saved = readSavedBlocks(decoPaths(fixture.root).blocks);
+    const at = "2026-10-07T10:00:00.000Z";
+    expect(await renderContentModule(saved, ".deco", undefined, at)).toBe(
+      await renderContentModule(saved, ".deco", undefined, at),
+    );
   });
 
   it("refuses to write a module from unreadable content", async () => {

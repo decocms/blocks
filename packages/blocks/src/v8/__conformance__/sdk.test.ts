@@ -291,13 +291,13 @@ export { r1, r2, r3 };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash? }", () => {
+  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, builtAt? }", () => {
     const errors = typecheck({
       "snapshot.ts": `
 import type { Snapshot } from "@decocms/blocks";
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assert = <T extends true>() => {};
-assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string }>>();
+assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; builtAt?: string }>>();
 `,
     });
     expect(errors).toEqual([]);
