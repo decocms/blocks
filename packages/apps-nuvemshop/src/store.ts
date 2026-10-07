@@ -93,7 +93,19 @@ export async function storeFetch(
  * never take one from props. Fails closed: every `LS.customer = N;` in the page must
  * agree, so user-controlled text rendered in the page can't override it.
  */
-export async function sessionCustomerId(): Promise<number | null> {
+const sessionIds = new WeakMap<Request, Promise<number | null>>();
+export function sessionCustomerId(): Promise<number | null> {
+  // One /account/ fetch per request, however many account loaders run.
+  const req = RequestContext.current?.request;
+  if (!req) return lookupSessionCustomerId();
+  const hit = sessionIds.get(req);
+  if (hit) return hit;
+  const p = lookupSessionCustomerId();
+  sessionIds.set(req, p);
+  return p;
+}
+
+async function lookupSessionCustomerId(): Promise<number | null> {
   if (!storeCookies()) return null;
   const page = await storeFetch("/account/");
   if (page.status !== 200) return null;

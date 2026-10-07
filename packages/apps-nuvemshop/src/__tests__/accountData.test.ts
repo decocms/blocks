@@ -5,6 +5,7 @@ import addAddress from "../actions/account/addAddress";
 import updateAddress from "../actions/account/updateAddress";
 import updateProfile from "../actions/account/updateProfile";
 import { configureNuvemshop, setNuvemshopFetch } from "../client";
+import addresses from "../loaders/account/addresses";
 import order from "../loaders/account/order";
 import orders from "../loaders/account/orders";
 import profile from "../loaders/account/profile";
@@ -134,11 +135,31 @@ describe("session", () => {
       () => orders({}),
       () => order({ orderId: 1 }),
       () => addAddress(ADDR),
+      () => updateProfile({ name: "A" }),
+      () => updateAddress({ ...ADDR, addressId: 10 }),
+      () => addresses({}),
     ]) {
       expect(await as(() => msg(run()))).toBe("401 Faça login para continuar.");
       expect(await as(() => msg(run()), null)).toBe("401 Faça login para continuar.");
     }
     expect(upstream()).toHaveLength(0);
+  });
+
+  it("real logged-in /account/ snippet (verified on a live store) parses", async () => {
+    mock(
+      () => json({}),
+      "<script>\nLS.customer = 350524152;\nLS.customerHasPriceTables = false;\n</script>",
+    );
+    expect(await as(() => sessionCustomerId())).toBe(350524152);
+  });
+
+  it("memoizes the session lookup per request", async () => {
+    mock(() => json({ id: 7, name: "A", email: "e", addresses: [] }));
+    await as(async () => {
+      await profile({});
+      await addresses({});
+    });
+    expect(calls.filter((c) => isAccountPage(c.url))).toHaveLength(1);
   });
 
   it("conflicting LS.customer values fail closed; single value works; non-store cookies are not forwarded", async () => {
