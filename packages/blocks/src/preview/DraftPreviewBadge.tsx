@@ -39,7 +39,6 @@
  * revealing via `useEffect` only when confirmed unframed, avoids both.
  */
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { DECO_MARK_DATA_URI } from "./decoMark";
 
 /**
  * Query param that enters/leaves draft mode. Kept as a local literal so this
@@ -142,6 +141,9 @@ export function DraftPreviewBadge({ pointer }: DraftPreviewBadgeProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [visible, setVisible] = useState(false);
+  // The brand mark is a ~21KB base64 PNG: load it only once the badge actually
+  // reveals (draft mode, unframed) so it stays out of every published bundle.
+  const [mark, setMark] = useState<string | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Reveal only after mount, and only when confirmed unframed — fails
@@ -150,7 +152,9 @@ export function DraftPreviewBadge({ pointer }: DraftPreviewBadgeProps) {
   // only, runs once) is the sole place `isFramed()` is ever evaluated. See
   // the module doc for why the alternative (render then hide) is worse.
   useEffect(() => {
-    if (!isFramed()) setVisible(true);
+    if (isFramed()) return;
+    setVisible(true);
+    void import("./decoMark").then((m) => setMark(m.DECO_MARK_DATA_URI));
   }, []);
 
   // Dismiss on outside click or Escape — standard popover behaviour, and it
@@ -252,7 +256,7 @@ export function DraftPreviewBadge({ pointer }: DraftPreviewBadgeProps) {
         }}
       >
         <img
-          src={DECO_MARK_DATA_URI}
+          src={mark}
           alt=""
           width={18}
           height={18}
