@@ -71,6 +71,15 @@ describe("toBlogPosting", () => {
     );
   });
 
+  it("normalizes full timestamps and bare dates alike", () => {
+    expect(toBlogPosting(post({ date: "2025-10-31T15:10:01Z" })).datePublished).toBe(
+      "2025-10-31T15:10:01.000Z",
+    );
+    expect(toBlogPosting(post({ date: "2026-08-14" })).datePublished).toBe(
+      "2026-08-14T08:00:00.000Z",
+    );
+  });
+
   it("drops dates that can't be parsed instead of emitting invalid structured data", () => {
     const node = toBlogPosting(post({ date: "not a date", dateModified: "soon" }));
     expect("datePublished" in node).toBe(false);
