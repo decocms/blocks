@@ -191,6 +191,80 @@ describe("typeToJsonSchema with intersection types", () => {
   }, 30_000);
 });
 
+// Sites compile with `strict`, so an optional prop is `T | undefined` (nullable).
+function strictProject() {
+  return new Project({
+    useInMemoryFileSystem: true,
+    compilerOptions: { skipLibCheck: true, strict: true },
+  });
+}
+
+describe("typeToJsonSchema underscore-prefixed props", () => {
+  it("keeps `__title` and `_id` (admin label, dynamic-options key) but not __resolveType", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        /** @title {{__title}} */
+        export interface Rule {
+          /**
+           * @title Título (opcional)
+           * @description Título do CMS.
+           */
+          __title?: string;
+          /**
+           * @title Regulamento
+           * @format dynamic-options
+           * @options site/loaders/admin/regulation.ts
+           */
+          _id?: string;
+          __resolveType?: string;
+          pathname: string;
+        }
+        export interface Props { rules: Rule[] }
+      `,
+    );
+    const item = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType()).properties.rules.items;
+    expect(Object.keys(item.properties)).toEqual(["__title", "_id", "pathname"]);
+    expect(item.properties.__title).toEqual({
+      type: "string",
+      nullable: true,
+      title: "Título (opcional)",
+      description: "Título do CMS.",
+    });
+    expect(item.properties._id).toMatchObject({
+      type: "string",
+      format: "dynamic-options",
+      options: "site/loaders/admin/regulation.ts",
+    });
+    expect(item.required).toEqual(["pathname"]);
+  }, 30_000);
+
+  it("emits a hidden literal discriminator with const and an equal default", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        export interface Props {
+          /** @hide true */
+          __type: "image";
+          src: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.__type).toEqual({
+      type: "string",
+      const: "image",
+      default: "image",
+      hide: "true",
+      title: "__type",
+    });
+    // Hidden, so never required (the form could not fill it in).
+    expect(schema.required).toEqual(["src"]);
+  }, 30_000);
+});
+
 describe("typeToJsonSchema Section-typed props", () => {
   // The framework's `Section` is opaque (`export type Section = any`), so a
   // Section-typed prop is a "pick any section" reference emitted as a
