@@ -100,9 +100,15 @@ export interface PLPProps {
 	 * @description Do not return out-of-stock items.
 	 */
 	hideUnavailableItems?: boolean;
-	/** Injected by CMS resolve — the matched page path (e.g. "/pisos/piso-vinilico-clicado") */
+	/**
+	 * Injected by CMS resolve — the matched page path (e.g. "/pisos/piso-vinilico-clicado")
+	 * @ignore
+	 */
 	__pagePath?: string;
-	/** Injected by CMS resolve — the full request URL (e.g. "https://site.com/s?q=telha&sort=price:asc") */
+	/**
+	 * Injected by CMS resolve — the full request URL (e.g. "https://site.com/s?q=telha&sort=price:asc")
+	 * @ignore
+	 */
 	__pageUrl?: string;
 }
 
