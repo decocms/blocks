@@ -265,6 +265,82 @@ describe("typeToJsonSchema underscore-prefixed props", () => {
   }, 30_000);
 });
 
+describe("typeToJsonSchema with a recursive named type", () => {
+  // A navigation tree written as `interface Link { submenu?: Link[] }`. The
+  // cycle used to collapse to `{ type: "object" }`, so the admin edited the
+  // submenu as an object instead of a list of links. deco-cx/deco emits the
+  // type once as a definition and references it from inside the cycle.
+  const source = `
+    /** @title {{name}} */
+    export interface Link {
+      /** @title Name */
+      name: string;
+      /** @title Submenu */
+      submenu?: Link[];
+    }
+    export interface Props { links: Link[] }
+  `;
+  const refId = `${Buffer.from("props.ts").toString("base64")}@Link`;
+
+  it("references the type from inside the cycle and registers its definition", () => {
+    const sf = strictProject().createSourceFile("/props.ts", source);
+    const definitions: Record<string, any> = {};
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType(), new Set(), {
+      definitions,
+      rootDir: "/",
+    });
+
+    const item = schema.properties.links.items;
+    expect(item.title).toBe("{{name}}");
+    expect(item.properties.submenu).toEqual({
+      type: "array",
+      items: { $ref: `#/definitions/${refId}` },
+      nullable: true,
+      title: "Submenu",
+    });
+
+    // The definition the $ref points at is the full type, itself recursive.
+    expect(Object.keys(definitions)).toEqual([refId]);
+    expect(definitions[refId].title).toBe("{{name}}");
+    expect(definitions[refId].required).toEqual(["name"]);
+    expect(definitions[refId].properties.submenu.items).toEqual({
+      $ref: `#/definitions/${refId}`,
+    });
+  }, 30_000);
+
+  it("falls back to a bare object when there is no definitions sink", () => {
+    const sf = strictProject().createSourceFile("/props.ts", source);
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.links.items.properties.submenu).toEqual({
+      type: "object",
+      nullable: true,
+      title: "Submenu",
+    });
+  }, 30_000);
+});
+
+describe("typeToJsonSchema JSDoc tag parsing", () => {
+  it("ignores `@description:` (colon after the tag name), as deco-cx/deco does", () => {
+    const sf = strictProject().createSourceFile(
+      "/props.ts",
+      `
+        export interface Props {
+          /**
+           * @title Título
+           * @description: Nome que irá aparecer na pílula.
+           */
+          name: string;
+          /** @description Kept. */
+          path: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.name).toEqual({ type: "string", title: "Título" });
+    expect(schema.properties.path.description).toBe("Kept.");
+  }, 30_000);
+});
+
 describe("typeToJsonSchema Section-typed props", () => {
   // The framework's `Section` is opaque (`export type Section = any`), so a
   // Section-typed prop is a "pick any section" reference emitted as a
