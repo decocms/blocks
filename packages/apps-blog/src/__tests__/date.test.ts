@@ -146,8 +146,21 @@ describe("toISODateTime", () => {
     expect(toISODateTime("2025-06-01T09:00:00+02:00")).toBe("2025-06-01T07:00:00.000Z");
   });
 
+  it("keeps the Unix epoch instead of mistaking it for a failure", () => {
+    expect(toISODateTime("1970-01-01T00:00:00Z")).toBe("1970-01-01T00:00:00.000Z");
+  });
+
   it("returns undefined for an unparseable value", () => {
     expect(toISODateTime("")).toBeUndefined();
     expect(toISODateTime("not a date")).toBeUndefined();
+  });
+
+  it("rejects an impossible calendar date instead of rolling it over", () => {
+    expect(toISODateTime("2024-02-31")).toBeUndefined();
+    expect(toISODateTime("2024-02-31T10:00:00Z")).toBeUndefined();
+  });
+
+  it("rejects non-ISO strings that `Date` would read in server-local time", () => {
+    expect(toISODateTime("June 1, 2025")).toBeUndefined();
   });
 });
