@@ -1,6 +1,6 @@
 # Gotchas from the site migrations
 
-Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack`, a Next.js storefront on VTEX, a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (the last three private, so no hashes; FastStore specifics are in `faststore.md`). Commit hashes refer to the two public repos.
+Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack`, two Next.js storefronts on VTEX, a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (the last five private, so no hashes; FastStore specifics are in `faststore.md`). Commit hashes refer to the two public repos.
 
 ## Before you run the script
 
@@ -56,11 +56,15 @@ v8 has no invoke endpoint. Every call the browser made through `/deco/invoke` be
 
 ## Next.js App Router
 
-- **`transpilePackages: ['@decocms/blocks']`** while the published package ships `.ts` source (see SKILL.md, step 1). A linked local checkout ships `dist/` and hides this; so does every parity run made against it.
+- **`transpilePackages: ['@decocms/blocks']`** only while the installed package's `exports` point at `.ts` source (see SKILL.md, step 1); `8.1.0-next.7` ships `dist/` and needs none. A linked local checkout ships `dist/` and hides the difference; so does every parity run made against it.
 - **Drafts on Pages Router SSG pages** (no proxy available, as on FastStore): Next 16's compiled pages runtimes inline `tryGetPreviewData`, so a `require.cache` patch never runs. See `faststore.md`.
 - **Drafts on static pages.** `force-static`/ISR pages get stubbed `cookies()`, so they can't read the draft pointer. Divert drafted requests (`?__draft=` or the draft cookie) in `proxy.ts` onto a dynamic route group that binds the pointer, and 404 direct hits on that internal route. Send `Cache-Control: no-store, private` and `X-Robots-Tag: noindex` on both signals.
+- **The proxy runs on every request: keep the CMS out of it for ordinary traffic.** Ask `cms.draftPointer`/`cms.draftCookie` only when the request has `?__draft=` or the `__deco_draft` cookie (the SDK doesn't export the names yet; pin them in a test). Give the proxy its own `createCMS` handle with `blocks: {}` and the same options as the app's (one shared options module, since a second call with other options keeps the first): the draft helpers read only the `CMS` settings block, so the block map, its section loaders and what they import (a GraphQL engine) leave the proxy bundle. Measured on one store: 2.2 MB to 1.5 MB, traced files 3,245 to 364. The content module still lands there.
+- **A pointer that doesn't parse.** `cms.draftPointer` returns the raw `?__draft=`/cookie value and `cms.forDraft` throws on one that doesn't parse, so `?__draft=junk` on a preview host answers 500. Treat `parseDraftPointer(pointer) === null` as no draft, in the proxy and the page.
+- **Views wrapped in `next/dynamic`.** The script types each section from its view (`PropsOf<view>`). A lazy view that re-exports a `next/dynamic` wrapper loses its props type, and its form collapses. Type those sections from the component module (`section<import("…").Props>(…)`) and diff the forms against v7's.
+- **`list('page')` order.** It sorts by block name; v7 listed saved pages in file order. Output that lists pages in order (a sitemap) has to keep v7's order explicitly.
 - **List pages once per revision.** `list('page')` expands every page's saved-block references; on a site with hundreds of pages that is tens of milliseconds of CPU. Keep the routable list per revision (a revision never changes, a draft has its own) and hand the same array to `matchRoute` so it reuses its lookup. Health and readiness probes go through the same cache, never a fresh `list`.
-- **Head meta order.** If v7 emitted `theme-color`/`color-scheme` after the root layout's metas on some routes, that was a race with Next's viewport resolution. To keep the order deterministic, render those tags from the segment layout (React hoists in tree order) rather than approving a reorder.
+- **Head meta order.** If v7 emitted `theme-color`/`color-scheme` after the root layout's metas on some routes, that was a race with Next's viewport resolution. To keep the order deterministic, render those tags from the segment layout (React hoists in tree order) rather than approving a reorder. The race can go the other way: where v7 had the viewport tags *before* the root layout's metas and v8's faster shell now wins, a segment layout can't move them earlier. Look for a deterministic fix (the tags rendered ahead of the root layout's metas on every route, checked against every route's head), and keep the reorder pending, with that reasoning, if none holds.
 - **Jest** is CJS-only: transform `@decocms/blocks` (ESM) with ts-jest and keep it out of `transformIgnorePatterns`. When mocking a site module in a test, spread `jest.requireActual` so sibling exports other code imports stay real.
 
 ## Hosted releases and bundled content
@@ -72,7 +76,7 @@ With `site` set on `createCMS`, a published release goes live without a deploy, 
 ## v7 leftovers to delete
 
 - Env vars and comments for the v7 admin protocol (`DANGEROUSLY_ALLOW_PUBLIC_ACCESS`, admin public keys) and for settings that lived in the v7 `site` app block.
-- Middleware/proxy exclusions for `/deco`, `/live` and `/.decofile`: those routes are gone, and keeping them special only hides that they now 404.
+- Middleware/proxy exclusions for `/deco`, `/live` and `/.decofile`: the routes are gone. Removing the exclusion sends these paths down the unknown-path route, which may ask upstream (a redirect lookup) on every stray hit from old tooling and scanners; keeping it may send them to a catch-all that does worse (a search fallback answering 200). Skip the upstream work for them explicitly, and check the status (404) and the upstream calls for each path in the parity run.
 - Add the site's new env vars (`DECO_SITE`, `DECO_SITE_TOKEN`, which the site passes as `createCMS({ site, token })`) to its env example, the token marked secret, and blank them in parity runs.
 - **Editor settings that disappear with the `site` block.** Deleting the v7 `site` app block (apps are code now) also deletes any setting editors changed there, such as draft preview hosts. Moving it to code or env is fine, but it is an editor-visible change: list it for the product owner.
 
@@ -81,6 +85,7 @@ With `site` set on `createCMS`, a published release goes live without a deploy, 
 - **`deco check` in the build gates the deploy.** Once `build` runs it, a Studio save or a content importer that writes something check rejects fails the next deploy. Make importers emit check-clean content (and run `deco check` at their end), and say in the README that the gate exists.
 - **Don't let rendering depend on undeclared `__`-prefixed fields.** `deco check` accepts `_`/`$`/`@` keys, but the docs say the site editor keeps only declared fields, and whether those keys survive a save isn't documented. Routing data (a page type) belongs in a declared field.
 - **Case-only name pairs.** Two saved blocks whose names differ only by letter case can't coexist on macOS disks; v7 silently bundled one. Check which one content references, keep it, and fail the build on such a pair (reading the git index too). v8's write path refuses new ones; `deco content`/`deco check` don't flag an existing pair.
+- **Required fields saved content omits.** `deco check` rejects a saved block missing a field its type requires, which v7 tolerated. If the component renders without it, make the field optional (an editor-visible change to list), and don't fill content with placeholders.
 - `deco check` rejects fields no type declares, `.tsx`-named preview blocks and dangling references: delete or type them (`9a097a1`, `ffa866a`).
 - v7 app blocks (`deco-shopify`, `deco-blog`, `site`) go: apps are code now, configured from env (e.g. `SHOPIFY_STORE_NAME`). Don't re-encrypt secrets runtime code never reads.
 - `website/functions/requestToParam.ts` in a string field becomes the page's route `param` (`/:slug`) the block reads itself.
@@ -96,6 +101,7 @@ v8 ships no dev hook for content changes; two pieces of template code make a sav
 ## Telemetry and analytics
 
 - Telemetry is explicit params only: the SDK reads no environment variable (`OTEL_*` and v7's `DECO_OTEL_*` are ignored). A site that kept a collector reads its own variables and passes `telemetry: { endpoint, headers }`; with `createCMS({ site, token })` and no `endpoint`, telemetry goes to the hosted collector (a `token` without `site` is a configuration error). Pass `telemetry: false` in dev or parity runs (`89eae7d`). v7's per-signal `DECO_OTEL_{METRICS,LOGS,TRACES}_ENDPOINT` have no v8 equivalent: every signal goes to `<endpoint>/v1/<signal>`.
+- **New telemetry is a behaviour change.** A site with its own OpenTelemetry export that v7 never fed CMS telemetry starts sending it once `telemetry` points at that collector. List the new traffic for the product owner.
 - `service.version` (and `deployment.environment.name`, default `production`) come from `telemetry.resource`: pass the build's commit (a Vite `define` on Workers, which have no commit variable at runtime). v7 read the deployment id from the `CF_VERSION_METADATA` binding.
 - **v7 Workers bindings with no v8 writer.** v7's `instrumentWorker` wrote per-route request counts, edge cache hit/miss and request duration to an Analytics Engine dataset (`DECO_METRICS`) and read `CF_VERSION_METADATA`; v8 has no metric API for them. Don't keep the bindings as dead config, and don't drop them silently: list each by name (and the edge layer's `deco.cache.requests` counter) as a product decision in the PR, since the dashboards built on them go dark.
 - Analytics: `AnalyticsScript` with `(await cms.settings()).analytics` plus `track` replace OneDollarStats (the collector lives in the `analytics` section of `CMS.json`); it sends collector beacons directly instead of loading the SDK (`4a50b13`, blog `9e97455`).

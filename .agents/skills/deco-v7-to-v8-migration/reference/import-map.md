@@ -40,7 +40,7 @@ From the storefront and blog migrations, the reported imports above were replace
 
 | v7 import | Site code |
 |---|---|
-| `Image`, `Picture` (`@decocms/blocks/hooks`) | `src/vendor/blocks/Image.tsx`, a copy that keeps v7's exact CDN URLs |
+| `Image`, `Picture` (`@decocms/blocks/hooks`) | `src/vendor/blocks/Image.tsx`, a copy that keeps v7's exact CDN URLs; a narrower copy inlined where the site already builds image URLs (an image loader) is fine when it yields v7's URL for every input the site passes |
 | `useDevice`, `detectDevice` (`@decocms/blocks/sdk/*`) | `src/sdk/device.ts` with v7's user-agent patterns |
 | `getCookies`/`setCookie`, `RequestContext` | read the request and write response headers explicitly, or a site-owned `AsyncLocalStorage` (`src/request-state.server.ts`) |
 | `useCart`/`useUser`/`useWishlist`, cart loaders (`@decocms/apps-<x>`) | `src/vendor/<platform>/…` copies, sending through the v8 client (`createShopifyClient`, …) |
