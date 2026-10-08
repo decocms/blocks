@@ -2,8 +2,11 @@
  * Deco brand mark, inlined as a data URI so the draft-preview badge is fully
  * self-contained: it renders inside an arbitrary consumer site with no asset
  * pipeline, no `<img src>` that could 404, and no dependency on the site
- * shipping the logo. Only loaded when a draft is active (the badge is inert
- * otherwise), so the ~21KB cost never touches ordinary production traffic.
+ * shipping the logo. `DraftPreviewBadge` pulls it in with a dynamic `import()`
+ * only once it reveals (draft active, not framed), so the bundler emits it as its
+ * own chunk and the ~21KB (incompressible base64) never lands in the main bundle
+ * of ordinary production traffic. Keep it that way: do NOT import this module
+ * statically from anything on the render path.
  *
  * Source: the deco "d↗" logo (pos-d-logo). Swap this constant to rebrand.
  */
