@@ -730,7 +730,10 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         properties[name] = schema;
         // A hidden prop (runtime-injected type, ReactNode, @hide) can never be
         // filled in by the CMS user — requiring it would deadlock the form.
-        if (!prop.isOptional() && schema.hide !== "true") required.push(name);
+        // Unless it has a default the admin writes for the user (a hidden
+        // literal such as `__title: "…"`), which deco-cx/deco keeps required.
+        const fillable = schema.hide !== "true" || "default" in schema;
+        if (!prop.isOptional() && fillable) required.push(name);
       }
 
       const result: any = { type: "object", properties };

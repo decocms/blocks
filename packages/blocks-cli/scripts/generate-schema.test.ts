@@ -260,7 +260,25 @@ describe("typeToJsonSchema underscore-prefixed props", () => {
       hide: "true",
       title: "__type",
     });
-    // Hidden, so never required (the form could not fill it in).
+    // Hidden but defaulted: the admin writes the literal, so it stays required
+    // (as in deco-cx/deco).
+    expect(schema.required).toEqual(["__type", "src"]);
+  }, 30_000);
+
+  it("still leaves a hidden prop without a default out of `required`", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        export interface Props {
+          /** @hide true */
+          internal: string;
+          src: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.internal.hide).toBe("true");
     expect(schema.required).toEqual(["src"]);
   }, 30_000);
 });
