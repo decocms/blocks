@@ -34,6 +34,16 @@ describe("cms/client browser bundle", () => {
     expect(output).not.toMatch(/node:async_hooks|node:fs|node:path/);
   });
 
+  it("keeps the CMS resolver out of the browser graph (registerSiteSections + applyClientSectionConventions)", () => {
+    // Browser entries register sections through the client entry; if anything
+    // in this graph ever starts importing resolve.ts/sectionLoaders.ts again
+    // the resolver's globalThis bootstrap shows up in the bundle.
+    const output = bundleForBrowser(join(here, "client.ts"));
+    expect(output).not.toContain("_builtinMatchersRegistered");
+    expect(output).not.toContain("commerceLoaders");
+    expect(output).toContain("applyClientSectionConventions");
+  });
+
   it("sanity check: the full cms barrel does NOT bundle for a browser target", () => {
     // Confirms the test above is actually discriminating — if this ever
     // stops throwing, either the barrel no longer has the leak (great,

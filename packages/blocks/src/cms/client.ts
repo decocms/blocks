@@ -35,7 +35,16 @@
  * `sectionLoaders.ts` for section-registration setup). Those are resolver/
  * storage concerns that only make sense server-side — import them from
  * `@decocms/blocks/cms` instead.
+ *
+ * Browser entries (the `setup.ts` that `router.tsx` imports) need only the
+ * section registry, so use `registerSiteSections` + `applyClientSectionConventions`
+ * here instead of `createSiteSetup` / `applySectionConventions`, and keep the
+ * resolver/matcher/commerce-loader/admin wiring in a server-only module behind an
+ * SSR-only import. Measured on a real storefront (Nuvemshop), that split took
+ * ~12KB brotli (~47KB raw) out of the eager vendor chunk.
  */
+export type { ApplySectionConventionsInput, SectionMetaEntry } from "./clientConventions";
+export { applyClientSectionConventions, registerSiteSections } from "./clientConventions";
 export type { DeferredTrigger } from "./deferredTrigger";
 export { DEFAULT_DEFERRED_TRIGGER, getDeferredTrigger } from "./deferredTrigger";
 export type { OnBeforeResolveProps, SectionModule, SectionOptions } from "./registry";
