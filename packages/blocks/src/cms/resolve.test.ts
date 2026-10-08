@@ -540,6 +540,28 @@ describe("shouldDeferSection — admin is the source of truth", () => {
     expect(shouldDeferSection(section, 0, mkCfg(), false)).toBe(true);
   });
 
+  it("does NOT defer a Lazy wrapper carrying `loading: \"eager\"`", () => {
+    // Fresh's Lazy.tsx short-circuits on this prop and renders the inner
+    // section inline, so the wrapper is not a deferral at all. Decofiles
+    // migrated from Fresh carry it on the named `Footer` block.
+    const section = { ...lazyWrap({ __resolveType: "site/sections/Footer.tsx" }), loading: "eager" };
+    expect(shouldDeferSection(section, 0, mkCfg(), false)).toBe(false);
+  });
+
+  it("still defers a Lazy wrapper with `loading: \"lazy\"` or no loading prop", () => {
+    const inner = { __resolveType: "site/sections/Hero.tsx" };
+    expect(shouldDeferSection({ ...lazyWrap(inner), loading: "lazy" }, 0, mkCfg(), false)).toBe(true);
+    expect(shouldDeferSection(lazyWrap(inner), 0, mkCfg(), false)).toBe(true);
+  });
+
+  it("an eager Lazy wrapping a lazy Lazy still defers (inner wins)", () => {
+    const nested = {
+      ...lazyWrap(lazyWrap({ __resolveType: "site/sections/Hero.tsx" })),
+      loading: "eager",
+    };
+    expect(shouldDeferSection(nested, 0, mkCfg(), false)).toBe(true);
+  });
+
   it("renders a non-⚡ section eagerly regardless of position (default Infinity)", () => {
     const section = { __resolveType: "site/sections/SeoText.tsx" };
     // Position 5 used to auto-defer with the old foldThreshold=3 — now SSR.
