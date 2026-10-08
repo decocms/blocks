@@ -17,6 +17,7 @@ export {
   revisionKey,
   snapshotKey,
 } from "./blockSource";
+export { applyClientSectionConventions, registerSiteSections } from "./clientConventions";
 export type { DeferredTrigger } from "./deferredTrigger";
 export { DEFAULT_DEFERRED_TRIGGER, getDeferredTrigger } from "./deferredTrigger";
 export type {

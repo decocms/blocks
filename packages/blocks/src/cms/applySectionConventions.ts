@@ -6,8 +6,10 @@
  * registerSectionsSync, setAsyncRenderingConfig, registerCacheableSections,
  * registerLayoutSections, registerSeoSections, and registerSection.
  */
-import { registerSection, registerSectionsSync, setSectionRenderJson } from "./registry";
-import type { RenderJson } from "./renderJson";
+import {
+  type ApplySectionConventionsInput,
+  applyClientSectionConventions,
+} from "./clientConventions";
 import {
   type AsyncRenderingConfig,
   getAsyncRenderingConfig,
@@ -24,39 +26,15 @@ import {
   registerLayoutSections,
 } from "./sectionLoaders";
 
-export interface SectionMetaEntry {
-  eager?: boolean;
-  neverDefer?: boolean;
-  deferred?: boolean;
-  cache?: string;
-  layout?: boolean;
-  sync?: boolean;
-  clientOnly?: boolean;
-  seo?: boolean;
-  hasLoadingFallback?: boolean;
-  /** `export const fallbackProps = ["title"]` — props the skeleton may render. */
-  fallbackProps?: string[];
-  /** `export const renderJson = false` — drop the section from ?renderJson. */
-  renderJson?: false;
-  /** `export const renderJson = (props) => ...` — a projection fn (in `renderJsons`). */
-  hasRenderJson?: boolean;
-}
-
-export interface ApplySectionConventionsInput {
-  /** Section metadata map from sections.gen.ts */
-  meta: Record<string, SectionMetaEntry>;
-  /** Sync-imported section modules from sections.gen.ts */
-  syncComponents?: Record<string, any>;
-  /** LoadingFallback components from sections.gen.ts */
-  loadingFallbacks?: Record<string, React.ComponentType<any>>;
-  /** renderJson projection functions from sections.gen.ts (?renderJson mobile path) */
-  renderJsons?: Record<string, RenderJson>;
-  /** Lazy section loaders from import.meta.glob (used for clientOnly/loadingFallback registration) */
-  sectionGlob?: Record<string, () => Promise<any>>;
-}
+export type { ApplySectionConventionsInput, SectionMetaEntry } from "./clientConventions";
 
 export function applySectionConventions(input: ApplySectionConventionsInput): void {
-  const { meta, syncComponents, loadingFallbacks, renderJsons, sectionGlob } = input;
+  const { meta } = input;
+
+  // Registry-only registrations (clientOnly, LoadingFallback, renderJson, sync
+  // components) live in clientConventions.ts so browser entries can run them
+  // without this module's resolver/section-loader graph.
+  applyClientSectionConventions(input);
 
   const eagerSections: string[] = [];
   const neverDeferSections: string[] = [];
@@ -74,35 +52,6 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
     if (entry.seo) seoSections.push(key);
     if (entry.cache) cacheableSections[key] = entry.cache as CacheableSectionInput;
     if (entry.fallbackProps?.length) fallbackPropsSections[key] = entry.fallbackProps;
-
-    if (entry.clientOnly && sectionGlob) {
-      const globKey = sectionGlobKey(key, sectionGlob);
-      if (globKey) {
-        registerSection(key, sectionGlob[globKey] as any, { clientOnly: true });
-      }
-    }
-
-    if (entry.hasLoadingFallback && loadingFallbacks?.[key] && sectionGlob) {
-      const globKey = sectionGlobKey(key, sectionGlob);
-      if (globKey) {
-        registerSection(key, sectionGlob[globKey] as any, {
-          loadingFallback: loadingFallbacks[key],
-        });
-      }
-    }
-
-    // renderJson (?renderJson mobile path): a `= false` opt-out drops the
-    // section; a projection function trims its props. Set as a section option so
-    // the serializer reads it via getSectionOptions without loading the module.
-    if (entry.renderJson === false) {
-      setSectionRenderJson(key, false);
-    } else if (entry.hasRenderJson && renderJsons?.[key]) {
-      setSectionRenderJson(key, renderJsons[key]);
-    }
-  }
-
-  if (syncComponents && Object.keys(syncComponents).length > 0) {
-    registerSectionsSync(syncComponents);
   }
 
   if (eagerSections.length > 0) {
@@ -143,15 +92,4 @@ export function applySectionConventions(input: ApplySectionConventionsInput): vo
   if (Object.keys(fallbackPropsSections).length > 0) {
     registerFallbackPropsSections(fallbackPropsSections);
   }
-}
-
-function sectionGlobKey(
-  sectionKey: string,
-  glob: Record<string, () => Promise<any>>,
-): string | null {
-  const relative = sectionKey.replace("site/sections/", "./sections/");
-  if (glob[relative]) return relative;
-  const withDot = sectionKey.replace("site/", "./");
-  if (glob[withDot]) return withDot;
-  return null;
 }
