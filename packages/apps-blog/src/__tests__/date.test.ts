@@ -134,8 +134,12 @@ describe("scheduledTime", () => {
 });
 
 describe("toISODateTime", () => {
-  it("expands a bare date to midnight UTC with an explicit designator", () => {
-    expect(toISODateTime("2025-06-01")).toBe("2025-06-01T00:00:00.000Z");
+  it("places a bare date at 08:00 UTC with an explicit designator", () => {
+    expect(toISODateTime("2025-06-01")).toBe("2025-06-01T08:00:00.000Z");
+  });
+
+  it("pins an offset-less date-time to UTC", () => {
+    expect(toISODateTime("2025-06-01T00:00:00")).toBe("2025-06-01T00:00:00.000Z");
   });
 
   it("keeps the instant of a date-time that carries its own offset", () => {

@@ -57,8 +57,8 @@ describe("toBlogPosting", () => {
     const node = toBlogPosting(post({ dateModified: "2024-07-01" }), "https://a.com/blog/x");
     expect(node["@type"]).toBe("BlogPosting");
     expect(node.headline).toBe("How to brew");
-    expect(node.datePublished).toBe("2024-06-01T00:00:00.000Z");
-    expect(node.dateModified).toBe("2024-07-01T00:00:00.000Z");
+    expect(node.datePublished).toBe("2024-06-01T08:00:00.000Z");
+    expect(node.dateModified).toBe("2024-07-01T08:00:00.000Z");
     expect(node.mainEntityOfPage).toEqual({ "@type": "WebPage", "@id": "https://a.com/blog/x" });
   });
 
