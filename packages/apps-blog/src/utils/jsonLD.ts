@@ -1,4 +1,5 @@
 import type { Author, BlogPost, Category, Publisher } from "../types";
+import { toISODateTime } from "./date";
 
 const toAuthor = (author: Author) => {
   const type = author.type ?? "Person";
@@ -64,13 +65,16 @@ export const toBlogPosting = (post: BlogPost, url?: string, publisher?: Publishe
   const interactionStatistic =
     post.interactionStatistic?.userInteractionCount != null ? post.interactionStatistic : undefined;
 
+  const datePublished = post.date ? toISODateTime(post.date) : undefined;
+  const dateModified = post.dateModified ? toISODateTime(post.dateModified) : undefined;
+
   return {
     "@type": "BlogPosting" as const,
     headline: post.title,
     ...(post.excerpt ? { description: post.excerpt } : {}),
     ...(image ? { image: [image] } : {}),
-    ...(post.date ? { datePublished: post.date } : {}),
-    ...(post.dateModified ? { dateModified: post.dateModified } : {}),
+    ...(datePublished ? { datePublished } : {}),
+    ...(dateModified ? { dateModified } : {}),
     ...(post.authors?.length ? { author: post.authors.map(toAuthor) } : {}),
     ...(publisher?.name ? { publisher: toOrganization(publisher) } : {}),
     ...(categories?.length ? { articleSection: categories } : {}),

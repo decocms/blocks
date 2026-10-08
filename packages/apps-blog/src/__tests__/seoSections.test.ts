@@ -57,9 +57,24 @@ describe("toBlogPosting", () => {
     const node = toBlogPosting(post({ dateModified: "2024-07-01" }), "https://a.com/blog/x");
     expect(node["@type"]).toBe("BlogPosting");
     expect(node.headline).toBe("How to brew");
-    expect(node.datePublished).toBe("2024-06-01");
-    expect(node.dateModified).toBe("2024-07-01");
+    expect(node.datePublished).toBe("2024-06-01T00:00:00.000Z");
+    expect(node.dateModified).toBe("2024-07-01T00:00:00.000Z");
     expect(node.mainEntityOfPage).toEqual({ "@type": "WebPage", "@id": "https://a.com/blog/x" });
+  });
+
+  it("emits dates as ISO 8601 date-times with a timezone, as the Rich Results Test requires", () => {
+    expect(toBlogPosting(post({ date: "2024-06-01T10:30:00" })).datePublished).toBe(
+      "2024-06-01T10:30:00.000Z",
+    );
+    expect(toBlogPosting(post({ date: "2024-06-01T10:30:00-03:00" })).datePublished).toBe(
+      "2024-06-01T13:30:00.000Z",
+    );
+  });
+
+  it("drops dates that can't be parsed instead of emitting invalid structured data", () => {
+    const node = toBlogPosting(post({ date: "not a date", dateModified: "soon" }));
+    expect("datePublished" in node).toBe(false);
+    expect("dateModified" in node).toBe(false);
   });
 
   it("omits `@context` — the Seo component adds it when serializing", () => {
