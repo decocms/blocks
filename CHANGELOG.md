@@ -8,6 +8,23 @@ merges to `main`; this file is the human-curated breaking-change ledger.
 For per-release auto-generated notes (every commit, every fix), see
 [GitHub Releases](https://github.com/decocms/deco-start/releases).
 
+## Unreleased — CMS schema: `RequestURLParam` picker, no saved-block mode on plain arrays
+
+Fixes [#644](https://github.com/decocms/blocks/issues/644).
+
+- **`RequestURLParam`** (`@decocms/apps-website/functions/requestToParam`) is
+  emitted as deco-cx/deco did: an `anyOf` of "Force param" (string) and the
+  `website/functions/requestToParam.ts` block. `composeMeta` now bakes that
+  function into `manifest.blocks.functions` / `schema.root.functions`. Sites
+  that declared such props as `string` can switch the type back to get the
+  "Get params from request parameters" option in the admin; saved values
+  resolve exactly as before.
+- **`wrapResolvableProperties` no longer wraps every array of objects.** Only
+  arrays a loader can fill (product arrays) get `anyOf [Resolvable, inline,
+  ...loaders]`. A plain array of objects (> 3 fields) used to gain a "Select
+  from saved" mode that deco-cx/deco never offered. Runtime resolution of
+  already-saved references is unchanged; only the admin form loses that mode.
+
 ## Unreleased — Admin async (⚡) toggle is the source of truth for deferral
 
 ### Behavior change — position-based auto-deferral is off by default
