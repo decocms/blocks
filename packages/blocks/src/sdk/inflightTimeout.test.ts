@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_INFLIGHT_TIMEOUT_MS, withInflightTimeout } from "./inflightTimeout";
+import {
+  DEFAULT_INFLIGHT_TIMEOUT_MS,
+  releaseInflightSlotAfter,
+  withInflightTimeout,
+} from "./inflightTimeout";
 
 describe("withInflightTimeout", () => {
   it("returns the underlying value when work settles in time", async () => {
@@ -31,5 +35,38 @@ describe("withInflightTimeout", () => {
   it("exports a sane default timeout", () => {
     expect(DEFAULT_INFLIGHT_TIMEOUT_MS).toBeGreaterThanOrEqual(1_000);
     expect(DEFAULT_INFLIGHT_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
+  });
+});
+
+describe("releaseInflightSlotAfter", () => {
+  it("frees a slot still held by a pending promise once the bound elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const map = new Map<string, Promise<string>>();
+      const never = new Promise<string>(() => {});
+      map.set("k", never);
+      releaseInflightSlotAfter(map, "k", never, 100);
+      vi.advanceTimersByTime(99);
+      expect(map.has("k")).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(map.has("k")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not evict a newer promise that took over the same key", async () => {
+    vi.useFakeTimers();
+    try {
+      const map = new Map<string, Promise<string>>();
+      const old = new Promise<string>(() => {});
+      releaseInflightSlotAfter(map, "k", old, 100);
+      const newer = Promise.resolve("new");
+      map.set("k", newer);
+      vi.advanceTimersByTime(100);
+      expect(map.get("k")).toBe(newer);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

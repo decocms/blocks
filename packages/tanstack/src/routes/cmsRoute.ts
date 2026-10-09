@@ -43,6 +43,7 @@ import {
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
 import { withTracing } from "@decocms/blocks/middleware/observability";
+import { releaseInflightSlotAfter } from "@decocms/blocks/sdk/inflightTimeout";
 import {
   type CacheProfileName,
   cacheHeaders,
@@ -353,16 +354,28 @@ export const loadCmsPage = createServerFn({ method: "GET" })
     // known hole for no gain. `resolveGlobals` is part of the key for the same
     // reason: a `resolveGlobals: false` request must not share a promise with a
     // `resolveGlobals: true` one.
+    //
+    // The device is part of the key: the result carries `device` and every
+    // section loader's device-dependent output, so a mobile request joining a
+    // desktop render was served (and edge-cached under the mobile segment) the
+    // desktop page. Measured on a storefront: 1 in ~25 concurrent desktop/iPhone
+    // pairs, cached for ~50 min; 8/8 iPads got the phone render.
     const clientNav = isClientNavigation(fullPath, getRequestUrl());
+    const device = detectDevice(getRequestHeader("user-agent") ?? "");
     const inflightKey =
-      (clientNav ? `__nav:${fullPath}` : fullPath) + (resolveGlobals ? "" : "|noGlobals");
+      (clientNav ? `__nav:${fullPath}` : fullPath) +
+      `|${device}` +
+      (resolveGlobals ? "" : "|noGlobals");
     const existing = pageInflight.get(inflightKey);
     if (existing) return existing;
 
-    const promise = loadCmsPageInternal(fullPath, resolveGlobals).finally(() =>
-      pageInflight.delete(inflightKey),
-    );
+    const promise = loadCmsPageInternal(fullPath, resolveGlobals).finally(() => {
+      if (pageInflight.get(inflightKey) === promise) pageInflight.delete(inflightKey);
+    });
     pageInflight.set(inflightKey, promise);
+    // A render stuck on an upstream that never settles must not make every later
+    // request for the same path wait on it forever.
+    releaseInflightSlotAfter(pageInflight, inflightKey, promise);
     return promise;
   });
 

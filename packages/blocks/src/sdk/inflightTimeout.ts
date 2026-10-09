@@ -51,3 +51,26 @@ export function withInflightTimeout<T>(
     if (timer !== undefined) clearTimeout(timer);
   });
 }
+
+/**
+ * Free a dedup slot after `ms` WITHOUT failing the work that owns it.
+ *
+ * `withInflightTimeout` rejects every waiter, which is right for data loaders
+ * whose callers already handle a failure. For dedup maps whose owner must still
+ * get its result (a page render that is merely slow), the safer bound is to stop
+ * NEW callers from joining a promise that has been pending for too long: after
+ * `ms`, the slot is deleted if it still holds `promise`, so the next request
+ * starts its own work instead of awaiting a possibly-hung one forever.
+ */
+export function releaseInflightSlotAfter<K, V>(
+  map: Map<K, Promise<V>>,
+  key: K,
+  promise: Promise<V>,
+  ms: number = DEFAULT_INFLIGHT_TIMEOUT_MS,
+): void {
+  const timer = setTimeout(() => {
+    if (map.get(key) === promise) map.delete(key);
+  }, ms);
+  const clear = () => clearTimeout(timer);
+  promise.then(clear, clear);
+}

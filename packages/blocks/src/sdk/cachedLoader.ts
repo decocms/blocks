@@ -20,7 +20,7 @@ import {
 } from "../middleware/observability";
 import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
 import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cacheStorage";
-import { withInflightTimeout } from "./inflightTimeout";
+import { releaseInflightSlotAfter, withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
 // Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
@@ -494,9 +494,14 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     if (existing) return existing;
 
     const promise = Promise.resolve(mod.default(props, req)).finally(() => {
-      moduleInflight.delete(key);
+      if (moduleInflight.get(key) === promise) moduleInflight.delete(key);
     });
     moduleInflight.set(key, promise);
+    // A loader whose upstream never settles must not pin every later caller
+    // with the same key to the same dead promise (they would hang until the
+    // client gives up). The owner keeps waiting on its own work; new callers
+    // start fresh once the slot is released.
+    releaseInflightSlotAfter(moduleInflight, key, promise);
     return promise;
   };
 }

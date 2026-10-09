@@ -207,3 +207,28 @@ describe("createLoaderEntry — lazy import + wrap", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("createCachedLoaderFromModule — hung upstream", () => {
+  it("stops new callers from joining a flight that never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const mod: LoaderModule = {
+        cache: "stale-while-revalidate",
+        default: () => {
+          calls++;
+          return calls === 1 ? new Promise(() => {}) : Promise.resolve("ok");
+        },
+      };
+      const loader = createCachedLoaderFromModule("site/loaders/hangs", mod);
+      void loader({ a: 1 });
+      void loader({ a: 1 });
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(loader({ a: 1 })).resolves.toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
