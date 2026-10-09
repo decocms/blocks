@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { segmentToken } from "./cdnSegment";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 import {
+  aliasLiveInvoke,
   buildEnforcedCsp,
   buildGeoCacheParam,
   createDecoWorkerEntry,
@@ -1029,5 +1030,57 @@ describe("fast-deploy hydration ordering", () => {
     } finally {
       globalThis.document = realDocument;
     }
+  });
+});
+
+describe("/live/invoke alias (Fresh compat)", () => {
+  it("leaves every other path untouched (same Request reference)", () => {
+    for (const path of ["/", "/deco/invoke/site/loaders/x.ts", "/live/_meta", "/live/invoke-not"]) {
+      const req = new Request(`https://example.com${path}`);
+      expect(aliasLiveInvoke(req)).toBe(req);
+    }
+  });
+
+  it("rewrites /live/invoke and /live/invoke/* to /deco/invoke[/*], keeping query, method, headers, body and cf", async () => {
+    const req = new Request("https://example.com/live/invoke/site/loaders/x.ts?select=a,b", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-custom": "1" },
+      body: JSON.stringify({ id: 1 }),
+    });
+    Object.defineProperty(req, "cf", { value: { colo: "GRU" }, configurable: true });
+
+    const out = aliasLiveInvoke(req);
+    expect(out.url).toBe("https://example.com/deco/invoke/site/loaders/x.ts?select=a,b");
+    expect(out.method).toBe("POST");
+    expect(out.headers.get("x-custom")).toBe("1");
+    expect(await out.json()).toEqual({ id: 1 });
+    expect((out as unknown as { cf?: unknown }).cf).toEqual({ colo: "GRU" });
+
+    expect(aliasLiveInvoke(new Request("https://example.com/live/invoke")).url).toBe(
+      "https://example.com/deco/invoke",
+    );
+  });
+
+  it("end-to-end: the server entry receives the /deco/invoke URL", async () => {
+    setBlocks({});
+    const urls: string[] = [];
+    const entry = {
+      fetch: async (req: Request) => {
+        urls.push(req.url);
+        return Response.json({ ok: true });
+      },
+    };
+    const worker = createDecoWorkerEntry(entry, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/live/invoke/site/loaders/x.ts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(200);
+    expect(urls).toEqual(["https://example.com/deco/invoke/site/loaders/x.ts"]);
   });
 });
