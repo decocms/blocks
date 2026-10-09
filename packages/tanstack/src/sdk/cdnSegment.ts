@@ -42,6 +42,14 @@ export const CSEG_GLOBAL = "__DECO_CSEG";
 export const CSEG_BAG_KEY = "deco.cdn.segmentToken";
 
 /**
+ * RequestContext bag key holding every dimension the worker's cache key splits
+ * this request on (`__seg`, `__cf_geo`, `__abf`, `__bot`, `__fetch`, …), as one
+ * string. Read by `loadCmsPage` so its in-isolate render dedup never joins two
+ * requests the edge cache keeps apart. Absent outside `createDecoWorkerEntry`.
+ */
+export const EDGE_SEGMENT_BAG_KEY = "deco.cache.edgeSegment";
+
+/**
  * Build the token for a segment, or `null` when this request must not be
  * cached in front of the Worker.
  *

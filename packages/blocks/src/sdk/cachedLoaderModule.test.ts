@@ -207,3 +207,33 @@ describe("createLoaderEntry — lazy import + wrap", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("createCachedLoaderFromModule — hung upstream", () => {
+  // No timer is ever advanced: on Workers a timer owned by a request that has
+  // already finished never fires, so expiry has to be decided by the clock at
+  // the moment the next caller arrives.
+  it("stops new callers from joining a flight that never settles, without any timer", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      let calls = 0;
+      const mod: LoaderModule = {
+        cache: "stale-while-revalidate",
+        default: () => {
+          calls++;
+          return calls === 1 ? new Promise(() => {}) : Promise.resolve("ok");
+        },
+      };
+      const loader = createCachedLoaderFromModule("site/loaders/hangs", mod);
+      void loader({ a: 1 });
+      now += 5_000;
+      void loader({ a: 1 });
+      expect(calls).toBe(1);
+      now += 5_001;
+      await expect(loader({ a: 1 })).resolves.toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});

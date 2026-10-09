@@ -43,6 +43,7 @@
 		"./sdk/abTesting": "./src/sdk/abTesting.ts",
 		"./sdk/analytics": "./src/sdk/analytics.ts",
 		"./sdk/cachedLoader": "./src/sdk/cachedLoader.ts",
+		"./sdk/inflightTimeout": "./src/sdk/inflightTimeout.ts",
 		"./sdk/responseCache": "./src/sdk/responseCache.ts",
 		"./sdk/cacheStorage": "./src/sdk/cacheStorage.ts",
 		"./sdk/cacheHeaders": "./src/sdk/cacheHeaders.ts",
