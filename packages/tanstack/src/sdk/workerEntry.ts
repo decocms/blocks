@@ -78,12 +78,14 @@ import {
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import {
+  getRedirectSemantics,
   loadRedirects,
   matchExactRedirect,
   matchPatternRedirect,
-  normalizePath,
   type RedirectMap,
+  type RedirectSemantics,
   redirectLocation,
+  setRedirectSemantics,
 } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
@@ -616,6 +618,23 @@ export interface DecoWorkerEntryOptions {
    * @default `Deco/<version> (+https://deco.cx)` — see DECO_USER_AGENT.
    */
   outboundUserAgent?: string | false;
+
+  /**
+   * How CMS redirects (`website/loaders/redirect(s).ts`, `redirectsFromCsv`)
+   * match and answer — see `@decocms/blocks/sdk/redirects`.
+   *
+   * - `"legacy"` (default): case- and trailing-slash-insensitive match,
+   *   temporary → 302, the request's query dropped from `Location`. What every
+   *   `@decocms/*` site has answered so far.
+   * - `"fresh"`: what the Fresh site a migration came from answered — source
+   *   matched byte for byte (`pathname + search` first), temporary → 307, the
+   *   request's query appended to `Location` unless `discardQueryParameters`.
+   *
+   * Both drop self-redirects and never double-encode `Location`.
+   *
+   * @default { semantics: "legacy" }
+   */
+  redirects?: { semantics?: RedirectSemantics };
 }
 
 // ---------------------------------------------------------------------------
@@ -1089,6 +1108,7 @@ export function createDecoWorkerEntry(
     extraBypassPaths = [],
     fingerprintedAssetPattern = FINGERPRINTED_ASSET_RE,
     stripTrackingParams: shouldStripTracking = true,
+    redirects: redirectsOpt,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
     securityHeaders: securityHeadersOpt,
@@ -1103,6 +1123,10 @@ export function createDecoWorkerEntry(
     outboundUserAgent: outboundUserAgentOpt,
     speculationRules: speculationRulesOpt,
   } = options;
+
+  // Before the first request builds the redirect map — the map keys its rules
+  // for the semantics in force when it is built.
+  setRedirectSemantics(redirectsOpt?.semantics ?? "legacy");
 
   // Speculation Rules — store the site-wide config in the shared singleton so
   // DecoRootLayout (SSR) emits the tag in <head>. Inert unless the site opts in.
@@ -2246,7 +2270,9 @@ export function createDecoWorkerEntry(
     // ?asJson and commerce proxy so every request path respects redirects.
     // Revision-keyed so cross-bundle setBlocks() calls are detected even when
     // onChange listeners don't fire across Vite split-bundle module instances.
-    const currentRevision = getRevision();
+    // The semantics are part of the key: a map keys its rules for the
+    // semantics in force when it is built.
+    const currentRevision = `${getRevision()}:${getRedirectSemantics()}`;
     if (_redirectMapRevision !== currentRevision) {
       _redirectMap = loadRedirects(loadBlocks());
       _redirectMapRevision = currentRevision;
@@ -2260,7 +2286,7 @@ export function createDecoWorkerEntry(
     // stays one read, keyed by pathname.
     const cmsRedirect =
       matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
-      (await lookupExactRedirect(env as Record<string, unknown>, normalizePath(url.pathname))) ??
+      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname)) ??
       matchPatternRedirect(url.pathname, _redirectMap!);
     if (cmsRedirect) {
       return new Response(null, {

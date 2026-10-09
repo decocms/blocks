@@ -2,8 +2,9 @@ import {
   loadRedirects,
   matchExactRedirect,
   matchPatternRedirect,
+  setRedirectSemantics,
 } from "@decocms/blocks/sdk/redirects";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearRedirectCache, lookupExactRedirect } from "./kvRedirects";
 
 /** Minimal KV binding that records every read. */
@@ -88,9 +89,44 @@ describe("lookupExactRedirect", () => {
     await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toBeNull();
   });
 
-  it("defaults an unknown status to 307 rather than inventing a permanent redirect", async () => {
+  it("answers an unknown status as temporary rather than inventing a permanent redirect", async () => {
     const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new"}' });
-    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ status: 307 });
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ status: 302 });
+  });
+
+  it("looks the request path up under its folded key", async () => {
+    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"from":"/Old/","to":"/new","status":307}' });
+    await expect(lookupExactRedirect(enabled(kv), "/OLD/")).resolves.toMatchObject({
+      to: "/new",
+      status: 302,
+    });
+  });
+});
+
+describe("lookupExactRedirect — semantics", () => {
+  afterEach(() => setRedirectSemantics("legacy"));
+  const value = JSON.stringify([
+    { from: "/meia/p", to: "/a", status: 307 },
+    { from: "/Meia/p/", to: "/b", status: 307 },
+  ]);
+
+  it("legacy serves the last rule under the key, temporary as 302", async () => {
+    const kv = makeKV({ [`redirect:${ID}:/meia/p`]: value });
+    await expect(lookupExactRedirect(enabled(kv), "/meia/p")).resolves.toMatchObject({
+      to: "/b",
+      status: 302,
+    });
+  });
+
+  it("fresh serves the rule written byte for byte, temporary as 307", async () => {
+    setRedirectSemantics("fresh");
+    const kv = makeKV({ [`redirect:${ID}:/meia/p`]: value });
+    await expect(lookupExactRedirect(enabled(kv), "/meia/p")).resolves.toMatchObject({
+      to: "/a",
+      status: 307,
+    });
+    clearRedirectCache();
+    await expect(lookupExactRedirect(enabled(kv), "/MEIA/p")).resolves.toBeNull();
   });
 });
 

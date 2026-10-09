@@ -7,17 +7,26 @@
  * every case below is a URL where the TanStack port answered differently from
  * the Fresh site it replaced — three of them as an infinite loop on a live
  * product page.
+ *
+ * Everything here runs under `semantics: "fresh"`, the opt-in. The default
+ * (`"legacy"`, what sites already on `@decocms/*` answer) is pinned in
+ * `redirects.legacy.test.ts`.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   addRedirects,
   loadRedirects,
   matchRedirect,
-  normalizePath,
   parseRedirectsCsv,
   redirectLocation,
+  selectExactRedirect,
+  setRedirectSemantics,
+  sourcePath,
   splitExactRedirects,
 } from "./redirects";
+
+beforeEach(() => setRedirectSemantics("fresh"));
+afterEach(() => setRedirectSemantics("legacy"));
 
 const fromCsv = (csv: string, options?: Parameters<typeof parseRedirectsCsv>[1]) => {
   const map = loadRedirects({});
@@ -77,9 +86,9 @@ describe("source matching is byte for byte, as Fresh's router", () => {
   });
 
   it("strips the origin of an absolute source and keeps the rest as written", () => {
-    expect(normalizePath("https://www.example.com/Old/")).toBe("/Old/");
-    expect(normalizePath("https://www.example.com/x?map=c")).toBe("/x?map=c");
-    expect(normalizePath("/Keep-Case/")).toBe("/Keep-Case/");
+    expect(sourcePath("https://www.example.com/Old/")).toBe("/Old/");
+    expect(sourcePath("https://www.example.com/x?map=c")).toBe("/x?map=c");
+    expect(sourcePath("/Keep-Case/")).toBe("/Keep-Case/");
     const map = fromCsv("from,to\nhttps://www.example.com/Old/,/new\n");
     expect(matchRedirect("/Old/", map)?.to).toBe("/new");
     expect(matchRedirect("/old", map)).toBeNull();
@@ -93,14 +102,18 @@ describe("source matching is byte for byte, as Fresh's router", () => {
 });
 
 describe("query-scoped sources", () => {
-  const map = fromCsv(
-    [
-      "from,to,type",
-      "/kits-3-camisas-kit0000008010/p,/camisa-paris-branca-0100441014/p,PERMANENT",
-      "/kits-3-camisas-kit0000008010/p?skuId=4432,/roupas/kits,PERMANENT",
-      "/garrafa-kouda-preta-0059962040/p?listName=Kouda,/roupas/acessorios,PERMANENT",
-    ].join("\n"),
-  );
+  // Built per test: a map keys its rules for the semantics in force when built.
+  let map: ReturnType<typeof fromCsv>;
+  beforeEach(() => {
+    map = fromCsv(
+      [
+        "from,to,type",
+        "/kits-3-camisas-kit0000008010/p,/camisa-paris-branca-0100441014/p,PERMANENT",
+        "/kits-3-camisas-kit0000008010/p?skuId=4432,/roupas/kits,PERMANENT",
+        "/garrafa-kouda-preta-0059962040/p?listName=Kouda,/roupas/acessorios,PERMANENT",
+      ].join("\n"),
+    );
+  });
 
   it("matches pathname + search before the bare pathname", () => {
     expect(matchRedirect("/kits-3-camisas-kit0000008010/p", map, "?skuId=4432")?.to).toBe(
@@ -252,7 +265,7 @@ describe("redirectLocation", () => {
 });
 
 describe("splitExactRedirects", () => {
-  it("keys KV by the source as written and carries discardQueryParameters", () => {
+  it("keys KV by the folded path and carries the source as written", () => {
     const { exact } = splitExactRedirects({
       r: {
         __resolveType: "website/loaders/redirects.ts",
@@ -263,9 +276,31 @@ describe("splitExactRedirects", () => {
       },
     });
     expect(exact).toEqual([
-      { path: "/Old/", to: "/new", status: 307 },
-      { path: "/drop", to: "/kept", status: 301, discardQueryParameters: true },
+      { path: "/old", from: "/Old/", to: "/new", status: 307 },
+      { path: "/drop", from: "/drop", to: "/kept", status: 301, discardQueryParameters: true },
     ]);
+    expect(selectExactRedirect(exact[0], "/Old/")).toMatchObject({ to: "/new", status: 307 });
+    expect(selectExactRedirect(exact[0], "/old")).toBeNull();
+  });
+
+  it("keeps every source that folds to one key, and serves the one written byte for byte", () => {
+    const { exact } = splitExactRedirects({
+      r: {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [
+          { from: "/meia/p", to: "/a", type: "permanent" },
+          { from: "/meia/p/", to: "/b", type: "permanent" },
+          { from: "/Meia/p", to: "/c", type: "permanent" },
+        ],
+      },
+    });
+    expect(exact).toHaveLength(1);
+    const [rule] = exact;
+    expect(rule.path).toBe("/meia/p");
+    expect(selectExactRedirect([...rule.shadowed!, rule], "/meia/p")?.to).toBe("/a");
+    expect(selectExactRedirect([...rule.shadowed!, rule], "/meia/p/")?.to).toBe("/b");
+    expect(selectExactRedirect([...rule.shadowed!, rule], "/Meia/p")?.to).toBe("/c");
+    expect(selectExactRedirect([...rule.shadowed!, rule], "/MEIA/p")).toBeNull();
   });
 
   it("keeps query-scoped rules in the decofile, where the in-memory lookup can see them", () => {
@@ -279,7 +314,7 @@ describe("splitExactRedirects", () => {
       },
     };
     const { blocks, exact } = splitExactRedirects(input);
-    expect(exact).toEqual([{ path: "/x", to: "/bare", status: 307 }]);
+    expect(exact).toEqual([{ path: "/x", from: "/x", to: "/bare", status: 307 }]);
     expect(matchRedirect("/x", loadRedirects(blocks), "?map=c")?.to).toBe("/scoped");
     expect(matchRedirect("/x", loadRedirects(blocks))).toBeNull();
   });

@@ -17,7 +17,7 @@ import {
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
-import type { ExactRedirect } from "@decocms/blocks/sdk/redirects";
+import { type ExactRedirect, storedExactRedirectValue } from "@decocms/blocks/sdk/redirects";
 import type { KvRestClient } from "./cf-kv-rest";
 
 export interface Snapshot {
@@ -94,7 +94,7 @@ export async function syncRedirectsToKv(
   id: string,
 ): Promise<{ written: number; deleted: number }> {
   const desired = new Map(
-    redirects.map(({ path, ...stored }) => [redirectKey(id, path), JSON.stringify(stored)]),
+    redirects.map((r) => [redirectKey(id, r.path), JSON.stringify(storedExactRedirectValue(r))]),
   );
 
   const existing = await client.list(redirectPrefix(id));

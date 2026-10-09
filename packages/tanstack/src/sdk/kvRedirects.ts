@@ -18,7 +18,7 @@
  */
 
 import { getDeploymentId, redirectKey, type StoredRedirect } from "@decocms/blocks/cms";
-import type { Redirect } from "@decocms/blocks/sdk/redirects";
+import { normalizePath, type Redirect, selectExactRedirect } from "@decocms/blocks/sdk/redirects";
 import { getFastDeployKV } from "./kvHydration";
 
 /**
@@ -39,8 +39,10 @@ const TTL_MS = 60_000;
  *  the whole point of this module is to stop holding an unbounded list. */
 const MAX_ENTRIES = 2_000;
 
+type StoredValue = StoredRedirect | StoredRedirect[];
+
 interface CacheEntry {
-  value: StoredRedirect | null;
+  value: StoredValue | null;
   expiresAt: number;
 }
 
@@ -53,7 +55,7 @@ function cache(): Map<string, CacheEntry> {
 }
 
 /** Insertion-ordered LRU touch + evict. */
-function remember(key: string, value: StoredRedirect | null): void {
+function remember(key: string, value: StoredValue | null): void {
   const c = cache();
   c.delete(key);
   c.set(key, { value, expiresAt: Date.now() + TTL_MS });
@@ -80,8 +82,10 @@ export function clearRedirectCache(): void {
 }
 
 /**
- * Look up one exact redirect for `normalizedPath` (already through
- * `normalizePath` — the key contract).
+ * Look up one exact redirect for the request's `pathname`. The key is
+ * `normalizePath(pathname)` (the key contract, the same in both semantics);
+ * which of the rules stored there answers — if any — is the semantics' call
+ * (`selectExactRedirect`).
  *
  * Returns `null` for "no redirect", including every case where the lookup
  * cannot run (fast-deploy off, no deployment id, KV error). A KV failure must
@@ -90,7 +94,7 @@ export function clearRedirectCache(): void {
  */
 export async function lookupExactRedirect(
   env: Record<string, unknown>,
-  normalizedPath: string,
+  pathname: string,
 ): Promise<Redirect | null> {
   const kv = getFastDeployKV(env);
   if (!kv) return null;
@@ -98,30 +102,40 @@ export async function lookupExactRedirect(
   const deploymentId = getDeploymentId(env);
   if (!deploymentId) return null;
 
-  const key = redirectKey(deploymentId, normalizedPath);
+  const key = redirectKey(deploymentId, normalizePath(pathname));
   const cached = peek(key);
   const stored = cached !== undefined ? cached.value : await read(kv, key);
   if (cached === undefined) remember(key, stored);
   if (!stored) return null;
 
-  return { from: normalizedPath, ...stored };
+  return selectExactRedirect(stored, pathname);
 }
 
 async function read(
   kv: { get(key: string): Promise<string | null> },
   key: string,
-): Promise<StoredRedirect | null> {
+): Promise<StoredValue | null> {
   try {
     const raw = await kv.get(key);
     if (raw === null) return null;
-    const parsed = JSON.parse(raw) as StoredRedirect;
+    const parsed = JSON.parse(raw) as unknown;
     // A malformed value is a miss, not a throw — never let bad data in one key
     // take down every request for that path.
-    if (!parsed || typeof parsed.to !== "string") return null;
-    const stored: StoredRedirect = { to: parsed.to, status: parsed.status === 301 ? 301 : 307 };
-    if (parsed.discardQueryParameters === true) stored.discardQueryParameters = true;
-    return stored;
+    const rules = (Array.isArray(parsed) ? parsed : [parsed])
+      .map(toStored)
+      .filter((r): r is StoredRedirect => r !== null);
+    if (rules.length === 0) return null;
+    return rules.length === 1 ? rules[0] : rules;
   } catch {
     return null;
   }
+}
+
+function toStored(value: unknown): StoredRedirect | null {
+  const parsed = value as Partial<StoredRedirect> | null;
+  if (!parsed || typeof parsed !== "object" || typeof parsed.to !== "string") return null;
+  const stored: StoredRedirect = { to: parsed.to, status: parsed.status === 301 ? 301 : 307 };
+  if (typeof parsed.from === "string") stored.from = parsed.from;
+  if (parsed.discardQueryParameters === true) stored.discardQueryParameters = true;
+  return stored;
 }

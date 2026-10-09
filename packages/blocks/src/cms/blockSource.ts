@@ -175,9 +175,16 @@ export function redirectKey(id: string, path: string): string {
   return `${redirectPrefix(id)}${path}`;
 }
 
-/** Value stored at a `redirect:<id>:<path>` key. */
+/**
+ * One rule stored at a `redirect:<id>:<path>` key. The value is one rule, or an
+ * array of them when several sources fold to the same `path` (see
+ * `ExactRedirect.shadowed` in `@decocms/blocks/sdk/redirects`).
+ */
 export interface StoredRedirect {
+  /** Source as written. Absent on values written before it existed. */
+  from?: string;
   to: string;
+  /** Temporary is always written as 307; `"legacy"` semantics answer it as 302. */
   status: 301 | 307;
   /** Answer with `to` as written instead of appending the request's query. */
   discardQueryParameters?: boolean;

@@ -409,7 +409,7 @@ describe("readDecofileFromDir — CSV redirects", () => {
     const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
     const split = splitExactRedirects(blocks);
 
-    expect(split.exact).toEqual([{ path: "/old", to: "/new", status: 301 }]);
+    expect(split.exact).toEqual([{ path: "/old", from: "/old", to: "/new", status: 301 }]);
     expect(JSON.stringify(split.blocks)).not.toContain('"/old"');
     expect(split.blocks["__csv_redirects__r.csv"]).toMatchObject({ redirects: [{ from: "/g/*" }] });
   });

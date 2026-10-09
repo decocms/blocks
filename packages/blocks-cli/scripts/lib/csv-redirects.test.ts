@@ -52,7 +52,7 @@ describe("buildCsvRedirectBlocks", () => {
     // The synthetic block is what loadRedirects consumes at runtime.
     const map = loadRedirects({ ...csvBlocks, ...blocks });
     expect(matchRedirect("/old", map)).toMatchObject({ to: "/new", status: 301 });
-    expect(matchRedirect("/tmp-old", map)).toMatchObject({ to: "/tmp-new", status: 307 });
+    expect(matchRedirect("/tmp-old", map)).toMatchObject({ to: "/tmp-new", status: 302 });
   });
 
   it("drops the header row instead of turning it into a redirect", () => {
@@ -103,7 +103,8 @@ describe("buildCsvRedirectBlocks", () => {
     });
     const map = loadRedirects(csvBlocks);
     expect(matchRedirect("/a", map)).toMatchObject({ status: 301, discardQueryParameters: true });
-    expect(matchRedirect("/e", map)).toMatchObject({ status: 307 });
+    // Temporary under the default (legacy) semantics.
+    expect(matchRedirect("/e", map)).toMatchObject({ status: 302 });
   });
 
   it("returns {} when no CSV loader is referenced", () => {

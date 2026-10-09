@@ -228,7 +228,7 @@ describe("CMS redirects", () => {
     expect(res.headers.get("Location")).toBe("/new");
   });
 
-  it("redirects ?asJson requests too (does not fall through to page resolver)", async () => {
+  it("fresh: redirects ?asJson requests too, keeping the query (does not fall through to page resolver)", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirect.ts",
@@ -237,6 +237,7 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const res = await worker.fetch(
       new Request("https://example.com/old?asJson"),
@@ -249,7 +250,7 @@ describe("CMS redirects", () => {
     expect(res.headers.get("Location")).toBe("/new?asJson");
   });
 
-  it("appends the request's query string to Location unless the rule discards it", async () => {
+  it("fresh: appends the request's query string to Location unless the rule discards it", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirects.ts",
@@ -261,6 +262,7 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const kept = await worker.fetch(
       new Request("https://example.com/old?utm_source=qa&gclid=x"),
@@ -277,7 +279,7 @@ describe("CMS redirects", () => {
     expect(dropped.headers.get("Location")).toBe("/clean?ref=1");
   });
 
-  it("matches a rule scoped to a query before the bare path, and case-sensitively", async () => {
+  it("fresh: matches a rule scoped to a query before the bare path, and case-sensitively", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirects.ts",
@@ -290,6 +292,7 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const scoped = await worker.fetch(
       new Request("https://example.com/kit/p?skuId=4432"),
@@ -318,7 +321,7 @@ describe("CMS redirects", () => {
     expect(lower.status).toBe(200);
   });
 
-  it("URI-encodes the Location header for non-ASCII destinations", async () => {
+  it("fresh: URI-encodes the Location header for non-ASCII destinations", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirect.ts",
@@ -327,13 +330,14 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(307);
     expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
   });
 
-  it("returns a 307 redirect for a temporary redirect block", async () => {
+  it("fresh: returns a 307 redirect for a temporary redirect block", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirect.ts",
@@ -342,6 +346,7 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
     expect(res.status).toBe(307);
@@ -384,6 +389,45 @@ describe("CMS redirects", () => {
     const res2 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
     expect(res2.status).toBe(301);
     expect(res2.headers.get("Location")).toBe("/v2");
+  });
+
+  it("legacy (default): folds case and trailing slash, drops the query, 302 for temporary", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [
+          { from: "/baixeoapp", to: "/baixe-o-app", type: "permanent" },
+          { from: "/promo", to: "/promoção", type: "temporary" },
+          { from: "/Calca/p", to: "/calca/p", type: "permanent" },
+        ],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
+    const folded = await worker.fetch(
+      new Request("https://example.com/BaixeoApp/?utm_source=a&asJson"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(folded.status).toBe(301);
+    expect(folded.headers.get("Location")).toBe("/baixe-o-app");
+
+    const temporary = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(temporary.status).toBe(302);
+    expect(temporary.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
+
+    // Folded, this rule would redirect /calca/p to itself forever — dropped.
+    const loop = await worker.fetch(
+      new Request("https://example.com/calca/p"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(loop.status).toBe(200);
   });
 });
 

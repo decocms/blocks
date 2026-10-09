@@ -27,8 +27,8 @@ describe("splitExactRedirects", () => {
     });
 
     expect(exact).toEqual([
-      { path: "/old", to: "/new", status: 301 },
-      { path: "/tmp", to: "/other", status: 307 },
+      { path: "/old", from: "/old", to: "/new", status: 301 },
+      { path: "/tmp", from: "/tmp", to: "/other", status: 307 },
     ]);
     // Block had nothing but exact rules ⇒ gone entirely, not an empty husk.
     expect(blocks.r).toBeUndefined();
@@ -71,10 +71,9 @@ describe("splitExactRedirects", () => {
         redirect: { from: "https://site.com/Old/", to: "/new" },
       },
     });
-    // Origin stripped, the rest as written (case and trailing slash are part
-    // of the URL) — whatever the writer keys by, the request-time lookup must
-    // produce byte for byte.
-    expect(exact).toEqual([{ path: "/Old/", to: "/new", status: 307 }]);
+    // Folded key (the request-time lookup produces the same byte for byte, in
+    // either semantics); the source as written rides along for `"fresh"`.
+    expect(exact).toEqual([{ path: "/old", from: "/Old/", to: "/new", status: 307 }]);
   });
 
   it("drops the singular `redirect` field when rebuilding a block", () => {
@@ -100,7 +99,9 @@ describe("splitExactRedirects", () => {
       a: { __resolveType: "website/loaders/redirects.ts", redirects: [{ from: "/x", to: "/1" }] },
       b: { __resolveType: "website/loaders/redirects.ts", redirects: [{ from: "/x", to: "/2" }] },
     };
-    expect(splitExactRedirects(input).exact).toEqual([{ path: "/x", to: "/2", status: 307 }]);
+    expect(splitExactRedirects(input).exact).toEqual([
+      { path: "/x", from: "/x", to: "/2", status: 307 },
+    ]);
     expect(loadRedirects(input).exact.get("/x")?.to).toBe("/2");
   });
 
@@ -121,7 +122,7 @@ describe("splitExactRedirects", () => {
     // Exact left the decofile...
     expect(matchRedirect("/a", after)).toBeNull();
     // ...into the extracted list, unchanged.
-    expect(exact).toContainEqual({ path: "/a", to: "/1", status: 301 });
+    expect(exact).toContainEqual({ path: "/a", from: "/a", to: "/1", status: 301 });
     // Globs still match exactly as before.
     expect(matchRedirect("/b/deep", after)).toEqual(matchRedirect("/b/deep", before));
   });
