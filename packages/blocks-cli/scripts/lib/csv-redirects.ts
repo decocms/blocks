@@ -20,8 +20,11 @@ import { parseRedirectsCsv } from "@decocms/blocks/sdk/redirects";
 const CSV_REDIRECT_RESOLVE_TYPE = "website/loaders/redirectsFromCsv.ts";
 const REDIRECTS_RESOLVE_TYPE = "website/loaders/redirects.ts";
 
-/** Recursively collect `from` CSV paths referenced by redirectsFromCsv nodes. */
-function collectCsvRefs(node: unknown, out: Set<string>): void {
+/**
+ * Recursively collect the CSV paths referenced by redirectsFromCsv nodes, with
+ * the loader's `forcePermanentRedirects` flag (true if any referrer sets it).
+ */
+function collectCsvRefs(node: unknown, out: Map<string, boolean>): void {
   if (!node || typeof node !== "object") return;
   if (Array.isArray(node)) {
     for (const item of node) collectCsvRefs(item, out);
@@ -29,7 +32,7 @@ function collectCsvRefs(node: unknown, out: Set<string>): void {
   }
   const obj = node as Record<string, unknown>;
   if (obj.__resolveType === CSV_REDIRECT_RESOLVE_TYPE && typeof obj.from === "string") {
-    out.add(obj.from);
+    out.set(obj.from, (out.get(obj.from) ?? false) || obj.forcePermanentRedirects === true);
   }
   for (const value of Object.values(obj)) collectCsvRefs(value, out);
 }
@@ -68,12 +71,12 @@ export function buildCsvRedirectBlocks(
   const silent = options.silent ?? false;
   const publicDir = path.resolve(options.blocksDir, "../../public");
 
-  const refs = new Set<string>();
+  const refs = new Map<string, boolean>();
   for (const value of Object.values(blocks)) collectCsvRefs(value, refs);
   if (refs.size === 0) return {};
 
   const csvBlocks: Record<string, unknown> = {};
-  for (const from of refs) {
+  for (const [from, forcePermanentRedirects] of refs) {
     const csvPath = resolveCsvPath(from, publicDir);
     let csv: string;
     try {
@@ -87,11 +90,12 @@ export function buildCsvRedirectBlocks(
 
     // `loadRedirects` reads `entry.type` ("permanent" | "temporary"), while
     // `parseRedirectsCsv` returns a numeric `status` — map it back so 301s stay
-    // 301s (a raw status field would be ignored and default to 302).
-    const entries = parseRedirectsCsv(csv).map((r) => ({
+    // 301s (a raw status field would be ignored and default to 307).
+    const entries = parseRedirectsCsv(csv, { forcePermanentRedirects }).map((r) => ({
       from: r.from,
       to: r.to,
       type: r.status === 301 ? "permanent" : "temporary",
+      ...(r.discardQueryParameters ? { discardQueryParameters: true } : {}),
     }));
 
     const key = `__csv_redirects__${path.basename(csvPath)}`;

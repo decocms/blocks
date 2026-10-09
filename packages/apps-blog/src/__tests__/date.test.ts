@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { sortPosts } from "../core/handlePosts";
 import type { BlogPost } from "../types";
-import { dateToTime, scheduledTime } from "../utils/date";
+import { dateToTime, scheduledTime, toISODateTime } from "../utils/date";
 
 const post = (slug: string, date: string): BlogPost => ({
   title: slug,
@@ -130,5 +130,37 @@ describe("scheduledTime", () => {
   it("returns null, not 0, on failure — so the epoch stays representable", () => {
     expect(scheduledTime("garbage")).toBeNull();
     expect(scheduledTime("1970-01-01T00:00:00Z")).toBe(0);
+  });
+});
+
+describe("toISODateTime", () => {
+  it("places a bare date at 08:00 UTC with an explicit designator", () => {
+    expect(toISODateTime("2025-06-01")).toBe("2025-06-01T08:00:00.000Z");
+  });
+
+  it("pins an offset-less date-time to UTC", () => {
+    expect(toISODateTime("2025-06-01T00:00:00")).toBe("2025-06-01T00:00:00.000Z");
+  });
+
+  it("keeps the instant of a date-time that carries its own offset", () => {
+    expect(toISODateTime("2025-06-01T09:00:00+02:00")).toBe("2025-06-01T07:00:00.000Z");
+  });
+
+  it("keeps the Unix epoch instead of mistaking it for a failure", () => {
+    expect(toISODateTime("1970-01-01T00:00:00Z")).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("returns undefined for an unparseable value", () => {
+    expect(toISODateTime("")).toBeUndefined();
+    expect(toISODateTime("not a date")).toBeUndefined();
+  });
+
+  it("rejects an impossible calendar date instead of rolling it over", () => {
+    expect(toISODateTime("2024-02-31")).toBeUndefined();
+    expect(toISODateTime("2024-02-31T10:00:00Z")).toBeUndefined();
+  });
+
+  it("rejects non-ISO strings that `Date` would read in server-local time", () => {
+    expect(toISODateTime("June 1, 2025")).toBeUndefined();
   });
 });

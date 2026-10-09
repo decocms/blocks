@@ -575,7 +575,26 @@ interface ResolveContext {
 // Configuration
 // ---------------------------------------------------------------------------
 
+/**
+ * SEO sections of the deco-cx `website`/`commerce` apps. They have no
+ * component here: their resolved props become the page's `<head>` through
+ * `resolvePageSeoBlock` + `extractSeoFromProps`. On Deco for Fresh they were
+ * ordinary sections, so a decofile may carry one inside `page.sections` as
+ * well as under `page.seo` — `resolveDecoPage` picks it out of the list;
+ * anywhere else in the tree they are skipped like the other framework types.
+ */
+const FRAMEWORK_SEO_TYPES = new Set([
+  "commerce/sections/Seo/SeoPDP.tsx",
+  "commerce/sections/Seo/SeoPDPV2.tsx",
+  "commerce/sections/Seo/SeoPLP.tsx",
+  "commerce/sections/Seo/SeoPLPV2.tsx",
+  "website/sections/Seo/Seo.tsx",
+  "website/sections/Seo/SeoV2.tsx",
+  "deco-sites/std/sections/SEO.tsx",
+]);
+
 const SKIP_RESOLVE_TYPES = new Set([
+  ...FRAMEWORK_SEO_TYPES,
   "Deco",
   "htmx/sections/htmx.tsx",
   "website/sections/Analytics/Analytics.tsx",
@@ -585,13 +604,6 @@ const SKIP_RESOLVE_TYPES = new Set([
   "website/loaders/pages.ts",
   "website/loaders/redirects.ts",
   "website/loaders/fonts/googleFonts.ts",
-  "commerce/sections/Seo/SeoPDP.tsx",
-  "commerce/sections/Seo/SeoPDPV2.tsx",
-  "commerce/sections/Seo/SeoPLP.tsx",
-  "commerce/sections/Seo/SeoPLPV2.tsx",
-  "website/sections/Seo/Seo.tsx",
-  "website/sections/Seo/SeoV2.tsx",
-  "deco-sites/std/sections/SEO.tsx",
 ]);
 
 /** Add a __resolveType that should be skipped during resolution. */
@@ -1356,8 +1368,21 @@ async function resolveRawSection(
 export async function resolvePageSeoBlock(
   seoBlock: Record<string, unknown> | undefined,
   rctx: ResolveContext,
+  opts?: {
+    /**
+     * Treat the section's `ignoreStructuredData` toggle as a fetch-skip for
+     * humans (the `page.seo` behaviour below). Off for a SEO section found in
+     * `page.sections`: on Deco for Fresh the toggle only decides whether the
+     * JSON-LD is emitted — `deriveCommerceSeoFromJsonLD` honours it there —
+     * while canonical, image and robots still come from the resolved data,
+     * and the loader behind `jsonLD` is the body's own, memoized per request.
+     * The site-wide `botAwareSeo` flag applies either way.
+     */
+    toggleSkipsFetch?: boolean;
+  },
 ): Promise<ResolvedSection | null> {
   if (!seoBlock || typeof seoBlock !== "object") return null;
+  const toggleSkipsFetch = opts?.toggleSkipsFetch ?? true;
 
   // Bot-aware SEO: crawlers get the SEO block fully resolved (e.g. a
   // ProductListingPage for JSON-LD ItemList) — that content exists for indexing;
@@ -1436,7 +1461,8 @@ export async function resolvePageSeoBlock(
     // Skip only when the editor turned on `ignoreStructuredData` for this
     // section, or the site-wide `botAwareSeo` shortcut is enabled.
     const skipCommerceForHuman =
-      !isEagerReq && (globalBotAware || sectionIgnoresStructuredData(rawProps));
+      !isEagerReq &&
+      (globalBotAware || (toggleSkipsFetch && sectionIgnoresStructuredData(rawProps)));
     const propsToResolve = skipCommerceForHuman ? stripCommerceLoaderProps(rawProps) : rawProps;
     try {
       const resolvedProps = await resolveProps(propsToResolve, rctx);
@@ -1515,6 +1541,46 @@ function sectionIgnoresStructuredData(props: Record<string, unknown>): boolean {
   if (props.ignoreStructuredData === true) return true;
   const configJsonLD = props.configJsonLD as { ignoreStructuredData?: boolean } | undefined;
   return configJsonLD?.ignoreStructuredData === true;
+}
+
+type StructuredDataControl = "always include" | "disable for users" | "disable for all";
+
+/**
+ * When the section's structured data is emitted, as deco-cx
+ * `commerce/utils/structuredData.ts` reads it: `structuredDataControl` (top
+ * level on the PDP section, under `configJsonLD` on the PLP one) wins, and
+ * the deprecated `ignoreStructuredData` toggle means "disable for users".
+ */
+function structuredDataMode(props: Record<string, unknown>): StructuredDataControl {
+  const configJsonLD = props.configJsonLD as { structuredDataControl?: unknown } | undefined;
+  const control = props.structuredDataControl ?? configJsonLD?.structuredDataControl;
+  if (
+    control === "always include" ||
+    control === "disable for users" ||
+    control === "disable for all"
+  ) {
+    return control;
+  }
+  return sectionIgnoresStructuredData(props) ? "disable for users" : "always include";
+}
+
+/**
+ * VTEX image-server resize, by rewriting the `/arquivos/ids/<id>-<w>-<h>`
+ * segment — the same rewrite as deco-cx `website/components/Image.tsx`
+ * (`optimizeVTEX`) and `hooks/Image.tsx` here. Returns the source untouched
+ * when it is not such a URL.
+ */
+function optimizeVtexImage(originalSrc: string, width: number, height: number): string {
+  try {
+    const src = new URL(originalSrc);
+    const [slash, arquivos, ids, rawId, ...rest] = src.pathname.split("/");
+    if (arquivos !== "arquivos" || ids !== "ids" || !rawId) return originalSrc;
+    const [trueId] = rawId.split("-");
+    src.pathname = [slash, arquivos, ids, `${trueId}-${width}-${height}`, ...rest].join("/");
+    return src.href;
+  } catch {
+    return originalSrc;
+  }
 }
 
 /**
@@ -1639,6 +1705,22 @@ function resolveFinalSectionKey(section: unknown, matcherCtx?: MatcherContext): 
  * and return true if a deferral wrapper (Lazy.tsx or Deferred.tsx) is found
  * at any level. This is used by shouldDeferSection to determine if the CMS
  * editor intended this section to be deferred.
+ *
+ * A `Lazy` wrapper carrying `loading: "eager"` is NOT a deferral: on Deco for
+ * Fresh that prop short-circuits the wrapper's own loader, which awaits the
+ * inner section and renders it inline, with no FallbackWrapper —
+ * `website/sections/Rendering/Lazy.tsx`:
+ *
+ * ```ts
+ * const shouldRender = loading === "eager" || shouldForceRender({ … });
+ * if (shouldRender) return { loading: "eager", section: await section() };
+ * ```
+ *
+ * Decofiles migrated from Fresh carry that prop (a named `Footer` block whose
+ * root is `Lazy.tsx` + `loading: "eager"` is the common shape), so ignoring it
+ * turns a section prod server-renders into a skeleton that only materializes
+ * client-side. Honouring it keeps the wrapper's meaning identical on both
+ * runtimes.
  */
 function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): boolean {
   if (!section || typeof section !== "object") return false;
@@ -1651,6 +1733,15 @@ function isCmsDeferralWrapped(section: unknown, matcherCtx?: MatcherContext): bo
     if (!rt) return false;
 
     if (rt === WELL_KNOWN_TYPES.LAZY || rt === WELL_KNOWN_TYPES.DEFERRED) {
+      // `loading: "eager"` cancels the deferral at this level. Keep walking
+      // inward so a nested wrapper further down still counts, which is what
+      // Fresh does when it awaits the inner section.
+      if (current.loading === "eager") {
+        const inner = current.section ?? current.sections;
+        if (!inner || typeof inner !== "object" || Array.isArray(inner)) return false;
+        current = inner as Record<string, unknown>;
+        continue;
+      }
       return true;
     }
 
@@ -2147,8 +2238,17 @@ function deriveCommerceSeoFromJsonLD(
         type === "ProductListingPage" ? jsonLD.breadcrumb : jsonLD.breadcrumbList,
       );
   }
-  if (type === "ProductDetailsPage" && !seo.image) {
-    seo.image = jsonLD.product?.image?.[0]?.url;
+  if (type === "ProductDetailsPage") {
+    if (!seo.image) {
+      const image = jsonLD.product?.image?.[0]?.url as string | undefined;
+      // `optimizeImageForVTEX` on SeoPDPV2: the 1200×1200 crop deco-cx asks
+      // VTEX's image server for (`website/components/Image.tsx` optimizeVTEX).
+      seo.image =
+        image && props.optimizeImageForVTEX === true ? optimizeVtexImage(image, 1200, 1200) : image;
+    }
+    // SeoPDPV2 renders `<Seo type="product">`: `og:type` product, and the
+    // Twitter card becomes `summary_large_image`.
+    if (!seo.type) seo.type = "product";
   }
 
   const isEmpty =
@@ -2164,8 +2264,8 @@ function deriveCommerceSeoFromJsonLD(
   // humans only; crawlers (and the `?__deco_ssr=1` audit override) still get it
   // so indexing/rich results are unaffected. An empty page contributes no
   // ItemList regardless.
-  const ignore = sectionIgnoresStructuredData(props);
-  if ((ignore && !isEager) || isEmpty) return;
+  const mode = structuredDataMode(props);
+  if (mode === "disable for all" || (mode === "disable for users" && !isEager) || isEmpty) return;
 
   seo.jsonLDs =
     type === "ProductListingPage"
@@ -2324,8 +2424,23 @@ async function resolveDecoPageImpl(
   const deferredSections: DeferredSection[] = [];
   let flatIndex = 0;
 
+  // A framework SEO section placed in the list (Deco for Fresh rendered it as
+  // a section emitting `<Head>`). It renders nothing here; it is resolved as
+  // the page's SEO block below, after the body, so the commerce loader it
+  // shares with the body (a named `PDP Loader`) is served from the memo.
+  // It keeps its slot in `flatIndex`: deferred sections are addressed by
+  // their position in the raw list (`reExtractRawProps`).
+  let seoInSections: Record<string, unknown> | null = null;
+
   for (const section of rawSections) {
     const currentFlatIndex = flatIndex;
+
+    const finalKey = resolveFinalSectionKey(section, ctx);
+    if (finalKey && FRAMEWORK_SEO_TYPES.has(finalKey)) {
+      seoInSections ??= section as Record<string, unknown>;
+      flatIndex++;
+      continue;
+    }
 
     const shouldDefer =
       useAsync && shouldDeferSection(section, currentFlatIndex, currentAsyncConfig!, isBotReq, ctx);
@@ -2444,12 +2559,20 @@ async function resolveDecoPageImpl(
 
   // Resolve page-level SEO block (page.seo field) — always eager.
   // Runs after sections to benefit from memoized commerce loader results.
+  // `page.seo` is the primary source; a SEO section in the list stands in
+  // only when the page has none.
   let seoSection: ResolvedSection | null = null;
   if (page.seo) {
     try {
       seoSection = await resolvePageSeoBlock(page.seo as Record<string, unknown>, rctx);
     } catch (e) {
       onResolveError(e, "page.seo", "Page SEO block resolution");
+    }
+  } else if (seoInSections) {
+    try {
+      seoSection = await resolvePageSeoBlock(seoInSections, rctx, { toggleSkipsFetch: false });
+    } catch (e) {
+      onResolveError(e, "page.sections", "Page SEO section resolution");
     }
   }
 

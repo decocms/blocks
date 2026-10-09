@@ -78,11 +78,14 @@ import {
 import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import {
+  getRedirectSemantics,
   loadRedirects,
   matchExactRedirect,
   matchPatternRedirect,
-  normalizePath,
   type RedirectMap,
+  type RedirectSemantics,
+  redirectLocation,
+  setRedirectSemantics,
 } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
@@ -260,6 +263,16 @@ export interface DecoWorkerEntryOptions {
    * @default true
    */
   renderJson?: boolean;
+
+  /**
+   * `?renderJson` strips the request-derived keys the section mixins inject
+   * (`device`, `isMobile`, `currentSearchParam`) from every section. A section
+   * whose own loader returns one of them as content (Fresh: `device:
+   * ctx.device`, which production's `?renderJson` carries) can keep it here:
+   * resolveType suffix (matched like `renderJson.sectionsToIgnore`) → keys to
+   * preserve. Example: `{ "Product/ProductDetails.tsx": ["device"] }`.
+   */
+  renderJsonKeepKeys?: Record<string, readonly string[]>;
 
   /**
    * Serve the raw resolved page as JSON on `?asJson` (legacy admin-preview
@@ -615,6 +628,23 @@ export interface DecoWorkerEntryOptions {
    * @default `Deco/<version> (+https://deco.cx)` — see DECO_USER_AGENT.
    */
   outboundUserAgent?: string | false;
+
+  /**
+   * How CMS redirects (`website/loaders/redirect(s).ts`, `redirectsFromCsv`)
+   * match and answer — see `@decocms/blocks/sdk/redirects`.
+   *
+   * - `"legacy"` (default): case- and trailing-slash-insensitive match,
+   *   temporary → 302, the request's query dropped from `Location`. What every
+   *   `@decocms/*` site has answered so far.
+   * - `"fresh"`: what the Fresh site a migration came from answered — source
+   *   matched byte for byte (`pathname + search` first), temporary → 307, the
+   *   request's query appended to `Location` unless `discardQueryParameters`.
+   *
+   * Both drop self-redirects and never double-encode `Location`.
+   *
+   * @default { semantics: "legacy" }
+   */
+  redirects?: { semantics?: RedirectSemantics };
 }
 
 // ---------------------------------------------------------------------------
@@ -930,20 +960,45 @@ function stripSafeCookiesForCache(response: Response, safeCookieSet: Set<string>
 }
 
 /**
- * Deduplicate Set-Cookie headers — keep only the LAST occurrence of
- * each cookie name. Multiple layers (VTEX middleware, invoke handlers,
- * etc.) may independently append the same cookie.
+ * Identity of a `Set-Cookie` header for deduplication: the browser keys its
+ * cookie jar by name + Domain + Path (RFC 6265 §5.3 step 11), so two headers
+ * that differ in scope address two different cookies — a clear for the
+ * host-only cookie does not touch the `Domain=example.com` one. The domain is
+ * case-insensitive and a leading dot is ignored (§5.2.3); the path is
+ * compared as sent.
+ */
+export function setCookieIdentity(setCookie: string): string {
+  const [nameValue = "", ...attrs] = setCookie.split(";");
+  const eqIdx = nameValue.indexOf("=");
+  const name = eqIdx > 0 ? nameValue.slice(0, eqIdx).trim() : nameValue.trim();
+  let domain = "";
+  let path = "";
+  for (const attr of attrs) {
+    const sep = attr.indexOf("=");
+    const key = (sep >= 0 ? attr.slice(0, sep) : attr).trim().toLowerCase();
+    const value = sep >= 0 ? attr.slice(sep + 1).trim() : "";
+    if (key === "domain") domain = value.replace(/^\./, "").toLowerCase();
+    else if (key === "path") path = value;
+  }
+  return `${name}\u0000${domain}\u0000${path}`;
+}
+
+/**
+ * Deduplicate Set-Cookie headers — keep only the LAST occurrence of each
+ * cookie identity (name + Domain + Path, see {@link setCookieIdentity}).
+ * Multiple layers (VTEX middleware, invoke handlers, etc.) may independently
+ * append the same cookie. Keying by name alone collapsed deliberate clears of
+ * the same cookie under different scopes (host-only / `Domain=host` /
+ * `Domain=parent`) into whichever came last, leaving the other scopes alive.
  */
 function deduplicateSetCookies(response: Response): void {
   const setCookies = (response.headers as any).getSetCookie?.() as string[] | undefined;
   if (!setCookies || setCookies.length <= 1) return;
 
-  // Build map: cookie name → last Set-Cookie value
+  // Build map: cookie identity → last Set-Cookie value
   const seen = new Map<string, string>();
   for (const sc of setCookies) {
-    const eqIdx = sc.indexOf("=");
-    const name = eqIdx > 0 ? sc.slice(0, eqIdx).trim() : sc;
-    seen.set(name, sc);
+    seen.set(setCookieIdentity(sc), sc);
   }
 
   // If no duplicates, nothing to do
@@ -956,6 +1011,46 @@ function deduplicateSetCookies(response: Response): void {
 }
 
 const FINGERPRINTED_ASSET_RE = /(?:\/_build)?\/assets\/.*-[a-zA-Z0-9_-]{8,}\.\w+$/;
+
+const LIVE_INVOKE_PREFIX = "/live/invoke";
+
+/**
+ * Fresh-compat alias: serve `/live/invoke` and `/live/invoke/*` as
+ * `/deco/invoke[/*]`. deco-runtime registered both prefixes for the same
+ * handler (`runtime/handler.tsx`: `paths: ["/live/invoke", "/deco/invoke"]`),
+ * and clients built against a Fresh site — the mobile app, partner
+ * integrations — still call `/live/invoke/...`. Here that path fell through
+ * to the CMS router and answered a 404 HTML page.
+ *
+ * Returns the same Request when the path is not a `/live/invoke` one, so the
+ * common path allocates nothing. The rewritten Request keeps method, headers,
+ * body and `cf` (the `new Request(url, request)` form does not reliably carry
+ * `cf` across runtimes — see `revalidationRequest`).
+ */
+export function aliasLiveInvoke(request: Request): Request {
+  const url = new URL(request.url);
+  const { pathname } = url;
+  if (pathname !== LIVE_INVOKE_PREFIX && !pathname.startsWith(`${LIVE_INVOKE_PREFIX}/`)) {
+    return request;
+  }
+  url.pathname = `/deco/invoke${pathname.slice(LIVE_INVOKE_PREFIX.length)}`;
+  const hasBody = request.method !== "GET" && request.method !== "HEAD";
+  const cf = (request as unknown as { cf?: unknown }).cf;
+  const aliased = new Request(url.toString(), {
+    method: request.method,
+    headers: request.headers,
+    redirect: request.redirect,
+    signal: request.signal,
+    ...(hasBody ? { body: request.body, duplex: "half" } : {}),
+    ...(cf ? { cf } : {}),
+  } as RequestInit);
+  // Runtimes other than workerd ignore the `cf` init field; re-attach it so a
+  // location matcher downstream never reads a dropped `cf`.
+  if (cf !== undefined && (aliased as unknown as { cf?: unknown }).cf === undefined) {
+    Object.defineProperty(aliased, "cf", { value: cf, configurable: true });
+  }
+  return aliased;
+}
 
 // ---------------------------------------------------------------------------
 // Auto geo-key detection (module-level singleton)
@@ -1088,6 +1183,7 @@ export function createDecoWorkerEntry(
     extraBypassPaths = [],
     fingerprintedAssetPattern = FINGERPRINTED_ASSET_RE,
     stripTrackingParams: shouldStripTracking = true,
+    redirects: redirectsOpt,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
     securityHeaders: securityHeadersOpt,
@@ -1102,6 +1198,10 @@ export function createDecoWorkerEntry(
     outboundUserAgent: outboundUserAgentOpt,
     speculationRules: speculationRulesOpt,
   } = options;
+
+  // Before the first request builds the redirect map — the map keys its rules
+  // for the semantics in force when it is built.
+  setRedirectSemantics(redirectsOpt?.semantics ?? "legacy");
 
   // Speculation Rules — store the site-wide config in the shared singleton so
   // DecoRootLayout (SSR) emits the tag in <head>. Inert unless the site opts in.
@@ -2174,10 +2274,13 @@ export function createDecoWorkerEntry(
     : instrumentWorker(handler, (observabilityOpt as OtelOptions | undefined) ?? {});
 
   async function handleRequest(
-    request: Request,
+    incomingRequest: Request,
     env: Record<string, unknown>,
     ctx: WorkerExecutionContext,
   ): Promise<Response> {
+    // Fresh-compat `/live/invoke` → `/deco/invoke`, before anything reads
+    // the path (admin routes, bypass paths, the site's `/deco/invoke/$` route).
+    const request = aliasLiveInvoke(incomingRequest);
     const url = new URL(request.url);
 
     // NOTE: fast-deploy hydration does NOT run here. It must happen before
@@ -2245,7 +2348,9 @@ export function createDecoWorkerEntry(
     // ?asJson and commerce proxy so every request path respects redirects.
     // Revision-keyed so cross-bundle setBlocks() calls are detected even when
     // onChange listeners don't fire across Vite split-bundle module instances.
-    const currentRevision = getRevision();
+    // The semantics are part of the key: a map keys its rules for the
+    // semantics in force when it is built.
+    const currentRevision = `${getRevision()}:${getRedirectSemantics()}`;
     if (_redirectMapRevision !== currentRevision) {
       _redirectMap = loadRedirects(loadBlocks());
       _redirectMapRevision = currentRevision;
@@ -2255,14 +2360,16 @@ export function createDecoWorkerEntry(
     // from the decofile, so the in-memory exact hit is the non-fast-deploy
     // case. Going straight to `matchRedirect` and only then to KV would let a
     // glob win over an exact rule, inverting the precedence.
+    // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
+    // stays one read, keyed by pathname.
     const cmsRedirect =
-      matchExactRedirect(url.pathname, _redirectMap!) ??
-      (await lookupExactRedirect(env as Record<string, unknown>, normalizePath(url.pathname))) ??
+      matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
+      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname)) ??
       matchPatternRedirect(url.pathname, _redirectMap!);
     if (cmsRedirect) {
       return new Response(null, {
         status: cmsRedirect.status,
-        headers: { Location: encodeURI(cmsRedirect.to) },
+        headers: { Location: redirectLocation(cmsRedirect, url.search) },
       });
     }
 
@@ -2330,6 +2437,16 @@ export function createDecoWorkerEntry(
       const getSectionModule = (component: string) => ({
         renderJson: getSectionOptions(component)?.renderJson,
       });
+      const keepEntries = Object.entries(options.renderJsonKeepKeys ?? {});
+      const keepInjectedKeys =
+        keepEntries.length === 0
+          ? undefined
+          : (component: string) => {
+              const keys = keepEntries.flatMap(([suffix, k]) =>
+                component.endsWith(suffix) ? k : [],
+              );
+              return keys.length > 0 ? keys : undefined;
+            };
 
       const jsonHeaders = {
         ...corsHeaders,
@@ -2367,7 +2484,7 @@ export function createDecoWorkerEntry(
         }
         const [serialized] = serializeRenderJson(
           [{ component: resolved.component, props: resolved.props }],
-          { getSectionModule, sectionsToIgnore: ignoreSuffixes },
+          { getSectionModule, sectionsToIgnore: ignoreSuffixes, keepInjectedKeys },
         );
         if (!serialized) {
           return Response.json(
@@ -2398,6 +2515,7 @@ export function createDecoWorkerEntry(
           sectionsToIgnore: ignoreSuffixes,
           deferred: page.deferredSections.map((d) => ({ component: d.component, index: d.index })),
           lazyUrlFor,
+          keepInjectedKeys,
         },
       );
 

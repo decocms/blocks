@@ -30,10 +30,22 @@ export const decoParseSearch: SearchParser = (searchStr) => {
   return result;
 };
 
+/**
+ * Serializes the router's search object back to a query string.
+ *
+ * Must be a fixed point of {@link decoParseSearch}: on the server, TanStack
+ * Router compares the request's href with `stringifySearch(parseSearch(...))`
+ * (`router.beforeLoad`) and answers a 307 to the normalized URL when they
+ * differ. A value-less parameter (`?sort=`, `?utm_source=`) parses to `""`,
+ * so dropping `""` here turned every such request into a redirect that
+ * Fresh — and TanStack's own default serializer, which only drops
+ * `undefined` — never issued. `undefined`/`null` still remove a param, which
+ * is how `navigate({ search: { q: undefined } })` clears one.
+ */
 export const decoStringifySearch: SearchSerializer = (search) => {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(search)) {
-    if (value === undefined || value === null || value === "") continue;
+    if (value === undefined || value === null) continue;
     if (Array.isArray(value)) {
       for (const v of value) params.append(key, String(v));
     } else {

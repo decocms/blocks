@@ -191,6 +191,174 @@ describe("typeToJsonSchema with intersection types", () => {
   }, 30_000);
 });
 
+// Sites compile with `strict`, so an optional prop is `T | undefined` (nullable).
+function strictProject() {
+  return new Project({
+    useInMemoryFileSystem: true,
+    compilerOptions: { skipLibCheck: true, strict: true },
+  });
+}
+
+describe("typeToJsonSchema underscore-prefixed props", () => {
+  it("keeps `__title` and `_id` (admin label, dynamic-options key) but not __resolveType", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        /** @title {{__title}} */
+        export interface Rule {
+          /**
+           * @title Título (opcional)
+           * @description Título do CMS.
+           */
+          __title?: string;
+          /**
+           * @title Regulamento
+           * @format dynamic-options
+           * @options site/loaders/admin/regulation.ts
+           */
+          _id?: string;
+          __resolveType?: string;
+          pathname: string;
+        }
+        export interface Props { rules: Rule[] }
+      `,
+    );
+    const item = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType()).properties.rules.items;
+    expect(Object.keys(item.properties)).toEqual(["__title", "_id", "pathname"]);
+    expect(item.properties.__title).toEqual({
+      type: "string",
+      nullable: true,
+      title: "Título (opcional)",
+      description: "Título do CMS.",
+    });
+    expect(item.properties._id).toMatchObject({
+      type: "string",
+      format: "dynamic-options",
+      options: "site/loaders/admin/regulation.ts",
+    });
+    expect(item.required).toEqual(["pathname"]);
+  }, 30_000);
+
+  it("emits a hidden literal discriminator with const and an equal default", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        export interface Props {
+          /** @hide true */
+          __type: "image";
+          src: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.__type).toEqual({
+      type: "string",
+      const: "image",
+      default: "image",
+      hide: "true",
+      title: "__type",
+    });
+    // Hidden but defaulted: the admin writes the literal, so it stays required
+    // (as in deco-cx/deco).
+    expect(schema.required).toEqual(["__type", "src"]);
+  }, 30_000);
+
+  it("still leaves a hidden prop without a default out of `required`", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        export interface Props {
+          /** @hide true */
+          internal: string;
+          src: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.internal.hide).toBe("true");
+    expect(schema.required).toEqual(["src"]);
+  }, 30_000);
+});
+
+describe("typeToJsonSchema with a recursive named type", () => {
+  // A navigation tree written as `interface Link { submenu?: Link[] }`. The
+  // cycle used to collapse to `{ type: "object" }`, so the admin edited the
+  // submenu as an object instead of a list of links. deco-cx/deco emits the
+  // type once as a definition and references it from inside the cycle.
+  const source = `
+    /** @title {{name}} */
+    export interface Link {
+      /** @title Name */
+      name: string;
+      /** @title Submenu */
+      submenu?: Link[];
+    }
+    export interface Props { links: Link[] }
+  `;
+  const refId = `${Buffer.from("props.ts").toString("base64")}@Link`;
+
+  it("references the type from inside the cycle and registers its definition", () => {
+    const sf = strictProject().createSourceFile("/props.ts", source);
+    const definitions: Record<string, any> = {};
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType(), new Set(), {
+      definitions,
+      rootDir: "/",
+    });
+
+    const item = schema.properties.links.items;
+    expect(item.title).toBe("{{name}}");
+    expect(item.properties.submenu).toEqual({
+      type: "array",
+      items: { $ref: `#/definitions/${refId}` },
+      nullable: true,
+      title: "Submenu",
+    });
+
+    // The definition the $ref points at is the full type, itself recursive.
+    expect(Object.keys(definitions)).toEqual([refId]);
+    expect(definitions[refId].title).toBe("{{name}}");
+    expect(definitions[refId].required).toEqual(["name"]);
+    expect(definitions[refId].properties.submenu.items).toEqual({
+      $ref: `#/definitions/${refId}`,
+    });
+  }, 30_000);
+
+  it("falls back to a bare object when there is no definitions sink", () => {
+    const sf = strictProject().createSourceFile("/props.ts", source);
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.links.items.properties.submenu).toEqual({
+      type: "object",
+      nullable: true,
+      title: "Submenu",
+    });
+  }, 30_000);
+});
+
+describe("typeToJsonSchema JSDoc tag parsing", () => {
+  it("ignores `@description:` (colon after the tag name), as deco-cx/deco does", () => {
+    const sf = strictProject().createSourceFile(
+      "/props.ts",
+      `
+        export interface Props {
+          /**
+           * @title Título
+           * @description: Nome que irá aparecer na pílula.
+           */
+          name: string;
+          /** @description Kept. */
+          path: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.name).toEqual({ type: "string", title: "Título" });
+    expect(schema.properties.path.description).toBe("Kept.");
+  }, 30_000);
+});
+
 describe("typeToJsonSchema Section-typed props", () => {
   // The framework's `Section` is opaque (`export type Section = any`), so a
   // Section-typed prop is a "pick any section" reference emitted as a
@@ -380,4 +548,24 @@ describe("generate-schema default output path (.deco/)", () => {
     expect(code).toBe(0);
     expect(stderr).not.toContain("Generator default output moved");
   }, 30_000);
+});
+
+describe("typeToJsonSchema with RequestURLParam", () => {
+  it("points a RequestURLParam prop at the requestToParam picker", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        type RequestURLParam = string;
+        export interface Props {
+          slug?: RequestURLParam;
+          plain?: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    const key = `${Buffer.from("website/functions/requestToParam.ts").toString("base64")}@RequestURLParam`;
+    expect(schema.properties.slug).toEqual({ $ref: `#/definitions/${key}`, title: "Slug" });
+    expect(schema.properties.plain.type).toBe("string");
+  });
 });

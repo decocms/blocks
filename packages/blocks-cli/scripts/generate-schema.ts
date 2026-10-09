@@ -305,6 +305,10 @@ export function applyWidgetFormat(schema: any, typeHint: string): void {
 const SECTION_REF_DEF_KEY = "__SECTION_REF__";
 // Well-known definition key for Resolvable (saved blocks picker)
 const RESOLVABLE_KEY = "Resolvable";
+// Well-known definition key for `RequestURLParam` ("Force param" / "Get params
+// from request parameters"), baked by composeMeta. Same base64 of the function
+// key deco-cx/deco used, with the type name as suffix.
+const REQUEST_URL_PARAM_DEF_KEY = `${toBase64("website/functions/requestToParam.ts")}@RequestURLParam`;
 
 /**
  * Whether a prop annotated `Section` / `Section[]` is the framework's opaque
@@ -367,7 +371,62 @@ const RUNTIME_INJECTED_TYPES = new Set([
 ]);
 
 interface GenerationContext {
-  outputTypeToLoaderKeys: Map<string, string[]>;
+  /** Loader output type name → loader keys, for block-ref pickers. Sections only. */
+  outputTypeToLoaderKeys?: Map<string, string[]>;
+  /**
+   * Shared definitions sink. When present, a recursive named type (e.g.
+   * `interface Link { submenu?: Link[] }`) is emitted once as a definition and
+   * the cycle becomes a `$ref` to it — what deco-cx/deco emits. Without it the
+   * cycle collapses to a bare `{ type: "object" }`.
+   */
+  definitions?: Record<string, any>;
+  /** Root the definition ids are relative to (see definitionIdForPath). */
+  rootDir?: string;
+  /** Definition ids referenced from inside a cycle, pending registration. */
+  recursiveRefs?: Set<string>;
+}
+
+/**
+ * Definition id for a named object/interface type, or null when the type has
+ * no stable name to key on (anonymous literal, generic instantiation).
+ */
+function namedTypeDefinitionId(type: Type, rootDir: string): string | null {
+  if (!type.isObject() && !type.isInterface()) return null;
+  if (type.isArray() || type.getTypeArguments().length > 0) return null;
+  if (type.getAliasTypeArguments().length > 0) return null;
+  const sym = type.getAliasSymbol() ?? type.getSymbol();
+  const name = sym?.getName();
+  if (!sym || !name || name === "__type" || name === "__object") return null;
+  const file = sym.getDeclarations()[0]?.getSourceFile().getFilePath();
+  if (!file) return null;
+  return `${definitionIdForPath(file, rootDir)}@${name}`;
+}
+
+/**
+ * Schema for a type met again while it is still being expanded. Looks through
+ * the array / `| null | undefined` wrapper the cycle was detected on, so
+ * `submenu?: Link[]` becomes `{ type: "array", items: { $ref }, nullable }`.
+ * Returns null when there is nothing to reference (falls back to `object`).
+ */
+function recursiveTypeRef(type: Type, ctx?: GenerationContext): any | null {
+  if (!ctx?.definitions) return null;
+  if (type.isUnion()) {
+    const parts = type.getUnionTypes();
+    const nonNull = parts.filter((t) => !t.isNull() && !t.isUndefined());
+    if (nonNull.length !== 1) return null;
+    const inner = recursiveTypeRef(nonNull[0], ctx);
+    return inner && nonNull.length < parts.length ? { ...inner, nullable: true } : inner;
+  }
+  if (type.isArray()) {
+    const el = type.getArrayElementType();
+    const items = el ? recursiveTypeRef(el, ctx) : null;
+    return items ? { type: "array", items } : null;
+  }
+  const defId = namedTypeDefinitionId(type, ctx.rootDir ?? process.cwd());
+  if (!defId) return null;
+  ctx.recursiveRefs ??= new Set();
+  ctx.recursiveRefs.add(defId);
+  return { $ref: `#/definitions/${defId}` };
 }
 
 function namedLoaderType(type: Type | undefined): string | null {
@@ -420,7 +479,7 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
 
 export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
   const typeText = type.getText();
-  if (visited.has(typeText)) return { type: "object" };
+  if (visited.has(typeText)) return recursiveTypeRef(type, ctx) ?? { type: "object" };
   visited.add(typeText);
 
   try {
@@ -437,9 +496,12 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
     }
 
     if (type.isString() || type.isStringLiteral()) {
-      return type.isStringLiteral()
-        ? { type: "string", const: type.getLiteralValue() }
-        : { type: "string" };
+      if (!type.isStringLiteral()) return { type: "string" };
+      // deco-cx/deco pairs every `const` with an equal `default`, so the admin
+      // writes the literal into new entries — e.g. a hidden `__type: "image"`
+      // discriminator the component branches on.
+      const value = type.getLiteralValue();
+      return { type: "string", const: value, default: value };
     }
     if (type.isNumber() || type.isNumberLiteral()) return { type: "number" };
     if (type.isBoolean() || type.isBooleanLiteral()) return { type: "boolean" };
@@ -569,7 +631,10 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
 
       for (const prop of type.getProperties()) {
         const name = prop.getName();
-        if (name.startsWith("_") || name.startsWith("$") || name === "@type") continue;
+        // `_`-prefixed props are user data (`__title` labels a list entry in the
+        // admin, `_id` keys a dynamic-options picker) and deco-cx/deco keeps
+        // them; only the block-reference discriminator is framework-owned.
+        if (name === "__resolveType" || name.startsWith("$") || name === "@type") continue;
         if (REACT_INTERNAL_PROPS.has(name)) continue;
 
         // getValueDeclaration() returns undefined for computed/mapped-type
@@ -630,6 +695,24 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
           continue;
         }
 
+        // `RequestURLParam` (`@decocms/apps-website/functions/requestToParam`) →
+        // the requestToParam picker, as deco-cx/deco emitted it. The alias
+        // resolves to `string`, so without this the admin only offered a fixed
+        // value and lost "Get params from request parameters".
+        const nonNullTypes = propType.isUnion()
+          ? propType.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined())
+          : [propType];
+        if (baseHint === "RequestURLParam" && nonNullTypes.every((t) => t.isString())) {
+          const paramSchema: any = {
+            $ref: `#/definitions/${REQUEST_URL_PARAM_DEF_KEY}`,
+            title: name.charAt(0).toUpperCase() + name.slice(1),
+          };
+          applyJsDocToSchema(paramSchema, tags);
+          properties[name] = paramSchema;
+          if (!prop.isOptional()) required.push(name);
+          continue;
+        }
+
         // Loader output type → block-ref: emit anyOf [Resolvable, ...matchingLoaders]
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
         if (ctx?.outputTypeToLoaderKeys) {
@@ -669,7 +752,10 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         properties[name] = schema;
         // A hidden prop (runtime-injected type, ReactNode, @hide) can never be
         // filled in by the CMS user — requiring it would deadlock the form.
-        if (!prop.isOptional() && schema.hide !== "true") required.push(name);
+        // Unless it has a default the admin writes for the user (a hidden
+        // literal such as `__title: "…"`), which deco-cx/deco keeps required.
+        const fillable = schema.hide !== "true" || "default" in schema;
+        if (!prop.isOptional() && fillable) required.push(name);
       }
 
       const result: any = { type: "object", properties };
@@ -679,6 +765,16 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
       if (ifaceSym) {
         const ifaceTags = getJsDocTags(ifaceSym);
         applyJsDocToSchema(result, ifaceTags);
+      }
+
+      // A nested occurrence of this type referenced it (recursive type):
+      // register the definition the `$ref` points at. Cloned, because callers
+      // decorate the returned schema with the prop's own title/description.
+      if (ctx?.definitions && ctx.recursiveRefs?.size) {
+        const defId = namedTypeDefinitionId(type, ctx.rootDir ?? process.cwd());
+        if (defId && ctx.recursiveRefs.has(defId) && !(defId in ctx.definitions)) {
+          ctx.definitions[defId] = structuredClone(result);
+        }
       }
 
       return result;
@@ -698,6 +794,11 @@ export function getJsDocTags(symbol: MorphSymbol): Record<string, string> {
       const desc = doc.getDescription().trim();
       if (desc) tags.description = desc;
       for (const tag of doc.getTags()) {
+        // deco-cx/deco reads tags with /@(\w+)\s+/, so `@description: text` was
+        // never a description there and the admin did not show it. The TS
+        // parser splits it into tag `description` + comment `: text`; skip it
+        // rather than emit a description that starts with ": ".
+        if (/^@\w+[^\w\s]/.test(tag.getText())) continue;
         tags[tag.getTagName()] = tag.getCommentText()?.trim() || "true";
       }
     }
@@ -968,6 +1069,8 @@ function generateMeta(): MetaResponse {
   const sourceFileCache: SourceFileCache = new Map();
   const moduleResolutionCache: ModuleResolutionCache = new Map();
   const propsSchemaCache: PropsSchemaCache = new Map();
+  // Shared by every pass so each recursive type is emitted as one definition.
+  const schemaRefs: GenerationContext = { definitions, rootDir: root, recursiveRefs: new Set() };
 
   // Resolvable: the admin's deRefUntil expects the LITERAL key "Resolvable",
   // not a base64-encoded version. We store both for compatibility.
@@ -1002,14 +1105,16 @@ function generateMeta(): MetaResponse {
       // Extract Props (input schema)
       let propsSchema: any = null;
       const propsInterface = sourceFile.getInterface("Props");
-      if (propsInterface) propsSchema = typeToJsonSchema(propsInterface.getType());
+      if (propsInterface)
+        propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, schemaRefs);
 
       const propsTypeAlias = sourceFile.getTypeAlias("Props");
-      if (!propsSchema && propsTypeAlias) propsSchema = typeToJsonSchema(propsTypeAlias.getType());
+      if (!propsSchema && propsTypeAlias)
+        propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, schemaRefs);
 
       if (!propsSchema) {
         const localPropsType = extractDefaultExportPropsType(sourceFile);
-        if (localPropsType) propsSchema = typeToJsonSchema(localPropsType);
+        if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, schemaRefs);
       }
 
       if (!propsSchema) propsSchema = { type: "object", properties: {} };
@@ -1162,14 +1267,16 @@ function generateMeta(): MetaResponse {
         // Extract Props (input schema)
         let propsSchema: any = null;
         const propsInterface = sourceFile.getInterface("Props");
-        if (propsInterface) propsSchema = typeToJsonSchema(propsInterface.getType());
+        if (propsInterface)
+          propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, schemaRefs);
 
         const propsTypeAlias = sourceFile.getTypeAlias("Props");
-        if (!propsSchema && propsTypeAlias) propsSchema = typeToJsonSchema(propsTypeAlias.getType());
+        if (!propsSchema && propsTypeAlias)
+          propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, schemaRefs);
 
         if (!propsSchema) {
           const localPropsType = extractDefaultExportPropsType(sourceFile);
-          if (localPropsType) propsSchema = typeToJsonSchema(localPropsType);
+          if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, schemaRefs);
         }
 
         if (!propsSchema) propsSchema = { type: "object", properties: {} };
@@ -1220,7 +1327,7 @@ function generateMeta(): MetaResponse {
     }
   }
 
-  const ctx: GenerationContext = { outputTypeToLoaderKeys };
+  const ctx: GenerationContext = { ...schemaRefs, outputTypeToLoaderKeys };
 
   // ---------------------------------------------------------------------------
   // Commerce "extension wrapper" loaders (deco-cx parity).
