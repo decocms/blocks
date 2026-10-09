@@ -150,6 +150,31 @@ export interface VtexConfig {
 let _config: VtexConfig | null = null;
 let _fetch: FetchFn | InstrumentedFetch = withFetchTimeout();
 
+// Kept outside `VtexConfig`: `initVtexFromBlocks` rebuilds the config from the
+// decofile on every resolve (`configureVtex` replaces it whole), which would
+// wipe a site-level switch set at boot. globalThis-backed so every Vite
+// server-function split-module copy reads the same value.
+const G = globalThis as unknown as { __decoVtexInvalidPageNotFound?: boolean };
+
+/**
+ * Answer a PLP whose URL names a page that does not exist (`?page=0`,
+ * `?page=-1`, `?page=abc`) as not found — the IS loader returns `null` — the
+ * way deco-cx's loader did on Fresh, instead of clamping it to the first page.
+ * Off by default: sites already on `@decocms/*` keep serving page 1 there.
+ *
+ * Returning `null` makes the PLP section render its not-found state; the
+ * section (or its loader) still has to set the 404 status itself.
+ *
+ * Call once at boot (e.g. in `setup.ts`).
+ */
+export function setInvalidPageNotFound(enabled: boolean): void {
+	G.__decoVtexInvalidPageNotFound = enabled;
+}
+
+export function getInvalidPageNotFound(): boolean {
+	return G.__decoVtexInvalidPageNotFound === true;
+}
+
 export function configureVtex(config: VtexConfig) {
 	_config = config;
 	console.log(`[VTEX] Configured: ${config.account}.vtexcommercestable.com.br`);
