@@ -209,8 +209,12 @@ describe("createLoaderEntry — lazy import + wrap", () => {
 });
 
 describe("createCachedLoaderFromModule — hung upstream", () => {
-  it("stops new callers from joining a flight that never settles", async () => {
-    vi.useFakeTimers();
+  // No timer is ever advanced: on Workers a timer owned by a request that has
+  // already finished never fires, so expiry has to be decided by the clock at
+  // the moment the next caller arrives.
+  it("stops new callers from joining a flight that never settles, without any timer", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
     try {
       let calls = 0;
       const mod: LoaderModule = {
@@ -222,13 +226,14 @@ describe("createCachedLoaderFromModule — hung upstream", () => {
       };
       const loader = createCachedLoaderFromModule("site/loaders/hangs", mod);
       void loader({ a: 1 });
+      now += 5_000;
       void loader({ a: 1 });
       expect(calls).toBe(1);
-      await vi.advanceTimersByTimeAsync(10_000);
+      now += 5_001;
       await expect(loader({ a: 1 })).resolves.toBe("ok");
       expect(calls).toBe(2);
     } finally {
-      vi.useRealTimers();
+      clock.mockRestore();
     }
   });
 });

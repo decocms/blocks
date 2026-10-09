@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_INFLIGHT_TIMEOUT_MS,
-  releaseInflightSlotAfter,
+  getLiveInflight,
+  type InflightMap,
+  setInflight,
   withInflightTimeout,
 } from "./inflightTimeout";
 
@@ -38,35 +40,81 @@ describe("withInflightTimeout", () => {
   });
 });
 
-describe("releaseInflightSlotAfter", () => {
-  it("frees a slot still held by a pending promise once the bound elapses", async () => {
-    vi.useFakeTimers();
+describe("getLiveInflight / setInflight", () => {
+  let now = 0;
+  const useClock = () => {
+    now = 1_000_000;
+    return vi.spyOn(Date, "now").mockImplementation(() => now);
+  };
+
+  it("does not reuse a slot older than the bound, with no timer ever running", () => {
+    const clock = useClock();
+    const timers = vi.spyOn(globalThis, "setTimeout");
     try {
-      const map = new Map<string, Promise<string>>();
-      const never = new Promise<string>(() => {});
-      map.set("k", never);
-      releaseInflightSlotAfter(map, "k", never, 100);
-      vi.advanceTimersByTime(99);
-      expect(map.has("k")).toBe(true);
-      vi.advanceTimersByTime(1);
+      const map: InflightMap<string, string> = new Map();
+      const hung = setInflight(map, "k", new Promise<string>(() => {}), 100);
+      now += 100;
+      expect(getLiveInflight(map, "k", 100)).toBe(hung);
+      now += 1;
+      expect(getLiveInflight(map, "k", 100)).toBeUndefined();
       expect(map.has("k")).toBe(false);
+      expect(timers).not.toHaveBeenCalled();
     } finally {
-      vi.useRealTimers();
+      timers.mockRestore();
+      clock.mockRestore();
     }
   });
 
-  it("does not evict a newer promise that took over the same key", async () => {
-    vi.useFakeTimers();
+  it("keeps the owner waiting on its own work after the slot expires", async () => {
+    const clock = useClock();
     try {
-      const map = new Map<string, Promise<string>>();
-      const old = new Promise<string>(() => {});
-      releaseInflightSlotAfter(map, "k", old, 100);
-      const newer = Promise.resolve("new");
-      map.set("k", newer);
-      vi.advanceTimersByTime(100);
-      expect(map.get("k")).toBe(newer);
+      const map: InflightMap<string, string> = new Map();
+      let finish!: (v: string) => void;
+      const owner = setInflight(map, "k", new Promise<string>((r) => (finish = r)), 100);
+      now += 101;
+      expect(getLiveInflight(map, "k", 100)).toBeUndefined();
+      finish("slow but fine");
+      await expect(owner).resolves.toBe("slow but fine");
     } finally {
-      vi.useRealTimers();
+      clock.mockRestore();
+    }
+  });
+
+  it("does not let an expired flight evict the newer one that replaced it", async () => {
+    const clock = useClock();
+    try {
+      const map: InflightMap<string, string> = new Map();
+      let finishOld!: (v: string) => void;
+      const old = setInflight(map, "k", new Promise<string>((r) => (finishOld = r)), 100);
+      now += 101;
+      expect(getLiveInflight(map, "k", 100)).toBeUndefined();
+      const newer = setInflight(map, "k", new Promise<string>(() => {}), 100);
+      finishOld("late");
+      await old;
+      expect(getLiveInflight(map, "k", 100)).toBe(newer);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("clears its own slot when the work settles", async () => {
+    const map: InflightMap<string, string> = new Map();
+    await setInflight(map, "k", Promise.resolve("v"));
+    expect(map.has("k")).toBe(false);
+  });
+
+  it("sweeps expired slots of other keys on the next registration", () => {
+    const clock = useClock();
+    try {
+      const map: InflightMap<string, string> = new Map();
+      setInflight(map, "zombie", new Promise<string>(() => {}), 100);
+      now += 50;
+      setInflight(map, "young", new Promise<string>(() => {}), 100);
+      now += 51;
+      setInflight(map, "other", new Promise<string>(() => {}), 100);
+      expect([...map.keys()].sort()).toEqual(["other", "young"]);
+    } finally {
+      clock.mockRestore();
     }
   });
 });

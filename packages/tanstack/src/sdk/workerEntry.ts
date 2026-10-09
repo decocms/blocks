@@ -95,7 +95,7 @@ import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
-import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
+import { CSEG_BAG_KEY, CSEG_PARAM, EDGE_SEGMENT_BAG_KEY, segmentToken } from "./cdnSegment";
 import {
   applyDraftCookieAndHeaders,
   bindRequestDraft,
@@ -1554,6 +1554,20 @@ export function createDecoWorkerEntry(
     return parts.join("|");
   }
 
+  /**
+   * The dimension params `buildCacheKey` adds for this request (`__seg`,
+   * `__cf_geo`, `__abf`, `__bot`, `__fetch`, `__cf_device`, …), in key order.
+   * Derived FROM `buildCacheKey` rather than re-listed so a dimension added
+   * there reaches the render dedup without anyone remembering to.
+   */
+  function edgeSegmentDescriptor(request: Request, env: Record<string, unknown>): string {
+    const parts: string[] = [];
+    for (const [k, v] of new URL(buildCacheKey(request, env).key.url).searchParams) {
+      if (k.startsWith("__")) parts.push(`${k}=${v}`);
+    }
+    return parts.join("&");
+  }
+
   function requestCarriesTracking(url: URL): boolean {
     if (hasTrackingParams(url.toString())) return true;
     if (url.pathname.startsWith("/_serverFn/") || url.pathname.startsWith("/_server/")) {
@@ -2110,6 +2124,17 @@ export function createDecoWorkerEntry(
                 getBuildHash(env),
               );
               if (token) RequestContext.setBag(CSEG_BAG_KEY, token);
+            }
+
+            // Publish the full edge segment so `loadCmsPage` never dedups two
+            // requests the cache keeps apart into one render (a joiner would be
+            // served — and cached under its own key — the winner's page).
+            // Site `buildSegment` code runs here; if it throws, fall back to the
+            // render dedup's device-only key rather than failing the request.
+            try {
+              RequestContext.setBag(EDGE_SEGMENT_BAG_KEY, edgeSegmentDescriptor(request, env));
+            } catch {
+              // ignored — see above
             }
 
             // CSP nonce (enforce mode only): produce it before the render and

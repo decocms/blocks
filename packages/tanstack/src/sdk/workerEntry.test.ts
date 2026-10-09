@@ -1,10 +1,11 @@
 import { computeRevision, revisionKey, setBlocks, snapshotKey } from "@decocms/blocks/cms";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import {
   __resetAutoconfigStateForTests,
   autoconfigApps,
 } from "@decocms/blocks-admin/apps/autoconfig";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { segmentToken } from "./cdnSegment";
+import { EDGE_SEGMENT_BAG_KEY, segmentToken } from "./cdnSegment";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 import {
   aliasLiveInvoke,
@@ -1248,5 +1249,45 @@ describe("/live/invoke alias (Fresh compat)", () => {
     );
     expect(res.status).toBe(200);
     expect(urls).toEqual(["https://example.com/deco/invoke/site/loaders/x.ts"]);
+  });
+});
+
+describe("edge segment published for the render dedup", () => {
+  // loadCmsPage keys its in-isolate dedup on this bag value. Two requests the
+  // cache key keeps apart must publish different values, or a concurrent pair
+  // shares one render and the joiner caches the winner's page under its key.
+  async function publishedSegment(headers: Record<string, string>): Promise<string | undefined> {
+    let seen: string | undefined;
+    const w = createDecoWorkerEntry(
+      {
+        fetch: async () => {
+          seen = RequestContext.getBag<string>(EDGE_SEGMENT_BAG_KEY);
+          return new Response("page", { status: 200 });
+        },
+      },
+      {
+        observability: false,
+        buildSegment: (req) => ({
+          device: "desktop" as const,
+          regionId: req.headers.get("x-region") ?? undefined,
+        }),
+      },
+    );
+    await w.fetch(new Request("https://example.com/camisas", { headers }), EMPTY_ENV, MOCK_CTX);
+    return seen;
+  }
+
+  it("differs by region, and is stable for the same segment", async () => {
+    const sp = await publishedSegment({ "x-region": "v2.SP" });
+    const rj = await publishedSegment({ "x-region": "v2.RJ" });
+    expect(sp).toContain("__seg=");
+    expect(sp).not.toBe(rj);
+    expect(await publishedSegment({ "x-region": "v2.SP" })).toBe(sp);
+  });
+
+  it("differs for bots, which render every section eagerly", async () => {
+    const human = await publishedSegment({ "user-agent": "Mozilla/5.0" });
+    const bot = await publishedSegment({ "user-agent": "Googlebot/2.1" });
+    expect(bot).not.toBe(human);
   });
 });

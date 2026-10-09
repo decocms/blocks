@@ -20,7 +20,12 @@ import {
 } from "../middleware/observability";
 import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
 import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cacheStorage";
-import { releaseInflightSlotAfter, withInflightTimeout } from "./inflightTimeout";
+import {
+  getLiveInflight,
+  type InflightMap,
+  setInflight,
+  withInflightTimeout,
+} from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
 // Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
@@ -443,7 +448,7 @@ export function createCachedLoader<TProps, TResult>(
 // per PDP render) without the SWR machinery's stale-serving semantics.
 // ---------------------------------------------------------------------------
 
-const moduleInflight = new Map<string, Promise<unknown>>();
+const moduleInflight: InflightMap<string, unknown> = new Map();
 
 /**
  * Wrap an `@decocms/apps`-shaped loader module so its `cache`/`cacheKey` exports
@@ -490,19 +495,18 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     if (keyPart === null) return mod.default(props, req);
 
     const key = cache.key(`${BUILD}::${name}::${keyPart}`);
-    const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
-    if (existing) return existing;
-
-    const promise = Promise.resolve(mod.default(props, req)).finally(() => {
-      if (moduleInflight.get(key) === promise) moduleInflight.delete(key);
-    });
-    moduleInflight.set(key, promise);
     // A loader whose upstream never settles must not pin every later caller
     // with the same key to the same dead promise (they would hang until the
     // client gives up). The owner keeps waiting on its own work; new callers
-    // start fresh once the slot is released.
-    releaseInflightSlotAfter(moduleInflight, key, promise);
-    return promise;
+    // start fresh once the slot is older than the bound.
+    const existing = getLiveInflight(moduleInflight, key) as Promise<TResult> | undefined;
+    if (existing) return existing;
+
+    return setInflight(
+      moduleInflight,
+      key,
+      Promise.resolve(mod.default(props, req)),
+    ) as Promise<TResult>;
   };
 }
 
