@@ -409,7 +409,7 @@ describe("readDecofileFromDir — CSV redirects", () => {
     const { blocks } = readDecofileFromDir(blocksDir, { silent: true });
     const split = splitExactRedirects(blocks);
 
-    expect(split.exact).toEqual([{ path: "/old", to: "/new", status: 301 }]);
+    expect(split.exact).toEqual([{ path: "/old", from: "/old", to: "/new", status: 301 }]);
     expect(JSON.stringify(split.blocks)).not.toContain('"/old"');
     expect(split.blocks["__csv_redirects__r.csv"]).toMatchObject({ redirects: [{ from: "/g/*" }] });
   });
@@ -467,7 +467,7 @@ describe("syncRedirectsToKv", () => {
     return { client: client as unknown as KvRestClient, store };
   }
 
-  const rule = (path: string, to: string, status: 301 | 302 = 301) => ({ path, to, status });
+  const rule = (path: string, to: string, status: 301 | 307 = 301) => ({ path, to, status });
 
   it("adds new rules under redirect:<id>:<path>", async () => {
     const { client, store } = makeBulkClient();

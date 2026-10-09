@@ -230,7 +230,7 @@ describe("CMS redirects", () => {
     expect(res.headers.get("Location")).toBe("/new");
   });
 
-  it("redirects ?asJson requests too (does not fall through to page resolver)", async () => {
+  it("fresh: redirects ?asJson requests too, keeping the query (does not fall through to page resolver)", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirect.ts",
@@ -239,6 +239,7 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const res = await worker.fetch(
       new Request("https://example.com/old?asJson"),
@@ -246,10 +247,83 @@ describe("CMS redirects", () => {
       MOCK_CTX,
     );
     expect(res.status).toBe(301);
-    expect(res.headers.get("Location")).toBe("/new");
+    // The query travels with the redirect, so the client that follows it
+    // still gets JSON for the page that moved.
+    expect(res.headers.get("Location")).toBe("/new?asJson");
   });
 
-  it("URI-encodes the Location header for non-ASCII destinations", async () => {
+  it("fresh: appends the request's query string to Location unless the rule discards it", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [
+          { from: "/old", to: "/new", type: "permanent" },
+          { from: "/strip", to: "/clean?ref=1", type: "permanent", discardQueryParameters: true },
+        ],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      redirects: { semantics: "fresh" },
+    });
+    const kept = await worker.fetch(
+      new Request("https://example.com/old?utm_source=qa&gclid=x"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(kept.headers.get("Location")).toBe("/new?gclid=x&utm_source=qa");
+
+    const dropped = await worker.fetch(
+      new Request("https://example.com/strip?utm_source=qa"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(dropped.headers.get("Location")).toBe("/clean?ref=1");
+  });
+
+  it("fresh: matches a rule scoped to a query before the bare path, and case-sensitively", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [
+          { from: "/kit/p", to: "/camisa/p", type: "permanent" },
+          { from: "/kit/p?skuId=4432", to: "/roupas/kits", type: "permanent" },
+          { from: "/Calca/p", to: "/calca/p", type: "permanent" },
+        ],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      redirects: { semantics: "fresh" },
+    });
+    const scoped = await worker.fetch(
+      new Request("https://example.com/kit/p?skuId=4432"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(scoped.headers.get("Location")).toBe("/roupas/kits?skuId=4432");
+
+    const bare = await worker.fetch(new Request("https://example.com/kit/p"), EMPTY_ENV, MOCK_CTX);
+    expect(bare.headers.get("Location")).toBe("/camisa/p");
+
+    // `/Calca/p -> /calca/p` is a redirect, not a loop: the lower-case URL
+    // has no rule and renders.
+    const upper = await worker.fetch(
+      new Request("https://example.com/Calca/p"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(upper.status).toBe(301);
+    expect(upper.headers.get("Location")).toBe("/calca/p");
+    const lower = await worker.fetch(
+      new Request("https://example.com/calca/p"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(lower.status).toBe(200);
+  });
+
+  it("fresh: URI-encodes the Location header for non-ASCII destinations", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirect.ts",
@@ -258,13 +332,14 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(307);
     expect(res.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
   });
 
-  it("returns a 302 redirect for a temporary redirect block", async () => {
+  it("fresh: returns a 307 redirect for a temporary redirect block", async () => {
     setBlocks({
       "redirect-1": {
         __resolveType: "website/loaders/redirect.ts",
@@ -273,9 +348,10 @@ describe("CMS redirects", () => {
     });
     const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
       observability: false,
+      redirects: { semantics: "fresh" },
     });
     const res = await worker.fetch(new Request("https://example.com/promo"), EMPTY_ENV, MOCK_CTX);
-    expect(res.status).toBe(302);
+    expect(res.status).toBe(307);
     expect(res.headers.get("Location")).toBe("/sale");
   });
 
@@ -315,6 +391,45 @@ describe("CMS redirects", () => {
     const res2 = await worker.fetch(new Request("https://example.com/v1"), EMPTY_ENV, MOCK_CTX);
     expect(res2.status).toBe(301);
     expect(res2.headers.get("Location")).toBe("/v2");
+  });
+
+  it("legacy (default): folds case and trailing slash, drops the query, 302 for temporary", async () => {
+    setBlocks({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [
+          { from: "/baixeoapp", to: "/baixe-o-app", type: "permanent" },
+          { from: "/promo", to: "/promoção", type: "temporary" },
+          { from: "/Calca/p", to: "/calca/p", type: "permanent" },
+        ],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+    });
+    const folded = await worker.fetch(
+      new Request("https://example.com/BaixeoApp/?utm_source=a&asJson"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(folded.status).toBe(301);
+    expect(folded.headers.get("Location")).toBe("/baixe-o-app");
+
+    const temporary = await worker.fetch(
+      new Request("https://example.com/promo"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(temporary.status).toBe(302);
+    expect(temporary.headers.get("Location")).toBe("/promo%C3%A7%C3%A3o");
+
+    // Folded, this rule would redirect /calca/p to itself forever — dropped.
+    const loop = await worker.fetch(
+      new Request("https://example.com/calca/p"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(loop.status).toBe(200);
   });
 });
 
