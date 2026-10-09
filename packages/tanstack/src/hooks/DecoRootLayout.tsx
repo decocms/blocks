@@ -10,7 +10,7 @@ import {
   type SpeculationRulesConfig,
 } from "../sdk/speculationRules";
 import { CdnSegmentMarker } from "./CdnSegmentMarker";
-import { DraftPreviewIndicator } from "./DraftPreviewIndicator";
+import { activePointer, DraftPreviewIndicator } from "./DraftPreviewIndicator";
 import { NavigationProgress } from "./NavigationProgress";
 import { StableOutlet } from "./StableOutlet";
 
@@ -183,7 +183,8 @@ export function DecoRootLayout({
         </main>
         {children}
         <DraftPreviewIndicator />
-        <LiveControls site={siteName} page={page} />
+        {/* Editor bridge (editor::inject eval) only in dev or a Studio draft preview. */}
+        <LiveControls site={siteName} page={page} editorBridge={isDevMode() || !!activePointer()} />
         <ScriptOnce children={ANALYTICS_SCRIPT} />
         <Scripts />
       </body>

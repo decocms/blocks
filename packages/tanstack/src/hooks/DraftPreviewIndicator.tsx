@@ -36,7 +36,7 @@ import { DRAFT_POINTER_BAG_KEY, DRAFT_POINTER_GLOBAL } from "../sdk/draftShared"
  * The active draft pointer. Server: the request bag (set by `bindRequestDraft`).
  * Client: the bag is a stub → undefined → fall back to the published global.
  */
-function activePointer(): string | null {
+export function activePointer(): string | null {
   const fromBag = RequestContext.getBag<string>(DRAFT_POINTER_BAG_KEY);
   if (fromBag) return fromBag;
   if (typeof window !== "undefined") {
