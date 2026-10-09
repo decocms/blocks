@@ -43,7 +43,8 @@ export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
  *
  * A URL that names a page that does not exist (`?page=0`, `?page=-1`,
  * `?page=abc`) is clamped to the first page by default. With
- * `notFoundOnInvalid` (`setInvalidPageNotFound(true)`) it returns `null`
+ * `notFoundOnInvalid` (the VTEX app block's
+ * `advancedConfigs.invalidPageNotFound`) it returns `null`
  * instead: deco-cx's `pageOf` sends `Number(page) - 1` to Intelligent Search
  * as it is, IS rejects it, and the PLP answers 404 — clamping serves page 1
  * again under a second URL, an indexable duplicate whose canonical carries
@@ -378,7 +379,7 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 	const fuzzy =
 		mapLabelledFuzzyToFuzzy(props.fuzzy) ?? pageUrl?.searchParams.get("fuzzy") ?? undefined;
 	const page = resolvePage(props.page, pageUrl?.searchParams.get("page"), getInvalidPageNotFound());
-	// Only with `setInvalidPageNotFound(true)`: a page that does not exist is a
+	// Only with `advancedConfigs.invalidPageNotFound`: a page that does not exist is a
 	// listing that does not exist — the same `null` a path with no facets and no
 	// query returns, which the PLP section renders as its not-found state.
 	if (page === null) return null;

@@ -145,34 +145,26 @@ export interface VtexConfig {
 	 * @default "com.br"
 	 */
 	domain?: string;
+	/**
+	 * Answer a PLP whose URL names a page that does not exist (`?page=0`,
+	 * `?page=-1`, `?page=abc`) as not found — the IS loader returns `null` —
+	 * the way deco-cx's loader did on Fresh, instead of clamping it to the
+	 * first page. From the app block's `advancedConfigs.invalidPageNotFound`.
+	 * @default false
+	 */
+	invalidPageNotFound?: boolean;
 }
 
 let _config: VtexConfig | null = null;
 let _fetch: FetchFn | InstrumentedFetch = withFetchTimeout();
 
-// Kept outside `VtexConfig`: `initVtexFromBlocks` rebuilds the config from the
-// decofile on every resolve (`configureVtex` replaces it whole), which would
-// wipe a site-level switch set at boot. globalThis-backed so every Vite
-// server-function split-module copy reads the same value.
-const G = globalThis as unknown as { __decoVtexInvalidPageNotFound?: boolean };
-
 /**
- * Answer a PLP whose URL names a page that does not exist (`?page=0`,
- * `?page=-1`, `?page=abc`) as not found — the IS loader returns `null` — the
- * way deco-cx's loader did on Fresh, instead of clamping it to the first page.
- * Off by default: sites already on `@decocms/*` keep serving page 1 there.
- *
- * Returning `null` makes the PLP section render its not-found state; the
- * section (or its loader) still has to set the 404 status itself.
- *
- * Call once at boot (e.g. in `setup.ts`).
+ * Whether a PLP whose URL names a page that does not exist (`?page=0`,
+ * `?page=-1`, `?page=abc`) answers as not found — see
+ * `VtexConfig.invalidPageNotFound`. `false` while VTEX is not configured.
  */
-export function setInvalidPageNotFound(enabled: boolean): void {
-	G.__decoVtexInvalidPageNotFound = enabled;
-}
-
 export function getInvalidPageNotFound(): boolean {
-	return G.__decoVtexInvalidPageNotFound === true;
+	return _config?.invalidPageNotFound === true;
 }
 
 export function configureVtex(config: VtexConfig) {
@@ -745,5 +737,6 @@ export function initVtexFromBlocks(blocks: Record<string, any>) {
 		appToken,
 		country: vtexBlock.country,
 		domain: vtexBlock.domain,
+		invalidPageNotFound: vtexBlock.advancedConfigs?.invalidPageNotFound === true,
 	});
 }

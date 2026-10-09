@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { configureVtex, getInvalidPageNotFound, setInvalidPageNotFound, setVtexFetch } from "../../../client";
+import {
+	configureVtex,
+	getInvalidPageNotFound,
+	initVtexFromBlocks,
+	setVtexFetch,
+} from "../../../client";
+import { configure } from "../../../mod";
 import { clearFetchCache } from "../../../utils/fetchCache";
 import vtexProductListingPage, { mapLabelledFuzzyToFuzzy, resolvePage } from "../productListingPage";
 
@@ -79,7 +85,7 @@ describe("resolvePage — default keeps clamping an invalid ?page=", () => {
 	});
 });
 
-// Opt-in (`setInvalidPageNotFound(true)`): deco-cx's `pageOf` sends
+// Opt-in (`advancedConfigs.invalidPageNotFound` on the VTEX app block): deco-cx's `pageOf` sends
 // `Number(page) - 1` to Intelligent Search without a clamp; IS rejects a page
 // below 1 and the PLP answers 404. Clamping to the first page served page 1 as
 // an indexable duplicate under `?page=0`.
@@ -135,7 +141,6 @@ describe("vtexProductListingPage — invalid ?page=", () => {
 	});
 
 	afterEach(() => {
-		setInvalidPageNotFound(false);
 		setVtexFetch(globalThis.fetch);
 	});
 
@@ -148,10 +153,36 @@ describe("vtexProductListingPage — invalid ?page=", () => {
 		expect(isPages).toContain("1");
 	});
 
-	it("with setInvalidPageNotFound(true) returns null without calling Intelligent Search", async () => {
-		setInvalidPageNotFound(true);
+	it("with invalidPageNotFound returns null without calling Intelligent Search", async () => {
+		configureVtex({ account: "testaccount", invalidPageNotFound: true });
 		const result = await vtexProductListingPage({ query: "camisa", __pageUrl: "/s?q=camisa&page=0" });
 		expect(result).toBeNull();
 		expect(isPages).toEqual([]);
+	});
+});
+
+// The switch is site content, not code: it rides on the VTEX app block like the
+// other `advancedConfigs`, and both paths that build the config from the block
+// carry it — so the per-resolve rebuild keeps it instead of wiping it.
+describe("invalidPageNotFound comes from the VTEX app block", () => {
+	const resolveSecret = async () => null;
+
+	it("configure() reads advancedConfigs.invalidPageNotFound", async () => {
+		await configure({ account: "testaccount", advancedConfigs: { invalidPageNotFound: true } }, resolveSecret);
+		expect(getInvalidPageNotFound()).toBe(true);
+		await configure({ account: "testaccount", advancedConfigs: {} }, resolveSecret);
+		expect(getInvalidPageNotFound()).toBe(false);
+	});
+
+	it("initVtexFromBlocks() reads it too, so a rebuild keeps it", () => {
+		initVtexFromBlocks({ vtex: { account: "testaccount", advancedConfigs: { invalidPageNotFound: true } } });
+		expect(getInvalidPageNotFound()).toBe(true);
+		initVtexFromBlocks({ "deco-vtex": { account: "testaccount" } });
+		expect(getInvalidPageNotFound()).toBe(false);
+	});
+
+	it("only a literal true turns it on", () => {
+		initVtexFromBlocks({ vtex: { account: "testaccount", advancedConfigs: { invalidPageNotFound: "true" } } });
+		expect(getInvalidPageNotFound()).toBe(false);
 	});
 });
