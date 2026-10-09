@@ -31,6 +31,7 @@ import {
   DEFAULT_FOLD_THRESHOLD,
   extractSeoFromProps,
   getAsyncRenderingConfig,
+  isBot,
   isDeferred,
   isEagerRequest,
   pickFallbackProps,
@@ -1606,5 +1607,21 @@ describe("resolveDecoPage — fallbackProps on the deferred object", () => {
     const deferred = nav!.deferredSections[0];
     expect(deferred).not.toHaveProperty("rawProps");
     expect(deferred.fallbackProps).toEqual({ galleryTitle: "Você pode ter perdido" });
+  });
+});
+
+describe("isBot — performance tools are not crawlers", () => {
+  it("treats Lighthouse / PageSpeed Insights as a human", () => {
+    expect(
+      isBot(
+        "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36 Chrome-Lighthouse",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps real crawlers as bots", () => {
+    expect(isBot("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")).toBe(true);
+    expect(isBot("Mozilla/5.0 (compatible; Google-InspectionTool/1.0)")).toBe(true);
+    expect(isBot("Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)")).toBe(true);
   });
 });
