@@ -861,6 +861,196 @@ describe("resolvePageSeoBlock — per-section ignoreStructuredData drives the fe
   });
 });
 
+// ---------------------------------------------------------------------------
+// A framework SEO section inside `page.sections`
+// ---------------------------------------------------------------------------
+//
+// On Deco for Fresh `commerce/sections/Seo/SeoPDPV2.tsx` was a section like
+// any other, so a migrated decofile may carry it in `sections[]` with no
+// `page.seo` at all (the Oficina Reserva PDP: `sections[0]`). It was in
+// SKIP_RESOLVE_TYPES, so the list dropped it and the PDP shipped with no
+// canonical, no `og:url`, the site's default image and `og:type=website`.
+describe("resolveDecoPage — SEO section in page.sections", () => {
+  const KEY = "site/loaders/__test/pdpLoader";
+  const HUMAN_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
+  const seoSec = {
+    __resolveType: "commerce/sections/Seo/SeoPDPV2.tsx",
+    ignoreStructuredData: true,
+    optimizeImageForVTEX: true,
+    jsonLD: { __resolveType: KEY },
+  };
+  const bodySec = { __resolveType: "site/sections/ProductDetails.tsx" };
+  const ctx = (): MatcherContext => ({
+    userAgent: HUMAN_UA,
+    url: "https://store.com/camisa/p",
+    path: "/camisa/p",
+  });
+
+  beforeEach(() => {
+    clearCommerceLoaders();
+    setAsyncRenderingConfig({ botAwareSeo: false });
+    (getSection as ReturnType<typeof vi.fn>).mockImplementation((key: string) =>
+      key.startsWith("site/") ? { default: () => null } : undefined,
+    );
+  });
+  afterEach(() => {
+    clearCommerceLoaders();
+    (getSection as ReturnType<typeof vi.fn>).mockReset();
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("becomes the page's SEO block when the page has no `seo`, keeping its slot in the list", async () => {
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return {
+        "@type": "ProductDetailsPage",
+        product: { name: "Camisa" },
+        seo: { canonical: "https://store.com/camisa/p" },
+      };
+    });
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "PDP", sections: [seoSec, bodySec] },
+      params: {},
+      blockKey: "pdp",
+    });
+
+    const result = await resolveDecoPage("/camisa/p", ctx());
+
+    expect(result?.seoSection?.component).toBe("commerce/sections/Seo/SeoPDPV2.tsx");
+    // The toggle does not skip the fetch for a section in the list — on Fresh
+    // it only governs the JSON-LD; canonical/image still come from the data.
+    expect(calls).toBe(1);
+    expect(result?.seoSection?.props.jsonLD).toMatchObject({ "@type": "ProductDetailsPage" });
+    expect(result?.seoSection?.props.optimizeImageForVTEX).toBe(true);
+    // It renders nothing, and the body keeps its original index.
+    expect(result?.resolvedSections.map((s) => s.component)).toEqual([
+      "site/sections/ProductDetails.tsx",
+    ]);
+    expect(result?.resolvedSections[0].index).toBe(1);
+  });
+
+  it("is found under a Lazy wrapper too", async () => {
+    registerCommerceLoader(KEY, async () => ({ "@type": "ProductDetailsPage", product: {} }));
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "PDP", sections: [{ __resolveType: WELL_KNOWN_TYPES.LAZY, section: seoSec }] },
+      params: {},
+      blockKey: "pdp",
+    });
+
+    const result = await resolveDecoPage("/camisa/p", ctx());
+    expect(result?.seoSection?.component).toBe("commerce/sections/Seo/SeoPDPV2.tsx");
+  });
+
+  it("`page.seo` stays the primary source when both are present", async () => {
+    registerCommerceLoader(KEY, async () => ({ "@type": "ProductDetailsPage", product: {} }));
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: {
+        name: "PDP",
+        seo: { __resolveType: "website/sections/Seo/SeoV2.tsx", title: "From page.seo" },
+        sections: [seoSec, bodySec],
+      },
+      params: {},
+      blockKey: "pdp",
+    });
+
+    const result = await resolveDecoPage("/camisa/p", ctx());
+    expect(result?.seoSection?.component).toBe("website/sections/Seo/SeoV2.tsx");
+    expect(result?.seoSection?.props.title).toBe("From page.seo");
+    expect(result?.resolvedSections.map((s) => s.component)).toEqual([
+      "site/sections/ProductDetails.tsx",
+    ]);
+  });
+
+  it("the site-wide botAwareSeo flag still skips the fetch for humans", async () => {
+    setAsyncRenderingConfig({ botAwareSeo: true });
+    let calls = 0;
+    registerCommerceLoader(KEY, async () => {
+      calls++;
+      return { "@type": "ProductDetailsPage", product: {} };
+    });
+    (findPageByPath as ReturnType<typeof vi.fn>).mockReturnValue({
+      page: { name: "PDP", sections: [seoSec] },
+      params: {},
+      blockKey: "pdp",
+    });
+
+    const result = await resolveDecoPage("/camisa/p", ctx());
+    expect(calls).toBe(0);
+    expect(result?.seoSection?.props).not.toHaveProperty("jsonLD");
+  });
+});
+
+describe("extractSeoFromProps — SeoPDPV2 head fields", () => {
+  const pdpJsonLD = (image = "https://acme.vteximg.com.br/arquivos/ids/123-55-55/foto.jpg") => ({
+    "@type": "ProductDetailsPage",
+    breadcrumbList: { "@type": "BreadcrumbList", itemListElement: [] },
+    product: { "@type": "Product", name: "Camisa", image: [{ url: image }] },
+    seo: { title: "Camisa", description: "Linho", canonical: "https://x.com/camisa/p" },
+  });
+
+  it('emits og:type product (deco-cx renders <Seo type="product">)', () => {
+    const seo = extractSeoFromProps({ jsonLD: pdpJsonLD() });
+    expect(seo.type).toBe("product");
+    expect(seo.canonical).toBe("https://x.com/camisa/p");
+  });
+
+  it("optimizeImageForVTEX asks VTEX for the 1200×1200 crop", () => {
+    const seo = extractSeoFromProps({ jsonLD: pdpJsonLD(), optimizeImageForVTEX: true });
+    expect(seo.image).toBe("https://acme.vteximg.com.br/arquivos/ids/123-1200-1200/foto.jpg");
+  });
+
+  it("without optimizeImageForVTEX the image is the product's first, as is", () => {
+    const seo = extractSeoFromProps({ jsonLD: pdpJsonLD() });
+    expect(seo.image).toBe("https://acme.vteximg.com.br/arquivos/ids/123-55-55/foto.jpg");
+  });
+
+  it("optimizeImageForVTEX leaves a non-VTEX image alone", () => {
+    const seo = extractSeoFromProps({
+      jsonLD: pdpJsonLD("https://cdn.example.com/foto.jpg"),
+      optimizeImageForVTEX: true,
+    });
+    expect(seo.image).toBe("https://cdn.example.com/foto.jpg");
+  });
+
+  it("structuredDataControl 'disable for all' emits no JSON-LD even for bots, but keeps the metadata", () => {
+    const seo = extractSeoFromProps(
+      { jsonLD: pdpJsonLD(), ignoreStructuredData: true, structuredDataControl: "disable for all" },
+      { isEager: true },
+    );
+    expect(seo.jsonLDs).toBeUndefined();
+    expect(seo.canonical).toBe("https://x.com/camisa/p");
+    expect(seo.type).toBe("product");
+  });
+
+  it("structuredDataControl 'always include' wins over the deprecated toggle", () => {
+    const seo = extractSeoFromProps({
+      jsonLD: pdpJsonLD(),
+      ignoreStructuredData: true,
+      structuredDataControl: "always include",
+    });
+    expect(seo.jsonLDs).toHaveLength(1);
+  });
+
+  it("PLP: configJsonLD.structuredDataControl 'disable for all' suppresses the ItemList for bots", () => {
+    const seo = extractSeoFromProps(
+      {
+        jsonLD: {
+          "@type": "ProductListingPage",
+          breadcrumb: { "@type": "BreadcrumbList", itemListElement: [] },
+          products: [{ "@type": "Product", name: "P1", url: "https://x.com/p1/p" }],
+          seo: { title: "PLP" },
+        },
+        configJsonLD: { structuredDataControl: "disable for all" },
+      },
+      { isEager: true },
+    );
+    expect(seo.jsonLDs).toBeUndefined();
+    expect(seo.title).toBe("PLP");
+  });
+});
+
 describe("extractSeoFromProps — commerce jsonLD structured data", () => {
   const plp = (overrides: Record<string, unknown> = {}) => ({
     "@type": "ProductListingPage",
