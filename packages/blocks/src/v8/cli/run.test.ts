@@ -27,7 +27,16 @@ describe("flags", () => {
     });
   });
 
+  it("takes --color and --no-color on every command, the last one winning", () => {
+    expect(parseFlags("check", ["--color"])).toEqual({ color: true });
+    expect(parseFlags("schema", ["--no-color", "--watch"])).toEqual({ color: false, watch: true });
+    expect(parseFlags("serve", ["--no-color", "--color"])).toEqual({ color: true });
+    expect(parseFlags("content", [])).toEqual({});
+  });
+
   it.each([
+    [["--color=always"], "check", /--color takes no value/],
+    [["--no-color=1"], "schema", /--no-color takes no value/],
     [["--watch"], "check", /unknown flag --watch/],
     [["--root"], "check", /--root needs a value/],
     [["extra"], "content", /unexpected argument "extra"/],

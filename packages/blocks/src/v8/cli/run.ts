@@ -4,7 +4,7 @@
  */
 import { check } from "./check/index.ts";
 import { content, writeContent } from "./content.ts";
-import { consoleReporter, type Reporter } from "./log.ts";
+import { consoleReporter, type Reporter, withColor } from "./log.ts";
 import { CliError, decoPaths, findDecoRoot } from "./root.ts";
 import { reportSchema, schema, writeSchema } from "./schema/index.ts";
 import { serve, startServer } from "./serve/server.ts";
@@ -48,7 +48,8 @@ ${Object.values(COMMANDS)
   .map((c) => `  ${c.usage}`)
   .join("\n")}
 
-Every command finds .deco/ by walking up from the current folder, or takes --root.`;
+Every command finds .deco/ by walking up from the current folder, or takes --root.
+Every command takes --color or --no-color; without either, output is coloured only on a terminal.`;
 
 export type ParsedFlags = Record<string, string | boolean | string[]>;
 
@@ -59,8 +60,14 @@ export function parseFlags(command: string, args: string[]): ParsedFlags {
     const arg = args[i];
     if (!arg.startsWith("--"))
       throw new CliError(`unexpected argument "${arg}"\n${COMMANDS[command].usage}`);
+    // Every command's: `color` is true, false or absent; the last one given wins.
+    if (arg === "--color" || arg === "--no-color") {
+      flags.color = arg === "--color";
+      continue;
+    }
     const eq = arg.indexOf("=");
     const name = arg.slice(2, eq === -1 ? undefined : eq);
+    if (name === "color" || name === "no-color") throw new CliError(`--${name} takes no value`);
     const kind = Object.hasOwn(spec, name) ? spec[name] : undefined;
     if (!kind) throw new CliError(`unknown flag --${name}\n${COMMANDS[command].usage}`);
     if (kind === "boolean") {
@@ -83,6 +90,7 @@ export function parseFlags(command: string, args: string[]): ParsedFlags {
 
 export interface RunOptions {
   cwd?: string;
+  /** Defaults to the console, coloured when stdout and stderr are both terminals. */
   reporter?: Reporter;
   /** Resolves when a `--watch` or `serve` run should stop (tests); defaults to SIGINT/SIGTERM. */
   until?: Promise<void>;
@@ -128,7 +136,7 @@ Deco CMS, Studio's Publish (or Resync) makes the commit a release without a depl
 
 /** Run one `deco` invocation; returns the exit code. */
 export async function runCli(argv: string[], options: RunOptions = {}): Promise<number> {
-  const reporter = options.reporter ?? consoleReporter;
+  let reporter = options.reporter ?? consoleReporter;
   const [command, ...rest] = argv;
   if (!command || command === "help" || command === "--help" || command === "-h") {
     reporter.info(USAGE);
@@ -145,6 +153,13 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
   }
   try {
     const flags = parseFlags(command, rest);
+    const color =
+      typeof flags.color === "boolean"
+        ? flags.color
+        : options.reporter
+          ? Boolean(options.reporter.color)
+          : Boolean(process.stdout.isTTY && process.stderr.isTTY);
+    reporter = withColor(reporter, color);
     const root = flags.root as string | undefined;
     const base = { root, cwd: options.cwd, reporter };
     switch (command) {
