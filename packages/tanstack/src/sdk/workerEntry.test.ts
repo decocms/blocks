@@ -15,6 +15,7 @@ import {
   DEFAULT_SECURITY_HEADERS,
   detectLocationMatcher,
   injectGeoCookies,
+  setCookieIdentity,
 } from "./workerEntry";
 
 const EMPTY_ENV = {};
@@ -1029,5 +1030,55 @@ describe("fast-deploy hydration ordering", () => {
     } finally {
       globalThis.document = realDocument;
     }
+  });
+});
+
+describe("Set-Cookie deduplication keys on name + Domain + Path", () => {
+  it("setCookieIdentity: same name, different scope → different identities", () => {
+    expect(setCookieIdentity("a=1; Path=/")).not.toBe(
+      setCookieIdentity("a=1; Path=/; Domain=example.com"),
+    );
+    expect(setCookieIdentity("a=1; Path=/; Domain=www.example.com")).not.toBe(
+      setCookieIdentity("a=1; Path=/; Domain=example.com"),
+    );
+    expect(setCookieIdentity("a=1; Path=/")).not.toBe(setCookieIdentity("a=1; Path=/account"));
+  });
+
+  it("setCookieIdentity: Domain is case-insensitive, a leading dot is ignored, value is not part of the key", () => {
+    expect(setCookieIdentity("a=1; Path=/; Domain=Example.COM")).toBe(
+      setCookieIdentity("a=2; path=/; domain=.example.com; Secure"),
+    );
+  });
+
+  it("keeps every scope of a multi-scope clear (sign-out) and still collapses true duplicates", async () => {
+    setBlocks({});
+    const clears = [
+      "VtexIdclientAutCookie=; Path=/; Max-Age=0",
+      "VtexIdclientAutCookie=; Path=/; Max-Age=0; Domain=www.example.com",
+      "VtexIdclientAutCookie=; Path=/; Max-Age=0; Domain=example.com",
+    ];
+    const entry = {
+      fetch: async () => {
+        const headers = new Headers({ "content-type": "text/plain" });
+        // A true duplicate (same name, same scope): only the last one survives.
+        headers.append("set-cookie", "checkout.vtex.com=__ofid=old; Path=/");
+        for (const sc of clears) headers.append("set-cookie", sc);
+        headers.append("set-cookie", "checkout.vtex.com=__ofid=new; Path=/");
+        return new Response("ok", { status: 200, headers });
+      },
+    };
+    const worker = createDecoWorkerEntry(entry, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://www.example.com/telesales/sign-out"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    const out = (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie();
+    // Order is not part of the contract; the set of surviving headers is.
+    expect(out).toHaveLength(4);
+    expect(out).toEqual(
+      expect.arrayContaining([...clears, "checkout.vtex.com=__ofid=new; Path=/"]),
+    );
+    expect(out).not.toContain("checkout.vtex.com=__ofid=old; Path=/");
   });
 });
