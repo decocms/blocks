@@ -930,20 +930,45 @@ function stripSafeCookiesForCache(response: Response, safeCookieSet: Set<string>
 }
 
 /**
- * Deduplicate Set-Cookie headers — keep only the LAST occurrence of
- * each cookie name. Multiple layers (VTEX middleware, invoke handlers,
- * etc.) may independently append the same cookie.
+ * Identity of a `Set-Cookie` header for deduplication: the browser keys its
+ * cookie jar by name + Domain + Path (RFC 6265 §5.3 step 11), so two headers
+ * that differ in scope address two different cookies — a clear for the
+ * host-only cookie does not touch the `Domain=example.com` one. The domain is
+ * case-insensitive and a leading dot is ignored (§5.2.3); the path is
+ * compared as sent.
+ */
+export function setCookieIdentity(setCookie: string): string {
+  const [nameValue = "", ...attrs] = setCookie.split(";");
+  const eqIdx = nameValue.indexOf("=");
+  const name = eqIdx > 0 ? nameValue.slice(0, eqIdx).trim() : nameValue.trim();
+  let domain = "";
+  let path = "";
+  for (const attr of attrs) {
+    const sep = attr.indexOf("=");
+    const key = (sep >= 0 ? attr.slice(0, sep) : attr).trim().toLowerCase();
+    const value = sep >= 0 ? attr.slice(sep + 1).trim() : "";
+    if (key === "domain") domain = value.replace(/^\./, "").toLowerCase();
+    else if (key === "path") path = value;
+  }
+  return `${name}\u0000${domain}\u0000${path}`;
+}
+
+/**
+ * Deduplicate Set-Cookie headers — keep only the LAST occurrence of each
+ * cookie identity (name + Domain + Path, see {@link setCookieIdentity}).
+ * Multiple layers (VTEX middleware, invoke handlers, etc.) may independently
+ * append the same cookie. Keying by name alone collapsed deliberate clears of
+ * the same cookie under different scopes (host-only / `Domain=host` /
+ * `Domain=parent`) into whichever came last, leaving the other scopes alive.
  */
 function deduplicateSetCookies(response: Response): void {
   const setCookies = (response.headers as any).getSetCookie?.() as string[] | undefined;
   if (!setCookies || setCookies.length <= 1) return;
 
-  // Build map: cookie name → last Set-Cookie value
+  // Build map: cookie identity → last Set-Cookie value
   const seen = new Map<string, string>();
   for (const sc of setCookies) {
-    const eqIdx = sc.indexOf("=");
-    const name = eqIdx > 0 ? sc.slice(0, eqIdx).trim() : sc;
-    seen.set(name, sc);
+    seen.set(setCookieIdentity(sc), sc);
   }
 
   // If no duplicates, nothing to do
