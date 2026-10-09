@@ -9,6 +9,8 @@ No API covers customer sessions. What works, validated against a live store:
 | `actions/account/logout` | store `GET /account/logout/` | |
 | `loaders/user` | store `GET /account/` → `LS.customer = <id>`; Admin API `GET /customers/<id>` | `null` when there's no `store_*` cookie or `/account/` redirects to login. |
 
+The store domain sits behind a Cloudflare WAF that 403-challenges requests with no `User-Agent` (the default from a Worker); `storeFetch` forwards the buyer's UA, falling back to `Mozilla/5.0 (compatible; deco-storefront)`.
+
 ## Cookies
 
 The session is the store's `store_session_payload_<storeId>` (rewritten on

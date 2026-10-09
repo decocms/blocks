@@ -65,6 +65,10 @@ export async function storeFetch(
   const headers: Record<string, string> = { origin, referer: `${origin}${path}` };
   if (init.form) headers["content-type"] = "application/x-www-form-urlencoded";
   if (cookie) headers.cookie = cookie;
+  // The store's Cloudflare WAF challenges (403) UA-less requests, which is what a worker sends by default.
+  headers["user-agent"] =
+    RequestContext.current?.request.headers.get("user-agent") ||
+    "Mozilla/5.0 (compatible; deco-storefront)";
   const res = await nuvemshopFetch(`${origin}${path}`, {
     method: init.method ?? "GET",
     headers,
