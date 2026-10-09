@@ -305,6 +305,10 @@ export function applyWidgetFormat(schema: any, typeHint: string): void {
 const SECTION_REF_DEF_KEY = "__SECTION_REF__";
 // Well-known definition key for Resolvable (saved blocks picker)
 const RESOLVABLE_KEY = "Resolvable";
+// Well-known definition key for `RequestURLParam` ("Force param" / "Get params
+// from request parameters"), baked by composeMeta. Same base64 of the function
+// key deco-cx/deco used, with the type name as suffix.
+const REQUEST_URL_PARAM_DEF_KEY = `${toBase64("website/functions/requestToParam.ts")}@RequestURLParam`;
 
 /**
  * Whether a prop annotated `Section` / `Section[]` is the framework's opaque
@@ -687,6 +691,24 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
           }
           applyJsDocToSchema(sectionSchema, tags);
           properties[name] = sectionSchema;
+          if (!prop.isOptional()) required.push(name);
+          continue;
+        }
+
+        // `RequestURLParam` (`@decocms/apps-website/functions/requestToParam`) →
+        // the requestToParam picker, as deco-cx/deco emitted it. The alias
+        // resolves to `string`, so without this the admin only offered a fixed
+        // value and lost "Get params from request parameters".
+        const nonNullTypes = propType.isUnion()
+          ? propType.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined())
+          : [propType];
+        if (baseHint === "RequestURLParam" && nonNullTypes.every((t) => t.isString())) {
+          const paramSchema: any = {
+            $ref: `#/definitions/${REQUEST_URL_PARAM_DEF_KEY}`,
+            title: name.charAt(0).toUpperCase() + name.slice(1),
+          };
+          applyJsDocToSchema(paramSchema, tags);
+          properties[name] = paramSchema;
           if (!prop.isOptional()) required.push(name);
           continue;
         }

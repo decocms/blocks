@@ -549,3 +549,23 @@ describe("generate-schema default output path (.deco/)", () => {
     expect(stderr).not.toContain("Generator default output moved");
   }, 30_000);
 });
+
+describe("typeToJsonSchema with RequestURLParam", () => {
+  it("points a RequestURLParam prop at the requestToParam picker", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/props.ts",
+      `
+        type RequestURLParam = string;
+        export interface Props {
+          slug?: RequestURLParam;
+          plain?: string;
+        }
+      `,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    const key = `${Buffer.from("website/functions/requestToParam.ts").toString("base64")}@RequestURLParam`;
+    expect(schema.properties.slug).toEqual({ $ref: `#/definitions/${key}`, title: "Slug" });
+    expect(schema.properties.plain.type).toBe("string");
+  });
+});
