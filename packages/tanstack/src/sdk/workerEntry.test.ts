@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { segmentToken } from "./cdnSegment";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 import {
+  aliasLiveInvoke,
   buildEnforcedCsp,
   buildGeoCacheParam,
   createDecoWorkerEntry,
@@ -15,6 +16,7 @@ import {
   DEFAULT_SECURITY_HEADERS,
   detectLocationMatcher,
   injectGeoCookies,
+  setCookieIdentity,
 } from "./workerEntry";
 
 const EMPTY_ENV = {};
@@ -1029,5 +1031,107 @@ describe("fast-deploy hydration ordering", () => {
     } finally {
       globalThis.document = realDocument;
     }
+  });
+});
+
+describe("Set-Cookie deduplication keys on name + Domain + Path", () => {
+  it("setCookieIdentity: same name, different scope → different identities", () => {
+    expect(setCookieIdentity("a=1; Path=/")).not.toBe(
+      setCookieIdentity("a=1; Path=/; Domain=example.com"),
+    );
+    expect(setCookieIdentity("a=1; Path=/; Domain=www.example.com")).not.toBe(
+      setCookieIdentity("a=1; Path=/; Domain=example.com"),
+    );
+    expect(setCookieIdentity("a=1; Path=/")).not.toBe(setCookieIdentity("a=1; Path=/account"));
+  });
+
+  it("setCookieIdentity: Domain is case-insensitive, a leading dot is ignored, value is not part of the key", () => {
+    expect(setCookieIdentity("a=1; Path=/; Domain=Example.COM")).toBe(
+      setCookieIdentity("a=2; path=/; domain=.example.com; Secure"),
+    );
+  });
+
+  it("keeps every scope of a multi-scope clear (sign-out) and still collapses true duplicates", async () => {
+    setBlocks({});
+    const clears = [
+      "VtexIdclientAutCookie=; Path=/; Max-Age=0",
+      "VtexIdclientAutCookie=; Path=/; Max-Age=0; Domain=www.example.com",
+      "VtexIdclientAutCookie=; Path=/; Max-Age=0; Domain=example.com",
+    ];
+    const entry = {
+      fetch: async () => {
+        const headers = new Headers({ "content-type": "text/plain" });
+        // A true duplicate (same name, same scope): only the last one survives.
+        headers.append("set-cookie", "checkout.vtex.com=__ofid=old; Path=/");
+        for (const sc of clears) headers.append("set-cookie", sc);
+        headers.append("set-cookie", "checkout.vtex.com=__ofid=new; Path=/");
+        return new Response("ok", { status: 200, headers });
+      },
+    };
+    const worker = createDecoWorkerEntry(entry, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://www.example.com/telesales/sign-out"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    const out = (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie();
+    // Order is not part of the contract; the set of surviving headers is.
+    expect(out).toHaveLength(4);
+    expect(out).toEqual(
+      expect.arrayContaining([...clears, "checkout.vtex.com=__ofid=new; Path=/"]),
+    );
+    expect(out).not.toContain("checkout.vtex.com=__ofid=old; Path=/");
+  });
+});
+
+describe("/live/invoke alias (Fresh compat)", () => {
+  it("leaves every other path untouched (same Request reference)", () => {
+    for (const path of ["/", "/deco/invoke/site/loaders/x.ts", "/live/_meta", "/live/invoke-not"]) {
+      const req = new Request(`https://example.com${path}`);
+      expect(aliasLiveInvoke(req)).toBe(req);
+    }
+  });
+
+  it("rewrites /live/invoke and /live/invoke/* to /deco/invoke[/*], keeping query, method, headers, body and cf", async () => {
+    const req = new Request("https://example.com/live/invoke/site/loaders/x.ts?select=a,b", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-custom": "1" },
+      body: JSON.stringify({ id: 1 }),
+    });
+    Object.defineProperty(req, "cf", { value: { colo: "GRU" }, configurable: true });
+
+    const out = aliasLiveInvoke(req);
+    expect(out.url).toBe("https://example.com/deco/invoke/site/loaders/x.ts?select=a,b");
+    expect(out.method).toBe("POST");
+    expect(out.headers.get("x-custom")).toBe("1");
+    expect(await out.json()).toEqual({ id: 1 });
+    expect((out as unknown as { cf?: unknown }).cf).toEqual({ colo: "GRU" });
+
+    expect(aliasLiveInvoke(new Request("https://example.com/live/invoke")).url).toBe(
+      "https://example.com/deco/invoke",
+    );
+  });
+
+  it("end-to-end: the server entry receives the /deco/invoke URL", async () => {
+    setBlocks({});
+    const urls: string[] = [];
+    const entry = {
+      fetch: async (req: Request) => {
+        urls.push(req.url);
+        return Response.json({ ok: true });
+      },
+    };
+    const worker = createDecoWorkerEntry(entry, { observability: false });
+    const res = await worker.fetch(
+      new Request("https://example.com/live/invoke/site/loaders/x.ts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(200);
+    expect(urls).toEqual(["https://example.com/deco/invoke/site/loaders/x.ts"]);
   });
 });

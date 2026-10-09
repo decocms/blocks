@@ -930,20 +930,45 @@ function stripSafeCookiesForCache(response: Response, safeCookieSet: Set<string>
 }
 
 /**
- * Deduplicate Set-Cookie headers — keep only the LAST occurrence of
- * each cookie name. Multiple layers (VTEX middleware, invoke handlers,
- * etc.) may independently append the same cookie.
+ * Identity of a `Set-Cookie` header for deduplication: the browser keys its
+ * cookie jar by name + Domain + Path (RFC 6265 §5.3 step 11), so two headers
+ * that differ in scope address two different cookies — a clear for the
+ * host-only cookie does not touch the `Domain=example.com` one. The domain is
+ * case-insensitive and a leading dot is ignored (§5.2.3); the path is
+ * compared as sent.
+ */
+export function setCookieIdentity(setCookie: string): string {
+  const [nameValue = "", ...attrs] = setCookie.split(";");
+  const eqIdx = nameValue.indexOf("=");
+  const name = eqIdx > 0 ? nameValue.slice(0, eqIdx).trim() : nameValue.trim();
+  let domain = "";
+  let path = "";
+  for (const attr of attrs) {
+    const sep = attr.indexOf("=");
+    const key = (sep >= 0 ? attr.slice(0, sep) : attr).trim().toLowerCase();
+    const value = sep >= 0 ? attr.slice(sep + 1).trim() : "";
+    if (key === "domain") domain = value.replace(/^\./, "").toLowerCase();
+    else if (key === "path") path = value;
+  }
+  return `${name}\u0000${domain}\u0000${path}`;
+}
+
+/**
+ * Deduplicate Set-Cookie headers — keep only the LAST occurrence of each
+ * cookie identity (name + Domain + Path, see {@link setCookieIdentity}).
+ * Multiple layers (VTEX middleware, invoke handlers, etc.) may independently
+ * append the same cookie. Keying by name alone collapsed deliberate clears of
+ * the same cookie under different scopes (host-only / `Domain=host` /
+ * `Domain=parent`) into whichever came last, leaving the other scopes alive.
  */
 function deduplicateSetCookies(response: Response): void {
   const setCookies = (response.headers as any).getSetCookie?.() as string[] | undefined;
   if (!setCookies || setCookies.length <= 1) return;
 
-  // Build map: cookie name → last Set-Cookie value
+  // Build map: cookie identity → last Set-Cookie value
   const seen = new Map<string, string>();
   for (const sc of setCookies) {
-    const eqIdx = sc.indexOf("=");
-    const name = eqIdx > 0 ? sc.slice(0, eqIdx).trim() : sc;
-    seen.set(name, sc);
+    seen.set(setCookieIdentity(sc), sc);
   }
 
   // If no duplicates, nothing to do
@@ -956,6 +981,46 @@ function deduplicateSetCookies(response: Response): void {
 }
 
 const FINGERPRINTED_ASSET_RE = /(?:\/_build)?\/assets\/.*-[a-zA-Z0-9_-]{8,}\.\w+$/;
+
+const LIVE_INVOKE_PREFIX = "/live/invoke";
+
+/**
+ * Fresh-compat alias: serve `/live/invoke` and `/live/invoke/*` as
+ * `/deco/invoke[/*]`. deco-runtime registered both prefixes for the same
+ * handler (`runtime/handler.tsx`: `paths: ["/live/invoke", "/deco/invoke"]`),
+ * and clients built against a Fresh site — the mobile app, partner
+ * integrations — still call `/live/invoke/...`. Here that path fell through
+ * to the CMS router and answered a 404 HTML page.
+ *
+ * Returns the same Request when the path is not a `/live/invoke` one, so the
+ * common path allocates nothing. The rewritten Request keeps method, headers,
+ * body and `cf` (the `new Request(url, request)` form does not reliably carry
+ * `cf` across runtimes — see `revalidationRequest`).
+ */
+export function aliasLiveInvoke(request: Request): Request {
+  const url = new URL(request.url);
+  const { pathname } = url;
+  if (pathname !== LIVE_INVOKE_PREFIX && !pathname.startsWith(`${LIVE_INVOKE_PREFIX}/`)) {
+    return request;
+  }
+  url.pathname = `/deco/invoke${pathname.slice(LIVE_INVOKE_PREFIX.length)}`;
+  const hasBody = request.method !== "GET" && request.method !== "HEAD";
+  const cf = (request as unknown as { cf?: unknown }).cf;
+  const aliased = new Request(url.toString(), {
+    method: request.method,
+    headers: request.headers,
+    redirect: request.redirect,
+    signal: request.signal,
+    ...(hasBody ? { body: request.body, duplex: "half" } : {}),
+    ...(cf ? { cf } : {}),
+  } as RequestInit);
+  // Runtimes other than workerd ignore the `cf` init field; re-attach it so a
+  // location matcher downstream never reads a dropped `cf`.
+  if (cf !== undefined && (aliased as unknown as { cf?: unknown }).cf === undefined) {
+    Object.defineProperty(aliased, "cf", { value: cf, configurable: true });
+  }
+  return aliased;
+}
 
 // ---------------------------------------------------------------------------
 // Auto geo-key detection (module-level singleton)
@@ -2174,10 +2239,13 @@ export function createDecoWorkerEntry(
     : instrumentWorker(handler, (observabilityOpt as OtelOptions | undefined) ?? {});
 
   async function handleRequest(
-    request: Request,
+    incomingRequest: Request,
     env: Record<string, unknown>,
     ctx: WorkerExecutionContext,
   ): Promise<Response> {
+    // Fresh-compat `/live/invoke` → `/deco/invoke`, before anything reads
+    // the path (admin routes, bypass paths, the site's `/deco/invoke/$` route).
+    const request = aliasLiveInvoke(incomingRequest);
     const url = new URL(request.url);
 
     // NOTE: fast-deploy hydration does NOT run here. It must happen before
