@@ -568,9 +568,18 @@ async function runSingleSectionLoaderImpl(
   // the same reference (no allocation, no extra work).
   const props = result.props as Record<string, unknown> | undefined;
   if (props && typeof props === "object") {
-    const enrichedProps = await enrichNestedSections(props, request);
-    if (enrichedProps !== props) {
-      return { ...result, props: enrichedProps };
+    try {
+      const enrichedProps = await enrichNestedSections(props, request);
+      if (enrichedProps !== props) {
+        return { ...result, props: enrichedProps };
+      }
+    } catch (error) {
+      // The walk runs on arbitrary loader output; a failure here must not
+      // reject the whole runSectionLoaders batch — keep the section's props.
+      console.error(
+        `[SectionLoader] Error enriching nested sections of "${section.component}":`,
+        error,
+      );
     }
   }
   return result;
@@ -611,8 +620,12 @@ function isNestedSection(
  * the loader walk has to find it there too; a section reachable only through
  * a plain object used to be skipped and rendered with its raw CMS props.
  *
- * Returns the same reference if nothing changed — so leaf sections (the
- * vast majority) incur zero allocation overhead.
+ * Two passes: a synchronous scan marks every object/array whose subtree
+ * holds a nested section, and the walk descends only into marked nodes.
+ * Props without any nested section (the vast majority — including multi-MB
+ * PLP payloads) cost one sync traversal and return the same reference, with
+ * no Promise allocated. Cyclic loader output terminates instead of
+ * overflowing the stack (see `markSectionSubtrees` and `walkNested`).
  *
  * Concurrency: all nested loader calls run in parallel via Promise.all.
  */
@@ -620,7 +633,9 @@ async function enrichNestedSections(
   props: Record<string, unknown>,
   request: Request,
 ): Promise<Record<string, unknown>> {
-  return (await walkNested(props, request)) as Record<string, unknown>;
+  const scan: SectionScan = { marked: new WeakSet(), deep: new WeakMap() };
+  if (!markSectionSubtrees(props, scan, 0)) return props;
+  return (await walkNested(props, request, scan.marked, new WeakMap())) as Record<string, unknown>;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -629,29 +644,102 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-async function walkNested(value: unknown, request: Request): Promise<unknown> {
+/**
+ * Real props are a few dozen levels deep at most. Above this depth the scan
+ * keeps no per-node bookkeeping (a visited map costs 2-3x the bare traversal
+ * on a PLP payload); a cycle necessarily recurses past it, and from there on
+ * every node is memoized, so the scan terminates.
+ */
+const CYCLE_GUARD_DEPTH = 32;
+
+interface SectionScan {
+  /** Arrays/plain objects whose subtree holds a nested section. */
+  marked: WeakSet<object>;
+  /** Scan results for nodes reached below CYCLE_GUARD_DEPTH. */
+  deep: WeakMap<object, boolean>;
+}
+
+/**
+ * Sync scan: whether `value` is or contains a nested section, adding every
+ * array/plain object on the path to one to `scan.marked`. Does not look
+ * inside a nested section's props — its own runSingleSectionLoader call
+ * walks those after its loader runs. Below CYCLE_GUARD_DEPTH a node is
+ * recorded as `false` on entry, so a cycle back to it reports false; the
+ * first visit already covers that subtree.
+ */
+function markSectionSubtrees(value: unknown, scan: SectionScan, depth: number): boolean {
+  if (isNestedSection(value)) return true;
+  const isArray = Array.isArray(value);
+  if (!isArray && !isPlainObject(value)) return false;
+  const node = value as object;
+  const guarded = depth >= CYCLE_GUARD_DEPTH;
+  if (guarded) {
+    const known = scan.deep.get(node);
+    if (known !== undefined) return known;
+    scan.deep.set(node, false);
+  }
+  let found = false;
+  if (isArray) {
+    const arr = value as unknown[];
+    for (let i = 0; i < arr.length; i++) {
+      if (markSectionSubtrees(arr[i], scan, depth + 1)) found = true;
+    }
+  } else {
+    const obj = value as Record<string, unknown>;
+    for (const key in obj) {
+      if (markSectionSubtrees(obj[key], scan, depth + 1)) found = true;
+    }
+  }
+  if (found) {
+    scan.marked.add(node);
+    if (guarded) scan.deep.set(node, true);
+  }
+  return found;
+}
+
+/**
+ * Returns the enriched value — a Promise only for nodes on a path to a
+ * nested section. The descent itself is synchronous (depth-first), so a
+ * `null` memo entry means "an ancestor still being walked": a cycle, which
+ * keeps its original reference. A subtree shared by several props is
+ * enriched once and the result reused at every position.
+ */
+function walkNested(
+  value: unknown,
+  request: Request,
+  marked: WeakSet<object>,
+  memo: WeakMap<object, Promise<unknown> | null>,
+): unknown {
   if (isNestedSection(value)) {
-    const enriched = await runSingleSectionLoader(
+    return runSingleSectionLoader(
       { component: value.Component, props: value.props, key: value.Component } as ResolvedSection,
       request,
-    );
-    return { Component: enriched.component, props: enriched.props };
+    ).then((enriched) => ({ Component: enriched.component, props: enriched.props }));
   }
+  if (!value || typeof value !== "object" || !marked.has(value)) return value;
+  const known = memo.get(value);
+  if (known !== undefined) return known ?? value;
+  memo.set(value, null);
+  let pending: Promise<unknown>;
   if (Array.isArray(value)) {
-    const next = await Promise.all(value.map((item) => walkNested(item, request)));
-    return next.some((item, i) => item !== value[i]) ? next : value;
-  }
-  if (isPlainObject(value)) {
+    pending = Promise.all(value.map((item) => walkNested(item, request, marked, memo))).then(
+      (next) => (next.some((item, i) => item !== value[i]) ? next : value),
+    );
+  } else {
     const entries = Object.entries(value);
-    const next = await Promise.all(entries.map(([, v]) => walkNested(v, request)));
-    let out: Record<string, unknown> | null = null;
-    for (let i = 0; i < entries.length; i++) {
-      if (next[i] !== entries[i][1]) {
-        out ??= { ...value };
-        out[entries[i][0]] = next[i];
-      }
-    }
-    return out ?? value;
+    pending = Promise.all(entries.map(([, v]) => walkNested(v, request, marked, memo))).then(
+      (next) => {
+        let out: Record<string, unknown> | null = null;
+        for (let i = 0; i < entries.length; i++) {
+          if (next[i] !== entries[i][1]) {
+            out ??= { ...value };
+            out[entries[i][0]] = next[i];
+          }
+        }
+        return out ?? value;
+      },
+    );
   }
-  return value;
+  memo.set(value, pending);
+  return pending;
 }
