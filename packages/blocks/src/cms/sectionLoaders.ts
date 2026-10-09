@@ -604,8 +604,12 @@ function isNestedSection(
 
 /**
  * Walk a props object and run section loaders for any nested sections.
- * Handles direct child sections AND arrays of sections (e.g.
- * `sections: Section[]`, `slides: Slide[]`).
+ * Handles direct child sections, arrays of sections (`sections: Section[]`,
+ * `slides: Slide[]`) AND sections nested inside plain objects/arrays at any
+ * depth (`variants: [{ name, section: Section }]`, `layout: { aside: Section }`)
+ * — the resolver resolves a section reference wherever the CMS placed it, so
+ * the loader walk has to find it there too; a section reachable only through
+ * a plain object used to be skipped and rendered with its raw CMS props.
  *
  * Returns the same reference if nothing changed — so leaf sections (the
  * vast majority) incur zero allocation overhead.
@@ -616,71 +620,38 @@ async function enrichNestedSections(
   props: Record<string, unknown>,
   request: Request,
 ): Promise<Record<string, unknown>> {
-  type Pending = {
-    key: string;
-    index?: number;
-    promise: Promise<ResolvedSection>;
-  };
-  const pending: Pending[] = [];
+  return (await walkNested(props, request)) as Record<string, unknown>;
+}
 
-  for (const [key, value] of Object.entries(props)) {
-    if (isNestedSection(value)) {
-      pending.push({
-        key,
-        promise: runSingleSectionLoader(
-          {
-            component: value.Component,
-            props: value.props,
-            key: value.Component,
-          } as ResolvedSection,
-          request,
-        ),
-      });
-      continue;
-    }
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
 
-    if (Array.isArray(value)) {
-      for (let i = 0; i < value.length; i++) {
-        const item = value[i];
-        if (isNestedSection(item)) {
-          pending.push({
-            key,
-            index: i,
-            promise: runSingleSectionLoader(
-              {
-                component: item.Component,
-                props: item.props,
-                key: item.Component,
-              } as ResolvedSection,
-              request,
-            ),
-          });
-        }
+async function walkNested(value: unknown, request: Request): Promise<unknown> {
+  if (isNestedSection(value)) {
+    const enriched = await runSingleSectionLoader(
+      { component: value.Component, props: value.props, key: value.Component } as ResolvedSection,
+      request,
+    );
+    return { Component: enriched.component, props: enriched.props };
+  }
+  if (Array.isArray(value)) {
+    const next = await Promise.all(value.map((item) => walkNested(item, request)));
+    return next.some((item, i) => item !== value[i]) ? next : value;
+  }
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value);
+    const next = await Promise.all(entries.map(([, v]) => walkNested(v, request)));
+    let out: Record<string, unknown> | null = null;
+    for (let i = 0; i < entries.length; i++) {
+      if (next[i] !== entries[i][1]) {
+        out ??= { ...value };
+        out[entries[i][0]] = next[i];
       }
     }
+    return out ?? value;
   }
-
-  if (pending.length === 0) return props;
-
-  const results = await Promise.all(pending.map((p) => p.promise));
-  const updated: Record<string, unknown> = { ...props };
-
-  for (let i = 0; i < pending.length; i++) {
-    const { key, index } = pending[i];
-    const enriched = results[i];
-    const nestedValue = { Component: enriched.component, props: enriched.props };
-
-    if (index != null) {
-      // Array item — clone the array on first mutation for this key
-      const current = updated[key];
-      if (current === props[key]) {
-        updated[key] = [...(current as unknown[])];
-      }
-      (updated[key] as unknown[])[index] = nestedValue;
-    } else {
-      updated[key] = nestedValue;
-    }
-  }
-
-  return updated;
+  return value;
 }

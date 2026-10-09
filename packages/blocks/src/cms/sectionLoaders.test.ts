@@ -459,6 +459,27 @@ describe("runSingleSectionLoader — nested section recursion", () => {
     expect(grandchild.props).toMatchObject({ tag: "deep", deep: true });
   });
 
+  it("runs the loader of a section nested inside a plain object in an array (variants[].section)", async () => {
+    const banner = vi.fn(async (props: any) => ({ ...props, ranBanner: true }));
+    registerSectionLoader("site/sections/Banner.tsx", banner);
+
+    const parent = makeSection("site/sections/Tabs.tsx", {
+      variants: [
+        { name: "Linho", section: { Component: "site/sections/Banner.tsx", props: { id: 1 } } },
+        { name: "Sem seção" },
+      ],
+      layout: { aside: { Component: "site/sections/Banner.tsx", props: { id: 2 } } },
+    });
+
+    const result = await runSingleSectionLoader(parent, new Request("https://store.com/vitrine"));
+
+    expect(banner).toHaveBeenCalledTimes(2);
+    const props = result.props as any;
+    expect(props.variants[0].section.props).toMatchObject({ id: 1, ranBanner: true });
+    expect(props.variants[1]).toEqual({ name: "Sem seção" });
+    expect(props.layout.aside.props).toMatchObject({ id: 2, ranBanner: true });
+  });
+
   it("ignores nested objects that do not look like sections", async () => {
     const loader = vi.fn(async (props: Record<string, unknown>) => props);
     registerSectionLoader("site/sections/Leaf.tsx", loader);

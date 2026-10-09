@@ -262,6 +262,16 @@ export interface DecoWorkerEntryOptions {
   renderJson?: boolean;
 
   /**
+   * `?renderJson` strips the request-derived keys the section mixins inject
+   * (`device`, `isMobile`, `currentSearchParam`) from every section. A section
+   * whose own loader returns one of them as content (Fresh: `device:
+   * ctx.device`, which production's `?renderJson` carries) can keep it here:
+   * resolveType suffix (matched like `renderJson.sectionsToIgnore`) → keys to
+   * preserve. Example: `{ "Product/ProductDetails.tsx": ["device"] }`.
+   */
+  renderJsonKeepKeys?: Record<string, readonly string[]>;
+
+  /**
    * Serve the raw resolved page as JSON on `?asJson` (legacy admin-preview
    * path). Set to `false` to disable it site-wide.
    * @default true
@@ -2330,6 +2340,16 @@ export function createDecoWorkerEntry(
       const getSectionModule = (component: string) => ({
         renderJson: getSectionOptions(component)?.renderJson,
       });
+      const keepEntries = Object.entries(options.renderJsonKeepKeys ?? {});
+      const keepInjectedKeys =
+        keepEntries.length === 0
+          ? undefined
+          : (component: string) => {
+              const keys = keepEntries.flatMap(([suffix, k]) =>
+                component.endsWith(suffix) ? k : [],
+              );
+              return keys.length > 0 ? keys : undefined;
+            };
 
       const jsonHeaders = {
         ...corsHeaders,
@@ -2367,7 +2387,7 @@ export function createDecoWorkerEntry(
         }
         const [serialized] = serializeRenderJson(
           [{ component: resolved.component, props: resolved.props }],
-          { getSectionModule, sectionsToIgnore: ignoreSuffixes },
+          { getSectionModule, sectionsToIgnore: ignoreSuffixes, keepInjectedKeys },
         );
         if (!serialized) {
           return Response.json(
@@ -2398,6 +2418,7 @@ export function createDecoWorkerEntry(
           sectionsToIgnore: ignoreSuffixes,
           deferred: page.deferredSections.map((d) => ({ component: d.component, index: d.index })),
           lazyUrlFor,
+          keepInjectedKeys,
         },
       );
 
