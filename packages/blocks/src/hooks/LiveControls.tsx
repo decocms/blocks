@@ -5,6 +5,14 @@ interface LiveControlsProps {
   site?: string;
   page?: { id?: string; pathTemplate?: string };
   flags?: any[];
+  /**
+   * Ship the admin message bridge (`editor::inject` eval, scroll, rerender).
+   * Only the editor needs it, and the editor runs the site in dev / a Studio
+   * draft preview — never on published traffic, so bindings that know they are
+   * serving published traffic pass `false`. Default `true` (unchanged behaviour).
+   * The "." / Ctrl+Shift+E shortcut is always shipped.
+   */
+  editorBridge?: boolean;
 }
 
 /**
@@ -15,7 +23,7 @@ interface LiveControlsProps {
  * 2. Listens for postMessage events from the admin (inject scripts, scroll, rerender)
  * 3. "." opens admin in same tab, Ctrl/Cmd+"." opens in new tab, Ctrl+Shift+E also works
  */
-export function LiveControls({ site, page, flags }: LiveControlsProps) {
+export function LiveControls({ site, page, flags, editorBridge = true }: LiveControlsProps) {
   // Keep `window.LIVE.page` in sync with the CURRENT page across SPA
   // navigations. The bootstrap script below reads __DECO_STATE only once (on
   // initial load), so without this effect a client-side navigation would leave
@@ -44,99 +52,49 @@ export function LiveControls({ site, page, flags }: LiveControlsProps) {
           }),
         }}
       />
-      <LiveControlsScript />
+      <LiveControlsScript bridge={editorBridge} />
     </>
   );
 }
 
-function LiveControlsScript() {
-  const script = `
-    (function() {
-      if (window.__DECO_LIVE_CONTROLS__) return;
-      window.__DECO_LIVE_CONTROLS__ = true;
+/**
+ * Admin message bridge: published pages never ship it (see `editorBridge`).
+ * Hand-minified — inline scripts are shipped raw on every document.
+ */
+const BRIDGE =
+  'var TR=["https://deco.cx","https://admin.deco.cx","https://play.deco.cx","https://decocms.com","https://studio.decocms.com"];' +
+  'addEventListener("message",function(event){var o=event.origin;' +
+  'if(!(TR.indexOf(o)!==-1||o.startsWith("https://")&&(o.endsWith(".deco.cx")||o.endsWith(".decocms.com"))||o===location.origin))return;' +
+  'var data=event.data;if(!data||typeof data!=="object")return;var a=data.args;' +
+  "switch(data.type){" +
+  'case"editor::inject":if(a&&a.script)try{eval(a.script)}catch(e){console.error("[deco] inject error:",e)}break;' +
+  'case"scrollToComponent":var el=document.querySelector(\'[data-manifest-key="\'+CSS.escape(a?.id||"")+\'"]\');' +
+  'if(!el)el=document.getElementById(a?.id);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});break;' +
+  'case"editor::rerender":if(a?.url)try{var u=new URL(a.url,location.origin);if(u.origin===location.origin)location.href=u.href}catch(e){}}});';
 
-      var TRUSTED_ORIGINS = ["https://deco.cx", "https://admin.deco.cx", "https://play.deco.cx", "https://decocms.com", "https://studio.decocms.com"];
-      function isTrustedOrigin(origin) {
-        return TRUSTED_ORIGINS.indexOf(origin) !== -1 ||
-          (origin.startsWith("https://") && origin.endsWith(".deco.cx")) ||
-          (origin.startsWith("https://") && origin.endsWith(".decocms.com")) ||
-          origin === window.location.origin;
-      }
+/**
+ * "." / Ctrl+Shift+E (Cmd/Ctrl+"." = new tab) opens the editor. Top-level only;
+ * `__DECO_STATE` is read on key press, not up front.
+ */
+const SHORTCUT =
+  'if(self===top)document.addEventListener("keydown",function(e){var t=e.target;' +
+  'if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"||t.isContentEditable)||e.defaultPrevented)return;' +
+  'if(!(e.ctrlKey&&e.shiftKey&&e.key==="E"||e.key==="."))return;e.preventDefault();e.stopPropagation();' +
+  'var L=Object.assign({},JSON.parse(document.getElementById("__DECO_STATE")?.textContent||"{}"),window.LIVE),' +
+  'p=L.page||{},h=new URL("/choose-editor","https://studio.decocms.com"),s=h.searchParams;' +
+  's.set("site",L.site&&L.site.name||L.site||"storefront");s.set("domain",location.origin);' +
+  'if(p.id)s.set("pageId",p.id);s.set("path",location.pathname+location.search);s.set("pathTemplate",p.pathTemplate||"/*");' +
+  '(e.ctrlKey||e.metaKey)&&e.key==="."?window.open(h.toString(),"_blank"):location.href=h.toString()});';
 
-      var LIVE = JSON.parse(document.getElementById("__DECO_STATE")?.textContent || "{}");
-      window.LIVE = { ...window.LIVE, ...LIVE };
-
-      window.addEventListener("message", function(event) {
-        if (!isTrustedOrigin(event.origin)) return;
-
-        var data = event.data;
-        if (!data || typeof data !== "object") return;
-
-        switch (data.type) {
-          case "editor::inject":
-            if (data.args && data.args.script) {
-              try { eval(data.args.script); } catch(e) { console.error("[deco] inject error:", e); }
-            }
-            break;
-
-          case "scrollToComponent":
-            var el = document.querySelector('[data-manifest-key="' + CSS.escape(data.args?.id || "") + '"]');
-            if (!el) el = document.getElementById(data.args?.id);
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-            break;
-
-          case "DOMInspector":
-            break;
-
-          case "editor::rerender":
-            if (data.args?.url) {
-              try {
-                var targetUrl = new URL(data.args.url, window.location.origin);
-                if (targetUrl.origin === window.location.origin) {
-                  window.location.href = targetUrl.href;
-                }
-              } catch(e) {}
-            }
-            break;
-        }
-      });
-
-      if (window.self === window.top) {
-        document.addEventListener("keydown", function(e) {
-          var t = e.target;
-          if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-          if (e.defaultPrevented) return;
-
-          if (
-            (e.ctrlKey && e.shiftKey && e.key === "E") ||
-            e.key === "."
-          ) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            var siteName = (window.LIVE.site && window.LIVE.site.name) || window.LIVE.site || "storefront";
-            var pageId = (window.LIVE.page && window.LIVE.page.id) || "";
-            var pathTemplate = (window.LIVE.page && window.LIVE.page.pathTemplate) || "/*";
-
-            var href = new URL("/choose-editor", "https://studio.decocms.com");
-            href.searchParams.set("site", siteName);
-            href.searchParams.set("domain", window.location.origin);
-            if (pageId) href.searchParams.set("pageId", pageId);
-            href.searchParams.set("path", window.location.pathname + window.location.search);
-            href.searchParams.set("pathTemplate", pathTemplate);
-
-            if ((e.ctrlKey || e.metaKey) && e.key === ".") {
-              window.open(href.toString(), "_blank");
-              return;
-            }
-            window.location.href = href.toString();
-          }
-        });
-      }
-    })();
-  `;
+function LiveControlsScript({ bridge }: { bridge: boolean }) {
+  const script = `(function(){if(window.__DECO_LIVE_CONTROLS__)return;window.__DECO_LIVE_CONTROLS__=!0;${bridge ? BRIDGE : ""}${SHORTCUT}})();`;
 
   return (
-    <script type="module" nonce={getRequestNonce()} dangerouslySetInnerHTML={{ __html: script }} />
+    <script
+      type="module"
+      nonce={getRequestNonce()}
+      suppressHydrationWarning
+      dangerouslySetInnerHTML={{ __html: script }}
+    />
   );
 }
