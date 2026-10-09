@@ -982,6 +982,46 @@ function deduplicateSetCookies(response: Response): void {
 
 const FINGERPRINTED_ASSET_RE = /(?:\/_build)?\/assets\/.*-[a-zA-Z0-9_-]{8,}\.\w+$/;
 
+const LIVE_INVOKE_PREFIX = "/live/invoke";
+
+/**
+ * Fresh-compat alias: serve `/live/invoke` and `/live/invoke/*` as
+ * `/deco/invoke[/*]`. deco-runtime registered both prefixes for the same
+ * handler (`runtime/handler.tsx`: `paths: ["/live/invoke", "/deco/invoke"]`),
+ * and clients built against a Fresh site — the mobile app, partner
+ * integrations — still call `/live/invoke/...`. Here that path fell through
+ * to the CMS router and answered a 404 HTML page.
+ *
+ * Returns the same Request when the path is not a `/live/invoke` one, so the
+ * common path allocates nothing. The rewritten Request keeps method, headers,
+ * body and `cf` (the `new Request(url, request)` form does not reliably carry
+ * `cf` across runtimes — see `revalidationRequest`).
+ */
+export function aliasLiveInvoke(request: Request): Request {
+  const url = new URL(request.url);
+  const { pathname } = url;
+  if (pathname !== LIVE_INVOKE_PREFIX && !pathname.startsWith(`${LIVE_INVOKE_PREFIX}/`)) {
+    return request;
+  }
+  url.pathname = `/deco/invoke${pathname.slice(LIVE_INVOKE_PREFIX.length)}`;
+  const hasBody = request.method !== "GET" && request.method !== "HEAD";
+  const cf = (request as unknown as { cf?: unknown }).cf;
+  const aliased = new Request(url.toString(), {
+    method: request.method,
+    headers: request.headers,
+    redirect: request.redirect,
+    signal: request.signal,
+    ...(hasBody ? { body: request.body, duplex: "half" } : {}),
+    ...(cf ? { cf } : {}),
+  } as RequestInit);
+  // Runtimes other than workerd ignore the `cf` init field; re-attach it so a
+  // location matcher downstream never reads a dropped `cf`.
+  if (cf !== undefined && (aliased as unknown as { cf?: unknown }).cf === undefined) {
+    Object.defineProperty(aliased, "cf", { value: cf, configurable: true });
+  }
+  return aliased;
+}
+
 // ---------------------------------------------------------------------------
 // Auto geo-key detection (module-level singleton)
 // ---------------------------------------------------------------------------
@@ -2199,10 +2239,13 @@ export function createDecoWorkerEntry(
     : instrumentWorker(handler, (observabilityOpt as OtelOptions | undefined) ?? {});
 
   async function handleRequest(
-    request: Request,
+    incomingRequest: Request,
     env: Record<string, unknown>,
     ctx: WorkerExecutionContext,
   ): Promise<Response> {
+    // Fresh-compat `/live/invoke` → `/deco/invoke`, before anything reads
+    // the path (admin routes, bypass paths, the site's `/deco/invoke/$` route).
+    const request = aliasLiveInvoke(incomingRequest);
     const url = new URL(request.url);
 
     // NOTE: fast-deploy hydration does NOT run here. It must happen before
