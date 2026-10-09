@@ -25,6 +25,7 @@ import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
 import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
+import { paint } from "../color.ts";
 import { readSavedBlocks, type SavedBlocks } from "../content.ts";
 import { consoleReporter, type Reporter } from "../log.ts";
 import { CliError, decoPaths, findDecoRoot } from "../root.ts";
@@ -736,8 +737,13 @@ export function checkContent(meta: DecoMeta, saved: SavedBlocks): Problem[] {
   });
 }
 
-/** Print problems grouped per file, the format the docs show. */
-export function formatProblems(problems: Problem[]): string {
+/**
+ * Print problems grouped per file, the format the docs show. With colour, the
+ * same text plus escapes: file bold, path dim, an error's message red and the
+ * word `warning` yellow.
+ */
+export function formatProblems(problems: Problem[], color = false): string {
+  const c = paint(color);
   const byFile = new Map<string, Problem[]>();
   for (const p of problems) {
     const list = byFile.get(p.file) ?? [];
@@ -746,10 +752,12 @@ export function formatProblems(problems: Problem[]): string {
   }
   const lines: string[] = [];
   for (const file of [...byFile.keys()].sort()) {
-    lines.push(file);
+    lines.push(c.bold(file));
     for (const p of byFile.get(file)!) {
-      const prefix = p.severity === "warning" ? "warning: " : "";
-      lines.push(`  ${prefix}${p.path ? `${p.path}: ` : ""}${p.message}`);
+      const warning = p.severity === "warning";
+      const prefix = warning ? `${c.yellow("warning")}: ` : "";
+      const message = warning ? p.message : c.red(p.message);
+      lines.push(`  ${prefix}${p.path ? `${c.dim(p.path)}: ` : ""}${message}`);
     }
   }
   return lines.join("\n");
@@ -808,13 +816,30 @@ export function check(options: CheckOptions = {}): number {
   const errors = problems.filter((p) => p.severity === "error").length;
   const warnings = problems.length - errors;
   if (problems.length > 0) {
-    const text = formatProblems(problems);
+    const text = formatProblems(problems, reporter.color);
     if (errors > 0) reporter.error(text);
     else reporter.warn(text);
   }
   const count = Object.keys(saved.blocks).length;
-  const summary = `${count} saved block${count === 1 ? "" : "s"} checked: ${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`;
+  const summary = checkSummary(count, errors, warnings, reporter.color);
   if (errors > 0) reporter.error(summary);
   else reporter.info(summary);
   return errors > 0 ? 1 : 0;
+}
+
+/**
+ * `39 saved blocks checked: 0 errors, 0 warnings`. With colour it leads with
+ * a status mark, where the eye lands first (✓ green, ⚠ yellow, ✗ red), and
+ * colours the counts that decide it.
+ */
+function checkSummary(count: number, errors: number, warnings: number, color = false): string {
+  const c = paint(color);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const head = `${plural(count, "saved block")} checked: `;
+  const errorText = plural(errors, "error");
+  const warningText = plural(warnings, "warning");
+  if (!color) return `${head}${errorText}, ${warningText}`;
+  if (errors > 0) return `${c.red("✗")} ${head}${c.red(errorText)}, ${warningText}`;
+  if (warnings > 0) return `${c.yellow("⚠")} ${head}${errorText}, ${c.yellow(warningText)}`;
+  return `${c.green("✓")} ${head}${c.green(`${errorText}, ${warningText}`)}`;
 }

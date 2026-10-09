@@ -1,4 +1,5 @@
 import path from "node:path";
+import { paint } from "../color.ts";
 import { writeIfChanged } from "../content.ts";
 import { consoleReporter, type Reporter } from "../log.ts";
 import { CliError, type DecoPaths, decoPaths, findDecoRoot } from "../root.ts";
@@ -29,12 +30,13 @@ export async function writeSchema(paths: DecoPaths): Promise<WriteSchemaResult> 
 }
 
 export function reportSchema(result: WriteSchemaResult, reporter: Reporter): number {
+  const c = paint(reporter.color);
   for (const d of result.diagnostics) {
-    if (d.severity === "error") reporter.error(d.message);
-    else reporter.warn(`warning: ${d.message}`);
+    if (d.severity === "error") reporter.error(c.red(d.message));
+    else reporter.warn(`${c.yellow("warning")}: ${d.message}`);
   }
   if (!result.written) {
-    reporter.error(".deco/schema.gen.json not written: fix the errors above");
+    reporter.error(c.red(".deco/schema.gen.json not written: fix the errors above"));
     return 1;
   }
   const groups = result.meta.manifest.blocks;

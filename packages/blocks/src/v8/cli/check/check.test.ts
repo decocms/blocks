@@ -10,6 +10,7 @@ import {
 } from "../__tests__/fixture";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
+import { runCli } from "../run";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { writeSchema } from "../schema/index";
 import { check, checkContent, formatProblems, type Problem } from "./index";
@@ -700,6 +701,90 @@ describe("deco check", () => {
         { file: ".deco/blocks/A.json", path: "x", message: "m", severity: "warning" },
       ]),
     ).toBe(".deco/blocks/A.json\n  warning: x: m");
+  });
+});
+
+describe("deco check --color", () => {
+  const green = (t: string) => `\x1b[32m${t}\x1b[39m`;
+  const red = (t: string) => `\x1b[31m${t}\x1b[39m`;
+  const yellow = (t: string) => `\x1b[33m${t}\x1b[39m`;
+  const dim = (t: string) => `\x1b[2m${t}\x1b[22m`;
+  const bold = (t: string) => `\x1b[1m${t}\x1b[22m`;
+  const hero = { __resolveType: "hero", title: "Summer", size: "md" };
+  const warned = {
+    ...hero,
+    title: {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: "a" } },
+        { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: "b" } },
+      ],
+    },
+  };
+
+  it("marks a clean run with a green check, the counts green", async () => {
+    const fixture = createFixture({
+      ".deco/schema.gen.json": meta,
+      ".deco/blocks/Hero.json": hero,
+    });
+    try {
+      const out = recorder();
+      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(0);
+      expect(out.text()).toBe(
+        `${green("✓")} 1 saved block checked: ${green("0 errors, 0 warnings")}`,
+      );
+      // Plain unless asked, and --no-color wins when it comes last.
+      const plain = recorder();
+      expect(
+        await runCli(["check", "--color", "--no-color"], { cwd: fixture.root, reporter: plain }),
+      ).toBe(0);
+      expect(plain.text()).toBe("1 saved block checked: 0 errors, 0 warnings");
+    } finally {
+      fixture.remove();
+    }
+  });
+
+  it("colours errors red and warnings yellow, with the same exit codes", async () => {
+    const fixture = createFixture({
+      ".deco/schema.gen.json": meta,
+      ".deco/blocks/Promo.json": { __resolveType: "promo-banner" },
+    });
+    try {
+      const out = recorder();
+      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(1);
+      expect(out.lines.map((l) => l.level)).toEqual(["error", "error"]);
+      expect(out.text()).toBe(
+        [
+          bold(".deco/blocks/Promo.json"),
+          `  ${red('unknown block type "promo-banner"')}`,
+          `${red("✗")} 1 saved block checked: ${red("1 error")}, 0 warnings`,
+        ].join("\n"),
+      );
+
+      fixture.write(".deco/blocks/Promo.json", warned);
+      const ok = recorder();
+      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: ok })).toBe(0);
+      expect(ok.text()).toBe(
+        [
+          bold(".deco/blocks/Promo.json"),
+          `  ${yellow("warning")}: ${dim("title.variants[1]")}: can never be picked: variants[0] has an always rule`,
+          `${yellow("⚠")} 1 saved block checked: 0 errors, ${yellow("1 warning")}`,
+        ].join("\n"),
+      );
+    } finally {
+      fixture.remove();
+    }
+  });
+
+  it("strips to the plain text, but for the status mark", () => {
+    const problems: Problem[] = [
+      { file: ".deco/blocks/A.json", path: "x", message: "m", severity: "error" },
+      { file: ".deco/blocks/A.json", path: "", message: "n", severity: "warning" },
+    ];
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes
+    const strip = (t: string) => t.replace(/\x1b\[\d+m/g, "");
+    expect(strip(formatProblems(problems, true))).toBe(formatProblems(problems));
+    expect(formatProblems(problems, true)).toContain(`  ${dim("x")}: ${red("m")}`);
   });
 });
 
