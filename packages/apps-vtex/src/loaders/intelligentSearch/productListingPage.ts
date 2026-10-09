@@ -1,5 +1,6 @@
 import {
 	filtersFromPageTypes,
+	getInvalidPageNotFound,
 	getVtexConfig,
 	intelligentSearch,
 	type PageType,
@@ -39,16 +40,31 @@ export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
  * and hard-default to page 0 (see #391). Coerce first, and treat a
  * non-finite coerced value as "absent" so it falls through to the URL
  * parse instead of hard-defaulting.
+ *
+ * A URL that names a page that does not exist (`?page=0`, `?page=-1`,
+ * `?page=abc`) is clamped to the first page by default. With
+ * `notFoundOnInvalid` (the VTEX app block's
+ * `advancedConfigs.invalidPageNotFound`) it returns `null`
+ * instead: deco-cx's `pageOf` sends `Number(page) - 1` to Intelligent Search
+ * as it is, IS rejects it, and the PLP answers 404 — clamping serves page 1
+ * again under a second URL, an indexable duplicate whose canonical carries
+ * `?page=0`. Either way an empty `?page=` is the first page and a fractional
+ * `?page=1.5` is floored, as deco-cx accepts them, and a CMS `props.page`
+ * below zero (editor input, not a URL) clamps to the first page.
  */
-export function resolvePage(propsPage: number | string | undefined, pageFromUrl: string | null | undefined): number {
+export function resolvePage(
+	propsPage: number | string | undefined,
+	pageFromUrl: string | null | undefined,
+	notFoundOnInvalid = false,
+): number | null {
 	const coercedPropsPage = propsPage !== undefined ? Number(propsPage) : undefined;
-	const rawPage =
-		coercedPropsPage !== undefined && Number.isFinite(coercedPropsPage)
-			? coercedPropsPage
-			: pageFromUrl
-				? Number(pageFromUrl) - 1
-				: 0;
-	return Number.isFinite(rawPage) && rawPage >= 0 ? Math.floor(rawPage) : 0;
+	if (coercedPropsPage !== undefined && Number.isFinite(coercedPropsPage)) {
+		return Math.max(0, Math.floor(coercedPropsPage));
+	}
+	if (!pageFromUrl) return 0;
+	const fromUrl = Number(pageFromUrl) - 1;
+	if (!Number.isFinite(fromUrl) || fromUrl < 0) return notFoundOnInvalid ? null : 0;
+	return Math.floor(fromUrl);
 }
 
 export const mapLabelledFuzzyToFuzzy = (label?: LabelledFuzzy): "0" | "1" | "auto" | undefined => {
@@ -362,7 +378,11 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 	// raw IS API value. The URL param is already a raw value, so it passes through.
 	const fuzzy =
 		mapLabelledFuzzyToFuzzy(props.fuzzy) ?? pageUrl?.searchParams.get("fuzzy") ?? undefined;
-	const page = resolvePage(props.page, pageUrl?.searchParams.get("page"));
+	const page = resolvePage(props.page, pageUrl?.searchParams.get("page"), getInvalidPageNotFound());
+	// Only with `advancedConfigs.invalidPageNotFound`: a page that does not exist is a
+	// listing that does not exist — the same `null` a path with no facets and no
+	// query returns, which the PLP section renders as its not-found state.
+	if (page === null) return null;
 
 	const { selectedFacets: cmsSelectedFacets, hideUnavailableItems = false, __pagePath } = props;
 
