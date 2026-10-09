@@ -21,9 +21,9 @@
  * serializer has no lazy-placeholder (`{ component, lazyUrl }`) branch — the
  * mobile app receives the whole page in one request.
  *
- * ponytail: no nested section-in-section recursion (composite/layout sections).
- * deepOmit handles trimming within a single section's data; add a recursive walk
- * here if a composite section must project its child sections.
+ * Nested sections (a composite/layout section holding `{ Component, props }`
+ * anywhere in its props) are serialized recursively with their own `renderJson`
+ * contract and emitted as `{ component, props }` — see `walkValue`.
  */
 
 // deno-lint-ignore-style any: a projection accepts the section's own resolved props.
@@ -74,6 +74,16 @@ export interface SerializeOptions {
   deferred?: DeferredRef[];
   /** Builds the lazy-fetch URL for a deferred section. Required when `deferred` is set. */
   lazyUrlFor?: (ref: DeferredRef) => string;
+  /**
+   * Request-derived keys (`device`, `isMobile`, `currentSearchParam`) are
+   * stripped from every section because the `withDevice`/`withMobile`/
+   * `withSearchParam` mixins inject them. A section whose own loader returns
+   * one of them as CONTENT (Fresh: `device: ctx.device`, which production's
+   * `?renderJson` carries) can keep it: return the keys to preserve for that
+   * resolveType. Opt-in per section — the ETag of a kept key varies per
+   * device, which is correct for content that does.
+   */
+  keepInjectedKeys?: (component: string) => readonly string[] | undefined;
 }
 
 /**
@@ -96,9 +106,13 @@ export interface SerializeOptions {
  */
 const FRAMEWORK_INJECTED_KEYS = new Set(["device", "isMobile", "currentSearchParam"]);
 
-function stripFrameworkKeys(props: Record<string, unknown>): Record<string, unknown> {
+function stripFrameworkKeys(
+  props: Record<string, unknown>,
+  keep?: readonly string[],
+): Record<string, unknown> {
   let out: Record<string, unknown> | null = null;
   for (const k of Object.keys(props)) {
+    if (keep?.includes(k)) continue;
     if (k.startsWith("__") || FRAMEWORK_INJECTED_KEYS.has(k)) {
       out ??= { ...props };
       delete out[k];
@@ -107,28 +121,113 @@ function stripFrameworkKeys(props: Record<string, unknown>): Record<string, unkn
   return out ?? props;
 }
 
+/**
+ * A nested section as the resolver represents it inside another section's
+ * props (`normalizeNestedSections` in resolve.ts): `{ Component, props }`.
+ * The capital `Component` is the renderer's convention; the JSON contract
+ * uses `component`, like the top level and like Fresh's serializer.
+ */
+function isNestedSection(
+  value: unknown,
+): value is { Component: string; props: Record<string, unknown> } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  return (
+    typeof o.Component === "string" &&
+    !!o.props &&
+    typeof o.props === "object" &&
+    !Array.isArray(o.props)
+  );
+}
+
+interface Projector {
+  isDropped: (component: string) => boolean;
+  project: (component: string, props: Record<string, unknown>) => Record<string, unknown>;
+}
+
+/**
+ * Walks a section's (already projected) props and serializes every nested
+ * section the same way the top level is: its own `renderJson` projection,
+ * framework keys stripped, `{ component, props }`. Mirrors deco-runtime's
+ * `walkValue` (runtime/routes/serialize-section.ts): a dropped nested
+ * section (`renderJson === false` / ignored) becomes `null` in an object and
+ * is removed from an array, so consumers iterate a dense list. Returns the
+ * same reference when nothing changed.
+ */
+function walkValue(value: unknown, p: Projector): unknown {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out: unknown[] = [];
+    for (const v of value) {
+      if (isNestedSection(v)) {
+        changed = true;
+        if (!p.isDropped(v.Component)) out.push(serializeNested(v, p));
+        continue;
+      }
+      const next = walkValue(v, p);
+      if (next !== v) changed = true;
+      out.push(next);
+    }
+    return changed ? out : value;
+  }
+  if (value && typeof value === "object") {
+    if (isNestedSection(value)) {
+      return p.isDropped(value.Component) ? null : serializeNested(value, p);
+    }
+    let out: Record<string, unknown> | null = null;
+    for (const [k, v] of Object.entries(value)) {
+      const next = walkValue(v, p);
+      if (next !== v) {
+        out ??= { ...(value as Record<string, unknown>) };
+        out[k] = next;
+      }
+    }
+    return out ?? value;
+  }
+  return value;
+}
+
+function serializeNested(
+  section: { Component: string; props: Record<string, unknown> },
+  p: Projector,
+): { component: string; props: Record<string, unknown> } {
+  return { component: section.Component, props: p.project(section.Component, section.props) };
+}
+
 export function serializeRenderJson(
   sections: SerializableSection[],
   opts: SerializeOptions = {},
 ): SerializedSection[] {
-  const ignore = (opts.sectionsToIgnore ?? [])
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const ignore = (opts.sectionsToIgnore ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
 
   const renderJsonOf = (component: string): RenderJson | undefined =>
     opts.getSectionModule?.(component)?.renderJson;
 
   const isDropped = (component: string): boolean =>
-    ignore.some((suffix) => component.endsWith(suffix)) ||
-    renderJsonOf(component) === false;
+    ignore.some((suffix) => component.endsWith(suffix)) || renderJsonOf(component) === false;
+
+  // Projection → strip → recurse into nested sections. The strip runs after
+  // the projection so a rest-spread cannot leak an injected key; the walk
+  // runs last so nested sections inside the projected output are serialized
+  // with their own contract too.
+  const projector: Projector = {
+    isDropped,
+    project: (component, props) => {
+      const rj = renderJsonOf(component);
+      const projected = typeof rj === "function" ? rj(props) : props;
+      const stripped = stripFrameworkKeys(projected, opts.keepInjectedKeys?.(component));
+      return walkValue(stripped, projector) as Record<string, unknown>;
+    },
+  };
 
   const eager = sections
     .filter((s) => !isDropped(s.component))
     .map((section) => {
-      const rj = renderJsonOf(section.component);
-      const projected = typeof rj === "function" ? rj(section.props ?? {}) : section.props ?? {};
-      const props = stripFrameworkKeys(projected);
-      return { index: section.index, out: { component: section.component, props } as SerializedSection };
+      const props = projector.project(section.component, section.props ?? {});
+      return {
+        index: section.index,
+        out: { component: section.component, props } as SerializedSection,
+      };
     });
 
   // No deferred sections → preserve input order (backward compatible).
