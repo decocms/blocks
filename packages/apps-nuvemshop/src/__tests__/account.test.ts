@@ -248,3 +248,21 @@ describe("user", () => {
     });
   });
 });
+
+describe("store-domain User-Agent (WAF challenges UA-less requests)", () => {
+  const uaSent = () => new Headers(fetchMock.mock.calls.at(-1)![1]!.headers).get("user-agent");
+  const run = (headers: Record<string, string>) => {
+    routes[`GET ${STORE}/account/logout/`] = () => redirect(`${STORE}/`);
+    return RequestContext.run(new Request(`${SITE}/x`, { headers }), () => logout({}));
+  };
+
+  it("forwards the buyer's UA", async () => {
+    await run({ "user-agent": "BuyerBrowser/1.0" });
+    expect(uaSent()).toBe("BuyerBrowser/1.0");
+  });
+
+  it("falls back to a generic UA when the request has none", async () => {
+    await run({});
+    expect(uaSent()).toBe("Mozilla/5.0 (compatible; deco-storefront)");
+  });
+});
