@@ -12,6 +12,7 @@
  */
 
 import { type FetchFn, withFetchTimeout } from "@decocms/blocks/sdk/fetchTimeout";
+import { getAllPages, matchPath } from "@decocms/blocks/cms";
 import { getVtexConfig, vtexFetchResponse, vtexHost } from "../client";
 
 export interface SitemapEntry {
@@ -167,6 +168,48 @@ export interface VtexSitemapProxyConfig {
 	extraSitemaps?: string[];
 
 	/**
+	 * `<sitemap>` entries inserted at the TOP of the root index, each stamped
+	 * with today's `<lastmod>` — the `include` of deco-cx
+	 * `vtex/handlers/sitemap.ts` (site.json `includeSiteMapWithHandler`),
+	 * for sitemaps the storefront itself serves (CMS pages, blog posts).
+	 * Leading-slash paths become `${origin}${path}`; absolute URLs are used
+	 * as-is. `extraSitemaps` appends undated entries at the bottom instead.
+	 *
+	 * @example ["/sitemap/deco.xml", "/sitemap/the-post-posts.xml"]
+	 */
+	include?: string[];
+
+	/**
+	 * Drops every `<sitemap>` of the root index whose `<loc>` contains or ends
+	 * with one of these — deco-cx's `excludeSiteMapEntry`.
+	 *
+	 * @example ["/custom-user-routes-1.xml", "/brand-0.xml"]
+	 */
+	excludeSiteMapEntry?: string[];
+
+	/**
+	 * Drops every `<url>` of a sub-sitemap whose path no CMS page answers —
+	 * deco-cx's `removeEntriesWithoutPage`. The platform's category tree and
+	 * the storefront's pages are maintained by different teams, so a
+	 * category created upstream reaches the sitemap before its page exists
+	 * and answers 404; announcing it to crawlers is worse than omitting it.
+	 * Catch-all pages (`/*`, the 404 page) are not counted as answering.
+	 * `<sitemap>` entries of the index are never touched.
+	 *
+	 * Pass `{ servesPath }` for paths served outside the CMS (VTEX proxies,
+	 * custom handlers) that should also count as answered.
+	 */
+	removeEntriesWithoutPage?: boolean | { servesPath?: (pathname: string) => boolean };
+
+	/**
+	 * Drops `<lastmod>` from every `<url>` — deco-cx's `removeUrlLastmod`.
+	 * VTEX stamps each entry with the day the file was generated, which says
+	 * nothing about the page; crawlers that notice learn to ignore the field
+	 * for the whole site. `<sitemap>` blocks of the index keep theirs.
+	 */
+	removeUrlLastmod?: boolean;
+
+	/**
 	 * VTEX environment for the upstream sitemap fetch.
 	 * @default "vtexcommercestable"
 	 */
@@ -195,6 +238,128 @@ function normalizeExtraSitemap(entry: string, origin: string): string {
 	if (entry.startsWith("http://") || entry.startsWith("https://")) return entry;
 	const path = entry.startsWith("/") ? entry : `/${entry}`;
 	return `${origin}${path}`;
+}
+
+const SITEMAP_INDEX_OPEN = /<sitemapindex[^>]*>/i;
+
+/** Same insertion as deco-cx: right after the opening tag, dated today. */
+export function includeSitemaps(xml: string, origin: string, includes: string[]): string {
+	if (!includes.length) return xml;
+	const today = new Date().toISOString().substring(0, 10);
+	const tags = includes
+		.map(
+			(include) =>
+				`\n  <sitemap>\n    <loc>${normalizeExtraSitemap(include, origin)}</loc>\n    <lastmod>${today}</lastmod>\n  </sitemap>`,
+		)
+		.join("\n");
+	return xml.replace(SITEMAP_INDEX_OPEN, (open) => `${open}${tags}`);
+}
+
+export function excludeSitemapEntries(xml: string, exclude: string[]): string {
+	if (!exclude.length) return xml;
+	return xml.replace(
+		/<sitemap>\s*<loc>([^<]*)<\/loc>[\s\S]*?<\/sitemap>/gi,
+		(block, loc: string) =>
+			exclude.some((entry) => loc.includes(entry) || loc.endsWith(entry)) ? "" : block,
+	);
+}
+
+/** Drops `<lastmod>` from every `<url>`; `<sitemap>` blocks of an index keep theirs. */
+export function dropUrlLastmod(xml: string): string {
+	return xml.replace(/<url>[\s\S]*?<\/url>/gi, (block) =>
+		block.replace(/\s*<lastmod>[^<]*<\/lastmod>/gi, ""),
+	);
+}
+
+const XML_ENTITIES: Record<string, string> = {
+	"&amp;": "&",
+	"&lt;": "<",
+	"&gt;": ">",
+	"&quot;": '"',
+	"&apos;": "'",
+};
+
+/**
+ * A <loc> holds XML, so its URL arrives entity-encoded: the router would be
+ * handed "?a=1&b=2" where the document says "?a=1&amp;b=2".
+ */
+const decodeXmlEntities = (value: string) =>
+	value.replace(/&(?:amp|lt|gt|quot|apos|#(\d+)|#x([0-9a-f]+));/gi, (entity, dec, hex) => {
+		if (dec) return String.fromCodePoint(Number(dec));
+		if (hex) return String.fromCodePoint(parseInt(hex, 16));
+		return XML_ENTITIES[entity.toLowerCase()] ?? entity;
+	});
+
+/**
+ * What tells a catch-all apart from any other route is that it answers paths
+ * of differing depth. Only a page answering all three of these is one no URL
+ * can fail to match — "/:department/:category" answers the second alone.
+ */
+const CATCH_ALL_PROBES = ["/9d2f7b1e-probe", "/9d2f7b1e-probe/a", "/9d2f7b1e-probe/a/b/c"];
+const PATTERN_SYNTAX = /[:*(){}+?[\]\\|]/;
+
+/** Enough to act on without letting a large sitemap write megabytes of log. */
+const SAMPLE_SIZE = 20;
+
+/**
+ * Drops the `<url>` entries no CMS page answers (see
+ * `removeEntriesWithoutPage`). Static page paths go to a set so a sitemap of
+ * tens of thousands of URLs does not walk hundreds of routes per entry.
+ */
+export function dropEntriesWithoutPage(
+	xml: string,
+	servesPath: (pathname: string) => boolean = () => false,
+	sitemap = "",
+): string {
+	const staticPaths = new Set<string>();
+	const patterns: string[] = [];
+
+	for (const { page } of getAllPages()) {
+		const path = page.path;
+		if (!path) continue;
+		try {
+			if (CATCH_ALL_PROBES.every((probe) => matchPath(path, probe) !== null)) continue;
+			if (PATTERN_SYNTAX.test(path)) patterns.push(path);
+			else staticPaths.add(path);
+		} catch {
+			// A page the router itself could not compile matches nothing.
+		}
+	}
+
+	// No page to compare against says the pages could not be read, not that
+	// the site has none — keep the sitemap whole rather than empty it.
+	if (staticPaths.size + patterns.length === 0) {
+		console.error("[vtex-sitemap] no page to check entries against", { sitemap });
+		return xml;
+	}
+
+	let count = 0;
+	const sample: string[] = [];
+
+	const filtered = xml.replace(/<url>\s*<loc>([^<]*)<\/loc>[\s\S]*?<\/url>\s*/gi, (block, loc: string) => {
+		const href = decodeXmlEntities(loc);
+		if (!URL.canParse(href)) return block;
+		const { pathname } = new URL(href);
+		const served =
+			staticPaths.has(pathname) ||
+			servesPath(pathname) ||
+			patterns.some((pattern) => matchPath(pattern, pathname) !== null);
+		if (served) return block;
+		count += 1;
+		if (sample.length < SAMPLE_SIZE) sample.push(href);
+		return "";
+	});
+
+	if (count > 0) {
+		console.warn("[vtex-sitemap] entries removed because no page answers their path", {
+			sitemap,
+			count,
+			sample,
+			truncated: count > sample.length,
+		});
+	}
+
+	return filtered;
 }
 
 /**
@@ -239,6 +404,12 @@ export function createVtexSitemapProxy(
 	const environment = config.environment ?? "vtexcommercestable";
 	const cacheControl = config.cacheControl ?? DEFAULT_SITEMAP_CACHE_CONTROL;
 	const extraSitemaps = config.extraSitemaps ?? [];
+	const include = config.include ?? [];
+	const excludeEntries = config.excludeSiteMapEntry ?? [];
+	const removeWithoutPage = config.removeEntriesWithoutPage ?? false;
+	const servesPath =
+		typeof removeWithoutPage === "object" ? removeWithoutPage.servesPath : undefined;
+	const removeUrlLastmod = config.removeUrlLastmod ?? false;
 	const fetchImpl = config.fetchImpl ?? withFetchTimeout();
 
 	return async (_request: Request, url: URL): Promise<Response | null> => {
@@ -258,14 +429,26 @@ export function createVtexSitemapProxy(
 			let xml = await resp.text();
 			xml = xml.replaceAll(`https://${vtexSitemapHost}`, url.origin);
 
-			if (url.pathname === "/sitemap.xml" && extraSitemaps.length > 0) {
-				const extraEntries = extraSitemaps
-					.map(
-						(s) =>
-							`  <sitemap>\n    <loc>${normalizeExtraSitemap(s, url.origin)}</loc>\n  </sitemap>`,
-					)
-					.join("\n");
-				xml = xml.replace("</sitemapindex>", `${extraEntries}\n</sitemapindex>`);
+			if (url.pathname === "/sitemap.xml") {
+				xml = excludeSitemapEntries(includeSitemaps(xml, url.origin, include), excludeEntries);
+				if (extraSitemaps.length > 0) {
+					const extraEntries = extraSitemaps
+						.map(
+							(s) =>
+								`  <sitemap>\n    <loc>${normalizeExtraSitemap(s, url.origin)}</loc>\n  </sitemap>`,
+						)
+						.join("\n");
+					xml = xml.replace("</sitemapindex>", `${extraEntries}\n</sitemapindex>`);
+				}
+			} else {
+				if (removeWithoutPage) {
+					try {
+						xml = dropEntriesWithoutPage(xml, servesPath, url.pathname);
+					} catch (err) {
+						console.error("[vtex-sitemap] failed to check entries against the pages:", err);
+					}
+				}
+				if (removeUrlLastmod) xml = dropUrlLastmod(xml);
 			}
 
 			return new Response(xml, {
