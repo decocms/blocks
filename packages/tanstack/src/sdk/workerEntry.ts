@@ -1505,10 +1505,10 @@ export function createDecoWorkerEntry(
     // Bots render every section eagerly (shouldDeferSection short-circuits in
     // resolve.ts), producing a ~10x larger HTML payload (all eager-section
     // props serialized into the SSR hydration blob). Key bots into a SEPARATE
-    // bucket so a crawler / Lighthouse / PageSpeed request can never poison the
+    // bucket so a crawler request can never poison the
     // shared human cache entry (and vice-versa). This MUST use the same `isBot`
     // predicate that gates shouldDeferSection — keying off a different bot
-    // regex (e.g. requestContext's BOT_RE, which misses Lighthouse/Semrush)
+    // regex (e.g. requestContext's BOT_RE, which misses Semrush)
     // would let the key and render decisions diverge and re-introduce poisoning.
     if (isBot(request.headers.get("user-agent") ?? undefined)) {
       url.searchParams.set("__bot", "1");
