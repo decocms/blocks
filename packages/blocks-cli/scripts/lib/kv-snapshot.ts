@@ -94,7 +94,7 @@ export async function syncRedirectsToKv(
   id: string,
 ): Promise<{ written: number; deleted: number }> {
   const desired = new Map(
-    redirects.map((r) => [redirectKey(id, r.path), JSON.stringify({ to: r.to, status: r.status })]),
+    redirects.map(({ path, ...stored }) => [redirectKey(id, path), JSON.stringify(stored)]),
   );
 
   const existing = await client.list(redirectPrefix(id));

@@ -5,26 +5,43 @@
  * fast path matching for use in TanStack Start middleware.
  *
  * Supports:
- * - Exact path matches (/old-page -> /new-page)
+ * - Exact matches (/old-page -> /new-page), optionally scoped to a query
+ *   (/old-page?map=ft -> /new-page)
  * - Glob patterns (/old/* -> /new/*)
- * - Permanent (301) and temporary (302) redirects
+ * - Permanent (301) and temporary (307) redirects
  * - CSV import for bulk redirects
+ *
+ * The semantics are those of the Fresh loaders and handlers this module
+ * replaced (deco-cx/apps `website/loaders/redirectsFromCsv.ts`,
+ * `website/loaders/redirects.ts`, `website/handlers/router.ts`,
+ * `website/handlers/redirect.ts`), so a site migrated from Fresh answers the
+ * same URL with the same status and `Location`:
+ *
+ * - a source matches the request's `pathname` (or `pathname + search`) byte
+ *   for byte — no case folding, no trailing-slash folding. `/Calca-x/p` and
+ *   `/calca-x/p` are two different rules, and a rule from `/Calca-x/p` to
+ *   `/calca-x/p` is a redirect, not a loop;
+ * - `type` is `permanent` (301) or anything else (307 — `PERMANENT` in capitals
+ *   included, as in Fresh);
+ * - the request's query string is appended to `Location` unless the rule sets
+ *   `discardQueryParameters`, so campaign parameters survive the hop;
+ * - a rule whose source equals its target is dropped at load time.
  *
  * @example
  * ```ts
  * // In TanStack Start middleware
- * import { loadRedirects, matchRedirect } from "@decocms/start/sdk/redirects";
- * import { loadBlocks } from "@decocms/start/cms";
+ * import { loadRedirects, matchRedirect, redirectLocation } from "@decocms/blocks/sdk/redirects";
+ * import { loadBlocks } from "@decocms/blocks/cms";
  *
  * const redirects = loadRedirects(loadBlocks());
  *
  * const middleware = createMiddleware().server(async ({ next, request }) => {
  *   const url = new URL(request.url);
- *   const redirect = matchRedirect(url.pathname, redirects);
+ *   const redirect = matchRedirect(url.pathname, redirects, url.search);
  *   if (redirect) {
  *     return new Response(null, {
  *       status: redirect.status,
- *       headers: { Location: redirect.to },
+ *       headers: { Location: redirectLocation(redirect, url.search) },
  *     });
  *   }
  *   return next();
@@ -37,13 +54,19 @@
 // -------------------------------------------------------------------------
 
 export interface Redirect {
+  /** Source as matched: a pathname, or `pathname?search` for a query-scoped rule. */
   from: string;
   to: string;
-  status: 301 | 302;
+  status: 301 | 307;
+  /**
+   * Answer with `to` as written instead of appending the request's query
+   * string to it. Only present when true.
+   */
+  discardQueryParameters?: boolean;
 }
 
 export interface RedirectMap {
-  /** Exact match redirects for O(1) lookup. */
+  /** Exact match redirects for O(1) lookup, keyed by `Redirect.from`. */
   exact: Map<string, Redirect>;
   /** Glob/prefix redirects checked sequentially (few in practice). */
   patterns: Array<{ prefix: string; redirect: Redirect }>;
@@ -57,6 +80,7 @@ interface BlockRedirectEntry {
   from: string;
   to: string;
   type?: "permanent" | "temporary";
+  discardQueryParameters?: boolean;
 }
 
 const REDIRECT_RESOLVE_TYPES = new Set([
@@ -81,8 +105,7 @@ export function registerRedirectResolveType(resolveType: string): void {
  * a fast-lookup redirect map.
  */
 export function loadRedirects(blocks: Record<string, unknown>): RedirectMap {
-  const exact = new Map<string, Redirect>();
-  const patterns: Array<{ prefix: string; redirect: Redirect }> = [];
+  const map: RedirectMap = { exact: new Map(), patterns: [] };
 
   for (const [_key, block] of Object.entries(blocks)) {
     if (!block || typeof block !== "object") continue;
@@ -101,59 +124,73 @@ export function loadRedirects(blocks: Record<string, unknown>): RedirectMap {
     const list = Array.isArray(entries) ? entries : [entries];
 
     for (const entry of list) {
-      if (!entry.from || !entry.to) continue;
-
-      const redirect: Redirect = {
-        from: normalizePath(entry.from),
-        to: entry.to,
-        status: entry.type === "permanent" ? 301 : 302,
-      };
-
-      if (redirect.from.includes("*")) {
-        const prefix = redirect.from.replace(/\*+$/, "");
-        patterns.push({ prefix, redirect });
-      } else {
-        exact.set(redirect.from, redirect);
-      }
+      const redirect = toRedirect(entry);
+      if (redirect) addToMap(map, redirect);
     }
   }
 
-  return { exact, patterns };
+  return map;
 }
 
 // -------------------------------------------------------------------------
 // CSV import
 // -------------------------------------------------------------------------
 
+export interface ParseRedirectsCsvOptions {
+  /**
+   * Rows without an explicit type are `permanent` (301) instead of
+   * `temporary` (307) — the `forcePermanentRedirects` prop of the Fresh
+   * `redirectsFromCsv` loader.
+   */
+  forcePermanentRedirects?: boolean;
+}
+
+const REDIRECT_TYPE_VALUES = ["temporary", "permanent", "301"];
+const DISCARD_QUERY_VALUES = ["true", "false"];
+
+/** Fresh's field split, verbatim: a comma always splits; a semicolon only outside quotes. */
+const CSV_FIELD_SPLIT = /,|;(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+
+/** Remove and return the first element of `array` that is one of `values`. */
+function findAndRemove(array: string[], values: string[]): string | null {
+  const index = array.findIndex((item) => values.includes(item));
+  return index === -1 ? null : array.splice(index, 1)[0];
+}
+
 /**
  * Parse a CSV string into redirect entries.
  *
- * Expected format: `from,to[,type]` (one per line).
- * Lines starting with # are comments. Empty lines are skipped.
- * Type is "permanent" (301) or "temporary" (302, default).
+ * Expected format: `from,to[,type][,discardQueryParameters]` (one per line).
+ * `type` and `discardQueryParameters` are recognized by value, in any column
+ * after the first two: `type` is `permanent` (301) or `temporary` (307, the
+ * default); `discardQueryParameters` is `true` or `false`. The comparison is
+ * exact, as in Fresh — `PERMANENT` is not `permanent` and yields 307.
+ *
+ * Lines starting with # are comments. Empty lines and the header row are
+ * skipped. A row whose source equals its target is dropped.
  */
-export function parseRedirectsCsv(csv: string): Redirect[] {
+export function parseRedirectsCsv(csv: string, options: ParseRedirectsCsvOptions = {}): Redirect[] {
   const redirects: Redirect[] = [];
-  const lines = csv.split("\n");
+  const lines = csv.split(/\r\n|\r|\n/);
 
   for (const raw of lines) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
 
-    const parts = line.split(",").map((p) => p.trim());
-    if (parts.length < 2) continue;
+    const parts = line.split(CSV_FIELD_SPLIT).map((p) => p.trim());
+    const type =
+      findAndRemove(parts, REDIRECT_TYPE_VALUES) ??
+      (options.forcePermanentRedirects ? "permanent" : "temporary");
+    const discardQueryParameters = findAndRemove(parts, DISCARD_QUERY_VALUES) === "true";
 
-    const [from, to, type] = parts;
+    const [from, to] = parts;
     if (!from || !to) continue;
     // Skip a header row (`from,to[,type]`). Robust for CSVs with or without a
     // header, and for a header repeated when multiple files are concatenated.
     if (from.toLowerCase() === "from" && to.toLowerCase() === "to") continue;
 
-    redirects.push({
-      from: normalizePath(from),
-      to,
-      status: type === "permanent" || type === "301" ? 301 : 302,
-    });
+    const redirect = toRedirect({ from, to, type, discardQueryParameters });
+    if (redirect) redirects.push(redirect);
   }
 
   return redirects;
@@ -163,14 +200,43 @@ export function parseRedirectsCsv(csv: string): Redirect[] {
  * Add parsed redirects to an existing redirect map.
  */
 export function addRedirects(map: RedirectMap, redirects: Redirect[]): void {
-  for (const redirect of redirects) {
-    if (redirect.from.includes("*")) {
-      const prefix = redirect.from.replace(/\*+$/, "");
-      map.patterns.push({ prefix, redirect });
-    } else {
-      map.exact.set(redirect.from, redirect);
-    }
+  for (const redirect of redirects) addToMap(map, redirect);
+}
+
+function addToMap(map: RedirectMap, redirect: Redirect): void {
+  if (redirect.from.includes("*")) {
+    const prefix = redirect.from.replace(/\*+$/, "");
+    map.patterns.push({ prefix, redirect });
+  } else {
+    // Later rules win, as in Fresh's route table.
+    map.exact.set(redirect.from, redirect);
   }
+}
+
+/**
+ * One rule from any source (CMS block entry or CSV row), or `null` when it
+ * can't be a rule: missing a side, or a self-redirect (`from === to`, which
+ * the Fresh loader also skipped and which would otherwise loop forever).
+ */
+function toRedirect(entry: {
+  from?: string;
+  to?: string;
+  type?: string;
+  discardQueryParameters?: boolean;
+}): Redirect | null {
+  if (!entry.from || !entry.to) return null;
+  const from = normalizePath(entry.from);
+  const to = entry.to.trim();
+  if (!from || !to || from === to) return null;
+
+  const redirect: Redirect = { from, to, status: statusFor(entry.type) };
+  if (entry.discardQueryParameters) redirect.discardQueryParameters = true;
+  return redirect;
+}
+
+/** `permanent` → 301, anything else → 307 (Fresh's `website/handlers/redirect.ts`). */
+function statusFor(type: string | undefined): 301 | 307 {
+  return type === "permanent" || type === "301" ? 301 : 307;
 }
 
 // -------------------------------------------------------------------------
@@ -181,10 +247,12 @@ export function addRedirects(map: RedirectMap, redirects: Redirect[]): void {
  * Find a redirect matching the given path.
  *
  * Checks exact matches first (O(1)), then glob patterns (O(n), but
- * typically few patterns exist).
+ * typically few patterns exist). Pass the request's `search` (`url.search`)
+ * so a rule scoped to a query (`/x?map=ft`) can match: it is tried before the
+ * bare pathname, as the more specific rule.
  */
-export function matchRedirect(pathname: string, map: RedirectMap): Redirect | null {
-  return matchExactRedirect(pathname, map) ?? matchPatternRedirect(pathname, map);
+export function matchRedirect(pathname: string, map: RedirectMap, search = ""): Redirect | null {
+  return matchExactRedirect(pathname, map, search) ?? matchPatternRedirect(pathname, map);
 }
 
 /**
@@ -193,22 +261,70 @@ export function matchRedirect(pathname: string, map: RedirectMap): Redirect | nu
  * `redirect:<id>:<path>` KV lookup, then patterns. Collapsing that to
  * "matchRedirect, then KV" would let a glob win over an exact rule, inverting
  * the precedence every other path has.
+ *
+ * `pathname + search` is looked up before `pathname`, as Fresh's router does
+ * (`hrefRoutes[pathname + search] ?? hrefRoutes[pathname]`).
  */
-export function matchExactRedirect(pathname: string, map: RedirectMap): Redirect | null {
-  return map.exact.get(normalizePath(pathname)) ?? null;
+export function matchExactRedirect(
+  pathname: string,
+  map: RedirectMap,
+  search = "",
+): Redirect | null {
+  const path = normalizePath(pathname);
+  return (search ? map.exact.get(path + search) : undefined) ?? map.exact.get(path) ?? null;
 }
 
 /** Pattern half of `matchRedirect` — ordered prefix scan, `*` suffix carried over. */
 export function matchPatternRedirect(pathname: string, map: RedirectMap): Redirect | null {
-  const normalized = normalizePath(pathname);
+  const path = normalizePath(pathname);
   for (const { prefix, redirect } of map.patterns) {
-    if (normalized.startsWith(prefix)) {
-      const suffix = normalized.slice(prefix.length);
+    if (path.startsWith(prefix)) {
+      const suffix = path.slice(prefix.length);
       const to = redirect.to.includes("*") ? redirect.to.replace("*", suffix) : redirect.to;
       return { ...redirect, to };
     }
   }
   return null;
+}
+
+/**
+ * The `Location` header for a matched redirect: `to`, with the request's query
+ * string appended unless the rule discards it (Fresh's
+ * `website/handlers/redirect.ts`). Campaign parameters (`utm_*`, `gclid`)
+ * survive the hop that way.
+ *
+ * The query is appended sorted by key, each pair kept as it came (`%20` stays
+ * `%20`) — the Fresh runtime handed handlers a request whose query was already
+ * in that order, so `?utm_source=qa&gclid=x` answered `?gclid=x&utm_source=qa`.
+ *
+ * `to` travels as written, except for characters a header cannot carry
+ * (non-ASCII, spaces, controls), which are percent-encoded. An escape already
+ * in `to` (`%20`) is left alone — `encodeURI` would turn it into `%2520`.
+ */
+export function redirectLocation(
+  redirect: Pick<Redirect, "to" | "discardQueryParameters">,
+  search = "",
+): string {
+  const to = encodeForHeader(redirect.to);
+  const queryString = redirect.discardQueryParameters ? "" : sortQueryByKey(search);
+  if (!queryString) return to;
+  return to.includes("?") ? `${to}&${queryString}` : `${to}?${queryString}`;
+}
+
+/** Stable sort of `a=1&b=2` pairs by key; pairs are not re-encoded. */
+function sortQueryByKey(search: string): string {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  return raw
+    .split("&")
+    .filter(Boolean)
+    .map((pair, index) => ({ pair, index, key: pair.split("=")[0] }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.index - b.index))
+    .map(({ pair }) => pair)
+    .join("&");
+}
+
+function encodeForHeader(value: string): string {
+  return value.replace(/[^\x21-\x7e]/gu, (ch) => encodeURIComponent(ch));
 }
 
 // -------------------------------------------------------------------------
@@ -220,7 +336,9 @@ export interface ExactRedirect {
   /** Normalized path — the KV key suffix. */
   path: string;
   to: string;
-  status: 301 | 302;
+  status: 301 | 307;
+  /** Only present when true — see `Redirect.discardQueryParameters`. */
+  discardQueryParameters?: boolean;
 }
 
 export interface SplitRedirectsResult {
@@ -271,21 +389,24 @@ export function splitExactRedirects(blocks: Record<string, unknown>): SplitRedir
 
     const kept: BlockRedirectEntry[] = [];
     for (const entry of Array.isArray(raw) ? raw : [raw]) {
-      if (!entry?.from || !entry.to) continue;
-      const from = normalizePath(entry.from);
+      const redirect = entry ? toRedirect(entry) : null;
+      if (!redirect) continue;
+      const { from, ...rule } = redirect;
       // Globs must be scanned in order against the request path, so they can
       // never be a key lookup — they stay in the decofile.
+      // Query-scoped rules stay too: the request-time lookup keys by pathname
+      // alone, so one KV read per request, not two.
       // Paths too long for a KV key (512 bytes, minus `redirect:<id>:`) stay
       // in memory too — loadRedirects still serves them from the exact map.
-      if (from.includes("*") || utf8.encode(from).length > MAX_KV_PATH_BYTES) {
+      if (
+        from.includes("*") ||
+        from.includes("?") ||
+        utf8.encode(from).length > MAX_KV_PATH_BYTES
+      ) {
         kept.push(entry);
         continue;
       }
-      exact.set(from, {
-        path: from,
-        to: entry.to,
-        status: entry.type === "permanent" ? 301 : 302,
-      });
+      exact.set(from, { path: from, ...rule });
     }
 
     // Nothing left to scan ⇒ drop the block rather than ship an empty husk.
@@ -304,8 +425,10 @@ export function splitExactRedirects(blocks: Record<string, unknown>): SplitRedir
 // -------------------------------------------------------------------------
 
 /**
- * Canonical redirect-path form: origin stripped, leading slash forced, trailing
- * slash dropped, lower-cased.
+ * Canonical redirect-source form: the origin of an absolute URL stripped,
+ * everything else byte for byte as written — case, trailing slash and query
+ * included, because that is what Fresh's router compared the request against.
+ * A request pathname is already in this form.
  *
  * Exported because it is the KV key contract for `redirect:<id>:<path>` — the
  * sync script that WRITES the keys and the worker that READS them must agree
@@ -313,24 +436,19 @@ export function splitExactRedirects(blocks: Record<string, unknown>): SplitRedir
  * inline a different normalization on either side.
  */
 export function normalizePath(path: string): string {
-  let p = path.trim();
+  const p = path.trim();
 
-  // If the "from" is a full URL, extract just the pathname
+  // If the "from" is a full URL, keep just the pathname (and query, if any).
   if (p.startsWith("http://") || p.startsWith("https://")) {
     try {
-      p = new URL(p).pathname;
+      const url = new URL(p);
+      return url.pathname + url.search;
     } catch {
       // malformed URL, keep as-is and try the prefix fallback
       const slashIdx = p.indexOf("/", p.indexOf("//") + 2);
-      p = slashIdx >= 0 ? p.slice(slashIdx) : p;
+      return slashIdx >= 0 ? p.slice(slashIdx) : p;
     }
   }
 
-  if (!p.startsWith("/")) {
-    p = "/" + p;
-  }
-  if (p.length > 1 && p.endsWith("/")) {
-    p = p.slice(0, -1);
-  }
-  return p.toLowerCase();
+  return p;
 }

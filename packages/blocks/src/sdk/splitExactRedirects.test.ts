@@ -28,7 +28,7 @@ describe("splitExactRedirects", () => {
 
     expect(exact).toEqual([
       { path: "/old", to: "/new", status: 301 },
-      { path: "/tmp", to: "/other", status: 302 },
+      { path: "/tmp", to: "/other", status: 307 },
     ]);
     // Block had nothing but exact rules ⇒ gone entirely, not an empty husk.
     expect(blocks.r).toBeUndefined();
@@ -71,9 +71,10 @@ describe("splitExactRedirects", () => {
         redirect: { from: "https://site.com/Old/", to: "/new" },
       },
     });
-    // Origin stripped, trailing slash dropped, lower-cased — whatever the
-    // writer keys by, the request-time lookup must produce byte for byte.
-    expect(exact).toEqual([{ path: "/old", to: "/new", status: 302 }]);
+    // Origin stripped, the rest as written (case and trailing slash are part
+    // of the URL) — whatever the writer keys by, the request-time lookup must
+    // produce byte for byte.
+    expect(exact).toEqual([{ path: "/Old/", to: "/new", status: 307 }]);
   });
 
   it("drops the singular `redirect` field when rebuilding a block", () => {
@@ -99,7 +100,7 @@ describe("splitExactRedirects", () => {
       a: { __resolveType: "website/loaders/redirects.ts", redirects: [{ from: "/x", to: "/1" }] },
       b: { __resolveType: "website/loaders/redirects.ts", redirects: [{ from: "/x", to: "/2" }] },
     };
-    expect(splitExactRedirects(input).exact).toEqual([{ path: "/x", to: "/2", status: 302 }]);
+    expect(splitExactRedirects(input).exact).toEqual([{ path: "/x", to: "/2", status: 307 }]);
     expect(loadRedirects(input).exact.get("/x")?.to).toBe("/2");
   });
 

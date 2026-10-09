@@ -104,7 +104,7 @@ export async function lookupExactRedirect(
   if (cached === undefined) remember(key, stored);
   if (!stored) return null;
 
-  return { from: normalizedPath, to: stored.to, status: stored.status };
+  return { from: normalizedPath, ...stored };
 }
 
 async function read(
@@ -118,7 +118,9 @@ async function read(
     // A malformed value is a miss, not a throw — never let bad data in one key
     // take down every request for that path.
     if (!parsed || typeof parsed.to !== "string") return null;
-    return { to: parsed.to, status: parsed.status === 301 ? 301 : 302 };
+    const stored: StoredRedirect = { to: parsed.to, status: parsed.status === 301 ? 301 : 307 };
+    if (parsed.discardQueryParameters === true) stored.discardQueryParameters = true;
+    return stored;
   } catch {
     return null;
   }

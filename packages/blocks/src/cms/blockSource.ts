@@ -178,7 +178,9 @@ export function redirectKey(id: string, path: string): string {
 /** Value stored at a `redirect:<id>:<path>` key. */
 export interface StoredRedirect {
   to: string;
-  status: 301 | 302;
+  status: 301 | 307;
+  /** Answer with `to` as written instead of appending the request's query. */
+  discardQueryParameters?: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -39,7 +39,7 @@ describe("lookupExactRedirect", () => {
   });
 
   it("caches a HIT so the same path costs one KV read", async () => {
-    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":302}' });
+    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":307}' });
     await lookupExactRedirect(enabled(kv), "/old");
     await lookupExactRedirect(enabled(kv), "/old");
     expect(kv.get).toHaveBeenCalledTimes(1);
@@ -88,9 +88,9 @@ describe("lookupExactRedirect", () => {
     await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toBeNull();
   });
 
-  it("defaults an unknown status to 302 rather than inventing a permanent redirect", async () => {
+  it("defaults an unknown status to 307 rather than inventing a permanent redirect", async () => {
     const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new"}' });
-    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ status: 302 });
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ status: 307 });
   });
 });
 

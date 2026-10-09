@@ -83,6 +83,7 @@ import {
   matchPatternRedirect,
   normalizePath,
   type RedirectMap,
+  redirectLocation,
 } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
@@ -2255,14 +2256,16 @@ export function createDecoWorkerEntry(
     // from the decofile, so the in-memory exact hit is the non-fast-deploy
     // case. Going straight to `matchRedirect` and only then to KV would let a
     // glob win over an exact rule, inverting the precedence.
+    // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
+    // stays one read, keyed by pathname.
     const cmsRedirect =
-      matchExactRedirect(url.pathname, _redirectMap!) ??
+      matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
       (await lookupExactRedirect(env as Record<string, unknown>, normalizePath(url.pathname))) ??
       matchPatternRedirect(url.pathname, _redirectMap!);
     if (cmsRedirect) {
       return new Response(null, {
         status: cmsRedirect.status,
-        headers: { Location: encodeURI(cmsRedirect.to) },
+        headers: { Location: redirectLocation(cmsRedirect, url.search) },
       });
     }
 

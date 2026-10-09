@@ -467,7 +467,7 @@ describe("syncRedirectsToKv", () => {
     return { client: client as unknown as KvRestClient, store };
   }
 
-  const rule = (path: string, to: string, status: 301 | 302 = 301) => ({ path, to, status });
+  const rule = (path: string, to: string, status: 301 | 307 = 301) => ({ path, to, status });
 
   it("adds new rules under redirect:<id>:<path>", async () => {
     const { client, store } = makeBulkClient();
