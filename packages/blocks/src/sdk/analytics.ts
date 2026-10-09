@@ -24,64 +24,23 @@ export function useSendEvent({ on, event }: DataEventParams) {
  * all init is deferred until the page is actually activated. On a normal load
  * `document.prerendering` is false and it runs immediately (no behavior change).
  */
-export const ANALYTICS_SCRIPT = `
-(function() {
-  function start() {
-  function dispatch(event) {
-    if (window.dataLayer) {
-      window.dataLayer.push({ event: event.name, ...event.params });
-    }
-    if (window.DECO && window.DECO.events) {
-      window.DECO.events.dispatch(event);
-    }
-  }
-
-  function getEvent(el) {
-    var raw = el.getAttribute("data-event");
-    if (!raw) return null;
-    try { return JSON.parse(decodeURIComponent(raw)); } catch(e) { return null; }
-  }
-
-  var viewObserver = new IntersectionObserver(function(entries) {
-    entries.forEach(function(entry) {
-      if (entry.isIntersecting) {
-        var event = getEvent(entry.target);
-        if (event) dispatch(event);
-        viewObserver.unobserve(entry.target);
-      }
-    });
-  }, { threshold: 0.5 });
-
-  document.addEventListener("click", function(e) {
-    var el = e.target.closest("[data-event-trigger='click']");
-    if (el) {
-      var event = getEvent(el);
-      if (event) dispatch(event);
-    }
-  });
-
-  function observeAll() {
-    document.querySelectorAll("[data-event-trigger='view']").forEach(function(el) {
-      viewObserver.observe(el);
-    });
-  }
-
-  observeAll();
-  var mo = new MutationObserver(observeAll);
-  if (typeof requestIdleCallback !== 'undefined') {
-    requestIdleCallback(function() { mo.observe(document.body, { childList: true, subtree: true }); });
-  } else {
-    setTimeout(function() { mo.observe(document.body, { childList: true, subtree: true }); }, 0);
-  }
-  }
-
-  if (document.prerendering) {
-    document.addEventListener('prerenderingchange', start, { once: true });
-  } else {
-    start();
-  }
-})();
-`;
+export const ANALYTICS_SCRIPT =
+  // Hand-minified: inline scripts are shipped raw on every document.
+  "(function(){function start(){var S=\"[data-event-trigger='view']\",done=new WeakSet;" +
+  "function dispatch(e){window.dataLayer&&window.dataLayer.push({event:e.name,...e.params});window.DECO&&window.DECO.events&&window.DECO.events.dispatch(e)}" +
+  'function getEvent(el){var r=el.getAttribute("data-event");if(!r)return null;try{return JSON.parse(decodeURIComponent(r))}catch(e){return null}}' +
+  // `done`: never observe an element again once its view fired. unobserve() + observe() makes the
+  // IntersectionObserver deliver a fresh entry, i.e. a duplicate view event.
+  "var vo=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting){var e=getEvent(en.target);e&&dispatch(e);done.add(en.target);vo.unobserve(en.target)}})},{threshold:.5});" +
+  'document.addEventListener("click",function(e){var el=e.target.closest("[data-event-trigger=\'click\']");if(el){var ev=getEvent(el);ev&&dispatch(ev)}});' +
+  // Only ADDED nodes (and the document once) are scanned: O(added), not O(document) per mutation batch.
+  "function watch(n){if(n.nodeType!==1)return;n.matches(S)&&!done.has(n)&&vo.observe(n);var l=n.querySelectorAll(S);for(var i=0;i<l.length;i++)done.has(l[i])||vo.observe(l[i])}" +
+  "watch(document.documentElement);" +
+  "var mo=new MutationObserver(function(rs){for(var i=0;i<rs.length;i++)for(var a=rs[i].addedNodes,j=0;j<a.length;j++)watch(a[j])});" +
+  // Armed when idle; the catch-up scan covers nodes added before (observe() on an observed element is a no-op).
+  "function arm(){mo.observe(document.body,{childList:!0,subtree:!0});watch(document.documentElement)}" +
+  'typeof requestIdleCallback!=="undefined"?requestIdleCallback(arm):setTimeout(arm,0)}' +
+  'document.prerendering?document.addEventListener("prerenderingchange",start,{once:!0}):start()})();';
 
 /**
  * Dev-only guardrail for Speculation Rules. While a prerender is running (the
