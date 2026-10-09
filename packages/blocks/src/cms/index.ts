@@ -48,7 +48,6 @@ export {
   getRevision,
   getSiteSeo,
   loadBlocks,
-  matchPath,
   onChange,
   setBlocks,
   withBlocksOverride,

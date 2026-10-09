@@ -1,11 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@decocms/blocks/cms", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@decocms/blocks/cms")>()),
-	getAllPages: vi.fn(() => []),
-}));
-
-import { getAllPages } from "@decocms/blocks/cms";
 import { configureVtex } from "../../client";
 import {
 	createVtexSitemapProxy,
@@ -229,10 +226,6 @@ describe("createVtexSitemapProxy — deco-cx handler options", () => {
   <url><loc>https://${VTEX_HOST}/checkout/cart</loc></url>
 </urlset>`;
 
-	beforeEach(() => {
-		(getAllPages as ReturnType<typeof vi.fn>).mockReturnValue([]);
-	});
-
 	it("include: inserted right after <sitemapindex>, in order, dated today", async () => {
 		const proxy = createVtexSitemapProxy({
 			fetchImpl: makeFetch(INDEX),
@@ -294,15 +287,12 @@ describe("createVtexSitemapProxy — deco-cx handler options", () => {
 	});
 
 	it("removeEntriesWithoutPage: keeps only the <url>s a CMS page or servesPath answers", async () => {
-		(getAllPages as ReturnType<typeof vi.fn>).mockReturnValue([
-			{ key: "a", page: { name: "Roupas", path: "/roupas", sections: [] } },
-			{ key: "b", page: { name: "Busca", path: "/s", sections: [] } },
-			{ key: "c", page: { name: "PDP", path: "/:slug/p", sections: [] } },
-			{ key: "d", page: { name: "404", path: "/*", sections: [] } },
-		]);
 		const proxy = createVtexSitemapProxy({
 			fetchImpl: makeFetch(CATEGORIES),
-			removeEntriesWithoutPage: { servesPath: (p) => p.startsWith("/checkout") },
+			removeEntriesWithoutPage: {
+				pagePaths: () => ["/roupas", "/s", "/:slug/p", "/*"],
+				servesPath: (p) => p.startsWith("/checkout"),
+			},
 		});
 		const url = new URL("https://www.mystore.com/sitemap/category-0.xml");
 		const xml = await (await proxy(new Request(url), url))!.text();
@@ -319,20 +309,67 @@ describe("createVtexSitemapProxy — deco-cx handler options", () => {
 	});
 
 	it("removeEntriesWithoutPage: a sitemap index is never filtered", async () => {
-		(getAllPages as ReturnType<typeof vi.fn>).mockReturnValue([
-			{ key: "a", page: { name: "Home", path: "/", sections: [] } },
-		]);
-		const proxy = createVtexSitemapProxy({ fetchImpl: makeFetch(INDEX), removeEntriesWithoutPage: true });
+		const proxy = createVtexSitemapProxy({
+			fetchImpl: makeFetch(INDEX),
+			removeEntriesWithoutPage: { pagePaths: () => ["/"] },
+		});
 		const url = new URL("https://www.mystore.com/sitemap.xml");
 		const xml = await (await proxy(new Request(url), url))!.text();
 		expect(xml.match(/<sitemap>/g)).toHaveLength(3);
 	});
 
 	it("removeEntriesWithoutPage: with no page to compare against, the sitemap is kept whole", async () => {
-		const proxy = createVtexSitemapProxy({ fetchImpl: makeFetch(CATEGORIES), removeEntriesWithoutPage: true });
+		const proxy = createVtexSitemapProxy({
+			fetchImpl: makeFetch(CATEGORIES),
+			removeEntriesWithoutPage: { pagePaths: () => [] },
+		});
 		const url = new URL("https://www.mystore.com/sitemap/category-0.xml");
 		const xml = await (await proxy(new Request(url), url))!.text();
 		expect(xml.match(/<url>/g)).toHaveLength(5);
+	});
+
+	it("removeEntriesWithoutPage: a catch-all PLP drops every category unless servesPath vouches for it", async () => {
+		const url = new URL("https://www.mystore.com/sitemap/category-0.xml");
+		const bare = createVtexSitemapProxy({
+			fetchImpl: makeFetch(CATEGORIES),
+			removeEntriesWithoutPage: { pagePaths: () => ["/s", "/*"] },
+		});
+		const dropped = await (await bare(new Request(url), url))!.text();
+		expect(dropped).not.toContain("/roupas</loc>");
+
+		const vouched = createVtexSitemapProxy({
+			fetchImpl: makeFetch(CATEGORIES),
+			removeEntriesWithoutPage: { pagePaths: () => ["/s", "/*"], servesPath: (p) => p.startsWith("/roupas") },
+		});
+		const kept = await (await vouched(new Request(url), url))!.text();
+		expect(kept).toContain("/roupas</loc>");
+		expect(kept).toContain("/roupas/intimos/pijamas");
+	});
+
+	it("removeEntriesWithoutPage: a literal page path with non-ASCII characters answers its encoded URL", async () => {
+		const xml = `<urlset><url><loc>https://www.mystore.com/acess%C3%B3rios</loc></url></urlset>`;
+		expect(dropEntriesWithoutPage(xml, { pagePaths: () => ["/acessórios", "/s"] })).toBe(xml);
+	});
+
+	it("removeEntriesWithoutPage: compiles each page once per sitemap, not once per entry", async () => {
+		const Real = (globalThis as { URLPattern?: new (i: { pathname: string }) => unknown }).URLPattern!;
+		let compiled = 0;
+		vi.stubGlobal(
+			"URLPattern",
+			class extends (Real as new (i: { pathname: string }) => object) {
+				constructor(init: { pathname: string }) {
+					super(init);
+					compiled++;
+				}
+			},
+		);
+		try {
+			const urls = Array.from({ length: 500 }, (_, i) => `<url><loc>https://a.com/c-${i}/x</loc></url>`).join("");
+			dropEntriesWithoutPage(`<urlset>${urls}</urlset>`, { pagePaths: () => ["/:a/p", "/:a/:b/p", "/s"] });
+			expect(compiled).toBe(3);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	it("defaults off: the proxied document is byte-identical apart from the host rewrite", async () => {
@@ -352,10 +389,41 @@ describe("sitemap helpers", () => {
 	});
 
 	it("dropEntriesWithoutPage keeps an unparseable <loc>", () => {
-		(getAllPages as ReturnType<typeof vi.fn>).mockReturnValue([
-			{ key: "a", page: { name: "Home", path: "/", sections: [] } },
-		]);
 		const xml = "<urlset><url><loc>not a url</loc></url></urlset>";
-		expect(dropEntriesWithoutPage(xml)).toBe(xml);
+		expect(dropEntriesWithoutPage(xml, { pagePaths: () => ["/"] })).toBe(xml);
+	});
+});
+
+// `utils/sitemap.ts` is re-exported by the `@decocms/apps-vtex/utils` barrel,
+// which client components import (slugify, cookies, transform…). The page
+// list is injected (`removeEntriesWithoutPage.pagePaths`) precisely so this
+// module never pulls the server-only CMS barrel — `@decocms/blocks/cms`
+// evaluates `loader.ts` (`node:async_hooks`) and the whole resolver.
+describe("sitemap module graph", () => {
+	const here = dirname(fileURLToPath(import.meta.url));
+	const esbuildBin = join(here, "../../../../../node_modules/.bin/esbuild");
+	const inputsOf = (entry: string) => {
+		const meta = join(here, `.meta-${process.pid}.json`);
+		execFileSync(
+			esbuildBin,
+			[entry, "--bundle", "--platform=node", "--format=esm", "--outfile=/dev/null", `--metafile=${meta}`, "--log-level=error"],
+			{ stdio: ["ignore", "ignore", "pipe"] },
+		);
+		try {
+			return Object.keys(JSON.parse(readFileSync(meta, "utf-8")).inputs as Record<string, unknown>);
+		} finally {
+			execFileSync("rm", ["-f", meta]);
+		}
+	};
+
+	it("does not import the server-only CMS barrel", () => {
+		const inputs = inputsOf(join(here, "../sitemap.ts"));
+		expect(inputs.some((p) => p.endsWith("blocks/src/cms/loader.ts"))).toBe(false);
+		expect(inputs.some((p) => p.endsWith("blocks/src/cms/index.ts"))).toBe(false);
+	});
+
+	it("sanity check: the CMS barrel does pull loader.ts, so the test above discriminates", () => {
+		const inputs = inputsOf(join(here, "../../../../blocks/src/cms/index.ts"));
+		expect(inputs.some((p) => p.endsWith("blocks/src/cms/loader.ts"))).toBe(true);
 	});
 });
