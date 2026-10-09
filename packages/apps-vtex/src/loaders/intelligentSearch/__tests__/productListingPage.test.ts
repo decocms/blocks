@@ -40,12 +40,43 @@ describe("resolvePage (#391)", () => {
 		expect(resolvePage("not-a-number", "3")).toBe(2);
 	});
 
-	it("resets a malformed ?page= to 0 instead of propagating NaN", () => {
-		expect(resolvePage(undefined, "abc")).toBe(0);
-	});
-
-	it("floors a fractional page and never returns a negative page", () => {
+	it("floors a fractional props.page and never returns a negative page", () => {
 		expect(resolvePage(2.7, undefined)).toBe(2);
 		expect(resolvePage(-1, undefined)).toBe(0);
+	});
+});
+
+// deco-cx's `pageOf` sends `Number(page) - 1` to Intelligent Search without a
+// clamp; IS rejects a page below 1 and the PLP answers 404. Clamping to the
+// first page served page 1 as an indexable duplicate under `?page=0`.
+describe("resolvePage — a ?page= that names no page is not found", () => {
+	it.each([
+		["0", "?page=0"],
+		["-1", "?page=-1"],
+		["abc", "?page=abc"],
+		["NaN", "?page=NaN"],
+	])("%s → null (%s)", (raw) => {
+		expect(resolvePage(undefined, raw)).toBeNull();
+	});
+
+	it("an empty ?page= is still the first page", () => {
+		expect(resolvePage(undefined, "")).toBe(0);
+	});
+
+	it("?page=1 is the first page", () => {
+		expect(resolvePage(undefined, "1")).toBe(0);
+	});
+
+	it("floors a fractional ?page=, which deco-cx accepts", () => {
+		expect(resolvePage(undefined, "1.5")).toBe(0);
+		expect(resolvePage(undefined, "2.5")).toBe(1);
+	});
+
+	it("a CMS props.page wins over an invalid ?page=", () => {
+		expect(resolvePage(2, "0")).toBe(2);
+	});
+
+	it("a non-numeric props.page still falls through to the URL — and to its verdict", () => {
+		expect(resolvePage("not-a-number", "0")).toBeNull();
 	});
 });

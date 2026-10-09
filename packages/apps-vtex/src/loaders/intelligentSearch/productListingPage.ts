@@ -39,16 +39,28 @@ export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
  * and hard-default to page 0 (see #391). Coerce first, and treat a
  * non-finite coerced value as "absent" so it falls through to the URL
  * parse instead of hard-defaulting.
+ *
+ * Returns `null` when the URL names a page that does not exist: `?page=0`,
+ * `?page=-1`, `?page=abc`. deco-cx's `pageOf` sends `Number(page) - 1` to
+ * Intelligent Search as it is, IS rejects it, and the PLP answers 404.
+ * Clamping those to the first page instead served page 1 again under a
+ * second URL — an indexable duplicate whose canonical carried `?page=0`.
+ * An empty `?page=` is still the first page, and a fractional `?page=1.5`
+ * is floored, both as deco-cx accepts them. A CMS `props.page` below zero is
+ * editor input, not a URL, and still clamps to the first page.
  */
-export function resolvePage(propsPage: number | string | undefined, pageFromUrl: string | null | undefined): number {
+export function resolvePage(
+	propsPage: number | string | undefined,
+	pageFromUrl: string | null | undefined,
+): number | null {
 	const coercedPropsPage = propsPage !== undefined ? Number(propsPage) : undefined;
-	const rawPage =
-		coercedPropsPage !== undefined && Number.isFinite(coercedPropsPage)
-			? coercedPropsPage
-			: pageFromUrl
-				? Number(pageFromUrl) - 1
-				: 0;
-	return Number.isFinite(rawPage) && rawPage >= 0 ? Math.floor(rawPage) : 0;
+	if (coercedPropsPage !== undefined && Number.isFinite(coercedPropsPage)) {
+		return Math.max(0, Math.floor(coercedPropsPage));
+	}
+	if (!pageFromUrl) return 0;
+	const fromUrl = Number(pageFromUrl) - 1;
+	if (!Number.isFinite(fromUrl) || fromUrl < 0) return null;
+	return Math.floor(fromUrl);
 }
 
 export const mapLabelledFuzzyToFuzzy = (label?: LabelledFuzzy): "0" | "1" | "auto" | undefined => {
@@ -363,6 +375,10 @@ export default async function vtexProductListingPage(props: PLPProps): Promise<a
 	const fuzzy =
 		mapLabelledFuzzyToFuzzy(props.fuzzy) ?? pageUrl?.searchParams.get("fuzzy") ?? undefined;
 	const page = resolvePage(props.page, pageUrl?.searchParams.get("page"));
+	// A page that does not exist is a listing that does not exist — the same
+	// `null` a path with no facets and no query returns, which the PLP section
+	// renders as its not-found state.
+	if (page === null) return null;
 
 	const { selectedFacets: cmsSelectedFacets, hideUnavailableItems = false, __pagePath } = props;
 
