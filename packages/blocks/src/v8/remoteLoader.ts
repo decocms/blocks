@@ -25,7 +25,9 @@
  *   a publish still loses to it.
  *   Pointers aren't ordered among themselves, and the fallback's content is
  *   never compared: only the two timestamps are.
- * - In development (`NODE_ENV=development`), it never swaps, so local files win.
+ * - With `dev: true` (`createCMS({ dev })`), it never swaps, so local files win.
+ *   The SDK reads no environment variable to decide this: the site passes it
+ *   (`import.meta.env.DEV`, `process.env.NODE_ENV === "development"`).
  * - A release larger than `MAX_SNAPSHOT_BYTES` is refused while it downloads,
  *   before it's buffered whole (a Worker isolate has 128 MB).
  * - Without `site` it's a plain loader over the fallback.
@@ -55,6 +57,8 @@ interface RemoteLoaderOptions {
   site?: string;
   /** ms between release checks, used when `createCMS` has no `interval` of its own. */
   interval?: number;
+  /** Local development: never swap in a release, so local files win. */
+  dev?: boolean;
 }
 
 /** `sites/<site>/latest.json`: the release a site serves. */
@@ -73,11 +77,16 @@ class RemoteLoader implements Loader {
   #fallbackSnapshot: Snapshot | undefined;
   /** The release this process last swapped in; `undefined` serves the fallback. */
   #current: Snapshot | undefined;
+  readonly #dev: boolean;
 
-  constructor(fallback: Snapshot | Loader, options: { site: string; interval?: number }) {
+  constructor(
+    fallback: Snapshot | Loader,
+    options: { site: string; interval?: number; dev?: boolean },
+  ) {
     this.#fallback = fallback;
     this.#site = options.site;
     this.interval = options.interval;
+    this.#dev = options.dev === true;
   }
 
   /** A hot reload hands the same instance new fallback content. */
@@ -98,7 +107,7 @@ class RemoteLoader implements Loader {
   }
 
   async update(): Promise<{ updated: boolean }> {
-    if (isDevelopment()) return { updated: false };
+    if (this.#dev) return { updated: false };
     const fallback = this.#fallbackSnapshot ?? (await this.#loadFallback());
     if (fallback.schemaHash === undefined) return { updated: false };
     const site = encodeURIComponent(this.#site);
@@ -211,7 +220,7 @@ export function remoteLoader(fallback: Snapshot | Loader, options: RemoteLoaderO
     return existing;
   }
   const instance = hosted
-    ? new RemoteLoader(fallback, { site: site!, interval: options.interval })
+    ? new RemoteLoader(fallback, { site: site!, interval: options.interval, dev: options.dev })
     : new LocalLoader(fallback);
   store[key] = instance;
   return instance;
@@ -240,17 +249,4 @@ function fetchWithTimeout(url: string): Promise<Response> {
 function deliveryOrigin(): string {
   const override = (globalThis as Record<symbol, unknown>)[TEST_DELIVERY_ORIGIN];
   return typeof override === "string" ? override : HOSTED_DELIVERY_ORIGIN;
-}
-
-/**
- * The SDK's only environment read: local development never swaps in hosted
- * releases, so local files win.
- */
-function isDevelopment(): boolean {
-  try {
-    // Written out so bundlers that define process.env.NODE_ENV replace it.
-    return process.env.NODE_ENV === "development";
-  } catch {
-    return false;
-  }
 }

@@ -272,15 +272,22 @@ describe("remoteLoader: update()", () => {
     expect(await loader.update?.()).toEqual({ updated: true });
   });
 
-  it("keeps local files in development: NODE_ENV=development never fetches", async () => {
-    vi.stubEnv("NODE_ENV", "development");
+  it("keeps local files in development: dev: true never fetches", async () => {
     const api = delivery();
     api.publish(SHA_1, "Published");
     const fallback = bundled();
-    const loader = remoteLoader(fallback, { site: SITE });
+    const loader = remoteLoader(fallback, { site: SITE, dev: true });
     expect(await loader.update?.()).toEqual({ updated: false });
     expect(await loader.load()).toBe(fallback);
     expect(api.fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads no environment for it: NODE_ENV=development alone still swaps", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const loader = remoteLoader(bundled(), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
   });
 
   it("works over a fallback loader, reading its schemaHash from what it loads", async () => {

@@ -1,9 +1,9 @@
 // @vitest-environment node
 /**
  * The SDK reads no environment variable: configuration is explicit
- * `createCMS` params (`site`, `token`, `interval`, `telemetry`, `preview`).
- * The one exception is `NODE_ENV=development` in remoteLoader.ts, which keeps
- * local development off hosted releases (local files win).
+ * `createCMS` params (`site`, `token`, `interval`, `telemetry`, `preview`,
+ * `dev`). Local development stays off hosted releases through `dev`, which
+ * the site passes; the SDK never reads NODE_ENV for it.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -13,9 +13,7 @@ import { describe, expect, it } from "vitest";
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_READ =
   /\bprocess\b\s*\??\.\s*env\b|\{\s*env\s*\}\s*=\s*(globalThis\s*\??\.\s*)?process\b|Bun\s*\??\.\s*env\b|Deno\s*\??\.\s*env\b|import\.meta\.env|\.env\s*\[|\.env\s*\?\./;
-const ALLOWED = [
-  { file: "v8/remoteLoader.ts", line: 'return process.env.NODE_ENV === "development";' },
-];
+const ALLOWED: { file: string; line: string }[] = [];
 
 function sources(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -45,7 +43,7 @@ describe("no environment variables", () => {
     }
   });
 
-  it("packages/blocks/src reads none, except NODE_ENV=development in remoteLoader.ts", () => {
+  it("packages/blocks/src reads none", () => {
     const hits: string[] = [];
     for (const file of sources(SRC)) {
       const rel = path.relative(SRC, file).split(path.sep).join("/");
@@ -60,10 +58,5 @@ describe("no environment variables", () => {
         });
     }
     expect(hits).toEqual([]);
-  });
-
-  it("the NODE_ENV exception is still there, exactly once", () => {
-    const source = fs.readFileSync(path.join(SRC, "v8/remoteLoader.ts"), "utf8");
-    expect(source.split(ALLOWED[0]!.line).length - 1).toBe(1);
   });
 });

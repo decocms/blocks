@@ -362,7 +362,7 @@ export function resetForTests(): void {
 /** With `site`, the content is the fallback of hosted releases. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
   if (!config.site) return config.content;
-  return remoteLoader(config.content, { site: config.site });
+  return remoteLoader(config.content, { site: config.site, dev: config.dev });
 }
 
 function validate(config: CMSConfig): void {

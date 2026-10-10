@@ -954,8 +954,7 @@ describe("hosted", () => {
     expect(api.latestFetches()).toBeGreaterThan(0); // remoteLoader wrapped it
   });
 
-  it("H-5: in development, releases stay on local files but ?__draft= still loads", async () => {
-    vi.stubEnv("NODE_ENV", "development");
+  it("H-5: in development (dev: true), releases stay on local files but ?__draft= still loads", async () => {
     const api = deliveryApi();
     api.publish(await hashed("Published"));
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
@@ -963,6 +962,7 @@ describe("hosted", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
+      dev: true,
     });
     cms.forRelease();
     await flush();
@@ -1829,11 +1829,11 @@ describe("hosted-releases-internals", () => {
       expect(await titleOf(cms.forRelease())).toBe("Published");
     });
 
-    it("HRI-16..22: the SDK reads no git API and no environment besides NODE_ENV", () => {
+    it("HRI-16..22: the SDK reads no git API and no environment", () => {
       const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
       expect(sdk).not.toMatch(/github|rev-parse|GIT_[A-Z]/i);
-      expect(new Set([...sdk.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]))).toEqual(
-        new Set(["NODE_ENV"]),
+      expect([...sdk.matchAll(/^(?!\s*\*).*process\.env\.([A-Z_]+)/gm)].map((m) => m[1])).toEqual(
+        [],
       );
       const cli = fs.readFileSync(path.join(HERE, "../cli/content.ts"), "utf8");
       // The CLI stamps the commit time of git HEAD; it reads no environment.
