@@ -17,12 +17,21 @@ Never hide a pending entry: the compare summary and the PR list every one.
 
 ## Running it
 
+- **Record what v7 actually does, even when it is broken.** A v7 page that is already wrong (one storefront's product listing showed "12 of 0 results" on every category and search page, live too, because its listing loader never got the page URL) is still the baseline. Record it as it is, mark the flows it makes impossible (filter, show more, listing to product) as blocked in the manifest with the reason, and compare them only once both sides can run. The v8 page that works is a product change: list it as pending with screenshots of both.
+- **v7's catch-all answers 200.** A `/*` page (a category catch-all) renders for every unknown path, `/products/<unknown>` and `/sitemap.xml` included, with status 200 and no sitemap. Pin that in cases (status, body type) instead of assuming real 404s or a sitemap; turning them into 404s is a product change to list, not a parity fix.
+- **No analytics SDK?** Record the site's own event bus (`window.DECO.events.dispatch`) from an init script instead of a third-party stub, so `view_item_list`, `select_item`, `add_to_cart` and `search` are compared.
+- **Settle before clicking a card scrolled into view.** An IntersectionObserver `view` event can race a click that navigates: scroll the element into view, settle, then click, or the event lands on either page from run to run.
+- **`parity:build` on v7 regenerates the v7 codegen** (`.deco/sections.gen.ts` and friends) with a different order: revert those files before committing the harness.
+
 - **Build against what ships.** Do the final compare on a build from the committed lockfile, not a linked local checkout: a published package can differ (source vs compiled output, older CLI).
 - **ISR and prerendered routes.** Pages prerendered at build time with `revalidate` were stale when the baseline recorded them. Compare a build older than the longest `revalidate`, or those cases differ only in `x-nextjs-cache`/`x-nextjs-prerender`.
 - **Flakes.** Rerun a single failing case (`--only <case>`) before treating it as a regression, and avoid running two harnesses on one machine at once: font rasterization under load produced one-off weight diffs. Record each full run's flake count and which cases flipped; a count that grows between runs is a determinism regression to document or fix, not noise. A case that fails again on rerun isn't a flake: look up its differing pixels in every earlier run, v7 self-compares included, with each run's value. If v7 against its own baseline flipped the same pixel, write that evidence and the rate on each side into a pending pixel rule (a rectangle that covers only those pixels), not a mask; if only v8 flips it, fix it or list it as pending. Never report N/N on a run where it failed.
 - **Pin the Workers `request.cf` object.** A local Workers runtime (Miniflare/wrangler) fills `request.cf` from a cache file fetched for the machine's network location (`node_modules/.mf/cf.json`), once per checkout. Two checkouts fetched at different times can disagree (region, city, colo), and anything keyed on the region (a cache segment, regional prices) differs. Copy one checkout's file into the other before recording, and record and compare on the same ports: URLs built from the origin can carry the port.
 - **A bad baseline is re-recorded, never masked.** If the v7 baseline itself captured a rendering flake (an icon laid out but not painted), re-record that case from the v7 site (`record --only <case>`) instead of adding a pixel-ignore rect. The re-record also refreshes that case's upstream fixtures live, so its page can change (prices, stock, page height); run a full compare afterwards.
 - **Fix in code what code can fix, then prove it on every page type.** Before asking for approval, try removing a pending difference in site code; then run the full compare, not just the cases the rule named. A popup gated on the footer's position fixed the home page cases and broke the product page ones (`gotchas.md`, Rendering), so that rule stayed pending.
+- **A fixed upstream request can't replay.** When v8 fixes a v7 bug in what it asks upstream (a listing loader that now gets the page URL), its requests were never recorded and miss in replay, so those cases can't be compared deterministically. Capture the v8 pages once against live upstream (the serve script's passthrough) for the product owner, keep the v7 screenshots next to them, and list the cases as pending; don't re-record the v7 baseline to hide it.
+- **A harness without pending support.** If the copied harness only knows approvals, add the `status: "pending"` state (and `--strict`) before encoding anything, so no explained difference is ever written as an approval.
+- **Reduced motion hides dead sections.** Capturing with `reducedMotion: reduce` shows content a scroll-reveal animation would keep invisible, so a section that never hydrates still matches. Load the main page types once without it, in a plain browser, and compare against the live v7 site.
 - **Not covered by pixels.** Name what the cases don't exercise (draft rendering through the pointer, coupons, region pricing, signed-in shoppers, device-only variants on per-request pages, hosted releases) in the PR so it gets a manual check. A replaying harness also can't see latency: a page that now waits on an upstream call before hydrating, or a draft check that no longer lets the edge cache serve, passes every compare. Review those code paths by hand.
 
 ## Editor-form differences (v7 `meta.gen.json` → v8 `schema.gen.json`)
@@ -40,6 +49,8 @@ Compare each section's form, not just the content. Sort each difference into one
 
 **A color picker from a substring: keep it, don't approve its loss.** v7 added the color widget whenever the type's *name* contained `Color`, even on a string-literal union such as a black/white choice. v8 doesn't guess from names: put `/** @format color */` on the alias (`type TextColor = "black" | "white"`) or on the field, and `deco schema` writes the same `format: "color"` v7 did, with the select's values kept (`/next/schema#widgets`).
 
+**Product pickers gain "Inline data".** A field typed as loader data (`Product[] | null`) offers the loaders the block map registers plus an inline-data option v7 didn't have; the loaders are listed in the block map's order. Register the loaders v7 offered (vendor them if needed) in v7's order, and list the inline option for approval.
+
 **3. CLI fidelity bugs: fix them in the CLI, don't approve them.** If your `@decocms/blocks` predates these fixes, you'll see:
 - a literal union's dropdown in TypeScript's internal order instead of the source order;
 - `@format datetime` without the date-time picker;
@@ -50,6 +61,8 @@ Upgrade to a release that includes them rather than approving the differences.
 **Literal order depends on the v7 generator.** Check the site's own v7 `meta.gen.json` before calling an order a bug. Deno-era generators wrote a union's values in source order. `@decocms/blocks-cli` 7 (TanStack and Next.js sites) took the TypeScript checker's order, which is source order unless the same literals already appeared in another type (`'both' | 'desktop' | 'mobile'` came out `desktop, mobile, both`). On such a site the source-order fix reorders those dropdowns relative to v7. That's a stable, intended order, but it's still an editor-visible change, so list it for approval.
 
 ## Approved so far
+
+**Approvals are per site.** The lists below are what each site's product owner signed. When a harness is copied from another site, copy its mechanics and leave `approvedDifferences` and `ignoreHeaders` empty: the same difference becomes `pending` on the new site until its own product owner approves it. Say so in the harness README.
 
 storefront-tanstack (`5a5a4d4`):
 

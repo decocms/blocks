@@ -1,6 +1,6 @@
 # Gotchas from the site migrations
 
-Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack`, two Next.js storefronts on VTEX, a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (the last five private, so no hashes; FastStore specifics are in `faststore.md`). Commit hashes refer to the two public repos.
+Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/demo-storefront` (Shopify), `deco-sites/blog-tanstack`, two Next.js storefronts on VTEX, a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (the last five private, so no hashes; FastStore specifics are in `faststore.md`). Commit hashes refer to the two public repos.
 
 ## Before you run the script
 
@@ -8,10 +8,24 @@ Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/blog-tanstack
 - **Commit the script's output unedited** (`046de4d`, `de03793`), then do the manual work in follow-up commits.
 - **The script vendors every app loader the content calls**, including ones the v7 site never ran (a v7 Next.js site resolved many VTEX loader blocks to `null`). Check which ones actually rendered before keeping a vendored copy; delete the rest along with the saved blocks nothing references.
 
+- **A generated `invoke.gen.ts` for another platform** (VTEX checkout and session actions on a Shopify store) that nothing imports: delete it and drop that `@decocms/apps-*` dependency; don't port its actions. Check with `grep` that no call site uses it first.
+- **Two lockfiles.** A stale `package-lock.json` next to the `bun.lock` the site really installs from (different `@decocms/*` versions) is a trap for CI and deploy tooling that picks the npm lock: delete the stale one in the dependency commit and say so.
+
+## Porting from a sibling site
+
+A three-way merge from a site that is already on v8 (SKILL.md) brings everything that site changed, not only the migration:
+
+- **Its own later product changes.** Read the sibling's history after its script run (`git log <run>..<v8> -- src`) and back out what came from merging its main (a cart read switched from GET to POST, an SSR prefetch skipped) unless the site being migrated has it on its own main.
+- **Vendored copies of another version.** The sibling vendored its installed `@decocms/*`. Diff that version's sources with the site's (`npm pack @decocms/<pkg>@<version>`) and re-vendor what changed (commerce types, `useOffer`, `Image`, `ANALYTICS_SCRIPT`, `NavigationProgress`); keep the sibling's v8 edits on top.
+- **Content.** Saved blocks byte-identical on both sides on v7 can take the sibling's migrated version, but check each field it dropped against this site's own types: `deco check` on the site's unmodified content must list every dropped field as unknown.
+- **Editor forms.** The sibling's SEO and loader types match its v7 forms, not necessarily this site's (7.6x added fields to the SEO sections, such as Structured Data and Omit variants, and offered loaders such as `RelatedProducts` in product pickers). Diff the forms against this site's own v7 schema.
+- **Security headers.** Compare the site's v7 `createDecoWorkerEntry` options with the sibling's: a site that passed `securityHeaders: { "Content-Security-Policy": … }` sent an enforced CSP that replaces the default `frame-ancestors` one, and no `X-Frame-Options`. The copied edge cache must send that header, not the sibling's report-only list.
+
 ## Rendering
 
 - **v8 has no async rendering; the script removes it.** v7's `website/sections/Rendering/Lazy.tsx` and `SingleDeferred.tsx` (`{ section }`) and `Deferred.tsx` (`{ sections: [...] }`) are unwrapped in the saved content: each wrapper becomes the section(s) it held, with their props, and its own options (`loading`, `display`, `behavior`) go. Don't register a block under those names. Content that used to arrive after hydration (JSON-LD in particular) is now in the first SSR HTML. That is an approved parity difference, not a bug (`5a5a4d4`). A wrapper the script reports (several sections where one block goes) is unwrapped by hand.
 - **Blocks that render nothing** (theme fonts, SEO sections' `jsonLD`): wrap their data arguments in `lazy` in content so nothing is fetched for them (`9a097a1`).
+- **Check that streamed sections hydrate.** On TanStack Start 1.166 with the block promises returned through the page server function and wrapped in `defer`, a block still pending when the document streams arrives as a late resolution script, and the browser's copy of its promise never settled: the section showed its server markup but never hydrated (no effects, no handlers). It hid behind reduced motion in a parity run (a scroll-reveal grid looked right) and behind plain links (filters still navigated). After the port, load a page whose blocks fetch upstream and check in the browser that every block promise in the route's loader data is fulfilled and that a section's DOM node has React's `__reactFiber` key; if not, await every block on the server too (one storefront did, and its hydrated pages then matched v7's live behaviour).
 - **Awaited blocks are an exception.** The TanStack guide keeps block promises unawaited. A site whose blocks only read in-memory content may await them so every section lands in the first HTML chunk and the hero preload stays in `<head>`; stop awaiting a block once it fetches upstream (blog `dee30a5`).
 - **Awaited because of response headers.** A page whose response headers depend on how its blocks resolved (a degraded-page header when a loader failed, an A/B cookie with the groups the matchers picked) has to await every block before answering, so time to first byte is the slowest block's, as in v7. That departs from the guide: say so in `open-page.server.ts`'s header and in the PR, and list streaming as a follow-up.
 - **Side effects of deferred sections now start on load.** v7 rendered a deferred section once its placeholder came within 300px of the viewport, one frame after mount, so a popup, banner, timer or view event inside it started then; now it starts on page load. Gating it on the section's position in v8's layout does *not* reproduce v7: v7's pages were short while their other deferred sections were still placeholders, so a footer near the fold of a short v7 layout (a product page) mounted on load, and the gate then hides a popup v7 showed. Compare a page whose v7 layout was short as well as a long one before keeping such a gate; otherwise keep the difference as pending and explain it.
@@ -34,6 +48,8 @@ v8 has no framework binding and its apps are thin clients. What `@decocms/tansta
 - **Identification headers in the copied worker entry** (`x-powered-by`, the outbound `User-Agent`) are the site's own values now, not the framework's. If they change (v7 sent its package version), list it as the site's difference.
 - **Keep v7's platform client, or adopt the v8 one?** Keeping the vendored v7 client (and its cached loaders and fetch cache) keeps every upstream request identical, so recorded upstream fixtures replay. If you keep it, drop the v8 `@decocms/apps-<platform>` dependency nothing imports, and list the move to its client plus the `/next/caching` recipe (`cachedLoader` is gone in v8) as a follow-up. Prune what the copied worker entry still carries for v7's admin (preview shells, `/live/previews`, `/deco/render`).
 - **Error reporting.** v7's `onResolveError` hook sent every failed section or loader to the site's exception reporting. v8 has no hook: `client.resolve` returns `[value, error]`, and a section loader that throws is caught in its block function. Report both explicitly there (same attributes as before, so dashboards keep working); `console.error` alone only reaches the SDK's sampled log export.
+
+- **A worker-level A/B split (`withABTesting`, `SITES_KV`).** v7 could wrap the worker to send a share of traffic to a fallback origin, configured per host in KV. v8 has no equivalent. If the KV holds no config for the site's hosts, nothing was split: delete the wrapper and the binding. Either way, list it for the product owner, since the switch to run such a test is gone.
 
 ## `/deco/invoke` → server functions
 

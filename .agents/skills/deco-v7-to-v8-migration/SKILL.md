@@ -5,7 +5,7 @@ description: Moves a v7 Deco site (@decocms/blocks 7.x with @decocms/tanstack or
 
 # Deco v7 → v8 Migration
 
-Moves a v7 site onto the next major in two parts: a script that does the mechanical, content-safe part in one pass, and a list of manual steps it prints. Proven on `deco-sites/storefront-tanstack` (Shopify, TanStack Start), `deco-sites/blog-tanstack` (TanStack Start), two Next.js App Router storefronts on VTEX (ejected FastStore), a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (hundreds of saved blocks, private).
+Moves a v7 site onto the next major in two parts: a script that does the mechanical, content-safe part in one pass, and a list of manual steps it prints. Proven on `deco-sites/storefront-tanstack` (Shopify, TanStack Start), `deco-sites/demo-storefront` (Shopify, TanStack Start, a redesign of storefront-tanstack's v7 tree), `deco-sites/blog-tanstack` (TanStack Start), two Next.js App Router storefronts on VTEX (ejected FastStore), a TanStack Start storefront on VTEX and a non-ejected FastStore storefront on VTEX (hundreds of saved blocks, private).
 
 The spec is the docs page **Migrating from v7** (`/next/renames-and-migrations`). When this skill and the docs disagree, the docs win.
 
@@ -62,6 +62,8 @@ What it does, in order (`scripts/migrate.ts`):
 5. **scripts**: `predev`/`prebuild` run `deco schema && deco content` (`&& deco check`).
 
 Commit the script's output unedited as its own commit (`chore: run the v7-to-v8 migration`), so reviewers can tell generated changes from hand-written ones.
+
+**A sibling site already migrated?** When the site shares its v7 tree with one that is already on v8 (a fork, a redesign of a template), port the sibling's v8 changes with a three-way merge per file instead of by hand: `git merge-file <site file> <sibling's file after its script run> <sibling's v8 file>`. Most files merge cleanly; conflicts are mostly import lines. Then check what the merge brought that isn't the migration (`reference/gotchas.md`, "Porting from a sibling site").
 
 ## Review the report
 
