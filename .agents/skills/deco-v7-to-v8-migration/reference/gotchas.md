@@ -9,6 +9,7 @@ Learned on `deco-sites/storefront-tanstack` (Shopify), `deco-sites/demo-storefro
 - **The script vendors every app loader the content calls**, including ones the v7 site never ran (a v7 Next.js site resolved many VTEX loader blocks to `null`). Check which ones actually rendered before keeping a vendored copy; delete the rest along with the saved blocks nothing references.
 
 - **A generated `invoke.gen.ts` for another platform** (VTEX checkout and session actions on a Shopify store) that nothing imports: delete it and drop that `@decocms/apps-*` dependency; don't port its actions. Check with `grep` that no call site uses it first.
+- **Don't reformat vendored request documents.** Running Prettier over `src/` reflows the GraphQL documents in a vendored `queries.ts`, which changes every request body sent upstream: a replaying parity harness then misses every call. Keep such files out of the formatter (`.prettierignore`).
 - **Two lockfiles.** A stale `package-lock.json` next to the `bun.lock` the site really installs from (different `@decocms/*` versions) is a trap for CI and deploy tooling that picks the npm lock: delete the stale one in the dependency commit and say so.
 
 ## Porting from a sibling site
