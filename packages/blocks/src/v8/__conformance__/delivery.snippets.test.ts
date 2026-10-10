@@ -23,9 +23,10 @@ export default { seo: (input: Seo) => input } satisfies Blocks;
 `,
   ".deco/blocks.gen.ts": `const content: {
   revision: string;
+  schemaHash: string;
   blocks: Record<string, unknown>;
   aliases: Record<string, string>;
-} = { revision: "r", blocks: {}, aliases: {} };
+} = { revision: "r", schemaHash: "h", blocks: {}, aliases: {} };
 export default content;
 `,
   "env.d.ts": `declare module "cloudflare:workers" {
@@ -39,16 +40,12 @@ export default content;
 import blocks from "../.deco";
 import content from "../.deco/blocks.gen";
 
-const site = process.env.DECO_SITE;           // your site's ID in the hosted Deco CMS
-const token = process.env.DECO_SITE_TOKEN;    // your site token (secret)
-
+// Your app reads its own environment; the SDK reads none.
 export const cms = createCMS({
   blocks,
   content,
-  site,
-  token,
-  // Optional: also send telemetry to the hosted collector
-  telemetry: site && token ? { site, token } : false,
+  site: process.env.DECO_SITE,           // your site's ID: turns on hosted releases
+  token: process.env.DECO_SITE_TOKEN,    // your site token (secret): turns on hosted telemetry
 });
 `,
 
@@ -62,8 +59,7 @@ export const cms = createCMS({
   blocks,
   content,
   site: env.DECO_SITE,
-  token: env.DECO_SITE_TOKEN,
-  telemetry: { site: env.DECO_SITE, token: env.DECO_SITE_TOKEN },   // optional: the hosted collector
+  token: env.DECO_SITE_TOKEN,   // optional: telemetry to the hosted collector
 });
 `,
 
@@ -73,7 +69,7 @@ import blocks from "../.deco";
 import content from "../.deco/blocks.gen";
 
 // Check for new releases every 2 minutes instead of every minute
-createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN, interval: 120_000 });
+createCMS({ blocks, content, site: process.env.DECO_SITE, interval: 120_000 });
 `,
 
   // HP-16: hosted-publishing.mdx, "Troubleshooting".
@@ -81,7 +77,7 @@ createCMS({ blocks, content, site: process.env.DECO_SITE, token: process.env.DEC
 import blocks from "../.deco";
 import content from "../.deco/blocks.gen";
 
-const loader = remoteLoader(content, { site: process.env.DECO_SITE, token: process.env.DECO_SITE_TOKEN });
+const loader = remoteLoader(content, { site: process.env.DECO_SITE });
 export const cms = createCMS({ blocks, content: loader });
 
 // in a request handler or a debug route:
@@ -175,6 +171,18 @@ const pointer = isEmployee(request) ? await cms.draftPointer(request) : null;   
 export { pointer };
 `,
 
+  // DP-6: content-delivery.mdx, "Draft previews" (where draft pointers may point).
+  "drafts/draft-hosts.ts": `import { createCMS } from "@decocms/blocks";
+import blocks from "../.deco";
+import content from "../.deco/blocks.gen";
+
+export const cms = createCMS({
+  blocks,
+  content,
+  preview: { draftHosts: [".decocms.com", "drafts.example.com"] },   // replaces the defaults
+});
+`,
+
   // RD-11: releases-and-drafts.mdx, "Allow previews per host" (code caps the list).
   "drafts/preview-cap.ts": `import { createCMS } from "@decocms/blocks";
 import blocks from "../.deco";
@@ -246,6 +254,7 @@ describe("hosted docs examples compile", () => {
     ["HD-13", "drafts/native.ts"],
     ["HD-18", "drafts/preview-host.ts"],
     ["RD-11", "drafts/preview-cap.ts"],
+    ["DP-6", "drafts/draft-hosts.ts"],
   ])("%s: %s", (_claim, file) => {
     expect(errorsIn(file)).toEqual([]);
   });

@@ -15,7 +15,7 @@ import { createInstrumentedFetch } from "../fetch";
 import { createCMS, matchRoute, parseDraftPointer, resetForTests } from "../index";
 import { resolveDestination, setCurrentTelemetry } from "../telemetry";
 import { docsBlocks, docsSnapshot } from "../testFixtures";
-import type { Blocks, Lazy, Loader, Snapshot } from "../types";
+import type { Blocks, Lazy, Snapshot } from "../types";
 
 beforeEach(() => resetForTests());
 afterEach(() => {
@@ -407,27 +407,6 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     expect(viaAlias).toHaveLength(3);
   });
 
-  it("X21 api-reference: forRevision pins to a served revision; an unknown revision (or a draft's) behaves like the release", async () => {
-    let current = docsSnapshot("rev-1");
-    const loader: Loader = {
-      load: async () => current,
-      update: async () => ({ updated: true }),
-    };
-    vi.stubGlobal("fetch", async () => Response.json({ format: 1, set: {}, delete: [] }));
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    expect(await cms.forRelease().revision()).toBe("rev-1");
-    const draftRevision = await cms
-      .forDraft("studio.decocms.com/api/acme/decofile/store/x/changes?token=t@v1")
-      .revision();
-    expect(draftRevision).toBe("rev-1~v1");
-    current = docsSnapshot("rev-2");
-    await cms.update();
-    expect(await cms.forRelease().revision()).toBe("rev-2");
-    expect(await cms.forRevision("rev-1").revision()).toBe("rev-1");
-    expect(await cms.forRevision("nope").revision()).toBe("rev-2");
-    expect(await cms.forRevision(draftRevision).revision()).toBe("rev-2");
-  });
-
   it("X22 api-reference › Loaders: a loader without update() is asked on every client; update() never throws", async () => {
     let n = 0;
     const cms = createCMS({
@@ -480,9 +459,9 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     });
   });
 
-  it("X25 api-reference: site and token never send telemetry by themselves", () => {
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "");
+  it("X25 api-reference: site never sends telemetry by itself; a token does, to the hosted collector", () => {
     expect(resolveDestination(undefined, "acme")).toBeNull();
+    expect(resolveDestination(undefined, "acme", "t")?.endpoint).toBe("https://otel.decocms.com");
   });
 });
 

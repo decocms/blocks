@@ -85,74 +85,70 @@ const upstream = createInstrumentedFetch({
 });
 
 describe("where telemetry goes", () => {
-  it("false sends nothing; an endpoint sends there; site and token go to the hosted collector", () => {
-    expect(resolveDestination(false)).toBeNull();
+  it("false sends nothing; an endpoint sends there; otherwise a token goes to the hosted collector", () => {
+    expect(resolveDestination(false, "acme", "tok")).toBeNull();
     expect(
       resolveDestination({ endpoint: ENDPOINT, headers: { authorization: "Bearer t" } }),
     ).toMatchObject({ endpoint: ENDPOINT, headers: { authorization: "Bearer t" } });
-    expect(resolveDestination({ site: "acme", token: "tok" })).toMatchObject({
+    expect(resolveDestination(undefined, "acme", "tok")).toMatchObject({
       endpoint: HOSTED_TELEMETRY_ENDPOINT,
       headers: { authorization: "Bearer tok" },
       site: "acme",
     });
+    expect(resolveDestination({ limits: { traceSampleRate: 1 } }, "acme", "tok")).toMatchObject({
+      endpoint: HOSTED_TELEMETRY_ENDPOINT,
+      limits: { traceSampleRate: 1 },
+    });
   });
 
-  it("unset values (an environment variable that isn't set) turn it off instead of throwing", () => {
-    expect(
-      resolveDestination({ site: undefined, token: undefined } as unknown as TelemetryConfig),
-    ).toBeNull();
-    expect(resolveDestination({ endpoint: "" })).toBeNull();
+  it("an explicit endpoint wins over the token: the token isn't sent there", () => {
+    const destination = resolveDestination({ endpoint: ENDPOINT }, "acme", "tok");
+    expect(destination).toMatchObject({ endpoint: ENDPOINT, headers: {} });
   });
 
-  it("left out, it reads OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS, or sends nothing", () => {
+  it("nothing set is off: no endpoint and no token, or empty values", () => {
     expect(resolveDestination(undefined)).toBeNull();
+    expect(resolveDestination({})).toBeNull();
+    expect(resolveDestination({ endpoint: "" })).toBeNull();
+    expect(resolveDestination(undefined, "acme", "")).toBeNull();
+    expect(resolveDestination({ endpoint: "" } as TelemetryConfig, "acme")).toBeNull();
+  });
+
+  it("reads no environment variable: OTEL_* and DECO_OTEL_* change nothing", async () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
-    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-team=store,authorization=Bearer%20abc");
-    expect(resolveDestination(undefined)).toMatchObject({
-      endpoint: ENDPOINT,
-      headers: { "x-team": "store", authorization: "Bearer abc" },
-    });
-  });
-
-  it("reads v7's DECO_OTEL_* names as aliases; the standard name wins when both are set", () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer%20abc");
     vi.stubEnv("DECO_OTEL_METRICS_ENDPOINT", `${ENDPOINT}/v1/metrics`);
-    vi.stubEnv("DECO_OTEL_LOGS_ENDPOINT", `${ENDPOINT}/v1/logs`);
-    vi.stubEnv("DECO_OTEL_TRACES_ENDPOINT", `${ENDPOINT}/v1/traces`);
-    vi.stubEnv("DECO_OTEL_HEADERS", "x-team=v7");
     vi.stubEnv("DECO_OTEL_AUTH_TOKEN", "Bearer v7");
-    expect(resolveDestination(undefined)).toMatchObject({
-      endpoint: "",
-      signals: {
-        metrics: `${ENDPOINT}/v1/metrics`,
-        logs: `${ENDPOINT}/v1/logs`,
-        traces: `${ENDPOINT}/v1/traces`,
-      },
-      headers: { "x-team": "v7", authorization: "Bearer v7" },
-    });
-    vi.stubEnv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "https://std.example/m");
-    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-team=std,authorization=Bearer%20std");
-    expect(resolveDestination(undefined)).toMatchObject({
-      signals: { metrics: "https://std.example/m", logs: `${ENDPOINT}/v1/logs` },
-      headers: { "x-team": "std", authorization: "Bearer std" },
-    });
-  });
-
-  it("sends a signal to its own URL, and drops a signal with no destination", async () => {
-    const { sent } = collector();
-    vi.stubEnv("DECO_OTEL_METRICS_ENDPOINT", "https://ingest.example/v1/metrics");
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    await upstream("https://search.example/q");
-    await runBackground();
-    expect(sent.map((s) => s.url)).toEqual(["https://ingest.example/v1/metrics"]);
-  });
-
-  it("top-level site and token never turn telemetry on", async () => {
+    expect(resolveDestination(undefined)).toBeNull();
     const { fetch } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(currentTelemetry()).toBeUndefined();
     await upstream("https://search.example/q");
     await runBackground();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("top-level site alone never turns telemetry on", async () => {
+    const { fetch } = collector();
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
+    expect(currentTelemetry()).toBeUndefined();
+    await upstream("https://search.example/q");
+    await runBackground();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("a top-level token turns it on to the hosted collector; telemetry: false opts out", async () => {
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
+    expect(currentTelemetry()).toBeDefined();
+    resetForTests();
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: false,
+    });
+    expect(currentTelemetry()).toBeUndefined();
   });
 });
 
@@ -199,11 +195,7 @@ describe("metrics", () => {
 
   it("labels batches with the site and service name for the hosted collector", async () => {
     const { sent } = collector();
-    createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      telemetry: { site: "acme", token: "tok" },
-    });
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
     await upstream("https://search.example/q");
     await runBackground();
     expect(sent[0]?.url).toBe(`${HOSTED_TELEMETRY_ENDPOINT}/v1/metrics`);
@@ -447,19 +439,44 @@ describe("sending", () => {
     expect(point.count).toBe("3");
   });
 
-  it("OTEL_RESOURCE_ATTRIBUTES sets service.version and the environment", async () => {
-    vi.stubEnv(
-      "OTEL_RESOURCE_ATTRIBUTES",
-      "service.version=abc123,deployment.environment.name=preview",
-    );
+  it("defaults the resource to service.version unknown and the production environment", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "service.version=abc123");
+    vi.stubEnv("DECO_COMMIT_SHA", "abc123");
     const { sent } = collector();
     createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
     await upstream("https://search.example/q");
     await runBackground();
     expect(attrs(sent[0]?.body.resourceMetrics[0].resource.attributes)).toMatchObject({
       "service.name": "decocms-site",
+      "service.version": "unknown",
+      "deployment.environment.name": "production",
+    });
+  });
+
+  it("telemetry.resource sets service.version, the environment and the service name", async () => {
+    const { sent } = collector();
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: {
+        resource: {
+          "service.version": "abc123",
+          "deployment.environment.name": "preview",
+          "service.name": "acme-web",
+        },
+      },
+    });
+    await upstream("https://search.example/q");
+    await runBackground();
+    expect(sent[0]?.url).toBe(`${HOSTED_TELEMETRY_ENDPOINT}/v1/metrics`);
+    expect(attrs(sent[0]?.body.resourceMetrics[0].resource.attributes)).toMatchObject({
+      "service.name": "acme-web",
       "service.version": "abc123",
       "deployment.environment.name": "preview",
+      "deco.site": "acme",
     });
   });
 

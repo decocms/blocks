@@ -46,9 +46,6 @@ beforeEach(() => {
   vi.spyOn(Date, "now").mockImplementation(() => now() + clock);
   (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK] = (task: () => Promise<void>) =>
     tasks.push(task);
-  vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "");
-  vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "");
-  vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "");
 });
 afterEach(() => {
   delete (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK];
@@ -175,9 +172,9 @@ describe("the docs' snippets typecheck (conformance/observability)", () => {
   it("tel-01/tel-02: cms.ts with telemetry { endpoint, headers } compiles, headers optional", () => {
     expect(errorsIn("cms.ts")).toBe("");
   });
-  it("tel-03: telemetry { site, token } and telemetry: false are accepted (cms.ts)", () => {
+  it("tel-03: a top-level site and token, and telemetry: false, are accepted (cms.ts)", () => {
     expect(fs.readFileSync(path.join(EXAMPLES, "cms.ts"), "utf8")).toContain(
-      "telemetry: { site, token }",
+      "createCMS({ blocks, content, site, token })",
     );
     expect(errorsIn("cms.ts")).toBe("");
   });
@@ -186,6 +183,10 @@ describe("the docs' snippets typecheck (conformance/observability)", () => {
   });
   it("tel-29: the traced() block map compiles with `satisfies Blocks`", () => {
     expect(errorsIn(".deco/index.ts")).toBe("");
+  });
+  it("tel-33: telemetry.resource (the app's own commit and environment) compiles (cms.ts)", () => {
+    expect(fs.readFileSync(path.join(EXAMPLES, "cms.ts"), "utf8")).toContain("resource: {");
+    expect(errorsIn("cms.ts")).toBe("");
   });
   it("htel-01: the hosted-telemetry cms.ts compiles with site/token possibly undefined", () => {
     expect(errorsIn("hosted-cms.ts")).toBe("");
@@ -234,13 +235,9 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     expect(sent[0]?.headers.authorization).toBeUndefined();
   });
 
-  it("tel-03/htel-02: { site, token } sends to the hosted collector with token auth and deco.site", async () => {
+  it("tel-03/htel-02: a top-level token sends to the hosted collector with token auth, and site to deco.site", async () => {
     const { sent } = collector();
-    createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      telemetry: { site: "acme", token: "site-token" },
-    });
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "site-token" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
     expect(sent[0]?.url).toBe(`${HOSTED_TELEMETRY_ENDPOINT}/v1/metrics`);
@@ -248,31 +245,42 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     expect(attrs(sent[0]?.body.resourceMetrics[0].resource.attributes)["deco.site"]).toBe("acme");
   });
 
-  it("tel-04: telemetry: false sends nothing, even with OTEL_EXPORTER_OTLP_ENDPOINT set", async () => {
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
+  it("tel-04: telemetry: false sends nothing, even with a token", async () => {
     const { fetch } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: false });
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: false,
+    });
     expect(currentTelemetry()).toBeUndefined();
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("tel-05: without telemetry, OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS are used", async () => {
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
-    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-team=store,authorization=Bearer%20env-token");
+  it("tel-05: an endpoint wins over the token; no environment variable is read (OTEL_*, DECO_OTEL_*)", async () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://env.example.com");
+    vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer%20env-token");
+    vi.stubEnv("DECO_OTEL_AUTH_TOKEN", "Bearer v7");
     const { sent } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: "acme",
+      token: "tok",
+      telemetry: { endpoint: ENDPOINT, headers: { "x-team": "store" } },
+    });
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
-    expect(sent[0]?.url).toBe(`${ENDPOINT}/v1/metrics`);
-    expect(sent[0]?.headers).toMatchObject({
-      "x-team": "store",
-      authorization: "Bearer env-token",
-    });
+    expect(sent.map((s) => s.url)).toEqual([`${ENDPOINT}/v1/metrics`]);
+    expect(sent[0]?.headers["x-team"]).toBe("store");
+    expect(sent[0]?.headers.authorization).toBeUndefined();
   });
 
-  it("tel-06: without telemetry and without the env, nothing is sent", async () => {
+  it("tel-06: without an endpoint or a token, nothing is sent (environment variables set or not)", async () => {
+    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
     const { fetch } = collector();
     const cms = createCMS({ blocks: { ...docsBlocks(), broken }, content: docsSnapshot() });
     await cms.forRelease().resolve({ __resolveType: "broken" });
@@ -281,9 +289,9 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("tel-07: top-level site and token never turn telemetry on", async () => {
+  it("tel-07: a top-level site alone never turns telemetry on", async () => {
     const { attempts } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
     expect(currentTelemetry()).toBeUndefined();
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
@@ -907,7 +915,9 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }, "rev-9"),
-      telemetry: { site: "acme", token: "tok", limits: { errorSampleRate: 1, traceSampleRate: 1 } },
+      site: "acme",
+      token: "tok",
+      telemetry: { limits: { errorSampleRate: 1, traceSampleRate: 1 } },
     });
     await cms.forRelease().resolve({ __resolveType: "broken" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });

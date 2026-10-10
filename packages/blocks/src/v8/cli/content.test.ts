@@ -1,16 +1,35 @@
 // @vitest-environment node
+
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import { computeContentRevision } from "../canonical";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { canonicalJson, computeContentRevision, sha256Hex } from "../canonical";
 import { createFixture, type Fixture, recorder } from "./__tests__/fixture";
 import { LEGACY_ALIASES } from "./builtins";
 import { content, readSavedBlocks, renderContentModule, writeContent } from "./content";
 import { decoPaths } from "./root";
 
 let fixture: Fixture;
-afterEach(() => fixture?.remove());
+afterEach(() => {
+  vi.useRealTimers();
+  fixture?.remove();
+});
+
+/** An (empty) commit in `root` at `date`, in a new repository if needed. */
+function commitAt(root: string, date: string): void {
+  const git = (...args: string[]) => {
+    const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+  };
+  if (!fs.existsSync(path.join(root, ".git"))) git("init", "-q");
+  git("commit", "-q", "--allow-empty", "-m", date);
+}
 
 const home = { __resolveType: "page", name: "Home", path: "/", sections: [] };
 
@@ -114,6 +133,69 @@ describe("reading .deco/blocks", () => {
   });
 });
 
+/**
+ * The schemaHash test vector Studio's publish shares: the same file must give
+ * the same hash on both sides (sha256Hex(canonicalJson(JSON.parse(text)))).
+ */
+const SCHEMA_TEXT =
+  '{\n  "version": "8.1.0-next.7",\n  "blocksMajor": 8,\n  "definitions": { "seo": { "type": "object", "title": "Seo" } },\n  "root": {}\n}\n';
+const SCHEMA_HASH = "00b083655ee7af02aa92dbff85e402857bb1e50c253a579dbab23498a7842c98";
+
+describe("schemaHash", () => {
+  it("is written into the module from .deco/schema.gen.json, as sha256Hex(canonicalJson(schema))", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": SCHEMA_TEXT,
+    });
+    expect(await sha256Hex(canonicalJson(JSON.parse(SCHEMA_TEXT)))).toBe(SCHEMA_HASH);
+    const result = await writeContent(decoPaths(fixture.root));
+    expect(result.schemaHash).toBe(SCHEMA_HASH);
+    const source = fixture.read(".deco/blocks.gen.ts");
+    expect(source).toContain(`  schemaHash: "${SCHEMA_HASH}",`);
+    expect(source).toContain("  schemaHash: string;");
+    const mod = await import(/* @vite-ignore */ pathToFileURL(result.file).href);
+    expect(mod.default.schemaHash).toBe(SCHEMA_HASH);
+  });
+
+  it("ignores formatting and key order: the parsed JSON is hashed", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": JSON.stringify(JSON.parse(SCHEMA_TEXT)),
+    });
+    expect((await writeContent(decoPaths(fixture.root))).schemaHash).toBe(SCHEMA_HASH);
+  });
+
+  it("is left out without a schema file, so hosted releases never swap", async () => {
+    fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    const result = await writeContent(decoPaths(fixture.root));
+    expect(result.schemaHash).toBeUndefined();
+    expect(fixture.read(".deco/blocks.gen.ts")).not.toContain("schemaHash");
+  });
+
+  it("a schema file that isn't JSON fails deco content", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": "{",
+    });
+    await expect(writeContent(decoPaths(fixture.root))).rejects.toThrow(
+      /schema\.gen\.json: not valid JSON/,
+    );
+  });
+
+  it("a schema change rewrites the module", async () => {
+    fixture = createFixture({
+      ".deco/blocks/HomePage.json": home,
+      ".deco/schema.gen.json": SCHEMA_TEXT,
+    });
+    const paths = decoPaths(fixture.root);
+    expect((await writeContent(paths)).changed).toBe(true);
+    fixture.write(".deco/schema.gen.json", { blocksMajor: 8, version: "other" });
+    const next = await writeContent(paths);
+    expect(next.changed).toBe(true);
+    expect(next.schemaHash).not.toBe(SCHEMA_HASH);
+  });
+});
+
 describe("the content module", () => {
   it("imports each JSON file and exports { revision, blocks, aliases }", async () => {
     fixture = createFixture({ ".deco/blocks/HomePage.json": home });
@@ -172,18 +254,55 @@ describe("the content module", () => {
     expect(mod.default.aliases).toEqual(LEGACY_ALIASES);
   });
 
-  it("only rewrites the file when it changes", async () => {
+  it("stamps committedAt with the commit time of git HEAD in the root (committer date)", async () => {
     fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    commitAt(fixture.root, "2026-10-07T10:00:00-03:00");
     const paths = decoPaths(fixture.root);
-    expect((await writeContent(paths)).changed).toBe(true);
+    const first = await writeContent(paths);
+    expect(first.committedAt).toBe("2026-10-07T10:00:00-03:00");
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain(
+      '  committedAt: "2026-10-07T10:00:00-03:00",',
+    );
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain("  committedAt: string;");
+    const mod = await import(/* @vite-ignore */ pathToFileURL(first.file).href);
+    expect(mod.default.committedAt).toBe("2026-10-07T10:00:00-03:00");
+    // Same commit, built again later: the same stamp, nothing to write.
     expect((await writeContent(paths)).changed).toBe(false);
-    fixture.write(".deco/blocks/Other.json", {
-      __resolveType: "page",
-      name: "O",
-      path: "/o",
-      sections: [],
-    });
-    expect((await writeContent(paths)).changed).toBe(true);
+    // A later commit: a new stamp, so its deploy wins over earlier publishes.
+    commitAt(fixture.root, "2026-10-07T11:00:00-03:00");
+    const later = await writeContent(paths);
+    expect(later.changed).toBe(true);
+    expect(later.revision).toBe(first.revision);
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain(
+      '  committedAt: "2026-10-07T11:00:00-03:00",',
+    );
+  });
+
+  it("writes no committedAt outside a git repository, and says so in one line", async () => {
+    fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    const result = await writeContent(decoPaths(fixture.root));
+    expect(result.committedAt).toBeUndefined();
+    expect(fixture.read(".deco/blocks.gen.ts")).not.toContain("committedAt");
+    const mod = await import(/* @vite-ignore */ pathToFileURL(result.file).href);
+    expect("committedAt" in mod.default).toBe(false);
+    const out = recorder();
+    expect(await content({ cwd: fixture.root, reporter: out })).toBe(0);
+    expect(out.lines.filter((l) => /git/.test(l.message))).toEqual([
+      {
+        level: "info",
+        message:
+          "no git commit found, so .deco/blocks.gen.ts has no committedAt: hosted releases with the same schema will replace it",
+      },
+    ]);
+  });
+
+  it("renders the same module for the same content and committedAt", async () => {
+    fixture = createFixture({ ".deco/blocks/HomePage.json": home });
+    const saved = readSavedBlocks(decoPaths(fixture.root).blocks);
+    const at = "2026-10-07T10:00:00.000Z";
+    expect(await renderContentModule(saved, ".deco", undefined, at)).toBe(
+      await renderContentModule(saved, ".deco", undefined, at),
+    );
   });
 
   it("refuses to write a module from unreadable content", async () => {
@@ -198,6 +317,7 @@ describe("the content module", () => {
       ".deco/blocks/HomePage.json": home,
       ".deco/index.ts": "this is not valid TypeScript (",
     });
+    commitAt(fixture.root, "2026-10-07T10:00:00Z");
     const out = recorder();
     expect(await content({ cwd: path.join(fixture.root, "src"), reporter: out })).toBe(0);
     expect(out.text()).toMatch(

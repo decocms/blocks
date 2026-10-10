@@ -32,7 +32,7 @@ What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `s
 | `@decocms/apps-website`, `@decocms/apps/website` | SEO, sitemaps, redirects live in your platform template |
 | any other `@decocms/apps-<x>`, `@decocms/apps/<x>` | apps are thin upstream clients: call `create<X>Client` from your own code (`/next/upstream-clients`) |
 | `@decocms/tanstack`, `@decocms/nextjs` | the v7 framework binding: v8 has none; drop the dependency and follow your framework's guide (`/next/tanstack-start-descriptors`, `/next/nextjs`) |
-| anything else under `@decocms/*` | no v8 equivalent |
+| anything else under `@decocms/*` | no v8 equivalent (several have a site-code replacement: the next table) |
 
 ## What sites ended up writing themselves
 
@@ -40,7 +40,16 @@ From the storefront and blog migrations, the reported imports above were replace
 
 | v7 import | Site code |
 |---|---|
-| `Image`, `Picture` (`@decocms/blocks/hooks`) | `src/vendor/blocks/Image.tsx`, a copy that keeps v7's exact CDN URLs |
+| `Image`, `Picture` (`@decocms/blocks/hooks`) | `src/vendor/blocks/Image.tsx`, a copy that keeps v7's exact CDN URLs; a narrower copy inlined where the site already builds image URLs (an image loader) is fine when it yields v7's URL for every input the site passes. Copy it from the `@decocms/blocks` version **the site has installed**, never from another site's vendored copy: the CDN host and the query parameters changed across 7.x (`decoims.com` → `assets.decocms.com`, `quality=`) |
+| `registerImageQuality` (`@decocms/blocks/hooks`, 7.52+) | the vendored `Image.tsx` starts with the quality the site registered (`let imageQuality = "high"`), so every URL keeps v7's `quality=` |
+| `LiveControls` (`@decocms/blocks/hooks`) | v7's editor bridge (`__DECO_STATE`, admin `postMessage`, the `.` shortcut to Studio). No v8 equivalent: keep a vendored copy in the root document if editors use the shortcut, and list it for the product owner either way |
+| `BreadcrumbJsonLd`, `PLPJsonLd`, `ProductJsonLd` (`@decocms/blocks/hooks`) | `src/vendor/blocks/JsonLd.tsx` |
+| `ANALYTICS_SCRIPT` (`@decocms/blocks/sdk/analytics`) on a site with no analytics SDK | the same `data-event` observer string in the site's root document, copied from the installed version (7.6x defers it until a Speculation Rules prerender activates) |
+| `NavigationProgress`, `StableOutlet` (`@decocms/tanstack`) | the site's root document; copy them from the installed version (the bar's markup changed in 7.6x) |
+| `withABTesting` (`@decocms/blocks/sdk/abTesting`) | nothing: a worker-level split between this worker and a fallback origin, driven by a `SITES_KV` config. Delete it and the binding, and list it for the product owner (`reference/gotchas.md`) |
+| `signal` (`@decocms/blocks/sdk/signal`) | delete it when nothing imports the site's re-export; otherwise a local signal |
+| `cacheHeaders`, `detectCacheProfile`, a `cache-config.ts` (`@decocms/blocks/sdk/cacheHeaders`) | `src/server/cache-profiles.ts` |
+| `withFetchTimeout`, `FetchFn` (`@decocms/blocks/sdk/fetchTimeout`, 7.6x) in vendored loaders | a local `fetch(url, { ...init, signal: AbortSignal.timeout(10_000) })` (v7's default), or the v8 client's own fetch |
 | `useDevice`, `detectDevice` (`@decocms/blocks/sdk/*`) | `src/sdk/device.ts` with v7's user-agent patterns |
 | `getCookies`/`setCookie`, `RequestContext` | read the request and write response headers explicitly, or a site-owned `AsyncLocalStorage` (`src/request-state.server.ts`) |
 | `useCart`/`useUser`/`useWishlist`, cart loaders (`@decocms/apps-<x>`) | `src/vendor/<platform>/…` copies, sending through the v8 client (`createShopifyClient`, …) |

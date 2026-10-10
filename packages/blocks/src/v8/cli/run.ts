@@ -124,7 +124,7 @@ async function watchLoop(
  */
 const PUBLISH_SIGNPOST = `There is no publish command: Git is the source of truth for content, so publishing is committing.
 Commit the changes in .deco/blocks (and push them). A deploy ships the commit; with the hosted
-Deco CMS, a commit becomes a release without a deploy.`;
+Deco CMS, Studio's Publish (or Resync) makes the commit a release without a deploy.`;
 
 /** Run one `deco` invocation; returns the exit code. */
 export async function runCli(argv: string[], options: RunOptions = {}): Promise<number> {

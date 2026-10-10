@@ -2,23 +2,22 @@
 /**
  * remoteLoader (hosted-releases-internals.mdx, hosted-publishing.mdx,
  * content-delivery.mdx): requests read memory, and the background check
- * follows the channel manifest. Drafts aren't the loader's (see
+ * follows `sites/<site>/latest.json`. Drafts aren't the loader's (see
  * draftChanges.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { computeContentRevision } from "./canonical";
 import { createCMS, resetForTests } from "./cms";
 import { remoteLoader } from "./remoteLoader";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
 
-/** With `site` and `token` set, `remoteLoader` returns a loader. */
-const remote = (...args: Parameters<typeof remoteLoader>) => remoteLoader(...args);
-
-const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
+const ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
-const TOKEN = "site-token";
-const MANIFEST_URL = `${HOSTED_DELIVERY_ORIGIN}/sites/acme/channels/production.json`;
+const LATEST_URL = `${ORIGIN}/sites/acme/latest.json`;
+const SCHEMA = "a".repeat(64);
+const OTHER_SCHEMA = "b".repeat(64);
+const SHA_1 = "1".repeat(40);
+const SHA_2 = "2".repeat(40);
 
 beforeEach(() => resetForTests());
 afterEach(() => {
@@ -27,246 +26,427 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A snapshot whose revision is its real content hash, as the CLI and the Deco API compute it. */
-async function hashed(title: string): Promise<Snapshot> {
-  const blocks = {
-    SummerSEO: { __resolveType: "seo", title, description: "d" },
+/** The bundled content module: a content-hash revision and the schema it was built with. */
+function bundled(schemaHash: string | null = SCHEMA, committedAt?: string): Snapshot {
+  const snapshot: Snapshot = {
+    ...docsSnapshot(),
+    aliases: { "website/sections/Seo.tsx": "seo" },
   };
-  return { revision: await computeContentRevision(blocks), blocks };
+  if (schemaHash !== null) snapshot.schemaHash = schemaHash;
+  if (committedAt !== undefined) snapshot.committedAt = committedAt;
+  return snapshot;
 }
 
-/** A fake delivery API: a channel manifest and immutable revision assets. */
-function deliveryApi() {
-  const assets = new Map<string, unknown>();
-  let manifest: Record<string, unknown> | undefined;
+/** What Studio writes for a commit: the blocks at that commit. */
+function blocksAt(title: string): Record<string, unknown> {
+  return { SummerSEO: { __resolveType: "seo", title, description: "d" } };
+}
+
+/** A fake delivery CDN: `latest.json` and immutable `revisions/<sha>.json`. */
+function delivery() {
+  const objects = new Map<string, unknown>();
   const requests: { url: string; headers: Record<string, string> }[] = [];
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    const headers = Object.fromEntries(new Headers(init?.headers).entries());
-    requests.push({ url, headers });
-    if (url === MANIFEST_URL) {
-      if (!manifest) return new Response("missing", { status: 404 });
-      return Response.json(manifest);
-    }
-    const path = url.slice(HOSTED_DELIVERY_ORIGIN.length).split("?")[0] ?? "";
-    if (assets.has(path)) return Response.json(assets.get(path));
-    return new Response("not found", { status: 404 });
+    requests.push({ url, headers: Object.fromEntries(new Headers(init?.headers).entries()) });
+    const key = url.slice(ORIGIN.length);
+    if (!objects.has(key)) return new Response("not found", { status: 404 });
+    return Response.json(objects.get(key));
   });
   vi.stubGlobal("fetch", fetch);
   return {
     fetch,
     requests,
-    publish(generation: number, snapshot: Snapshot, body: unknown = snapshot) {
-      const path = `/sites/acme/revisions/${snapshot.revision}.json`;
-      assets.set(path, body);
-      manifest = { format: 1, generation, revision: snapshot.revision, snapshot: path };
+    urls: () => requests.map((r) => r.url),
+    /** Studio's publish: the revision, then the pointer. */
+    publish(
+      sha: string,
+      title: string,
+      schemaHash = SCHEMA,
+      publishedAt = "2026-10-06T12:00:00.000Z",
+    ) {
+      objects.set(`/sites/acme/revisions/${sha}.json`, {
+        revision: sha,
+        schemaHash,
+        blocks: blocksAt(title),
+      });
+      objects.set("/sites/acme/latest.json", {
+        revision: sha,
+        schemaHash,
+        publishedAt,
+      });
     },
-    setManifest(value: Record<string, unknown>) {
-      manifest = value;
+    /** Studio's "Make current": rewrites the pointer only. */
+    point(value: unknown) {
+      objects.set("/sites/acme/latest.json", value);
     },
-    asset(path: string, body: unknown) {
-      assets.set(path, body);
+    put(key: string, value: unknown) {
+      objects.set(key, value);
     },
-    remove(path: string) {
-      assets.delete(path);
+    remove(key: string) {
+      objects.delete(key);
     },
   };
 }
 
-describe("remoteLoader: releases", () => {
-  it("serves the fallback from memory until a release is fetched, with no network on load()", async () => {
-    const api = deliveryApi();
-    const fallback = docsSnapshot();
-    const loader = remote(fallback, { site: SITE, token: TOKEN });
+describe("remoteLoader: boot", () => {
+  it("load() serves the bundled content from memory and never touches the network", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE });
     expect(await loader.load()).toBe(fallback);
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("asks for the manifest with the site token, fetches a new revision, verifies it and swaps it in whole", async () => {
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    api.publish(1, release);
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
+  it("createCMS with site makes no request before the first background check", async () => {
+    const api = delivery();
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
+    expect(api.fetch).not.toHaveBeenCalled();
+    expect(await cms.forRelease().revision()).toBe("rev-1");
+  });
+});
+
+describe("remoteLoader: update()", () => {
+  it("reads latest.json with no credentials, downloads revisions/<sha>.json and swaps it in whole", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE });
 
     expect(await loader.update?.()).toEqual({ updated: true });
-    expect(await loader.load()).toEqual(release);
-    expect(api.requests[0]).toMatchObject({
-      url: MANIFEST_URL,
-      headers: { authorization: `Bearer ${TOKEN}` },
+    expect(api.urls()).toEqual([LATEST_URL, `${ORIGIN}/sites/acme/revisions/${SHA_1}.json`]);
+    expect(api.requests.every((r) => r.headers.authorization === undefined)).toBe(true);
+    expect(await loader.load()).toEqual({
+      revision: SHA_1,
+      schemaHash: SCHEMA,
+      blocks: blocksAt("Published"),
+      aliases: fallback.aliases, // the bundled alias table: aliases come from code
     });
-    expect(api.requests[1]?.url).toBe(
-      `${HOSTED_DELIVERY_ORIGIN}/sites/acme/revisions/${release.revision}.json`,
-    );
   });
 
-  it("uses the fallback without downloading when the release has the fallback's revision", async () => {
-    const api = deliveryApi();
-    const fallback = await hashed("Bundled");
-    api.publish(1, fallback);
-    const loader = remote(fallback, { site: SITE, token: TOKEN });
+  it("the first check downloads even content equal to the bundle's: no comparison with the bundle", async () => {
+    const api = delivery();
+    const fallback = bundled();
+    api.put(`/sites/acme/revisions/${SHA_1}.json`, {
+      revision: SHA_1,
+      schemaHash: SCHEMA,
+      blocks: fallback.blocks,
+    });
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "2026-10-06T12:00:00.000Z" });
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect(api.urls()).toHaveLength(2);
+    expect((await loader.load()).revision).toBe(SHA_1);
+  });
 
+  it("the same revision as the one last swapped in downloads nothing", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const loader = remoteLoader(bundled(), { site: SITE });
+    await loader.update?.();
     expect(await loader.update?.()).toEqual({ updated: false });
-    expect(api.requests.map((r) => r.url)).toEqual([MANIFEST_URL]);
+    expect(api.urls()).toEqual([
+      LATEST_URL,
+      `${ORIGIN}/sites/acme/revisions/${SHA_1}.json`,
+      LATEST_URL,
+    ]);
+  });
+
+  it("follows the pointer it reads, older revisions included (a rollback), with no ordering among pointers", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "One");
+    api.publish(SHA_2, "Two");
+    const loader = remoteLoader(bundled(), { site: SITE });
+    await loader.update?.();
+    expect((await loader.load()).revision).toBe(SHA_2);
+
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "2026-01-01T00:00:00.000Z" });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    const loaded = await loader.load();
+    expect(loaded.revision).toBe(SHA_1);
+    expect(loaded.blocks).toEqual(blocksAt("One"));
+  });
+
+  it("swaps only when schemaHash equals the bundled content's; otherwise keeps the bundle", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", OTHER_SCHEMA);
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(api.urls()).toEqual([LATEST_URL]);
     expect(await loader.load()).toBe(fallback);
   });
 
-  it("retries a release whose download failed on the next check", async () => {
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    api.publish(1, release);
-    const path = `/sites/acme/revisions/${release.revision}.json`;
-    api.remove(path);
-    const fallback = docsSnapshot();
-    const loader = remote(fallback, { site: SITE, token: TOKEN });
+  it("a process that already swapped keeps its release when the pointer's schema stops matching", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const loader = remoteLoader(bundled(), { site: SITE });
+    await loader.update?.();
+    api.publish(SHA_2, "Next schema", OTHER_SCHEMA);
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect((await loader.load()).revision).toBe(SHA_1);
+  });
 
+  it("bundled content without a schemaHash never swaps and never fetches", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const fallback = bundled(null);
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(api.fetch).not.toHaveBeenCalled();
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("404 (nothing published), 500 and network errors keep memory; the next check retries", async () => {
+    const api = delivery();
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE });
     await expect(loader.update?.()).rejects.toThrow(/HTTP 404/);
     expect(await loader.load()).toBe(fallback);
-    api.asset(path, release);
-    expect(await loader.update?.()).toEqual({ updated: true });
-    expect(await loader.load()).toEqual(release);
-  });
 
-  it("a fallback that can't load (a KV key the deploy never wrote) is fixed by a release check", async () => {
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    api.publish(1, release);
-    const failing: Loader = { load: () => Promise.reject(new Error("no key")) };
-    const loader = remote(failing, { site: SITE, token: TOKEN });
-
-    await expect(loader.load()).rejects.toThrow("no key");
-    expect(await loader.update?.()).toEqual({ updated: true });
-    expect(await loader.load()).toEqual(release);
-  });
-
-  it("refuses content that doesn't hash to its revision, keeping memory as it was", async () => {
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    api.publish(1, release, { ...release, blocks: { Tampered: { __resolveType: "seo" } } });
-    const fallback = docsSnapshot();
-    const cms = createCMS({ blocks: docsBlocks(), content: fallback, site: SITE, token: TOKEN });
-
-    expect(await cms.update()).toEqual({ updated: false });
-    expect(await cms.forRelease().revision()).toBe(fallback.revision);
-  });
-
-  it("ignores a manifest with an unknown format or a snapshot path outside the site", async () => {
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    api.asset(`/sites/other/revisions/${release.revision}.json`, release);
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-
-    api.setManifest({
-      format: 1,
-      generation: 1,
-      revision: release.revision,
-      snapshot: `/sites/other/revisions/${release.revision}.json`,
-    });
-    expect(await cms.update()).toEqual({ updated: false });
-    api.setManifest({
-      format: 2,
-      generation: 1,
-      revision: release.revision,
-      snapshot: `/sites/acme/revisions/${release.revision}.json`,
-    });
-    expect(await cms.update()).toEqual({ updated: false });
-    expect(api.requests.every((r) => r.url === MANIFEST_URL)).toBe(true);
-  });
-
-  it("orders by generation: an older manifest is ignored, a newer one can roll back to an older revision", async () => {
-    const api = deliveryApi();
-    const a = await hashed("A");
-    const b = await hashed("B");
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN });
-
-    api.publish(184, b);
-    await loader.update?.();
-    expect((await loader.load()).revision).toBe(b.revision);
-
-    api.publish(183, a); // a delayed, older promotion
-    expect(await loader.update?.()).toEqual({ updated: false });
-    expect((await loader.load()).revision).toBe(b.revision);
-
-    api.publish(185, a); // rollback: newer generation, older revision
-    expect(await loader.update?.()).toEqual({ updated: true });
-    expect((await loader.load()).revision).toBe(a.revision);
-  });
-
-  it("rolling back to the fallback's revision serves the fallback again", async () => {
-    const api = deliveryApi();
-    const fallback = await hashed("Bundled");
-    const loader = remote(fallback, { site: SITE, token: TOKEN });
-    api.publish(1, await hashed("Published"));
-    await loader.update?.();
-    api.publish(2, fallback);
-    expect(await loader.update?.()).toEqual({ updated: true });
+    api.fetch.mockResolvedValueOnce(new Response("down", { status: 500 }));
+    await expect(loader.update?.()).rejects.toThrow(/HTTP 500/);
+    api.fetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(loader.update?.()).rejects.toThrow(/fetch failed/);
     expect(await loader.load()).toBe(fallback);
+
+    api.publish(SHA_1, "Published");
+    expect(await loader.update?.()).toEqual({ updated: true });
   });
 
-  it("keeps local files in development: no release checks, the fallback is served", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const api = deliveryApi();
-    api.publish(1, await hashed("Published"));
-    const fallback = docsSnapshot();
-    const loader = remote(fallback, { site: SITE, token: TOKEN });
+  it("a revision whose download failed is retried on the next check", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const key = `/sites/acme/revisions/${SHA_1}.json`;
+    const stored = { revision: SHA_1, schemaHash: SCHEMA, blocks: blocksAt("Published") };
+    api.remove(key);
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE });
+    await expect(loader.update?.()).rejects.toThrow(/HTTP 404/);
+    expect(await loader.load()).toBe(fallback);
+    api.put(key, stored);
+    expect(await loader.update?.()).toEqual({ updated: true });
+  });
+
+  it("refuses a malformed latest.json, downloading nothing", async () => {
+    const api = delivery();
+    const loader = remoteLoader(bundled(), { site: SITE });
+    for (const pointer of [
+      null,
+      [],
+      { revision: SHA_1, schemaHash: SCHEMA }, // no publishedAt
+      { revision: "abc", schemaHash: SCHEMA, publishedAt: "x" }, // not a commit SHA
+      { revision: "../../other/revisions/x", schemaHash: SCHEMA, publishedAt: "x" },
+      { revision: "A".repeat(40), schemaHash: SCHEMA, publishedAt: "x" }, // lowercase hex only
+      { revision: SHA_1, schemaHash: "short", publishedAt: "x" },
+      { revision: SHA_1, schemaHash: SCHEMA, publishedAt: 1 },
+    ]) {
+      api.point(pointer);
+      await expect(loader.update?.()).rejects.toThrow(/latest\.json: unexpected format/);
+    }
+    expect(api.urls().every((url) => url === LATEST_URL)).toBe(true);
+  });
+
+  it("refuses a revision body that isn't the one latest.json names, keeping memory", async () => {
+    const api = delivery();
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE });
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "x" });
+    for (const body of [
+      { revision: SHA_2, schemaHash: SCHEMA, blocks: {} },
+      { revision: SHA_1, schemaHash: OTHER_SCHEMA, blocks: {} },
+      { revision: SHA_1, schemaHash: SCHEMA, blocks: [] },
+      { revision: SHA_1, schemaHash: SCHEMA },
+    ]) {
+      api.put(`/sites/acme/revisions/${SHA_1}.json`, body);
+      await expect(loader.update?.()).rejects.toThrow(/unexpected format/);
+      expect(await loader.load()).toBe(fallback);
+    }
+  });
+
+  it("doesn't verify a content hash: the revision id is the commit SHA", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Whatever the commit holds");
+    const loader = remoteLoader(bundled(), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+  });
+
+  it("keeps local files in development: dev: true never fetches", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const fallback = bundled();
+    const loader = remoteLoader(fallback, { site: SITE, dev: true });
     expect(await loader.update?.()).toEqual({ updated: false });
     expect(await loader.load()).toBe(fallback);
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("works over a fallback loader, reading it only to serve or compare it", async () => {
-    deliveryApi();
-    const fallback = await hashed("Bundled");
+  it("reads no environment for it: NODE_ENV=development alone still swaps", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const loader = remoteLoader(bundled(), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+  });
+
+  it("works over a fallback loader, reading its schemaHash from what it loads", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const fallback = bundled();
     const load = vi.fn(async () => fallback);
-    const loader = remote({ load }, { site: SITE, token: TOKEN });
+    const loader = remoteLoader({ load }, { site: SITE });
     expect(await loader.load()).toBe(fallback);
+    expect(await loader.update?.()).toEqual({ updated: true });
     expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("a fallback loader that can't load can't be compared: no swap", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const failing: Loader = { load: () => Promise.reject(new Error("no key")) };
+    const loader = remoteLoader(failing, { site: SITE });
+    await expect(loader.update?.()).rejects.toThrow("no key");
+    expect(api.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("remoteLoader: whoever is newer wins (publishedAt vs the bundle's committedAt)", () => {
+  const T = (hour: number) => `2026-10-07T${String(hour).padStart(2, "0")}:00:00.000Z`;
+
+  it("publish, then deploy: the bundle of the later commit wins; nothing is downloaded", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(10));
+    const fallback = bundled(SCHEMA, T(11));
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(api.urls()).toEqual([LATEST_URL]);
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("deploy, then publish: the release published later wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(12));
+    const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).blocks).toEqual(blocksAt("Published"));
+  });
+
+  it("a publish at the bundle's exact committedAt keeps the bundle", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(11));
+    const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+  });
+
+  it("rollback after a deploy: Make current writes publishedAt = now, so the CDN wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "One", SCHEMA, T(9));
+    const loader = remoteLoader(bundled(SCHEMA, T(11)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: T(12) });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).revision).toBe(SHA_1);
+  });
+
+  it("deploy after a rollback: the bundle of the later commit wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "One", SCHEMA, T(9));
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: T(12) }); // the rollback
+    const fallback = bundled(SCHEMA, T(13));
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("a build of an older commit that finishes after a publish loses to the CDN", async () => {
+    const api = delivery();
+    // Commit at 10:00, publish at 11:00, the slow build of that commit finishes at 12:00.
+    api.publish(SHA_1, "Published", SCHEMA, T(11));
+    const loader = remoteLoader(bundled(SCHEMA, T(10)), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).blocks).toEqual(blocksAt("Published"));
+  });
+
+  it("a newer release with another schema keeps the bundle", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", OTHER_SCHEMA, T(12));
+    const fallback = bundled(SCHEMA, T(11));
+    const loader = remoteLoader(fallback, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+    expect(await loader.load()).toBe(fallback);
+  });
+
+  it("a bundle without committedAt is the oldest: a release with its schema wins", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, "1970-01-01T00:00:00.000Z");
+    const loader = remoteLoader(bundled(SCHEMA), { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: true });
+    expect((await loader.load()).revision).toBe(SHA_1);
+  });
+
+  it("a fallback loader's committedAt is read from what it loads", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published", SCHEMA, T(10));
+    const custom: Loader = { load: async () => bundled(SCHEMA, T(11)) };
+    const loader = remoteLoader(custom, { site: SITE });
+    expect(await loader.update?.()).toEqual({ updated: false });
+  });
+
+  it("refuses a latest.json whose publishedAt isn't a date", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    api.point({ revision: SHA_1, schemaHash: SCHEMA, publishedAt: "yesterday-ish" });
+    const loader = remoteLoader(bundled(), { site: SITE });
+    await expect(loader.update?.()).rejects.toThrow(/latest\.json: unexpected format/);
   });
 });
 
 describe("remoteLoader with createCMS", () => {
-  it("site and token wrap the content: a check swaps the release in for the next client", async () => {
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    api.publish(1, release);
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      token: TOKEN,
-    });
+  it("site alone wraps the content: a check swaps the release in for the next client", async () => {
+    const api = delivery();
+    api.publish(SHA_1, "Published");
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
 
     const before = cms.forRelease();
     expect(await before.revision()).toBe("rev-1");
     expect(await cms.update()).toEqual({ updated: true });
     expect(await before.revision()).toBe("rev-1"); // a client keeps its revision
-    const [seo] = await cms.forRelease().resolve<{ title: string }>("SummerSEO");
+    const client = cms.forRelease();
+    expect(await client.revision()).toBe(SHA_1);
+    const [seo] = await client.resolve<{ title: string }>("SummerSEO");
     expect(seo?.title).toBe("Published");
   });
 
-  it("without both site and token, the content is read as is", async () => {
-    const api = deliveryApi();
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
-    expect(await cms.update()).toEqual({ updated: false });
+  it("a token without site is a configuration error, before anything is fetched", async () => {
+    const api = delivery();
+    expect(() =>
+      createCMS({
+        blocks: docsBlocks(),
+        content: bundled(),
+        token: "t",
+        telemetry: false,
+      }),
+    ).toThrow("token needs site: pass both, or site alone");
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("is one instance per process: the same site, token and fallback share it; another interval warns", () => {
+  it("is one instance per process: the same site and fallback share it; another interval warns", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const fallback = docsSnapshot();
-    const first = remote(fallback, { site: SITE, token: TOKEN });
-    expect(remote(fallback, { site: SITE, token: TOKEN })).toBe(first);
-    expect(remote(fallback, { site: SITE, token: TOKEN, interval: 120_000 })).toBe(first);
+    const fallback = bundled();
+    const first = remoteLoader(fallback, { site: SITE });
+    expect(remoteLoader(fallback, { site: SITE })).toBe(first);
+    expect(remoteLoader(fallback, { site: SITE, interval: 120_000 })).toBe(first);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("interval"));
-    expect(remote(fallback, { site: "other", token: TOKEN })).not.toBe(first);
+    expect(remoteLoader(fallback, { site: "other" })).not.toBe(first);
   });
 
   it("createCMS paces a remoteLoader by its own interval when it has none", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
-    deliveryApi();
-    const loader = remote(docsSnapshot(), { site: SITE, token: TOKEN, interval: 300_000 });
+    delivery();
+    const loader = remoteLoader(bundled(), { site: SITE, interval: 300_000 });
     const update = vi.spyOn(loader, "update" as never);
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     cms.forRelease();
@@ -278,12 +458,9 @@ describe("remoteLoader with createCMS", () => {
     vi.useRealTimers();
   });
 
-  it("is a loader over the fallback alone when site or token is unset", async () => {
-    const fallback = docsSnapshot();
-    for (const loader of [
-      remoteLoader(fallback, { site: "", token: TOKEN }),
-      remoteLoader(fallback, { site: SITE }),
-    ]) {
+  it("is a loader over the fallback alone when site is unset or empty", async () => {
+    const fallback = bundled();
+    for (const loader of [remoteLoader(fallback, { site: "" }), remoteLoader(fallback, {})]) {
       expect(await loader.load()).toBe(fallback);
       expect(loader.update).toBeUndefined();
     }

@@ -281,6 +281,21 @@ export function foldSiteSettings(root: string, report: Report): void {
     break;
   }
 
+  // No previewHosts at all: v7's TanStack worker still allowed previews only on the site's
+  // deco-hosted hosts, while v8 allows every host without a list. Keep v7's list when the name is known.
+  if (
+    previewHosts === undefined &&
+    settings.preview === undefined &&
+    tanstack &&
+    siteName.name &&
+    fold(settings, "preview", decoHostedHosts(siteName.name), "hosts")
+  ) {
+    previewHosts = decoHostedHosts(siteName.name);
+    done.push(
+      `preview.hosts: ${previewHosts.join(", ")} (v7 allowed previews only there, from DECO_SITE_NAME; add your dev and staging hosts)`,
+    );
+  }
+
   // A literal collectorAddress on OneDollarStats.
   const collectors = oneDollarCollectors(root);
   if (collectors.values.size === 1) {

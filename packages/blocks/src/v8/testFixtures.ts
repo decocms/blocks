@@ -85,53 +85,62 @@ export function docsSnapshot(revision = "rev-1"): Snapshot {
   };
 }
 
-/** The host and token of the fake Studio API below. */
-export const STUDIO_HOST = "studio.decocms.com";
-export const STUDIO_TOKEN = "signed-token";
+/** The host of the fake delivery CDN below. */
+export const DRAFT_HOST = "delivery.decocms.com";
 
 /**
- * A fake Studio API answering draft pointers the way the docs describe
- * (/next/content-delivery#draft-previews): per draft branch, the changes
- * compared with production, behind the token Studio signed. Hand `fetch` to
+ * A fake delivery CDN answering draft pointers the way the docs describe
+ * (/next/content-delivery#draft-previews): `sites/<site>/drafts/<slug>.json`
+ * is `{ set, delete }`, served `no-cache` with an ETag that changes on every
+ * save, and a `304` to an `If-None-Match` that still matches. Hand `fetch` to
  * `vi.stubGlobal("fetch", …)`.
  */
 export function fakeStudio() {
-  const branches = new Map<string, { set?: Record<string, unknown>; delete?: string[] }>();
+  const drafts = new Map<
+    string,
+    { body: { set: Record<string, unknown>; delete: string[] }; etag: string }
+  >();
   const overrides = new Map<string, () => Response>();
   const requests: { url: string; init: RequestInit | undefined }[] = [];
-  const PATH = /^\/api\/acme\/decofile\/store\/([^/]+)\/changes$/;
+  const PATH = /^\/sites\/acme\/drafts\/([^/]+)\.json$/;
+  let saves = 0;
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     requests.push({ url: url.href, init });
-    const branch = PATH.exec(url.pathname)?.[1];
-    if (url.host !== STUDIO_HOST || branch === undefined) {
+    const slug = PATH.exec(url.pathname)?.[1];
+    if (url.host !== DRAFT_HOST || slug === undefined) {
       return new Response("not found", { status: 404 });
     }
-    const override = overrides.get(branch);
+    const override = overrides.get(slug);
     if (override) return override();
-    if (url.searchParams.get("token") !== STUDIO_TOKEN) {
-      return Response.json({ error: "invalid token" }, { status: 401 });
+    const draft = drafts.get(slug);
+    if (draft === undefined) return new Response("not found", { status: 404 });
+    const headers = {
+      "cache-control": "no-cache, max-age=0, must-revalidate",
+      etag: draft.etag,
+    };
+    if (new Headers(init?.headers).get("if-none-match") === draft.etag) {
+      return new Response(null, { status: 304, headers });
     }
-    const changes = branches.get(branch) ?? {};
-    return Response.json(
-      { format: 1, set: changes.set ?? {}, delete: changes.delete ?? [] },
-      { headers: { "cache-control": "no-store", "access-control-allow-origin": "*" } },
-    );
+    return Response.json(draft.body, { headers });
   };
   return {
     fetch,
     requests,
-    /** Saves a draft branch's changes and returns the pointer Studio would mint for them. */
+    /** Saves a draft (Studio's R2 write) and returns the pointer Studio would hand out. */
     draft(
       changes: { set?: Record<string, unknown>; delete?: string[] },
-      { branch = "summer-sale", version = "9f3c1a", token = STUDIO_TOKEN } = {},
+      { slug = "summer-sale", version = "9f3c1a" }: { slug?: string; version?: string } = {},
     ): string {
-      branches.set(branch, changes);
-      return `${STUDIO_HOST}/api/acme/decofile/store/${branch}/changes?token=${token}@${version}`;
+      drafts.set(slug, {
+        body: { set: changes.set ?? {}, delete: changes.delete ?? [] },
+        etag: `"etag-${++saves}"`,
+      });
+      return `${DRAFT_HOST}/sites/acme/drafts/${slug}.json@${version}`;
     },
-    /** Answers a branch with this response instead. */
-    respond(branch: string, response: () => Response) {
-      overrides.set(branch, response);
+    /** Answers a draft with this response instead. */
+    respond(slug: string, response: () => Response) {
+      overrides.set(slug, response);
     },
   };
 }

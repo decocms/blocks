@@ -1,81 +1,98 @@
 /**
- * `remoteLoader`: hosted releases from the Deco API, over a fallback (the
- * content module, or any loader). See /next/hosted-releases-internals and
- * /next/hosted-publishing. Drafts aren't a loader's job: the CMS layers a
- * draft's changes over what `load()` returns (see ./draftChanges.ts).
+ * `remoteLoader`: hosted releases from `delivery.decocms.com`, over a fallback
+ * (the content module, or any loader). See /next/hosted-releases-internals.
+ * Drafts aren't a loader's job: the CMS layers a draft's changes over what
+ * `load()` returns (see ./draftChanges.ts).
  *
- * - `load()` never touches the network: it returns the newest release this
- *   process fetched, or the fallback's content until one is fetched.
- * - `update()` asks the delivery API for the small production channel
- *   manifest; the CMS calls it on first use and then every interval, at an
- *   idle moment. A manifest older than the newest observed generation is
- *   ignored; a revision equal to the fallback's is served from the fallback
- *   without a download; anything else is fetched, verified against its
- *   content hash and swapped in whole. Any error keeps memory as it was.
- * - In development (`NODE_ENV=development`), releases stay on the fallback so
- *   local files win.
+ * - `load()` never touches the network: it returns the release this process
+ *   last swapped in, or the fallback's content until then. Nothing persists
+ *   across restarts: every boot starts from the fallback.
+ * - `update()` (the CMS calls it in the background, on first use and then
+ *   every interval) reads `sites/<site>/latest.json`,
+ *   `{ revision, schemaHash, publishedAt }`. Whoever is newer wins: when it
+ *   names a revision other than the one this process last swapped in, its
+ *   `schemaHash` equals the fallback's, and its `publishedAt` is later than
+ *   the fallback's `committedAt` (the commit time of the git HEAD
+ *   `deco content` built it from), it downloads
+ *   `sites/<site>/revisions/<revision>.json`, `{ revision, schemaHash, blocks }`,
+ *   and swaps it in whole. Otherwise, and on any error, memory stays as it is.
+ *   A fallback without a `schemaHash` never swaps; one without a `committedAt`
+ *   (a custom loader, an older content module, a build outside git) counts as
+ *   the oldest. Studio writes `publishedAt` on Publish, on "Make current" (a
+ *   rollback) and on Resync, so a rollback wins over the bundles of earlier
+ *   commits and a deploy of a later commit wins over the rollback. Commit
+ *   time, not build time: a slow build of an older commit that finishes after
+ *   a publish still loses to it.
+ *   Pointers aren't ordered among themselves, and the fallback's content is
+ *   never compared: only the two timestamps are.
+ * - With `dev: true` (`createCMS({ dev })`), it never swaps, so local files win.
+ *   The SDK reads no environment variable to decide this: the site passes it
+ *   (`import.meta.env.DEV`, `process.env.NODE_ENV === "development"`).
  * - A release larger than `MAX_SNAPSHOT_BYTES` is refused while it downloads,
  *   before it's buffered whole (a Worker isolate has 128 MB).
- * - Without `site` or `token` it's a plain loader over the fallback.
+ * - Without `site` it's a plain loader over the fallback.
  *
  * Instances are process-wide singletons, like `createCMS`'s.
  */
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
-import { computeContentRevision } from "./canonical.ts";
 import { isSnapshot, PEEK_RELEASE, peekRelease } from "./content.ts";
-import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
+import { clearGlobals, contentIdentity } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
 
-/** The hosted delivery origin: channel manifests and release assets. */
+/** The hosted delivery origin: release pointers and revisions. */
 const HOSTED_DELIVERY_ORIGIN = "https://delivery.decocms.com";
+/** test-only: replaces the delivery origin in local end-to-end runs. Not documented, not exported. */
+const TEST_DELIVERY_ORIGIN = Symbol.for("decocms.blocks.test.deliveryOrigin");
 
 const INSTANCE_PREFIX = "decocms.blocks.remote:";
-const MANIFEST_FORMAT = 1;
 const FETCH_TIMEOUT_MS = 10_000;
 /** The largest release accepted, in bytes of JSON. */
 const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
+// OPEN: a revision is the git commit SHA; only SHA-1 (40 hex) object names are accepted.
+const REVISION = /^[0-9a-f]{40}$/;
+const SCHEMA_HASH = /^[0-9a-f]{64}$/;
 
 interface RemoteLoaderOptions {
   site?: string;
-  token?: string;
   /** ms between release checks, used when `createCMS` has no `interval` of its own. */
   interval?: number;
+  /** Local development: never swap in a release, so local files win. */
+  dev?: boolean;
 }
 
-interface Manifest {
-  generation: number;
+/** `sites/<site>/latest.json`: the release a site serves. */
+interface Latest {
   revision: string;
-  snapshot: string;
+  schemaHash: string;
+  publishedAt: string;
 }
 
 class RemoteLoader implements Loader {
   readonly #site: string;
-  readonly #token: string;
   /** The `interval` this loader was created with; `createCMS` reads it. */
   readonly interval: number | undefined;
   #fallback: Snapshot | Loader;
-  #fallbackRevision: string | undefined;
   /** The fallback's content as last loaded, for a fallback that is itself a loader. */
   #fallbackSnapshot: Snapshot | undefined;
+  /** The release this process last swapped in; `undefined` serves the fallback. */
   #current: Snapshot | undefined;
-  #generation = -1;
+  readonly #dev: boolean;
 
   constructor(
     fallback: Snapshot | Loader,
-    options: { site: string; token: string; interval?: number },
+    options: { site: string; interval?: number; dev?: boolean },
   ) {
     this.#fallback = fallback;
     this.#site = options.site;
-    this.#token = options.token;
     this.interval = options.interval;
+    this.#dev = options.dev === true;
   }
 
   /** A hot reload hands the same instance new fallback content. */
   adopt(fallback: Snapshot | Loader): void {
     if (fallback === this.#fallback) return;
     this.#fallback = fallback;
-    this.#fallbackRevision = undefined;
     this.#fallbackSnapshot = undefined;
   }
 
@@ -90,28 +107,20 @@ class RemoteLoader implements Loader {
   }
 
   async update(): Promise<{ updated: boolean }> {
-    if (isDevelopment()) return { updated: false };
-    const manifest = await this.#manifest();
-    if (manifest.generation < this.#generation) return { updated: false };
-
-    // Best effort: a fallback that can't load (a KV key the deploy never wrote) is
-    // fixed by downloading the release, not by failing the check.
-    const fallbackRevision = await this.#fallbackRevisionNow().catch(() => undefined);
-    const served = this.#current !== undefined ? this.#current.revision : fallbackRevision;
-    if (served !== undefined && manifest.revision === served) {
-      // A new generation of the same content (a re-promotion, a rollback to
-      // it) still signals, so caches keyed on the release are invalidated.
-      const changed = this.#generation !== -1 && manifest.generation > this.#generation;
-      this.#generation = manifest.generation;
-      return { updated: changed };
-    }
-    let next: Snapshot | undefined;
-    if (fallbackRevision === undefined || manifest.revision !== fallbackRevision) {
-      next = await this.#release(manifest);
-    }
-    // A slower, earlier check must not undo a newer publish or rollback.
-    if (manifest.generation < this.#generation) return { updated: false };
-    this.#generation = manifest.generation;
+    if (this.#dev) return { updated: false };
+    const fallback = this.#fallbackSnapshot ?? (await this.#loadFallback());
+    if (fallback.schemaHash === undefined) return { updated: false };
+    const site = encodeURIComponent(this.#site);
+    const latest = await this.#latest(site);
+    // Another schema: keep what this process serves (the fallback, or the last swap).
+    if (latest.schemaHash !== fallback.schemaHash) return { updated: false };
+    // The bundle is newer: keep what this process serves.
+    // OPEN: a process that already swapped a release in keeps it (memory stays as it is).
+    if (!isNewer(latest.publishedAt, fallback.committedAt)) return { updated: false };
+    if (latest.revision === this.#current?.revision) return { updated: false };
+    const blocks = await this.#revision(site, latest);
+    const next: Snapshot = { revision: latest.revision, blocks, schemaHash: latest.schemaHash };
+    if (fallback.aliases !== undefined) next.aliases = fallback.aliases;
     this.#current = next;
     return { updated: true };
   }
@@ -119,68 +128,54 @@ class RemoteLoader implements Loader {
   async #loadFallback(): Promise<Snapshot> {
     const fallback = this.#fallback;
     const snapshot = isSnapshot(fallback) ? fallback : await (fallback as Loader).load();
-    if (fallback === this.#fallback) {
-      this.#fallbackRevision = snapshot.revision;
-      this.#fallbackSnapshot = snapshot;
-    }
+    if (fallback === this.#fallback) this.#fallbackSnapshot = snapshot;
     return snapshot;
   }
 
-  async #fallbackRevisionNow(): Promise<string> {
-    return this.#fallbackRevision ?? (await this.#loadFallback()).revision;
-  }
-
-  async #manifest(): Promise<Manifest> {
-    const site = encodeURIComponent(this.#site);
-    const response = await fetchWithTimeout(
-      `${HOSTED_DELIVERY_ORIGIN}/sites/${site}/channels/production.json`,
-      this.#auth(),
-    );
-    if (!response.ok) throw new Error(`channel manifest: HTTP ${response.status}`);
+  async #latest(site: string): Promise<Latest> {
+    const response = await fetchWithTimeout(`${deliveryOrigin()}/sites/${site}/latest.json`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`latest.json: HTTP ${response.status}`);
+    }
     const body: unknown = await response.json();
-    const prefix = `/sites/${site}/revisions/`;
     if (
       !isPlainObject(body) ||
-      body.format !== MANIFEST_FORMAT ||
-      !Number.isSafeInteger(body.generation) ||
       typeof body.revision !== "string" ||
-      typeof body.snapshot !== "string" ||
-      !body.snapshot.startsWith(prefix) ||
-      !/^[\w.-]+\.json$/.test(body.snapshot.slice(prefix.length)) ||
-      body.snapshot.includes("..")
+      !REVISION.test(body.revision) ||
+      typeof body.schemaHash !== "string" ||
+      !SCHEMA_HASH.test(body.schemaHash) ||
+      typeof body.publishedAt !== "string" ||
+      Number.isNaN(Date.parse(body.publishedAt))
     ) {
-      throw new Error("channel manifest: unexpected format or snapshot path");
+      throw new Error("latest.json: unexpected format");
     }
-    return body as unknown as Manifest;
+    return body as unknown as Latest;
   }
 
-  async #release(manifest: Manifest): Promise<Snapshot> {
+  async #revision(site: string, latest: Latest): Promise<Record<string, unknown>> {
+    const label = `revision ${latest.revision}`;
     const response = await fetchWithTimeout(
-      `${HOSTED_DELIVERY_ORIGIN}${manifest.snapshot}`,
-      this.#auth(),
+      `${deliveryOrigin()}/sites/${site}/revisions/${latest.revision}.json`,
     );
-    if (!response.ok) throw new Error(`release ${manifest.revision}: HTTP ${response.status}`);
-    const snapshot = await readBoundedJson(
-      response,
-      `release ${manifest.revision}`,
-      MAX_SNAPSHOT_BYTES,
-    );
-    if (
-      !isSnapshot(snapshot) ||
-      snapshot.revision !== manifest.revision ||
-      (await computeContentRevision(snapshot.blocks)) !== manifest.revision
-    ) {
-      throw new Error(`release ${manifest.revision}: content doesn't match its revision`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`${label}: HTTP ${response.status}`);
     }
-    return snapshot;
-  }
-
-  #auth(): Record<string, string> {
-    return { authorization: `Bearer ${this.#token}` };
+    const body = await readBoundedJson(response, label, MAX_SNAPSHOT_BYTES);
+    if (
+      !isPlainObject(body) ||
+      body.revision !== latest.revision ||
+      body.schemaHash !== latest.schemaHash ||
+      !isPlainObject(body.blocks)
+    ) {
+      throw new Error(`${label}: unexpected format, or not the revision latest.json names`);
+    }
+    return body.blocks;
   }
 }
 
-/** A loader over the fallback alone: `remoteLoader` without `site` or `token`. */
+/** A loader over the fallback alone: `remoteLoader` without `site`. */
 class LocalLoader implements Loader {
   #fallback: Snapshot | Loader;
 
@@ -203,16 +198,14 @@ class LocalLoader implements Loader {
 }
 
 /**
- * Hosted releases over a fallback. `createCMS` builds it for you
- * when `site` and `token` are set. With either unset (a dev or test
- * environment without the variables), it's a loader over the fallback alone.
+ * Hosted releases over a fallback. `createCMS` builds it for you when `site`
+ * is set. Without `site`, it's a loader over the fallback alone.
  */
 export function remoteLoader(fallback: Snapshot | Loader, options: RemoteLoaderOptions): Loader {
-  const { site, token } = options ?? {};
-  const hosted = Boolean(site && token);
+  const { site } = options ?? {};
+  const hosted = Boolean(site);
   const key = Symbol.for(
-    `${INSTANCE_PREFIX}${contentIdentity(fallback)}` +
-      (hosted ? `|site:${site}|token:${fnv1a(token!)}` : "|local"),
+    `${INSTANCE_PREFIX}${contentIdentity(fallback)}${hosted ? `|site:${site}` : "|local"}`,
   );
   const store = globalThis as unknown as Record<symbol, RemoteLoader | LocalLoader | undefined>;
   const existing = store[key];
@@ -227,7 +220,7 @@ export function remoteLoader(fallback: Snapshot | Loader, options: RemoteLoaderO
     return existing;
   }
   const instance = hosted
-    ? new RemoteLoader(fallback, { site: site!, token: token!, interval: options.interval })
+    ? new RemoteLoader(fallback, { site: site!, interval: options.interval, dev: options.dev })
     : new LocalLoader(fallback);
   store[key] = instance;
   return instance;
@@ -237,15 +230,23 @@ export function resetRemoteLoaders(): void {
   clearGlobals(INSTANCE_PREFIX);
 }
 
-function fetchWithTimeout(url: string, headers: Record<string, string>): Promise<Response> {
-  return fetch(url, { headers, signal: timeoutSignal(FETCH_TIMEOUT_MS) });
+/**
+ * Whether a release published at `publishedAt` is newer than content built
+ * from a commit made at `committedAt`. Content without a `committedAt` is the
+ * oldest.
+ * OPEN: a `committedAt` that doesn't parse as a date counts as missing.
+ */
+function isNewer(publishedAt: string, committedAt: string | undefined): boolean {
+  const committed = committedAt === undefined ? Number.NaN : Date.parse(committedAt);
+  return Number.isNaN(committed) || Date.parse(publishedAt) > committed;
 }
 
-function isDevelopment(): boolean {
-  try {
-    // Written out so bundlers that define process.env.NODE_ENV replace it.
-    return process.env.NODE_ENV === "development";
-  } catch {
-    return false;
-  }
+/** No credentials: delivery is public. */
+function fetchWithTimeout(url: string): Promise<Response> {
+  return fetch(url, { signal: timeoutSignal(FETCH_TIMEOUT_MS) });
+}
+
+function deliveryOrigin(): string {
+  const override = (globalThis as Record<symbol, unknown>)[TEST_DELIVERY_ORIGIN];
+  return typeof override === "string" ? override : HOSTED_DELIVERY_ORIGIN;
 }

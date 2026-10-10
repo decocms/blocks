@@ -46,16 +46,6 @@ export function fnv1a(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-/** Reads an environment variable where there is one (Node, Bun, Workers with nodejs_compat). */
-export function readEnv(name: string): string | undefined {
-  try {
-    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-      ?.env?.[name];
-  } catch {
-    return undefined;
-  }
-}
-
 /** Clears every global instance whose registry key starts with `prefix`. */
 export function clearGlobals(prefix: string): void {
   const store = globalThis as unknown as Record<symbol, unknown>;

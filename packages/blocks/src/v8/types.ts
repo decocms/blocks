@@ -28,6 +28,19 @@ export type Snapshot = {
   blocks: Record<string, unknown>;
   /** The alias table `deco content` writes: old type name → your type. */
   aliases?: Record<string, string>;
+  /**
+   * The hash of the `.deco/schema.gen.json` this content was built with, which
+   * `deco content` writes. A hosted release is swapped in only when its
+   * `schemaHash` equals the bundled content's; without one, never.
+   */
+  schemaHash?: string;
+  /**
+   * The commit time of the git HEAD `deco content` built this content from
+   * (committer date, ISO 8601). A hosted release is swapped in only when its
+   * `publishedAt` is later; without one (a custom loader, an older content
+   * module, a build outside git), the bundled content counts as the oldest.
+   */
+  committedAt?: string;
 };
 
 /**
@@ -48,11 +61,11 @@ export interface Loader {
 
 /** The parts of a draft pointer, `<host[:port]><path[?query]>@<version>`. */
 export interface DraftPointer {
-  /** `host[:port]` of the Studio API that serves the draft's changes. */
+  /** `host[:port]` that serves the draft's changes. */
   host: string;
   /** Starts with `/`; opaque to the app. Never carries the `__variant` parameters. */
   path: string;
-  /** Opaque: the commit of the editor's last save. `"local"` names no draft (`deco serve`). */
+  /** Opaque: identifies the editor's last save. `"local"` names no draft (`deco serve`). */
   version: string;
   /** The variants this preview forces (the query's `__variant` parameters); absent when none. */
   variants?: ForcedVariant[];
@@ -212,12 +225,23 @@ export type Match<T> =
 // The CMS and its clients
 // ---------------------------------------------------------------------------
 
-export type TelemetryConfig = (
-  | { site: string; token: string }
-  | { endpoint: string; headers?: Record<string, string> }
-) & {
+/**
+ * Where telemetry goes. With `endpoint`, to that OTLP/HTTP collector, with
+ * `headers`; without one, to the hosted Deco CMS collector when `createCMS`
+ * has a `token`, and nowhere otherwise.
+ */
+export interface TelemetryConfig {
+  /** An OTLP/HTTP base URL; each signal is sent to `<endpoint>/v1/<signal>`. */
+  endpoint?: string;
+  /** Headers sent with every batch to `endpoint`. */
+  headers?: Record<string, string>;
+  /**
+   * Resource attributes, merged over the defaults (`service.name`,
+   * `service.version`, `deployment.environment.name`, …).
+   */
+  resource?: Record<string, string>;
   limits?: { errorSampleRate?: number; traceSampleRate?: number };
-};
+}
 
 export interface CMSConfig {
   /** Your block functions; the CMS uses `{ ...builtIns, ...blocks }`. */
@@ -226,6 +250,12 @@ export interface CMSConfig {
   content: ContentModule | Loader;
   /** ms between `update()` checks of a content source that has one; minimum 60 000. */
   interval?: number;
+  /**
+   * Local development (`import.meta.env.DEV`, `process.env.NODE_ENV === "development"`):
+   * hosted releases are never swapped in, so local files win. Drafts still load.
+   * The SDK reads no environment variable for it; default `false`.
+   */
+  dev?: boolean;
   /** Where telemetry goes; see /next/telemetry. */
   telemetry?: false | TelemetryConfig;
   preview?: {
@@ -234,12 +264,24 @@ export interface CMSConfig {
      * (/next/api-reference#host-patterns). Without it, content may allow any host.
      */
     hosts?: string[];
+    /**
+     * The hosts a draft pointer may point at; replaces the defaults (v7's
+     * list: `.decocms.com` and the loopback hosts). An entry starting with a
+     * dot matches any subdomain; any other entry, that exact host.
+     */
+    draftHosts?: string[];
   };
   /** The private key that decrypts `secret` blocks. */
   secrets?: { key?: string };
-  /** Your site's ID, for hosted releases. Drafts don't need it. */
+  /**
+   * Your site ID (Studio's site slug): turns on hosted releases from
+   * `delivery.decocms.com`. Drafts don't need it.
+   */
   site?: string;
-  /** Your site token (secret), for hosted releases. Drafts don't need it. */
+  /**
+   * Your site token (server-only secret): sends telemetry to the hosted Deco
+   * CMS collector. Releases and drafts don't use it. Needs `site`.
+   */
   token?: string;
 }
 
@@ -280,13 +322,11 @@ export interface CMS {
   forRelease(): Client;
   /**
    * A client reading the draft a pointer names: its changes, fetched from a
-   * preview API domain (`*.decocms.com` and loopback by default;
-   * `DECO_PREVIEW_API_DOMAINS` replaces the list), over this server's
-   * production content.
+   * draft host (`*.decocms.com` and loopback by default;
+   * `createCMS({ preview: { draftHosts } })` replaces the list), over this
+   * server's production content.
    */
   forDraft(pointer: string): Client;
-  /** A client pinned to a revision this CMS has served; an unknown revision behaves like the release. */
-  forRevision(revision: string): Client;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
   /**

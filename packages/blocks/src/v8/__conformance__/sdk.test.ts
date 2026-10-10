@@ -241,15 +241,17 @@ declare const content: Snapshot;
 declare const loader: Loader;
 createCMS({ blocks, content });
 createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets: { key: "k" }, site: "s", token: "t" });
-createCMS({ blocks, content, telemetry: { site: "s", token: "t", limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
-createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" } } });
-createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"] } });
-// @ts-expect-error draft hosts come from DECO_PREVIEW_API_DOMAINS, not code
+createCMS({ blocks, content, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
+createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" }, resource: { "service.version": "abc" } } });
+createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], draftHosts: [".decocms.com"] } });
+// @ts-expect-error draft hosts are preview.draftHosts
 createCMS({ blocks, content, preview: { sources: ["studio.example.com"] } });
+// @ts-expect-error the telemetry: { site, token } form is gone: site and token are top-level
+createCMS({ blocks, content, telemetry: { site: "s", token: "t" } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "forRevision" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<keyof CMS, "forRelease" | "forDraft" | "update" | "settings" | "draftPointer" | "draftCookie">>();
 assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
@@ -257,7 +259,6 @@ assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string):
 assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
-assert<Equal<CMS["forRevision"], (revision: string) => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<keyof Client, "resolve" | "list" | "revision">>();
 assert<Equal<Client["revision"], () => Promise<string>>>();
@@ -283,27 +284,27 @@ assert<Equal<Analytics, { collector?: string; enabled?: boolean }>>();
 assert<Equal<CMSError["code"], "NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_FAILED" | "LOADER_FAILED">>();
 assert<Equal<CMSError, { code: CMSError["code"]; message: string; path: (string | number)[]; cause?: unknown }>>();
 assert<Equal<Result<number>, [number, null] | [null, CMSError]>>();
-assert<Equal<TelemetryConfig, ({ site: string; token: string } | { endpoint: string; headers?: Record<string, string> }) & { limits?: { errorSampleRate?: number; traceSampleRate?: number } }>>();
+assert<Equal<TelemetryConfig, { endpoint?: string; headers?: Record<string, string>; resource?: Record<string, string>; limits?: { errorSampleRate?: number; traceSampleRate?: number } }>>();
 export { r1, r2, r3 };
 `,
     });
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-57 Snapshot is exactly { revision, blocks, aliases? }", () => {
+  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt? }", () => {
     const errors = typecheck({
       "snapshot.ts": `
 import type { Snapshot } from "@decocms/blocks";
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assert = <T extends true>() => {};
-assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string> }>>();
+assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string }>>();
 `,
     });
     expect(errors).toEqual([]);
   }, 60_000);
 });
 
-describe("AR-05 interval: default DECO_CONTENT_INTERVAL or 60 000, minimum 60 000", () => {
+describe("AR-05 interval: default 60 000, minimum 60 000; no environment variable", () => {
   const intervalOf = (cms: CMS) =>
     (instanceOf(cms) as { fingerprint: { interval: number } }).fingerprint.interval;
 
@@ -313,17 +314,15 @@ describe("AR-05 interval: default DECO_CONTENT_INTERVAL or 60 000, minimum 60 00
     expect(intervalOf(cms)).toBe(60_000);
   });
 
-  it("defaults to 60 000 and reads DECO_CONTENT_INTERVAL", () => {
+  it("defaults to 60 000 and never reads DECO_CONTENT_INTERVAL", () => {
     expect(intervalOf(createCMS({ blocks: {}, content: docsSnapshot() }))).toBe(60_000);
     resetForTests();
     vi.stubEnv("DECO_CONTENT_INTERVAL", "120000");
-    expect(intervalOf(createCMS({ blocks: {}, content: docsSnapshot() }))).toBe(120_000);
-  });
-
-  it("clamps DECO_CONTENT_INTERVAL below the minimum too", () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.stubEnv("DECO_CONTENT_INTERVAL", "5000");
     expect(intervalOf(createCMS({ blocks: {}, content: docsSnapshot() }))).toBe(60_000);
+    resetForTests();
+    expect(intervalOf(createCMS({ blocks: {}, content: docsSnapshot(), interval: 120_000 }))).toBe(
+      120_000,
+    );
   });
 });
 
@@ -333,42 +332,60 @@ describe("AR-06 / AR-07 telemetry destination and limits", () => {
       errorSampleRate: 0.1,
       traceSampleRate: 0,
     });
-    expect(resolveDestination({ site: "s", token: "t" })?.limits).toEqual({
+    expect(resolveDestination(undefined, "s", "t")?.limits).toEqual({
       errorSampleRate: 0.1,
       traceSampleRate: 0,
     });
   });
 
-  it("false sends nothing, even with OTEL_EXPORTER_OTLP_ENDPOINT set", () => {
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://env.example");
-    expect(resolveDestination(false)).toBeNull();
+  it("false sends nothing, even with a token", () => {
+    expect(resolveDestination(false, "s", "t")).toBeNull();
   });
 
-  it("an object sends there", () => {
+  it("an endpoint sends there, with its headers", () => {
     expect(
-      resolveDestination({ endpoint: "https://otel.example", headers: { a: "b" } }),
+      resolveDestination({ endpoint: "https://otel.example", headers: { a: "b" } }, "s", "t"),
     ).toMatchObject({ endpoint: "https://otel.example", headers: { a: "b" } });
   });
 
-  it("omitted: OTEL_EXPORTER_OTLP_ENDPOINT and _HEADERS when set, otherwise nothing", () => {
-    expect(resolveDestination(undefined)).toBeNull();
+  it("omitted: the token's hosted collector, otherwise nothing; OTEL_* variables aren't read", () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://env.example");
     vi.stubEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-key=abc");
-    expect(resolveDestination(undefined)).toMatchObject({
-      endpoint: "https://env.example",
-      headers: { "x-key": "abc" },
+    expect(resolveDestination(undefined)).toBeNull();
+    expect(resolveDestination(undefined, "s", "t")).toMatchObject({
+      endpoint: "https://otel.decocms.com",
+      headers: { authorization: "Bearer t" },
     });
   });
 });
 
-describe("AR-08 site and token load hosted content only, never telemetry", () => {
-  it("site without token: the content is read as is (no hosted loader, no fetch)", async () => {
-    const fetch = vi.fn(async () => new Response("{}"));
+describe("AR-08 site loads hosted releases; token sends telemetry; neither is needed for drafts", () => {
+  it("site alone: releases from delivery, no telemetry", async () => {
+    const { currentTelemetry } = await import("../telemetry");
+    const fetch = vi.fn(
+      async (_input: string | URL | Request) => new Response("{}", { status: 404 }),
+    );
     vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: { ...docsSnapshot(), schemaHash: "5".repeat(64) },
+      site: "acme",
+    });
     const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
     expect(await cms.update()).toEqual({ updated: false });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://delivery.decocms.com/sites/acme/latest.json",
+    ]);
+    expect(currentTelemetry()).toBeUndefined();
+  });
+
+  it("token alone is a configuration error: token needs site", () => {
+    const fetch = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    expect(() => createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "t" })).toThrow(
+      "token needs site: pass both, or site alone",
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -377,12 +394,6 @@ describe("AR-08 site and token load hosted content only, never telemetry", () =>
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const [seo] = await cms.forDraft(pointer).resolve<{ title: string }>("SummerSEO");
     expect(seo?.title).toBe("Draft!");
-  });
-
-  it("site and token with telemetry omitted and no OTEL env: no telemetry", async () => {
-    const { currentTelemetry } = await import("../telemetry");
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "t" });
-    expect(currentTelemetry()).toBeUndefined();
   });
 });
 
@@ -412,7 +423,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     const draft = cms.forDraft(pointer);
     expect((await draft.resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("Draft!");
     expect((await draft.resolve("HomePage"))[1]).toBeNull();
-    expect(await draft.revision()).toBe("rev-1~9f3c1a");
+    expect(await draft.revision()).toBe('rev-1~"etag-1"');
   });
 
   it("a draft whose changes can't be fetched makes every call return LOADER_FAILED with the cause", async () => {
@@ -429,7 +440,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     expect(listError?.code).toBe("LOADER_FAILED");
   });
 
-  it("a pointer that doesn't parse, or names a host outside the preview API domains, is LOADER_FAILED with no fetch", async () => {
+  it("a pointer that doesn't parse, or names a host outside the draft hosts, is LOADER_FAILED with no fetch", async () => {
     const { fetch } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     for (const pointer of ["garbage", "api.deco.example/drafts/acme/main@9f3c1a"]) {
@@ -516,7 +527,7 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect([value, error]).toEqual(["spring", null]);
   });
 
-  it("a draft is fetched without them, once for every variant of one draft", async () => {
+  it("a draft is fetched without them, one body for every variant of one draft (later reads revalidate it)", async () => {
     const { fetch, pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: content() });
     const draft = (index: number) =>
@@ -526,24 +537,10 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
       });
     expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
     expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(fetch.mock.calls[0]![0])).toBe(String(fetch.mock.calls[1]![0]));
     expect(String(fetch.mock.calls[0]![0])).not.toContain("__variant");
-  });
-});
-
-describe("AR-12 forRevision", () => {
-  it("pins a served revision; an unknown revision reads the release", async () => {
-    const { loader, publish } = swappableLoader(docsSnapshot("rev-1"));
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    const old = await cms.forRelease().revision();
-    const next = docsSnapshot("rev-2");
-    (next.blocks.SummerSEO as { title: string }).title = "New";
-    publish(next);
-    expect(await cms.update()).toEqual({ updated: true });
-    expect(await cms.forRelease().revision()).toBe("rev-2");
-    const [pinned] = await cms.forRevision(old).resolve<{ title: string }>("SummerSEO");
-    expect(pinned?.title).toBe("Sunny!");
-    expect(await cms.forRevision("nope").revision()).toBe("rev-2");
+    expect((await fetch.mock.results[1]!.value).status).toBe(304);
   });
 });
 
@@ -640,26 +637,25 @@ describe("AR-18 / AR-19 content: a snapshot or any loader", () => {
 });
 
 describe("AR-22 remoteLoader", () => {
-  it("is exported from the root, and is a loader over the fallback without site or token", async () => {
+  it("is exported from the root, and is a loader over the fallback without site", async () => {
     expect(root.remoteLoader).toBe(remoteLoader);
     const fallback = docsSnapshot();
-    expect(await remoteLoader(fallback, { site: "", token: "" }).load()).toBe(fallback);
+    expect(await remoteLoader(fallback, { site: "" }).load()).toBe(fallback);
   });
 
-  it("createCMS builds it when site and token are set: update() reaches the Deco API", async () => {
+  it("createCMS builds it when site is set: update() reads latest.json from delivery.decocms.com", async () => {
     const fetch = vi.fn(
       async (_input: string | URL | Request) => new Response("nope", { status: 404 }),
     );
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
+      content: { ...docsSnapshot(), schemaHash: "5".repeat(64) },
       site: "acme",
-      token: "t",
     });
     expect(await cms.update()).toEqual({ updated: false });
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
-      "https://delivery.decocms.com/sites/acme/channels/production.json",
+      "https://delivery.decocms.com/sites/acme/latest.json",
     );
   });
 });

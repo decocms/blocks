@@ -6,6 +6,8 @@
  * and for a workerd-style target and check the output.
  */
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -41,13 +43,22 @@ describe("v8 core bundle", () => {
   });
 
   it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
-    const output = bundle([
-      "--platform=neutral",
-      "--metafile=/dev/stdout",
-      "--outfile=/dev/null",
-      "--log-level=error",
-    ]);
-    const inputs = Object.keys(JSON.parse(output.slice(output.indexOf("{"))).inputs);
+    // A real file, not /dev/stdout: esbuild leaves that empty on Linux.
+    const dir = mkdtempSync(join(tmpdir(), "blocks-bundle-"));
+    let meta: { inputs: Record<string, unknown> };
+    try {
+      const metafile = join(dir, "meta.json");
+      bundle([
+        "--platform=neutral",
+        `--metafile=${metafile}`,
+        `--outfile=${join(dir, "out.js")}`,
+        "--log-level=error",
+      ]);
+      meta = JSON.parse(readFileSync(metafile, "utf-8"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const inputs = Object.keys(meta.inputs);
     expect(inputs.length).toBeGreaterThan(0);
     for (const input of inputs) {
       expect(input, input).toMatch(/(^|\/)src\/(v8\/|protocol\/(canonical|ciphertext)\.ts$)/);

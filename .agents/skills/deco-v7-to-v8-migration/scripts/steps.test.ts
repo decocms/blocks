@@ -474,7 +474,7 @@ export function Root() {
     expect(next.manual.map((n) => n.subject)).not.toContain("preview hosts");
   });
 
-  it("with no previewHosts on a named TanStack site, says v7 allowed only its deco-hosted hosts", () => {
+  it("with no previewHosts on a named TanStack site, keeps v7's deco-hosted hosts in CMS.json", () => {
     site({
       "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
       ".env": "DECO_SITE_NAME=acme\n",
@@ -482,9 +482,10 @@ export function Root() {
     });
     const report = createReport();
     foldSiteSettings(root, report);
-    const note = report.manual.find((n) => n.subject === "preview hosts");
-    expect(note?.message).toContain("acme.deco.site and acme.deco-cx.workers.dev");
-    expect(note?.message).not.toContain("kept previews off");
+    expect(read("CMS.json").preview).toEqual({
+      hosts: ["acme.deco.site", "acme.deco-cx.workers.dev"],
+    });
+    expect(report.manual.map((n) => n.subject)).not.toContain("preview hosts");
   });
 
   it("reads a Site block named Site, and collectorAddress={'…'}", () => {

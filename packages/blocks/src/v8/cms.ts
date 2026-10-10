@@ -13,8 +13,9 @@ import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
 import { draftCookieFor, endsPreview, parseDraftPointer, readDraftPointer } from "./draft.ts";
+import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
-import { clearGlobals, contentIdentity, fnv1a, readEnv } from "./identity.ts";
+import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
 import {
@@ -55,6 +56,7 @@ interface Fingerprint {
   telemetry: string;
   preview: string;
   secrets: string;
+  token: string;
 }
 
 /**
@@ -87,13 +89,13 @@ class CMSInstance {
   constructor(config: CMSConfig, interval: number) {
     this.config = config;
     this.#interval = interval;
-    this.#store = new ContentStore(contentOf(config));
+    this.#store = new ContentStore(contentOf(config), parseDraftHosts(config.preview));
     this.fingerprint = fingerprintOf(config, interval);
     this.#caps = {
       hosts: parseCodeHosts(config.preview),
       limits: telemetryLimits(config.telemetry),
     };
-    const destination = resolveDestination(config.telemetry, config.site);
+    const destination = resolveDestination(config.telemetry, config.site, config.token);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);
       setCurrentTelemetry(this.#telemetry);
@@ -151,10 +153,6 @@ class CMSInstance {
     const variants = parseDraftPointer(pointer)?.variants;
     if (variants === undefined) return this.#client(blocks, load);
     return this.#client(blocks, () => load().then((snapshot) => forceVariants(snapshot, variants)));
-  }
-
-  forRevision(blocks: Blocks, revision: string): Client {
-    return this.#client(blocks, () => this.#store.revision(revision));
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -302,10 +300,6 @@ class CMSHandle implements CMS {
     return this.#instance.forDraft(this.#blocks, pointer);
   }
 
-  forRevision(revision: string): Client {
-    return this.#instance.forRevision(this.#blocks, revision);
-  }
-
   update(): Promise<{ updated: boolean }> {
     return this.#instance.update();
   }
@@ -365,10 +359,10 @@ export function resetForTests(): void {
   setCurrentTelemetry(undefined);
 }
 
-/** With `site` and `token`, the content is the fallback of hosted releases. */
+/** With `site`, the content is the fallback of hosted releases. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
-  if (!config.site || !config.token) return config.content;
-  return remoteLoader(config.content, { site: config.site, token: config.token });
+  if (!config.site) return config.content;
+  return remoteLoader(config.content, { site: config.site, dev: config.dev });
 }
 
 function validate(config: CMSConfig): void {
@@ -383,12 +377,16 @@ function validate(config: CMSConfig): void {
       "createCMS: `content` must be the content module ({ revision, blocks }) or a loader with load()",
     );
   }
+  // The token is the site's credential: it means nothing without the site it belongs to.
+  if (config.token && !config.site) {
+    throw new TypeError("createCMS: token needs site: pass both, or site alone");
+  }
   parseCodeHosts(config.preview);
+  parseDraftHosts(config.preview);
 }
 
 function resolveInterval(configured: number | undefined): number {
-  const env = readEnv("DECO_CONTENT_INTERVAL");
-  const raw = configured ?? (env ? Number(env) : MIN_INTERVAL);
+  const raw = configured ?? MIN_INTERVAL;
   if (!Number.isFinite(raw)) return MIN_INTERVAL;
   if (raw < MIN_INTERVAL) {
     console.warn(
@@ -401,8 +399,7 @@ function resolveInterval(configured: number | undefined): number {
 
 /**
  * The instance key: the content's identity (never its revision, so a hot
- * reload keeps the instance) and, with the hosted Deco CMS, the site and a
- * hash of the token, which never appears in the global symbol registry.
+ * reload keeps the instance) and, with hosted releases, the site.
  *
  * A content module is identified by the `.deco` folder it was generated from
  * (its `root`). One without a `root` is identified by the object itself, so
@@ -411,8 +408,7 @@ function resolveInterval(configured: number | undefined): number {
  */
 function identityOf(config: CMSConfig): string {
   const content = contentIdentity(config.content);
-  if (!config.site || !config.token) return content;
-  return `${content}|site:${config.site}|token:${fnv1a(config.token)}`;
+  return config.site ? `${content}|site:${config.site}` : content;
 }
 
 function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {
@@ -421,6 +417,7 @@ function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {
     telemetry: stableJson(config.telemetry ?? null),
     preview: stableJson(config.preview ?? null),
     secrets: config.secrets?.key ? fnv1a(config.secrets.key) : "",
+    token: config.token ? fnv1a(config.token) : "",
   };
 }
 
