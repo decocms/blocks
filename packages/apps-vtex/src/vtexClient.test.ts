@@ -200,6 +200,37 @@ describe("createVtexClient", () => {
     expect(calls[0]?.init.body).toBe('{"expectedOrderFormSections":["items","totalizers"]}');
   });
 
+  // Ported from main's checkout-sales-channel.test.ts (#581): VTEX prices a cart
+  // against the request's sales channel and silently falls back to the account
+  // default without one, so every orderForm call carries `sc`.
+  it("sends the sales channel on every orderForm call, and no empty sc without one", async () => {
+    const run = async (
+      vtex: ReturnType<typeof createVtexClient>,
+      options?: { salesChannel?: string },
+    ) => {
+      await vtex.checkout.orderForm(options);
+      await vtex.checkout.addItems("of1", [{ id: 1, quantity: 1, seller: "1" }], options);
+      await vtex.checkout.updateItems("of1", [{ index: 0, quantity: 2 }], options);
+      await vtex.checkout.addCoupon("of1", "PROMO", options);
+      await vtex.checkout.attachment("of1", "clientProfileData", { email: "a@b.c" }, options);
+      await vtex.checkout.simulation({ items: [{ id: "1", quantity: 1, seller: "1" }] }, options);
+    };
+    const configured = upstream();
+    await run(createVtexClient({ account: "store", salesChannel: "2", fetch: configured.fetch }));
+    expect(configured.calls).toHaveLength(6);
+    for (const call of configured.calls) expect(new URL(call.url).searchParams.get("sc")).toBe("2");
+
+    const perCall = upstream();
+    await run(createVtexClient({ account: "store", salesChannel: "2", fetch: perCall.fetch }), {
+      salesChannel: "5",
+    });
+    for (const call of perCall.calls) expect(new URL(call.url).searchParams.get("sc")).toBe("5");
+
+    const none = upstream();
+    await run(createVtexClient({ account: "store", fetch: none.fetch }));
+    for (const call of none.calls) expect(call.url).not.toContain("sc=");
+  });
+
   it("keeps caller paths inside their endpoint", async () => {
     const { calls, fetch } = upstream();
     const vtex = createVtexClient({ account: "store", appKey: "key", appToken: "token", fetch });

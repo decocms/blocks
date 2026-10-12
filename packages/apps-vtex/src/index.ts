@@ -5,6 +5,7 @@
 export {
   createVtexClient,
   type VtexCatalogSearchArgs,
+  type VtexCheckoutOptions,
   type VtexClient,
   type VtexClientConfig,
   VtexError,

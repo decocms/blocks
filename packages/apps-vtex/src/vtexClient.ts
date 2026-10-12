@@ -88,6 +88,12 @@ export interface VtexRequestOptions {
   signal?: AbortSignal;
 }
 
+/** Per-call inputs of a Checkout API call. */
+export interface VtexCheckoutOptions extends VtexRequestOptions {
+  /** The shopper's sales channel (`sc`); defaults to the client's `salesChannel`. */
+  salesChannel?: string;
+}
+
 /** A shopper-scoped response: the body plus VTEX's `Set-Cookie` values, unmodified, for the caller to forward. */
 export interface VtexResponse<T> {
   data: T;
@@ -254,6 +260,15 @@ export function createVtexClient(config: VtexClientConfig) {
   const orderFormPath = (orderFormId: string, rest = "") =>
     `/api/checkout/pub/orderForm/${encodeURIComponent(orderFormId)}${rest}`;
 
+  /**
+   * An orderForm call carries `sc`: VTEX recalculates prices, availability and
+   * promotions against the request's sales channel and otherwise falls back to
+   * the account default, silently, with a 200 and a well-formed orderForm.
+   * No channel configured or passed → no `sc` at all (never an empty `?sc=`).
+   */
+  const cartUrl = (path: string, options: VtexCheckoutOptions = {}) =>
+    url(path, { sc: options.salesChannel ?? config.salesChannel });
+
   return {
     /** Intelligent Search. */
     search: {
@@ -307,8 +322,8 @@ export function createVtexClient(config: VtexClientConfig) {
        * Gets the shopper's cart from their `checkout.vtex.com` cookie, or creates one.
        * Every section by default; `sections` narrows it (`expectedOrderFormSections`).
        */
-      orderForm: (options: VtexRequestOptions & { sections?: string[] } = {}) =>
-        withCookies<OrderForm>(url("/api/checkout/pub/orderForm"), {
+      orderForm: (options: VtexCheckoutOptions & { sections?: string[] } = {}) =>
+        withCookies<OrderForm>(cartUrl("/api/checkout/pub/orderForm", options), {
           ...pick(options),
           method: "POST",
           body: options.sections ? { expectedOrderFormSections: options.sections } : {},
@@ -316,26 +331,26 @@ export function createVtexClient(config: VtexClientConfig) {
       addItems: (
         orderFormId: string,
         orderItems: OrderFormItemInput[],
-        options?: VtexRequestOptions,
+        options?: VtexCheckoutOptions,
       ) =>
-        withCookies<OrderForm>(url(orderFormPath(orderFormId, "/items")), {
-          ...options,
+        withCookies<OrderForm>(cartUrl(orderFormPath(orderFormId, "/items"), options), {
+          ...pick(options),
           method: "POST",
           body: { orderItems },
         }),
       updateItems: (
         orderFormId: string,
         orderItems: { index: number; quantity: number }[],
-        options?: VtexRequestOptions,
+        options?: VtexCheckoutOptions,
       ) =>
-        withCookies<OrderForm>(url(orderFormPath(orderFormId, "/items/update")), {
-          ...options,
+        withCookies<OrderForm>(cartUrl(orderFormPath(orderFormId, "/items/update"), options), {
+          ...pick(options),
           method: "POST",
           body: { orderItems },
         }),
-      addCoupon: (orderFormId: string, text: string, options?: VtexRequestOptions) =>
-        withCookies<OrderForm>(url(orderFormPath(orderFormId, "/coupons")), {
-          ...options,
+      addCoupon: (orderFormId: string, text: string, options?: VtexCheckoutOptions) =>
+        withCookies<OrderForm>(cartUrl(orderFormPath(orderFormId, "/coupons"), options), {
+          ...pick(options),
           method: "POST",
           body: { text },
         }),
@@ -343,11 +358,11 @@ export function createVtexClient(config: VtexClientConfig) {
         orderFormId: string,
         name: string,
         body: Record<string, unknown>,
-        options?: VtexRequestOptions,
+        options?: VtexCheckoutOptions,
       ) =>
         withCookies<OrderForm>(
-          url(orderFormPath(orderFormId, `/attachments/${encodeURIComponent(name)}`)),
-          { ...options, method: "POST", body },
+          cartUrl(orderFormPath(orderFormId, `/attachments/${encodeURIComponent(name)}`), options),
+          { ...pick(options), method: "POST", body },
         ),
       simulation: (
         body: {
@@ -355,14 +370,13 @@ export function createVtexClient(config: VtexClientConfig) {
           postalCode?: string;
           country?: string;
         },
-        options: VtexRequestOptions & { salesChannel?: string } = {},
+        options: VtexCheckoutOptions = {},
       ) =>
-        json<SimulationOrderForm>(
-          url("/api/checkout/pub/orderForms/simulation", {
-            sc: options.salesChannel ?? config.salesChannel,
-          }),
-          { ...pick(options), method: "POST", body },
-        ),
+        json<SimulationOrderForm>(cartUrl("/api/checkout/pub/orderForms/simulation", options), {
+          ...pick(options),
+          method: "POST",
+          body,
+        }),
       /** The region (and its sellers) serving a postal code; its `id` is the `regionId`. */
       regions: (
         args: { postalCode: string; country: string; salesChannel?: string },
