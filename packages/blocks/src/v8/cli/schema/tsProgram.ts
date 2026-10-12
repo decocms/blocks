@@ -237,6 +237,18 @@ export class TsSymbol {
     return this.compilerSymbol.getName();
   }
 
+  /**
+   * Is this property keyed by a symbol rather than a string (a well-known
+   * symbol such as `[Symbol.toStringTag]`, a `unique symbol`) or a private
+   * `#name`? The compiler names those `__@<name>@<id>` and `__#<id>@#<name>`;
+   * a string key that starts with `__` is escaped with an extra `_`
+   * (`"__@x"` is `___@x`), so the check never catches a real string key.
+   */
+  isSymbolKeyed(): boolean {
+    const escaped = this.compilerSymbol.escapedName as string;
+    return escaped.startsWith("__@") || escaped.startsWith("__#");
+  }
+
   getDeclarations(): TsNode[] {
     return (this.compilerSymbol.declarations ?? []).map((d) => this.ctx.node(d));
   }
