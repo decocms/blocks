@@ -44,6 +44,11 @@ import {
 } from "@decocms/blocks/cms";
 import { withTracing } from "@decocms/blocks/middleware/observability";
 import {
+  getLiveInflight,
+  type InflightMap,
+  setInflight,
+} from "@decocms/blocks/sdk/inflightTimeout";
+import {
   type CacheProfileName,
   cacheHeaders,
   detectCacheProfile,
@@ -57,6 +62,7 @@ import {
   serializeSegmentCookie,
 } from "@decocms/blocks/sdk/flags";
 import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
 import { createServerFn } from "@tanstack/react-start";
 import {
@@ -68,6 +74,7 @@ import {
   setResponseHeader,
 } from "@tanstack/react-start/server";
 import { createElement } from "react";
+import { EDGE_SEGMENT_BAG_KEY } from "../sdk/cdnSegment";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
 import type { SiteGlobalRef } from "./withSiteGlobals";
@@ -92,7 +99,31 @@ export function setSectionChunkMap(map: Record<string, string>): void {
 // ---------------------------------------------------------------------------
 
 type PageResult = Awaited<ReturnType<typeof loadCmsPageInternal>>;
-const pageInflight = new Map<string, Promise<PageResult>>();
+const pageInflight: InflightMap<string, PageResult> = new Map();
+
+/**
+ * Dedup key for `pageInflight`. @internal exported for tests
+ *
+ * `edgeSegment` is the worker's cache-key segment for this request (see
+ * `EDGE_SEGMENT_BAG_KEY`): two requests the edge cache would answer with
+ * different entries must not share one render either, or the joiner's segment
+ * gets cached with the winner's page. `device` stays in the key on its own so
+ * a site without `createDecoWorkerEntry` (no bag) still keeps devices apart.
+ */
+export function pageInflightKey(input: {
+  path: string;
+  clientNav: boolean;
+  device: Device;
+  edgeSegment?: string;
+  resolveGlobals: boolean;
+}): string {
+  return (
+    (input.clientNav ? `__nav:${input.path}` : input.path) +
+    `|${input.device}` +
+    (input.edgeSegment ? `|${input.edgeSegment}` : "") +
+    (input.resolveGlobals ? "" : "|noGlobals")
+  );
+}
 
 /** Same shape as `resolveSiteGlobals()`'s empty result — used when `resolveGlobals: false`. */
 const EMPTY_GLOBALS: { resolvedSections: ResolvedSection[]; rawRefs: SiteGlobalRef[] } = {
@@ -347,23 +378,37 @@ export const loadCmsPage = createServerFn({ method: "GET" })
     // is kept anyway, because this map is module-global and the payload it
     // shares carries `pageUrl`, `flags`, and `device` derived from whichever
     // request won the race. That cross-request bleed is pre-existing and wider
-    // than this bucket (two concurrent same-path requests already collide on
-    // cookies/UA/geo), but SSR and client-nav are exactly the pair whose
-    // `derivePageUrl` inputs differ most, so collapsing them would widen a
-    // known hole for no gain. `resolveGlobals` is part of the key for the same
+    // than this bucket (two concurrent same-path requests in the same edge
+    // segment still share cookie-derived state), but SSR and client-nav are
+    // exactly the pair whose `derivePageUrl` inputs differ most, so collapsing
+    // them would widen a known hole for no gain. `resolveGlobals` is part of the key for the same
     // reason: a `resolveGlobals: false` request must not share a promise with a
     // `resolveGlobals: true` one.
-    const clientNav = isClientNavigation(fullPath, getRequestUrl());
-    const inflightKey =
-      (clientNav ? `__nav:${fullPath}` : fullPath) + (resolveGlobals ? "" : "|noGlobals");
-    const existing = pageInflight.get(inflightKey);
+    //
+    // The device is part of the key: the result carries `device` and every
+    // section loader's device-dependent output, so a mobile request joining a
+    // desktop render was served (and edge-cached under the mobile segment) the
+    // desktop page. Measured on a storefront: 1 in ~25 concurrent desktop/iPhone
+    // pairs, cached for ~50 min; 8/8 iPads got the phone render.
+    //
+    // The rest of the edge segment (region, sales channel, logged-in, geo, A/B
+    // cohort, bot, custom dimensions) is keyed for the same reason — on a
+    // regionalized store two concurrent requests from different regions shared
+    // one render. The worker publishes it per request; see pageInflightKey.
+    const inflightKey = pageInflightKey({
+      path: fullPath,
+      clientNav: isClientNavigation(fullPath, getRequestUrl()),
+      device: detectDevice(getRequestHeader("user-agent") ?? ""),
+      edgeSegment: RequestContext.getBag<string>(EDGE_SEGMENT_BAG_KEY),
+      resolveGlobals,
+    });
+    // A render stuck on an upstream that never settles must not make every later
+    // request for the same path wait on it forever: past the bound the slot is
+    // ignored and a new render starts (the requests already waiting keep waiting).
+    const existing = getLiveInflight(pageInflight, inflightKey);
     if (existing) return existing;
 
-    const promise = loadCmsPageInternal(fullPath, resolveGlobals).finally(() =>
-      pageInflight.delete(inflightKey),
-    );
-    pageInflight.set(inflightKey, promise);
-    return promise;
+    return setInflight(pageInflight, inflightKey, loadCmsPageInternal(fullPath, resolveGlobals));
   });
 
 /** Accepted by `loadCmsHomePage` — optional so existing no-arg callers keep working. */

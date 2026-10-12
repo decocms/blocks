@@ -9,6 +9,7 @@ import {
   CmsPagePendingFallback,
   cmsHomeRouteConfig,
   cmsRouteConfig,
+  pageInflightKey,
   parseLoadCmsHomePageInput,
   parseLoadCmsPageInput,
   enrichGlobals,
@@ -263,5 +264,34 @@ describe("cmsRouteConfig / cmsHomeRouteConfig — pending UI defaults", () => {
     const cfg = cmsRouteConfig(base);
     expect(cfg.pendingMs).toBe(200);
     expect(cfg.pendingMinMs).toBe(300);
+  });
+});
+
+describe("pageInflightKey", () => {
+  const base = {
+    path: "/camisas",
+    clientNav: false,
+    device: "desktop" as const,
+    resolveGlobals: true,
+  };
+
+  it("keeps requests from different edge segments apart (regionalized store)", () => {
+    const sp = pageInflightKey({ ...base, edgeSegment: "__seg=desktop|r=v2.SP" });
+    const rj = pageInflightKey({ ...base, edgeSegment: "__seg=desktop|r=v2.RJ" });
+    expect(sp).not.toBe(rj);
+    expect(pageInflightKey({ ...base, edgeSegment: "__seg=desktop|r=v2.SP" })).toBe(sp);
+  });
+
+  it("keeps devices apart even without an edge segment (no worker entry)", () => {
+    expect(pageInflightKey(base)).not.toBe(pageInflightKey({ ...base, device: "mobile" }));
+  });
+
+  it("keeps the client-nav and resolveGlobals buckets", () => {
+    const keys = new Set([
+      pageInflightKey(base),
+      pageInflightKey({ ...base, clientNav: true }),
+      pageInflightKey({ ...base, resolveGlobals: false }),
+    ]);
+    expect(keys.size).toBe(3);
   });
 });
