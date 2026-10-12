@@ -715,6 +715,9 @@ export function typeToJsonSchema(
       const required: string[] = [];
 
       for (const prop of type.getProperties()) {
+        // A symbol key (`[Symbol.toStringTag]` on a `Promise`, a `unique
+        // symbol`) or a `#private` name can't be a JSON key.
+        if (prop.isSymbolKeyed()) continue;
         const name = prop.getName();
         // `_`-prefixed props are site data (`__title` labels a list entry in the
         // editor, `_id` keys a dynamic-options picker) and deco-cx/deco keeps

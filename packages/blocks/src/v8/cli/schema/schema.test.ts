@@ -512,6 +512,50 @@ export interface Props {
   }, 30_000);
 });
 
+describe("symbol-keyed props", () => {
+  const propsOf = async (source: string) => (await barDefinitions(source))[`${b64("bar")}@Props`];
+
+  // A `Promise` (React 19's `ReactNode` has one) carries `[Symbol.toStringTag]`,
+  // which the compiler names `__@toStringTag@<id>`: it once leaked into a
+  // site's schema as a field.
+  it("leaves out well-known and unique symbol keys, and changes nothing else", async () => {
+    const shared = `
+/** @title {{__title}} */
+export interface Item {
+  __title?: string;
+  "__@literal"?: string;
+  label: string;
+}`;
+    const withSymbols = await propsOf(`
+declare const brand: unique symbol;
+${shared}
+export interface Tagged extends Item {
+  readonly [Symbol.toStringTag]: string;
+  [brand]: true;
+}
+export interface Props {
+  items: Tagged[];
+  pending?: Promise<string> | string;
+}`);
+    const without = await propsOf(`
+${shared}
+export interface Tagged extends Item {}
+export interface Props { items: Tagged[] }`);
+    const json = JSON.stringify(withSymbols);
+    expect(json).not.toContain("__@toStringTag");
+    expect(json).not.toContain("__@brand");
+    const item = withSymbols.properties.items.items;
+    // String keys starting with "__" are untouched, even "__@…".
+    expect(Object.keys(item.properties)).toEqual(["__title", "__@literal", "label"]);
+    expect(item.required).toEqual(["label"]);
+    expect(withSymbols.properties.items).toEqual(without.properties.items);
+    // The promise is an object with no fields (none required), not one with a junk field.
+    const promise = withSymbols.properties.pending.anyOf.find((s: any) => s.title === "Promise");
+    expect(promise).toMatchObject({ type: "object", properties: {} });
+    expect(promise.required).toBeUndefined();
+  }, 30_000);
+});
+
 // Ported from main's generate-schema.test.ts (25a7ffb9).
 describe("recursive named types", () => {
   // A navigation tree written as `interface Link { submenu?: Link[] }`. The
