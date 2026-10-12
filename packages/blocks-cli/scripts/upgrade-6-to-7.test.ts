@@ -70,6 +70,9 @@ describe("deco-upgrade-6-to-7 CLI (#367)", () => {
     expect(pkg.dependencies).not.toHaveProperty("@decocms/apps");
     expect(pkg.dependencies).toHaveProperty("@decocms/tanstack");
     expect(pkg.dependencies).toHaveProperty("@decocms/blocks");
+    // Never "latest": @decocms/blocks' latest is 8.x since v8.
+    expect(pkg.dependencies["@decocms/blocks"]).toBe("^7");
+    expect(pkg.dependencies["@decocms/tanstack"]).toBe("^7");
   });
 
   it("second --write run is idempotent (no-op)", () => {

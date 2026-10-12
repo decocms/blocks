@@ -68,7 +68,7 @@ function walkTsFiles(dir: string, out: string[] = []): string[] {
 /** Removes @decocms/start and @decocms/apps (bare, monolith) from a deps
  * object, and ensures the current split packages are present. Site- and
  * platform-specific version pins are left to `bun install`/`npm install`
- * against the fallback "latest" this writes — sites should pin exact
+ * against the "^7" range this writes — sites should pin exact
  * versions afterward the same way the scaffolder does. */
 function upgradeDeps(deps: Record<string, string> | undefined): {
   next: Record<string, string>;
@@ -87,7 +87,8 @@ function upgradeDeps(deps: Record<string, string> | undefined): {
   if (removed.length > 0) {
     for (const dep of FRAMEWORK_DEPS) {
       if (!next[dep]) {
-        next[dep] = "latest";
+        // "^7", not "latest": @decocms/blocks' latest is 8.x since v8.
+        next[dep] = "^7";
         added.push(dep);
       }
     }
@@ -108,7 +109,7 @@ function upgradePackageJson(pkgPath: string, write: boolean): void {
   console.log(`  package.json: removing ${removed.join(", ")}`);
   const added = [...new Set([...depsResult.added, ...devDepsResult.added])];
   if (added.length > 0) {
-    console.log(`  package.json: adding ${added.join(", ")} at "latest" — pin exact versions after install`);
+    console.log(`  package.json: adding ${added.join(", ")} at "^7" — pin exact versions after install`);
   }
 
   if (!write) return;

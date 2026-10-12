@@ -114,7 +114,14 @@ export function generatePackageJson(ctx: MigrationContext): string {
   // (in `dependencies` and `devDependencies`) needs to become its own
   // `getLatestVersion("<package>", "<fallback>")` call instead of sharing
   // this one lookup.
-  const frameworkVersion = getLatestVersion("@decocms/blocks", "7.5.1");
+  //
+  // The lookup reads @decocms/blocks-cli, not @decocms/blocks: since v8,
+  // @decocms/blocks' `latest` is 8.x, which this migrator's output can't
+  // run on. blocks-cli only exists on the 7.x line, so its `latest` is
+  // always the newest 7.x of the lockstep set. (`npm view
+  // @decocms/blocks@7 version` is no substitute: with a range npm prints
+  // every matching version, unsorted.)
+  const frameworkVersion = getLatestVersion("@decocms/blocks-cli", "7.78.0");
 
   const platformPackage: Partial<Record<typeof ctx.platform, string>> = {
     vtex: "@decocms/apps-vtex",
