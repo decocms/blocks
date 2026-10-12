@@ -426,6 +426,75 @@ export const badge = (): Badge => ({ label: "" });`,
   }, 30_000);
 });
 
+// Ported from main's generate-schema.test.ts (25c2e134, 6cb3bfa2): fixes the
+// v7 generator got in 7.77.2, which this generator was copied from.
+describe("underscore-prefixed props and hidden literals", () => {
+  const propsOf = async (source: string) => {
+    const fixture = createFixture({
+      "src/bar.ts": `${source}
+export const bar = (props: Props) => ({ component: "bar", props });`,
+      ".deco/index.ts": `import { bar } from "../src/bar"; export default { bar };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const definition = m.schema.definitions[`${b64("bar")}@Props`];
+      expect(definition, Object.keys(m.schema.definitions).join(" ")).toBeDefined();
+      return definition;
+    } finally {
+      fixture.remove();
+    }
+  };
+
+  it("keeps __title and _id (editor label, dynamic-options key) but not __resolveType", async () => {
+    const props = await propsOf(`
+/** @title {{__title}} */
+export interface Rule {
+  /**
+   * @title Título (opcional)
+   * @description Título do CMS.
+   */
+  __title?: string;
+  /**
+   * @title Regulamento
+   * @format dynamic-options
+   * @options site/loaders/admin/regulation.ts
+   */
+  _id?: string;
+  __resolveType?: string;
+  pathname: string;
+}
+export interface Props { rules: Rule[] }`);
+    const item = props.properties.rules.items;
+    expect(Object.keys(item.properties)).toEqual(["__title", "_id", "pathname"]);
+    expect(item.properties.__title).toEqual({
+      type: "string",
+      nullable: true,
+      title: "Título (opcional)",
+      description: "Título do CMS.",
+    });
+    // The field is kept; its loader-backed `@options` is dropped as for any
+    // other field (the site editor never runs site code).
+    expect(item.properties._id).toMatchObject({ type: "string", format: "dynamic-options" });
+    expect(item.required).toEqual(["pathname"]);
+  }, 30_000);
+
+  it("emits a hidden literal discriminator with const and an equal default", async () => {
+    const props = await propsOf(`
+export interface Props {
+  /** @hide true */
+  __type: "image";
+  src: string;
+}`);
+    expect(props.properties.__type).toEqual({
+      type: "string",
+      const: "image",
+      default: "image",
+      hide: "true",
+      title: "__type",
+    });
+  }, 30_000);
+});
+
 describe("@format on a type alias", () => {
   it("gives every field of an imported alias its format: plain, optional, nullable, listed, a select", async () => {
     const fixture = createFixture({

@@ -571,9 +571,12 @@ export function typeToJsonSchema(
     if (isSectionType(type)) return sectionRef();
 
     if (type.isString() || type.isStringLiteral()) {
-      return type.isStringLiteral()
-        ? { type: "string", const: type.getLiteralValue() }
-        : { type: "string" };
+      if (!type.isStringLiteral()) return { type: "string" };
+      // deco-cx/deco pairs every `const` with an equal `default`, so the editor
+      // writes the literal into new entries, e.g. a hidden `__type: "image"`
+      // discriminator the component branches on.
+      const value = type.getLiteralValue();
+      return { type: "string", const: value, default: value };
     }
     if (type.isNumber() || type.isNumberLiteral()) return { type: "number" };
     if (type.isBoolean() || type.isBooleanLiteral()) return { type: "boolean" };
@@ -682,7 +685,10 @@ export function typeToJsonSchema(
 
       for (const prop of type.getProperties()) {
         const name = prop.getName();
-        if (name.startsWith("_") || name.startsWith("$") || name === "@type") continue;
+        // `_`-prefixed props are site data (`__title` labels a list entry in the
+        // editor, `_id` keys a dynamic-options picker) and deco-cx/deco keeps
+        // them; only the block-reference discriminator is framework-owned.
+        if (name === "__resolveType" || name.startsWith("$") || name === "@type") continue;
         if (REACT_INTERNAL_PROPS.has(name)) continue;
 
         const decl = prop.getValueDeclaration() ?? prop.getDeclarations()[0];
