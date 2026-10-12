@@ -51,3 +51,41 @@ export function withInflightTimeout<T>(
     if (timer !== undefined) clearTimeout(timer);
   });
 }
+
+/**
+ * Join a shared inflight Promise with a timeout of the JOINER's own.
+ *
+ * `withInflightTimeout` arms its timer in the owner's request. On Cloudflare
+ * Workers that request's I/O — and its timers — are cancelled when its client
+ * disconnects (reload, navigation, closed tab), so a Promise the owner left in
+ * a module-level dedup map may never settle, and the owner's timeout never
+ * fires either. Every later caller that joins it would hang for the life of
+ * the isolate.
+ *
+ * The timer here is created by the caller that joins, so it lives as long as
+ * that caller's request. If `shared` has not settled within `ms`, `onStall`
+ * runs and its result answers the joiner instead — callers use it to evict the
+ * dead slot (when it still holds `shared`) and start their own work. If
+ * `shared` settles first, the joiner gets its result, as before.
+ */
+export function joinInflight<T>(
+  shared: Promise<T>,
+  onStall: () => Promise<T>,
+  ms: number = DEFAULT_INFLIGHT_TIMEOUT_MS,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onStall().then(resolve, reject);
+    }, ms);
+    shared.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
