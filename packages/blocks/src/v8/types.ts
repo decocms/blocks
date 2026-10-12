@@ -107,7 +107,12 @@ export interface Page extends Route {
 
 /** The built-in `redirect` block. */
 export interface Redirect {
-  /** Literal path or template (`:name` segments, an optional trailing `/*`). */
+  /**
+   * Literal path or template (`:name` segments, an optional trailing `/*`),
+   * optionally scoped to a query (`/calcados?map=c,ft`): then it matches only
+   * a request whose query string is exactly that one, and wins over a
+   * path-only `from` for the same URL.
+   */
   from: string;
   to: string;
   /** `true` for a 301, `false` for a 302. */

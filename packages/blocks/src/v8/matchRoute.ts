@@ -2,30 +2,37 @@
  * `matchRoute(url, items)`: finds the entry for a URL (see /next/routing and
  * /next/router-internals).
  *
- * Paths compile into a segment trie, cached per array object: a lookup costs
- * the URL's depth, not the number of routes. At every node the walk tries the
- * literal child, then the parameter child, then a trailing `*` (a splat: one
- * or more remaining segments), so exact paths win over parameters and
- * parameters over a splat, per segment. Redirects are a second trie, checked
- * first. Two entries that
- * reach the same leaf are a conflict `deco check` reports; here the earlier
- * one keeps it, so a lookup never throws. No regex, no sorting.
+ * Paths compile into a segment trie (`routeTrie.ts`), cached per array
+ * object: a lookup costs the URL's depth, not the number of routes. At every
+ * node the walk tries the literal child, then the parameter child, then a
+ * trailing `*` (a splat: one or more remaining segments), so exact paths win
+ * over parameters and parameters over a splat, per segment. Redirects are
+ * checked first, in their own tries: one per query a `from` is scoped to
+ * (`/calcados?map=c,ft`), tried when the request's query is exactly that one,
+ * then one for the path-only sources. Two entries that reach the same leaf
+ * are a conflict `deco check` reports; here the earlier one keeps it, so a
+ * lookup never throws. No regex, no sorting.
  */
+
+import type { TrieNode } from "./routeTrie.ts";
+import {
+  buildTrie,
+  type Hit,
+  insert,
+  lookup,
+  safeDecode,
+  splitPath,
+  splitRef,
+} from "./routeTrie.ts";
 import type { LegacyRedirect, Match, Redirect, RedirectStatus, Route } from "./types.ts";
 
-/** A leaf holds the entry and its parameter names, in path order; `splat` is a trailing `*`'s leaf. */
-type Leaf<T> = { value: T; names: string[] };
-type TrieNode<T> = {
-  literals: Map<string, TrieNode<T>>;
-  param?: TrieNode<T>;
-  leaf?: Leaf<T>;
-  splat?: Leaf<T>;
-};
-type Hit<T> = { value: T; params: Record<string, string>; rest: string[] };
-type NormalizedRedirect = Redirect & { status: RedirectStatus };
+/** `query`: what `from` is scoped to, after its `?` (`""`: any query, or none). */
+type NormalizedRedirect = Redirect & { status: RedirectStatus; query: string };
+/** The redirect tries, by the query their sources are scoped to (`""`: path-only). */
+type RedirectTries = Map<string, TrieNode<NormalizedRedirect>>;
 
 const routeTries = new WeakMap<object, TrieNode<Route>>();
-const redirectTries = new WeakMap<object, TrieNode<NormalizedRedirect>>();
+const redirectTries = new WeakMap<object, RedirectTries>();
 const STATUSES = new Set<number>([301, 302, 307, 308]);
 
 export function matchRoute<T extends Route>(
@@ -36,21 +43,21 @@ export function matchRoute<T extends Route>(
   if (target === null) return { kind: "not-found" };
 
   const redirects: unknown[] = Array.isArray(items?.redirects) ? items.redirects : [];
-  const redirectTrie = cached(redirectTries, redirects, () =>
-    redirects.flatMap((input) => {
-      const r = normalizeRedirect(input);
-      return r ? [[r.from, r] as [string, NormalizedRedirect]] : [];
-    }),
-  );
-  const redirect = lookup(redirectTrie, target.segments);
-  if (redirect !== null) {
+  const tries = cached(redirectTries, redirects, () => compileRedirects(redirects));
+  // A source scoped to the request's exact query string beats a path-only one,
+  // as Fresh's router tried `pathname + search` before `pathname`.
+  const scoped = target.search ? tries.get(target.search.slice(1)) : undefined;
+  const pathOnly = tries.get("");
+  const redirect =
+    (scoped && lookup(scoped, target.segments)) || (pathOnly && lookup(pathOnly, target.segments));
+  if (redirect) {
     const location = buildLocation(redirect, target.search);
     return { kind: "redirect", location, status: redirect.value.status };
   }
 
   const routes = Array.isArray(items?.routes) ? items.routes : [];
   const trie = cached(routeTries, routes, () =>
-    routes.filter((r) => typeof r?.path === "string").map((r) => [r.path, r as Route]),
+    buildTrie(routes.filter((r) => typeof r?.path === "string").map((r) => [r.path, r as Route])),
   );
   const found = lookup(trie, target.segments);
   if (found === null) return { kind: "not-found" };
@@ -70,93 +77,43 @@ function parseTarget(url: string | URL | Request): { segments: string[]; search:
   }
 }
 
-/** `/a/b/`, `/a//b` and `/a/b?x` all name `["a", "b"]`; `/` names `[]`. */
-function splitPath(path: string): string[] {
-  const query = path.indexOf("?");
-  const hash = path.indexOf("#");
-  const end = Math.min(query === -1 ? path.length : query, hash === -1 ? path.length : hash);
-  return path
-    .slice(0, end)
-    .split("/")
-    .filter((segment) => segment.length > 0);
-}
-
-function safeDecode(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
-
-/** The trie for an array, built once per array object. */
-function cached<T>(cache: WeakMap<object, TrieNode<T>>, key: object, entries: () => [string, T][]) {
+/** Built once per array object. */
+function cached<V>(cache: WeakMap<object, V>, key: object, build: () => V): V {
   const hit = cache.get(key);
   if (hit) return hit;
-  const root: TrieNode<T> = { literals: new Map() };
-  for (const [path, value] of entries()) insert(root, path, value);
-  cache.set(key, root);
-  return root;
+  const value = build();
+  cache.set(key, value);
+  return value;
 }
 
-/** Adds `path`; returns the value already holding its leaf (a conflict: the earlier keeps it). */
-function insert<T>(root: TrieNode<T>, path: string, value: T): T | undefined {
-  const names: string[] = [];
-  const segments = splitPath(path);
-  let node = root;
-  for (const [i, segment] of segments.entries()) {
-    if (segment === "*" && i === segments.length - 1) {
-      if (node.splat) return node.splat.value;
-      node.splat = { value, names };
-      return undefined;
-    }
-    if (segment.startsWith(":") && segment.length > 1) {
-      names.push(segment.slice(1));
-      node = node.param ??= { literals: new Map() };
-      continue;
-    }
-    const literal = safeDecode(segment);
-    const child = node.literals.get(literal) ?? { literals: new Map() };
-    node.literals.set(literal, child);
-    node = child;
+function compileRedirects(redirects: unknown[]): RedirectTries {
+  const tries: RedirectTries = new Map();
+  for (const redirect of redirects.map(normalizeRedirect)) {
+    if (redirect === null) continue;
+    const root = tries.get(redirect.query) ?? { literals: new Map() };
+    tries.set(redirect.query, root);
+    insert(root, redirect.from, redirect);
   }
-  if (node.leaf) return node.leaf.value;
-  node.leaf = { value, names };
-  return undefined;
+  return tries;
 }
 
 /**
  * The entries that reach a leaf an earlier entry already holds: two equal
- * paths, or two templates of one shape (`/:slug/p` and `/:id/p`). `matchRoute`
- * serves the earlier one; `deco check` reports each pair.
+ * paths, or two templates of one shape (`/:slug/p` and `/:id/p`), scoped to the
+ * same query. `matchRoute` serves the earlier one; `deco check` reports each pair.
  */
 export function findRouteConflicts<T extends { path: string }>(entries: readonly T[]) {
-  const root: TrieNode<T> = { literals: new Map() };
+  // A redirect scoped to a query (`/x?map=ft`) never meets `/x` or `/x?map=c`.
+  const roots = new Map<string, TrieNode<T>>();
   const conflicts: { entry: T; other: T }[] = [];
   for (const entry of entries) {
+    const query = splitRef(entry.path).query;
+    const root = roots.get(query) ?? { literals: new Map() };
+    roots.set(query, root);
     const other = insert(root, entry.path, entry);
     if (other !== undefined) conflicts.push({ entry, other });
   }
   return conflicts;
-}
-
-/** Walks the URL's segments: the literal child first, then the parameter child, then the splat. */
-function lookup<T>(node: TrieNode<T>, segs: string[], i = 0, vals: string[] = []): Hit<T> | null {
-  if (i === segs.length) return node.leaf ? hit(node.leaf, vals, []) : null;
-  const literal = node.literals.get(segs[i]!);
-  let found = literal ? lookup(literal, segs, i + 1, vals) : null;
-  // A parameter is one segment and never contains a slash, even an encoded one.
-  if (!found && node.param && !segs[i]!.includes("/")) {
-    found = lookup(node.param, segs, i + 1, [...vals, segs[i]!]);
-  }
-  // A splat takes the rest (at least one segment, as there is one here).
-  return found ?? (node.splat ? hit(node.splat, vals, segs.slice(i)) : null);
-}
-
-function hit<T>({ value, names }: Leaf<T>, values: string[], rest: string[]): Hit<T> {
-  const params: Record<string, string> = Object.fromEntries(names.map((n, i) => [n, values[i]!]));
-  if (rest.length > 0) params["*"] = rest.join("/");
-  return { value, params, rest };
 }
 
 /**
@@ -174,12 +131,17 @@ function normalizeRedirect(input: unknown): NormalizedRedirect | null {
   if (nested) status = flat.type === "permanent" ? 301 : 307;
   else if (STATUSES.has(flat.status as number)) status = flat.status as RedirectStatus;
   const { from, to, discardQueryParameters } = flat;
+  const query = splitRef(from).query;
   // A `to` naming the path `from` matches would match again, forever: `/a` →
-  // `/a`, `/a/` → `/a`, `/x` → `/x?utm=1` (the query isn't matched), `/p/:id`
-  // → `/p/:id`. Dropped, as Fresh's loader skipped `from === to`. Compared as
+  // `/a`, `/a/` → `/a`, `/x` → `/x?utm=1` (a path-only source takes any
+  // query), `/p/:id` → `/p/:id`, and `/x?a=1` → `/x` (the query is carried
+  // over). Dropped, as Fresh's loader skipped `from === to`. Compared as
   // written (`/café` and `/caf%C3%A9` aren't folded); `https://…` never equals.
-  if (to[0] === "/" && splitPath(from).join("/") === splitPath(to).join("/")) return null;
-  return { from, to, permanent: status === 301 || status === 308, status, discardQueryParameters };
+  const back = [splitRef(to).query, discardQueryParameters ? "" : query].filter(Boolean).join("&");
+  const loops = splitPath(from).join("/") === splitPath(to).join("/") && (!query || back === query);
+  if (to[0] === "/" && loops) return null;
+  const permanent = status === 301 || status === 308;
+  return { from, to, permanent, status, discardQueryParameters, query };
 }
 
 /**
@@ -190,11 +152,8 @@ function normalizeRedirect(input: unknown): NormalizedRedirect | null {
  * into `//other.host` (or `/\other.host`).
  */
 function buildLocation({ value: redirect, params, rest }: Hit<NormalizedRedirect>, search: string) {
-  const { to } = redirect;
-  const hashAt = to.indexOf("#") === -1 ? to.length : to.indexOf("#");
-  const queryAt = to.indexOf("?") === -1 || to.indexOf("?") > hashAt ? hashAt : to.indexOf("?");
-  const filled = to
-    .slice(0, queryAt)
+  const { path, query: written, hash } = splitRef(redirect.to);
+  const filled = path
     .split("/")
     .map((s) => {
       if (s === "*" && rest.length > 0) return rest.map(encodeURIComponent).join("/");
@@ -204,6 +163,6 @@ function buildLocation({ value: redirect, params, rest }: Hit<NormalizedRedirect
     })
     .join("/");
   const carried = redirect.discardQueryParameters ? "" : search.slice(1);
-  const query = [to.slice(queryAt + 1, hashAt), carried].filter(Boolean).join("&");
-  return `${filled}${query ? `?${query}` : ""}${to.slice(hashAt)}`;
+  const query = [written, carried].filter(Boolean).join("&");
+  return `${filled}${query ? `?${query}` : ""}${hash}`;
 }

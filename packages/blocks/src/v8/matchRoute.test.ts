@@ -173,6 +173,12 @@ describe("findRouteConflicts (what deco check reports)", () => {
     expect(names([route("A", "/:slug/p"), route("B", "/:slug/q")])).toEqual([]);
   });
 
+  it("a redirect scoped to a query only conflicts with one scoped to the same query", () => {
+    const entries = [route("A", "/x"), route("B", "/x?map=ft"), route("C", "/x?map=c")];
+    expect(names(entries)).toEqual([]);
+    expect(names([...entries, route("D", "/x/?map=ft")])).toEqual([["D", "B"]]);
+  });
+
   it("lets an exact path and a template coexist (exact wins per segment)", () => {
     expect(names([route("A", "/blog/:slug"), route("B", "/blog/archive")])).toEqual([]);
   });
@@ -345,6 +351,98 @@ describe("redirects", () => {
     expect(matchRoute("/ext", { routes, redirects })).toMatchObject({
       kind: "redirect",
       location: "https://other.example/ext",
+    });
+  });
+
+  // Ported from main's #647: a source scoped to a query (`/x?map=ft`) matches
+  // when the request's query string is exactly that one, byte for byte (v7's
+  // `pathname + search` lookup), and wins over a path-only source.
+  describe("query-scoped sources", () => {
+    const scopedRedirects: Redirect[] = [
+      { from: "/kit-shirts/p", to: "/white-shirt/p", permanent: true },
+      { from: "/kit-shirts/p?skuId=4432", to: "/clothing/kits", permanent: true },
+      { from: "/bottle/p?listName=Summer", to: "/accessories", permanent: true },
+      { from: "/calcados?map=c,ft", to: "/calcados/tenis", permanent: false },
+    ];
+    const at = (url: string, redirects = scopedRedirects) => matchRoute(url, { routes, redirects });
+
+    it("matches pathname + search before the bare pathname", () => {
+      expect(at("/kit-shirts/p?skuId=4432")).toEqual({
+        kind: "redirect",
+        location: "/clothing/kits?skuId=4432",
+        status: 301,
+      });
+      expect(at("/kit-shirts/p")).toMatchObject({ location: "/white-shirt/p" });
+      expect(at("/kit-shirts/p?skuId=1")).toMatchObject({ location: "/white-shirt/p?skuId=1" });
+    });
+
+    it("wins whatever the array order", () => {
+      expect(at("/kit-shirts/p?skuId=4432", [...scopedRedirects].reverse())).toMatchObject({
+        location: "/clothing/kits?skuId=4432",
+      });
+    });
+
+    it("is unreachable from the bare pathname", () => {
+      expect(at("/bottle/p")).toMatchObject({ kind: "match", entry: shirt });
+      expect(at("/bottle/p?listName=Summer")).toMatchObject({
+        location: "/accessories?listName=Summer",
+      });
+      expect(at("/calcados?map=c,ft")).toMatchObject({
+        location: "/calcados/tenis?map=c,ft",
+        status: 302,
+      });
+    });
+
+    it("needs the exact query string: same order, no extra parameter, as written", () => {
+      const both: Redirect[] = [{ from: "/x?a=1&b=2", to: "/y", permanent: true }];
+      for (const url of ["/x?b=2&a=1", "/x?a=1&b=2&utm=1", "/x?a=1", "/x?a=2&b=2", "/x?A=1&b=2"]) {
+        expect(at(url, both), url).toEqual({ kind: "not-found" });
+      }
+      expect(at("/x?a=1&b=2", both)).toMatchObject({ location: "/y?a=1&b=2" });
+      // Not decoded on either side: `%2C` is not `,`.
+      expect(at("/calcados?map=c%2Cft")).toEqual({ kind: "not-found" });
+    });
+
+    it("matches the path like any source: templates, splats, trailing slash, the fragment ignored", () => {
+      const redirects: Redirect[] = [
+        {
+          from: "/old/:slug?ref=mail",
+          to: "/:slug/p",
+          permanent: true,
+          discardQueryParameters: true,
+        },
+        { from: "/blog/*?lang=en", to: "/en/blog/*", permanent: true },
+      ];
+      expect(at("/old/summer/?ref=mail#top", redirects)).toMatchObject({ location: "/summer/p" });
+      expect(at("/old/summer", redirects)).toEqual({ kind: "not-found" });
+      expect(at("/blog/2024/hello?lang=en", redirects)).toMatchObject({
+        location: "/en/blog/2024/hello?lang=en",
+      });
+    });
+
+    it("beats a route at the same path, and the nested shape can be scoped too", () => {
+      const legacy = [{ redirect: { from: "/summer?season=old", to: "/winter" } }] as never;
+      expect(at("/summer?season=old", legacy)).toEqual({
+        kind: "redirect",
+        location: "/winter?season=old",
+        status: 307,
+      });
+      expect(at("/summer", legacy)).toMatchObject({ kind: "match", entry: summer });
+    });
+
+    it("drops a scoped source whose to would match it again; keeps one that strips the query", () => {
+      const loops: Redirect[] = [
+        { from: "/x?a=1", to: "/x", permanent: true },
+        { from: "/y?a=1", to: "/y?a=1", permanent: true, discardQueryParameters: true },
+      ];
+      expect(at("/x?a=1", loops)).toEqual({ kind: "not-found" });
+      expect(at("/y?a=1", loops)).toEqual({ kind: "not-found" });
+      const strips: Redirect[] = [
+        { from: "/x?a=1", to: "/x", permanent: true, discardQueryParameters: true },
+        { from: "/y?a=1", to: "/y?b=2", permanent: true, discardQueryParameters: true },
+      ];
+      expect(at("/x?a=1", strips)).toMatchObject({ location: "/x" });
+      expect(at("/y?a=1", strips)).toMatchObject({ location: "/y?b=2" });
     });
   });
 
