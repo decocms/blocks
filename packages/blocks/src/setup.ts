@@ -18,7 +18,7 @@
 import {
 	loadBlocks,
 	onBeforeResolve,
-	registerSections,
+	registerSiteSections,
 	setBlocks,
 	setDanglingReferenceHandler,
 	setResolveErrorHandler,
@@ -83,11 +83,7 @@ export function createSiteSetup(options: SiteSetupOptions): void {
 	}
 
 	// 2. Section glob registration — transform Vite paths to CMS keys
-	const sections: Record<string, () => Promise<any>> = {};
-	for (const [path, loader] of Object.entries(options.sections)) {
-		sections[`site/${path.slice(2)}`] = loader;
-	}
-	registerSections(sections);
+	registerSiteSections(options.sections);
 
 	// 3. Matchers
 	registerBuiltinMatchers();
