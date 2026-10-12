@@ -492,6 +492,20 @@ export interface Props {
       hide: "true",
       title: "__type",
     });
+    // Hidden but defaulted: the editor writes the literal, so it stays
+    // required (as in deco-cx/deco).
+    expect(props.required).toEqual(["__type", "src"]);
+  }, 30_000);
+
+  it("still leaves a hidden prop without a default out of required", async () => {
+    const props = await propsOf(`
+export interface Props {
+  /** @hide true */
+  internal: string;
+  src: string;
+}`);
+    expect(props.properties.internal.hide).toBe("true");
+    expect(props.required).toEqual(["src"]);
   }, 30_000);
 });
 

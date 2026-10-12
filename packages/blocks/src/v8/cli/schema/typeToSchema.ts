@@ -738,8 +738,11 @@ export function typeToJsonSchema(
         schema.title ??= titleCase(name);
         properties[name] = schema;
         // A hidden prop can't be filled in by an editor; requiring it would
-        // deadlock the form.
-        if (!optional && schema.hide !== "true") required.push(name);
+        // deadlock the form. Unless it has a default the editor writes for
+        // the user (a hidden literal such as `__title: "…"`), which
+        // deco-cx/deco keeps required.
+        const fillable = schema.hide !== "true" || "default" in schema;
+        if (!optional && fillable) required.push(name);
       }
 
       const result: any = { type: "object", properties };
