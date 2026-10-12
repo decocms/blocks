@@ -293,7 +293,7 @@ export class TsSignature {
 /** One JSDoc comment: its description and its tags. */
 export interface JsDocView {
   getDescription(): string;
-  getTags(): { getTagName(): string; getCommentText(): string | undefined }[];
+  getTags(): { getTagName(): string; getCommentText(): string | undefined; getText(): string }[];
 }
 
 export class TsNode {
@@ -458,6 +458,7 @@ function jsDocView(ts: TypeScript, doc: TS.JSDoc): JsDocView {
       return (doc.tags ?? []).map((tag) => ({
         getTagName: () => tag.tagName.getText(sourceFile),
         getCommentText: () => commentText(tag.comment),
+        getText: () => tag.getText(sourceFile),
       }));
     },
   };

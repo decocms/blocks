@@ -81,6 +81,11 @@ export function getJsDocTags(symbol: MorphSymbol): Record<string, string> {
       const desc = doc.getDescription().trim();
       if (desc) tags.description = desc;
       for (const tag of doc.getTags()) {
+        // deco-cx/deco reads tags with /@(\w+)\s+/, so `@description: text` was
+        // never a description there and the editor did not show it. The TS
+        // parser splits it into tag `description` + comment `: text`; skip it
+        // rather than emit a description that starts with ": ".
+        if (/^@\w+[^\w\s]/.test(tag.getText())) continue;
         tags[tag.getTagName()] = tag.getCommentText()?.trim() || "true";
       }
     }
@@ -543,13 +548,39 @@ function isOpaqueSectionType(propType: Type): boolean {
   return type.isAny() || type.isUnknown();
 }
 
+/**
+ * The schema of a type met again while it is still being expanded (a
+ * recursive type, `interface Link { submenu?: Link[] }`): a `$ref` to the
+ * type's shared definition, looking through the array / `| null` wrapper the
+ * cycle was met on, so `submenu` is `{ type: "array", items: { $ref } }`.
+ * Null when there is nothing to reference (anonymous or generic types).
+ */
+function recursiveRef(type: Type, ctx?: SchemaContext): any | null {
+  if (!ctx) return null;
+  if (type.isUnion()) {
+    const parts = type.getUnionTypes();
+    const nonNull = parts.filter((t) => !t.isNull() && !t.isUndefined());
+    if (nonNull.length !== 1) return null;
+    const inner = recursiveRef(nonNull[0], ctx);
+    return inner && nonNull.length < parts.length ? { ...inner, nullable: true } : inner;
+  }
+  if (type.isArray()) {
+    const element = type.getArrayElementType();
+    const items = element ? recursiveRef(element, ctx) : null;
+    return items ? { type: "array", items } : null;
+  }
+  return ctx.namedDefinition(type);
+}
+
 export function typeToJsonSchema(
   type: Type,
   visited = new Set<string>(),
   ctx?: SchemaContext,
 ): any {
   const typeText = type.getText();
-  if (visited.has(typeText)) return { type: "object" };
+  // A cycle: reference the type's shared definition instead of collapsing it
+  // to a bare object, as deco-cx/deco does.
+  if (visited.has(typeText)) return recursiveRef(type, ctx) ?? { type: "object" };
   visited.add(typeText);
 
   try {

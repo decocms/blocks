@@ -428,22 +428,25 @@ export const badge = (): Badge => ({ label: "" });`,
 
 // Ported from main's generate-schema.test.ts (25c2e134, 6cb3bfa2): fixes the
 // v7 generator got in 7.77.2, which this generator was copied from.
-describe("underscore-prefixed props and hidden literals", () => {
-  const propsOf = async (source: string) => {
-    const fixture = createFixture({
-      "src/bar.ts": `${source}
+/** The definitions written for a section `bar` whose props are `Props` in `source`. */
+async function barDefinitions(source: string) {
+  const fixture = createFixture({
+    "src/bar.ts": `${source}
 export const bar = (props: Props) => ({ component: "bar", props });`,
-      ".deco/index.ts": `import { bar } from "../src/bar"; export default { bar };`,
-    });
-    try {
-      const { meta: m } = await generateSchema(decoPaths(fixture.root));
-      const definition = m.schema.definitions[`${b64("bar")}@Props`];
-      expect(definition, Object.keys(m.schema.definitions).join(" ")).toBeDefined();
-      return definition;
-    } finally {
-      fixture.remove();
-    }
-  };
+    ".deco/index.ts": `import { bar } from "../src/bar"; export default { bar };`,
+  });
+  try {
+    const { meta: m } = await generateSchema(decoPaths(fixture.root));
+    const definitions = m.schema.definitions;
+    expect(definitions[`${b64("bar")}@Props`], Object.keys(definitions).join(" ")).toBeDefined();
+    return definitions;
+  } finally {
+    fixture.remove();
+  }
+}
+
+describe("underscore-prefixed props and hidden literals", () => {
+  const propsOf = async (source: string) => (await barDefinitions(source))[`${b64("bar")}@Props`];
 
   it("keeps __title and _id (editor label, dynamic-options key) but not __resolveType", async () => {
     const props = await propsOf(`
@@ -506,6 +509,65 @@ export interface Props {
 }`);
     expect(props.properties.internal.hide).toBe("true");
     expect(props.required).toEqual(["src"]);
+  }, 30_000);
+});
+
+// Ported from main's generate-schema.test.ts (25a7ffb9).
+describe("recursive named types", () => {
+  // A navigation tree written as `interface Link { submenu?: Link[] }`. The
+  // cycle used to collapse to `{ type: "object" }`, so the editor edited the
+  // submenu as an object instead of a list of links. deco-cx/deco emits the
+  // type once as a definition and references it from inside the cycle.
+  it("references the type from inside the cycle, and its definition is the full type", async () => {
+    const definitions = await barDefinitions(`
+/** @title {{name}} */
+export interface Link {
+  /** @title Name */
+  name: string;
+  /** @title Submenu */
+  submenu?: Link[];
+}
+export interface Props { links: Link[] }`);
+    const refId = `${b64("src/bar.ts")}@Link`;
+    const item = definitions[`${b64("bar")}@Props`].properties.links.items;
+    expect(item.title).toBe("{{name}}");
+    expect(item.properties.submenu).toEqual({
+      type: "array",
+      items: { $ref: `#/definitions/${refId}` },
+      nullable: true,
+      title: "Submenu",
+    });
+    expect(definitions[refId].title).toBe("{{name}}");
+    expect(definitions[refId].required).toEqual(["name"]);
+    expect(definitions[refId].properties.submenu.items).toEqual({
+      $ref: `#/definitions/${refId}`,
+    });
+  }, 30_000);
+
+  it("keeps the bare object for an anonymous or generic cycle", async () => {
+    const definitions = await barDefinitions(`
+export interface Tree<T> { value: T; children?: Tree<T>[] }
+export interface Props { tree: Tree<string> }`);
+    const tree = definitions[`${b64("bar")}@Props`].properties.tree;
+    expect(tree.properties.children.items).toEqual({ type: "object" });
+  }, 30_000);
+});
+
+describe("JSDoc tag parsing", () => {
+  it("ignores a tag written with a colon (`@description: text`), as deco-cx/deco does", async () => {
+    const definitions = await barDefinitions(`
+export interface Props {
+  /**
+   * @title Título
+   * @description: Nome que irá aparecer na pílula.
+   */
+  name: string;
+  /** @description Kept. */
+  path: string;
+}`);
+    const props = definitions[`${b64("bar")}@Props`].properties;
+    expect(props.name).toEqual({ type: "string", title: "Título" });
+    expect(props.path.description).toBe("Kept.");
   }, 30_000);
 });
 
