@@ -36,6 +36,13 @@ describe("generatePackageJson — framework version", () => {
     expect(pkg.devDependencies["@decocms/blocks-cli"]).toBe("^7.80.3");
   });
 
+  it("never scaffolds 8.x, even if blocks-cli's latest is moved to it", () => {
+    npmView.mockImplementationOnce(() => "8.0.0\n");
+    const pkg = JSON.parse(generatePackageJson(ctx));
+    expect(pkg.dependencies["@decocms/blocks"]).toMatch(/^\^7\./);
+    expect(pkg.devDependencies["@decocms/blocks-cli"]).toMatch(/^\^7\./);
+  });
+
   it("falls back to a 7.x version when npm can't be reached", () => {
     npmView.mockImplementationOnce(() => {
       throw new Error("offline");

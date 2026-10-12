@@ -121,7 +121,10 @@ export function generatePackageJson(ctx: MigrationContext): string {
   // always the newest 7.x of the lockstep set. (`npm view
   // @decocms/blocks@7 version` is no substitute: with a range npm prints
   // every matching version, unsorted.)
-  const frameworkVersion = getLatestVersion("@decocms/blocks-cli", "7.78.0");
+  // A non-7.x answer (blocks-cli's `latest` moved by mistake, as the
+  // accidental 8.0.0 once did) falls back to the pinned 7.x.
+  const cliLatest = getLatestVersion("@decocms/blocks-cli", "7.78.0");
+  const frameworkVersion = /^7\.\d+\.\d+$/.test(cliLatest) ? cliLatest : "7.78.0";
 
   const platformPackage: Partial<Record<typeof ctx.platform, string>> = {
     vtex: "@decocms/apps-vtex",
