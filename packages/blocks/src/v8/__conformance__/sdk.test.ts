@@ -1076,11 +1076,14 @@ describe("AR-50..AR-52 / RT-03 / RT-07..RT-10 / RT-16 / RT-17 / RI-* matchRoute"
   });
 
   it("RI-06 about a hundred lines, no regex, no sorting", () => {
-    const source = readSource("src/v8/matchRoute.ts");
-    const code = source.split("\n").filter((l) => l.trim() && !/^\s*(\/\/|\*|\/\*\*)/.test(l));
-    expect(code.length).toBeLessThanOrEqual(150);
-    expect(source).not.toMatch(/new RegExp|\.sort\(/);
-    expect(source).not.toMatch(/\.(replace|search|split|test)\(\//);
+    // matchRoute and the segment trie it walks (routeTrie.ts).
+    for (const file of ["src/v8/matchRoute.ts", "src/v8/routeTrie.ts"]) {
+      const source = readSource(file);
+      const code = source.split("\n").filter((l) => l.trim() && !/^\s*(\/\/|\*|\/\*\*)/.test(l));
+      expect(code.length, file).toBeLessThanOrEqual(150);
+      expect(source, file).not.toMatch(/new RegExp|\.sort\(/);
+      expect(source, file).not.toMatch(/\.(replace|search|split|test)\(\//);
+    }
   });
 
   it("RT-splat a trailing /* matches one or more segments, below exact and :params", () => {

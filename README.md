@@ -76,7 +76,7 @@ examples/
 ├── tanstack-smoke/      TanStack Start on Workers (the descriptor guide)
 ├── tanstack-rsc-smoke/  TanStack Start with React Server Components
 └── nextjs-smoke/        Next.js App Router
-.agents/skills/      agent skills: the v7 -> v8 migration, plus v7 playbooks (7.x)
+.agents/skills/      agent skills: the v7 -> v8 migration (index: .agents/skills/README.md)
 ```
 
 ## Getting started
@@ -144,6 +144,7 @@ bun install
 | `bun run lint` | Runs Biome. |
 | `bun run lint:unused` | Finds unused files, dependencies and exports with Knip. |
 | `bun run check` | Runs typecheck, lint and lint:unused. |
+| `bun run skills:check` | Checks the agent skills: frontmatter, size budgets, dead links. `bun run skills:readme` regenerates their index; `skills:readme:check` fails when it's stale. |
 
 To try unpublished changes in another site, run `bun link` in `packages/blocks` (and any client you use), then `bun link @decocms/blocks` in the site.
 

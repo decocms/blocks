@@ -19,6 +19,9 @@
     "format": "biome format packages/*/src tests .agents/skills/deco-v7-to-v8-migration/scripts",
     "format:fix": "biome format --write packages/*/src tests .agents/skills/deco-v7-to-v8-migration/scripts",
     "check": "bun run typecheck && bun run lint && bun run lint:unused",
+    "skills:check": "bun run scripts/skills-check.ts",
+    "skills:readme": "bun run scripts/skills-readme.ts",
+    "skills:readme:check": "bun run scripts/skills-readme.ts --check",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist .cache node_modules/.vite && bun install"
   },
   "devDependencies": {
