@@ -23,9 +23,11 @@ paraphrased.
 ## Install
 
 ```bash
-bun add @decocms/nextjs @decocms/blocks @decocms/blocks-admin
+bun add @decocms/nextjs @decocms/blocks@latest-7 @decocms/blocks-admin
 ```
 
+`@decocms/blocks` needs `@latest-7`: its `latest` is 8.x, and a second copy
+next to the one `@decocms/nextjs` depends on splits the CMS registry.
 `next`, `react`, and `react-dom` are peer dependencies — the site already
 has them.
 
