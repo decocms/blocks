@@ -26,6 +26,7 @@ bun run test          # vitest, whole repo: packages, tests/, the migration skil
 bun run typecheck     # tsc --noEmit per package, plus the skill scripts and tests/
 bun run examples      # build the packages and the three examples, then typecheck them
 bun run check         # typecheck + lint + lint:unused
+bun run skills:check && bun run skills:readme:check   # agent skills gate (CI: skills-check.yml)
 ```
 
 No dev server at the root. `examples/tanstack-smoke`, `examples/tanstack-rsc-smoke` and `examples/nextjs-smoke` are real consumers that depend only on `@decocms/blocks` (`cd examples/<name> && bun run dev`).
@@ -45,14 +46,13 @@ packages/
 └── apps-sfmc-personalization/  @decocms/apps-sfmc-personalization ┘
 tests/                          cross-package tests (upstream-client guardrail and conformance)
 examples/                       tanstack-smoke, tanstack-rsc-smoke, nextjs-smoke
-.agents/skills/
-├── deco-v7-to-v8-migration/    the v7 → v8 site migration (SKILL.md, reference/, runnable scripts/)
-└── …                           v7 skills; they target v7 sites and the 7.x branch
-.cursor/skills/                 framework-agnostic ops skills (site deployment, CDN performance audit, incident report)
+.agents/skills/                 agent skills (index: .agents/skills/README.md); .claude/skills is a symlink to it
+└── deco-v7-to-v8-migration/    the v7 → v8 site migration (SKILL.md, reference/, runnable scripts/)
+.agents/skill-template/         copy it to start a new skill
 docs/runbooks/                  alert runbooks; the provisioned alerts' runbook_url links here, so keep the paths stable
 ```
 
-v7-only design docs, plans and Cursor skills live on the `7.x` branch. The docs for users are the docs site (`/next/*`), not this repo.
+v7-only design docs, plans and skills live on the `7.x` branch. The docs for users are the docs site (`/next/*`), not this repo.
 
 Nothing else is published from this line: the release allowlist in `.releaserc.json` is `blocks` plus the seven `apps-*`.
 
@@ -101,10 +101,19 @@ Every client builds its requests with `createInstrumentedFetch({ provider: "<nam
 
 `tests/upstream-clients.guardrail.test.ts` checks that every `packages/apps-*` is listed and that its client imports `createInstrumentedFetch` from `@decocms/blocks/fetch` under its provider name and never calls `fetch` directly; Biome denies the bare `fetch` global in `packages/apps-*/src` too. A new client package goes in that test's `CLIENTS`.
 
-## Migration skills
+## Skills: what lives here, what lives elsewhere
 
-1. **`deco-v7-to-v8-migration`** (this line) — moves a v7 site onto v8: `scripts/main.ts` (run with `bun` or `npx tsx`) writes the block map with legacy aliases, vendors the app loaders the content calls, moves content to `.deco/blocks`, re-encrypts secrets and reports every v7 import with its replacement; `reference/` holds the import map, legacy-name table, gotchas and approved parity patterns. Its tests run with `bun run test`; it imports `@decocms/blocks` (`/cli`, `/protocol/keys`, `/secrets`), so keep those exports stable.
-2. **v7 skills** — `deco-to-tanstack-migration`, `deco-migrate-script`, `deco-next-package-migration`, `decocms-v6-to-v7-upgrade`, `deco-reconcile-snapshot`, `vtex-cart-v2`, and `.claude/skills/run-migration`: they target v7 sites and reference code that lives on the `7.x` branch (e.g. `packages/blocks-cli`). They are governed by the migration tooling policy (`.cursor/rules/migration-tooling-policy.mdc`, `MIGRATION_TOOLING_PLAN.md`), which applies to the v7 tooling on 7.x.
+One folder, `.agents/skills/`, and only skills that describe this line's packages **as they are today**. Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme:check` (regenerate the index with `bun run skills:readme`), copied from `decocms/migrations`: `SKILL.md` ≤10KB as an index, every other `.md` ≤15KB, quoted descriptions, no dead relative links, a generated index; CI in `.github/workflows/skills-check.yml`. New skill: `cp -r .agents/skill-template .agents/skills/<name>`.
+
+- **`deco-v7-to-v8-migration`** — moves a v7 site onto v8: `scripts/main.ts` (run with `bun` or `npx tsx`) writes the block map with legacy aliases, vendors the app loaders the content calls, moves content to `.deco/blocks`, re-encrypts secrets and reports every v7 import with its replacement. `SKILL.md` is the index; `reference/` holds the script steps, manual steps, verification, import map, legacy-name table, approved parity patterns and the gotchas, one subject per file. Its tests run with `bun run test`; it imports `@decocms/blocks` (`/cli`, `/protocol/keys`, `/secrets`), so keep those exports stable.
+
+Writing a skill: the `description` is the only thing the model reads before deciding to load it — lead with the package, then "Use when …" with the symbols, file paths, error strings and symptoms someone would actually type. Keep it quoted (the check enforces it). Prefer adding a `reference/` file to an existing skill over a new skill: every skill's description sits in context all the time.
+
+Everything else has another home — refer to it by skill **name**, never by path (those repos are private):
+
+- **The `7.x` branch** — the v7 packages' skills (`apps-vtex`'s v7 cart hooks, `deco-caching`, `deco-cms-route-config`, `deco-server-functions-invoke`, `deco-storefront-egress-guardrails`, `deco-migrate-script`, `run-migration`), governed there by the migration tooling policy (`.cursor/rules/migration-tooling-policy.mdc`, `MIGRATION_TOOLING_PLAN.md`).
+- **`decocms/migrations`** — anything that only makes sense with a "before" and an "after": the Fresh → TanStack playbook (`source-deco-fresh`, `target-tanstack-deco`), running the migrator (`tools-migrate-script`), package upgrades (`upgrades-decocms-v6-to-v7`, `upgrades-next-package-split`), known issues by subject (`knowledge-known-issues`).
+- **`decocms/skills`** — generic craft true regardless of migration: incidents, perf audits, e2e, memory debugging, deployment.
 
 ## Important constraints
 

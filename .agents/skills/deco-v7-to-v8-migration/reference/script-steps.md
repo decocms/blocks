@@ -1,0 +1,10 @@
+# What the script does
+
+The full list behind `SKILL.md` ("Run"). What it does, in order (`scripts/migrate.ts`):
+
+1. **content**: saved blocks into `.deco/blocks`, v7 generated files removed, v7 async-rendering wrappers (`website/sections/Rendering/Lazy.tsx`, `SingleDeferred.tsx`, `Deferred.tsx`) unwrapped to the sections they held (v8 has no async rendering), the seven legacy names outside the alias table rewritten (`reference/legacy-names.md`), A/B tests keyed on a random matcher get its saved-block name as `experiment`;
+   **settings**: site settings folded into the `CMS` block (`.deco/blocks/CMS.json`, type `cms-settings`): the v7 Site block's (`Site`/`site`) `previewHosts` → `preview.hosts` (the field moves, ports kept, each entry trimmed and lowercased as v7 compared it; an entry that isn't a host is reported; on TanStack Start the `<site>.deco.site` and `<site>.deco-cx.workers.dev` hosts v7 always added for `DECO_SITE_NAME` are added too, or reported when the name isn't found; with no `previewHosts` at all, a named TanStack site gets those two hosts alone, the only ones v7 allowed), a literal `collectorAddress` on `OneDollarStats` → `analytics.collector`, and an earlier prerelease's `Telemetry.json`/`Analytics.json` → their sections, field for field and variants included (the old files are deleted). It keeps what `CMS.json` already has, writes nothing when there's nothing to fold, and a second run changes nothing. The report lists the environment-only settings to move by hand (`DECO_ALLOWED_PREVIEW_HOSTS`, `DECO_OTEL_*` sampling, `DECO_ANALYTICS_ENABLED`/`ONEDOLLAR_ENABLED`/`ONEDOLLAR_COLLECTOR`);
+2. **secrets**: v7 secrets re-encrypted with `.deco/secrets.pub`;
+3. **block map**: `.deco/index.ts` with each block under a short name plus an alias under its v7 name, after vendoring the app loaders and actions the content calls into `src/vendor`;
+4. **imports**: the codemod over `src/` (`reference/import-map.md`);
+5. **scripts**: `predev`/`prebuild` run `deco schema && deco content` (`&& deco check`).

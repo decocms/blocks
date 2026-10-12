@@ -46,7 +46,7 @@ From the storefront and blog migrations, the reported imports above were replace
 | `BreadcrumbJsonLd`, `PLPJsonLd`, `ProductJsonLd` (`@decocms/blocks/hooks`) | `src/vendor/blocks/JsonLd.tsx` |
 | `ANALYTICS_SCRIPT` (`@decocms/blocks/sdk/analytics`) on a site with no analytics SDK | the same `data-event` observer string in the site's root document, copied from the installed version (7.6x defers it until a Speculation Rules prerender activates) |
 | `NavigationProgress`, `StableOutlet` (`@decocms/tanstack`) | the site's root document; copy them from the installed version (the bar's markup changed in 7.6x) |
-| `withABTesting` (`@decocms/blocks/sdk/abTesting`) | nothing: a worker-level split between this worker and a fallback origin, driven by a `SITES_KV` config. Delete it and the binding, and list it for the product owner (`reference/gotchas.md`) |
+| `withABTesting` (`@decocms/blocks/sdk/abTesting`) | nothing: a worker-level split between this worker and a fallback origin, driven by a `SITES_KV` config. Delete it and the binding, and list it for the product owner (`reference/framework-code.md`) |
 | `signal` (`@decocms/blocks/sdk/signal`) | delete it when nothing imports the site's re-export; otherwise a local signal |
 | `cacheHeaders`, `detectCacheProfile`, a `cache-config.ts` (`@decocms/blocks/sdk/cacheHeaders`) | `src/server/cache-profiles.ts` |
 | `withFetchTimeout`, `FetchFn` (`@decocms/blocks/sdk/fetchTimeout`, 7.6x) in vendored loaders | a local `fetch(url, { ...init, signal: AbortSignal.timeout(10_000) })` (v7's default), or the v8 client's own fetch |
