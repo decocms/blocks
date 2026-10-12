@@ -2,7 +2,8 @@
   "branches": [
     {
       "name": "7.x",
-      "range": "7.x"
+      "range": "7.x",
+      "channel": "latest-7"
     },
     "main"
   ],
