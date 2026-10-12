@@ -1,0 +1,11 @@
+{
+  "name": "collections/blog/authors/rafael-melo",
+  "__resolveType": "blog/loaders/Author.ts",
+  "author": {
+    "name": "Rafael Melo",
+    "email": "rafael@deco.cx",
+    "avatar": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&q=80&auto=format",
+    "jobTitle": "Product Manager",
+    "company": "deco.cx"
+  }
+}

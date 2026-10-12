@@ -1,0 +1,33 @@
+{
+  "name": "Blog Home",
+  "path": "/",
+  "sections": [
+    {
+      "__resolveType": "site/sections/Blog/BlogHeader.tsx",
+      "logoAlt": "Blog",
+      "showReadingProgress": false,
+      "navLinks": [
+        { "label": "Blog", "href": "/" },
+        { "label": "Categorias", "href": "/topics" },
+        { "label": "Autores", "href": "/authors" }
+      ]
+    },
+    {
+      "__resolveType": "site/sections/Blog/BlogHome.tsx",
+      "posts": {
+        "__resolveType": "blog/loaders/BlogpostList.ts",
+        "sortBy": "date_desc",
+        "count": 20
+      },
+      "perPage": 10,
+      "baseUrl": "/"
+    }
+  ],
+  "__resolveType": "website/pages/Page.tsx",
+  "seo": {
+    "__resolveType": "website/sections/Seo/SeoV2.tsx",
+    "type": "website",
+    "title": "Blog — Engenharia, Performance, Design e Produto",
+    "description": "Artigos sobre engenharia de software, performance web, design de produto e cultura de times."
+  }
+}

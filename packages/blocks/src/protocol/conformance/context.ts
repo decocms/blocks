@@ -1,0 +1,197 @@
+/**
+ * What every conformance case gets: a client, raw HTTP access, the endpoint's
+ * `describe`, unique names and assertion helpers.
+ */
+import { canonicalJson } from "../canonical.ts";
+import { type ContentClient, createContentClient, readResponseJson } from "../client.ts";
+import { ContentProtocolError } from "../errors.ts";
+import type { DescribeResult } from "../types.ts";
+
+/** Names deleted per `blocks.apply` when a case cleans up. */
+const CLEANUP_CHUNK = 100;
+
+export interface ConformanceOptions {
+  /** The endpoint URL, such as `http://localhost:4545/rpc`. */
+  endpoint: string | URL;
+  /** Extra headers on every request (such as the host's auth cookie). */
+  headers?: Record<string, string>;
+  /** A fetch implementation (defaults to the global one); use it to call a handler in process. */
+  fetch?: (request: Request) => Promise<Response>;
+  /**
+   * A block type in the endpoint's schema with a `Secret` field, so the
+   * secret guard can be checked. Leave out to skip those cases.
+   */
+  secretField?: { blockType: string; field: string };
+  /** The `.deco/secrets.pub` content the endpoint should report, if the harness wrote one. */
+  secretsPublicKey?: string;
+  /** Whether the endpoint has a schema (default true). `false` checks the `schema: null` result instead. */
+  hasSchema?: boolean;
+  /**
+   * The URL prefix uploads are served under (`PUT <assetsEndpoint><name>`),
+   * such as `http://localhost:4545/assets/`. Leave out to skip the upload cases.
+   */
+  assetsEndpoint?: string | URL;
+  /** Prefix of every name the suite creates (default `conformance-<random>`). */
+  namePrefix?: string;
+}
+
+/** Thrown by `ctx.skip()`: the case doesn't apply to this endpoint. */
+export class SkipCase extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "SkipCase";
+  }
+}
+
+export class ConformanceFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConformanceFailure";
+  }
+}
+
+export interface RawResponse {
+  status: number;
+  headers: Headers;
+  body: unknown;
+}
+
+export class ConformanceContext {
+  readonly client: ContentClient;
+  private counter = 0;
+  private readonly created = new Set<string>();
+  private describeResult: DescribeResult | undefined;
+
+  constructor(
+    readonly options: ConformanceOptions,
+    readonly prefix: string,
+  ) {
+    this.client = createContentClient(options);
+  }
+
+  async describe(): Promise<DescribeResult> {
+    this.describeResult ??= await this.client.describe();
+    return this.describeResult;
+  }
+
+  /** A fresh name the suite owns; it's deleted when the case ends. */
+  name(label = "entry"): string {
+    const name = `${this.prefix}-${label}-${++this.counter}`;
+    this.created.add(name);
+    return name;
+  }
+
+  /** Marks a name the case created by other means for cleanup. */
+  track(name: string): void {
+    this.created.add(name);
+  }
+
+  /** Deletes every name the case created. */
+  async cleanup(): Promise<void> {
+    if (this.created.size === 0) return;
+    const names = [...this.created];
+    this.created.clear();
+    const description = await this.describe();
+    if (description.readOnly) return;
+    for (let i = 0; i < names.length; i += CLEANUP_CHUNK) {
+      await this.client.blocksApply({ delete: names.slice(i, i + CLEANUP_CHUNK) }).catch(() => {});
+    }
+  }
+
+  skip(reason: string): never {
+    throw new SkipCase(reason);
+  }
+
+  /** Posts a raw body to the endpoint and decodes the JSON answer. */
+  async raw(
+    body: string | Uint8Array,
+    init: { method?: string; headers?: Record<string, string> } = {},
+  ): Promise<RawResponse> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...this.options.headers,
+      ...init.headers,
+    };
+    for (const [key, value] of Object.entries(headers)) if (value === "") delete headers[key];
+    const method = init.method ?? "POST";
+    const doFetch = this.options.fetch ?? ((request: Request) => fetch(request));
+    const response = await doFetch(
+      new Request(this.options.endpoint, {
+        method,
+        headers,
+        body: method === "GET" || method === "HEAD" ? undefined : (body as BodyInit),
+      }),
+    );
+    let parsed: unknown = null;
+    try {
+      parsed = await readResponseJson(response);
+    } catch {
+      parsed = null;
+    }
+    return { status: response.status, headers: response.headers, body: parsed };
+  }
+
+  /** Uploads `body` as `PUT <assetsEndpoint><name>`, with the endpoint's credentials. */
+  async upload(name: string, body: Uint8Array | string, contentType: string): Promise<RawResponse> {
+    const base = this.options.assetsEndpoint;
+    if (base === undefined) return this.skip("no assetsEndpoint");
+    const headers: Record<string, string> = {
+      ...this.options.headers,
+      "content-type": contentType,
+    };
+    const doFetch = this.options.fetch ?? ((request: Request) => fetch(request));
+    const url = new URL(encodeURIComponent(name), new URL(String(base)).href.replace(/\/?$/, "/"));
+    const response = await doFetch(
+      new Request(url, { method: "PUT", headers, body: body as BodyInit }),
+    );
+    let parsed: unknown = null;
+    try {
+      parsed = await readResponseJson(response);
+    } catch {
+      parsed = null;
+    }
+    return { status: response.status, headers: response.headers, body: parsed };
+  }
+
+  /** Posts one JSON-RPC payload (an object or a batch) as JSON. */
+  rpc(payload: unknown, headers?: Record<string, string>): Promise<RawResponse> {
+    return this.raw(JSON.stringify(payload), { headers });
+  }
+}
+
+export function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new ConformanceFailure(message);
+}
+
+export function assertEqual(actual: unknown, expected: unknown, message: string): void {
+  const a = canonicalJson(actual ?? null);
+  const e = canonicalJson(expected ?? null);
+  if (a !== e) throw new ConformanceFailure(`${message}\n  expected: ${e}\n  actual:   ${a}`);
+}
+
+/** Awaits `promise` and checks it fails with protocol error `code`. */
+export async function expectError(
+  promise: Promise<unknown>,
+  code: number,
+  message: string,
+): Promise<ContentProtocolError> {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof ContentProtocolError) {
+      assert(
+        error.code === code,
+        `${message}: expected error ${code}, got ${error.code} (${error.message})`,
+      );
+      return error;
+    }
+    throw error;
+  }
+  throw new ConformanceFailure(`${message}: expected error ${code}, but the call succeeded`);
+}
+
+/** The JSON-RPC error code of a raw response body, if it carries one. */
+export function rawErrorCode(body: unknown): number | undefined {
+  const error = (body as { error?: { code?: unknown } } | null)?.error;
+  return typeof error?.code === "number" ? error.code : undefined;
+}

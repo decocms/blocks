@@ -1,10 +1,12 @@
-export { sendEmail } from "./actions/send";
-export { configureResend, getResendConfig } from "./client";
-export type {
-	CreateEmailOptions,
-	CreateEmailResponse,
-	CreateEmailResponseSuccess,
-	ErrorResponse,
-	ResendConfig,
-	ResendErrorCodeKey,
-} from "./types";
+/**
+ * `@decocms/apps-resend`: the Resend client (`createResendClient`).
+ * See /next/upstream-clients.
+ */
+export {
+  createResendClient,
+  type ResendClient,
+  type ResendClientConfig,
+  ResendError,
+  type SendEmailOptions,
+} from "./emails.ts";
+export type { CreateEmailOptions, CreateEmailResponseSuccess } from "./types.ts";

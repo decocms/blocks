@@ -1,0 +1,39 @@
+{
+  "name": "@decocms/apps-sfmc-personalization",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Thin client for Salesforce Marketing Cloud Personalization (formerly Evergage)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/decocms/blocks.git",
+    "directory": "packages/apps-sfmc-personalization"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/__tests__"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "test": "vitest run --root ../.. packages/apps-sfmc-personalization/",
+    "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
+  },
+  "dependencies": {
+    "@decocms/blocks": "workspace:*"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  }
+}
