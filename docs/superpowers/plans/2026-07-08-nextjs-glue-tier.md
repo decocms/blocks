@@ -937,7 +937,7 @@ export const ensureSetup = createNextSetup({
 
     registerSectionLoaders({
       /* keep the existing 'site/sections/Product/SearchResult.tsx' and
-         FilaProductDetails loader bodies verbatim — move them here
+         ProductDetails loader bodies verbatim — move them here
          unchanged from the old ensureSetup */
     })
   },
