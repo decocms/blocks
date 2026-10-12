@@ -314,6 +314,40 @@ describe("redirects", () => {
     });
   });
 
+  // Ported from main's #647: a rule that redirects to the path it matches
+  // loops forever, so it is dropped, as Fresh's redirect loader did.
+  it("drops a redirect to the path it matches, so it never loops", () => {
+    const selfRedirects: Redirect[] = [
+      { from: "/summer", to: "/summer", permanent: true },
+      { from: "/a/", to: "/a", permanent: true },
+      { from: "/x", to: "/x?utm_source=loop", permanent: false },
+      { from: "/p/:id", to: "/p/:id", permanent: true },
+    ];
+    for (const url of ["/summer", "/a", "/x", "/x?utm_source=loop", "/p/1"]) {
+      expect(matchRoute(url, { routes, redirects: selfRedirects }).kind, url).not.toBe("redirect");
+    }
+    expect(matchRoute("/summer", { routes, redirects: selfRedirects })).toMatchObject({
+      kind: "match",
+    });
+    const legacy = [{ redirect: { from: "/old", to: "/old", type: "permanent" } }] as never;
+    expect(matchRoute("/old", { routes, redirects: legacy }).kind).not.toBe("redirect");
+  });
+
+  it("keeps a redirect that only changes case or leaves the site", () => {
+    const redirects: Redirect[] = [
+      { from: "/Calca/p", to: "/calca/p", permanent: true },
+      { from: "/ext", to: "https://other.example/ext", permanent: false },
+    ];
+    expect(matchRoute("/Calca/p", { routes, redirects })).toMatchObject({
+      kind: "redirect",
+      location: "/calca/p",
+    });
+    expect(matchRoute("/ext", { routes, redirects })).toMatchObject({
+      kind: "redirect",
+      location: "https://other.example/ext",
+    });
+  });
+
   it("falls through to routes when no redirect matches", () => {
     expect(matchRoute("/summer", { routes, redirects: [legacySummer] })).toMatchObject({
       kind: "match",

@@ -174,6 +174,11 @@ function normalizeRedirect(input: unknown): NormalizedRedirect | null {
   if (nested) status = flat.type === "permanent" ? 301 : 307;
   else if (STATUSES.has(flat.status as number)) status = flat.status as RedirectStatus;
   const { from, to, discardQueryParameters } = flat;
+  // A `to` naming the path `from` matches would match again, forever: `/a` →
+  // `/a`, `/a/` → `/a`, `/x` → `/x?utm=1` (the query isn't matched), `/p/:id`
+  // → `/p/:id`. Dropped, as Fresh's loader skipped `from === to`. Compared as
+  // written (`/café` and `/caf%C3%A9` aren't folded); `https://…` never equals.
+  if (to[0] === "/" && splitPath(from).join("/") === splitPath(to).join("/")) return null;
   return { from, to, permanent: status === 301 || status === 308, status, discardQueryParameters };
 }
 
