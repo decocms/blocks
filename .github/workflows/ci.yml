@@ -1,0 +1,52 @@
+name: CI
+
+# Type-checks and builds the 8 publishable packages on every PR. The build is
+# what npm publishes: `tsc` emits one .js (+ .d.ts and maps) per source file
+# into each package's dist/, with no bundler, so the module graph — and every
+# module-level singleton — is the same as the source's. The last step imports
+# each built entry point with plain Node, which can't load .ts from
+# node_modules: if a relative import lost its extension, it fails here.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      # The root `prepare` script builds the workspace on install.
+      - run: bun install --frozen-lockfile
+
+      - run: bun run typecheck
+
+      - run: bun run build
+
+      - name: Plain Node imports every built export
+        run: |
+          for dir in packages/*; do
+            (cd "$dir" && node --input-type=module -e '
+              import fs from "node:fs";
+              const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+              const leaves = (v) => typeof v === "string" ? [] : "default" in v && typeof v.default === "string" ? [v.default] : Object.values(v).flatMap(leaves);
+              for (const target of Object.values(pkg.exports).flatMap(leaves)) {
+                await import(new URL(target, `file://${process.cwd()}/`).href);
+                console.log(`${pkg.name}: ${target}`);
+              }
+            ')
+          done
+          node packages/blocks/bin/deco.js --help > /dev/null

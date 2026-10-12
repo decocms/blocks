@@ -1,8 +1,35 @@
-// @decocms/blocks — framework-agnostic core
-export * from "./cms/index";
-export * from "./hooks/index";
-export * from "./middleware/index";
-// Observability surface — logger + instrumentWorker live behind their own
-// granular imports too (see `@decocms/blocks/sdk/logger`, `.../observability`).
-export { type Logger, type LogLevel, logger, setLogLevel } from "./sdk/logger";
-export * from "./types/index";
+// @decocms/blocks: the v8 runtime API. The CLI, protocol and helpers live on
+// their own subpaths (`/cli`, `/protocol`, `/fetch`, `/analytics`, `/secrets`).
+export {
+  type Analytics,
+  type Block,
+  type BlockFunction,
+  type Blocks,
+  type Client,
+  type CMS,
+  type CMSError,
+  type CMSSettings,
+  createCMS,
+  type DraftPointer,
+  type EffectiveSettings,
+  formatDraftPointer,
+  type Lazy,
+  type ListOptions,
+  type Loader,
+  type Match,
+  matchRoute,
+  type Page,
+  parseDraftPointer,
+  type Redirect,
+  type RequestLike,
+  type Result,
+  type Route,
+  remoteLoader,
+  resetForTests,
+  type Secret,
+  type Seo,
+  type Snapshot,
+  type Telemetry,
+  type TelemetryConfig,
+  type Variant,
+} from "./v8/index.ts";

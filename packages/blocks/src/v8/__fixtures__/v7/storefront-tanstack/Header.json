@@ -1,0 +1,69 @@
+{
+  "__resolveType": "site/sections/Header/Header.tsx",
+  "searchbar": {
+    "placeholder": "What are you looking for?",
+    "loader": {
+      "__resolveType": "resolved",
+      "data": null
+    }
+  },
+  "alerts": [
+    "<p style=\"color: green;\">Hurry, offer ends soon! Save 10% today with code <strong>NEW10</strong></p>"
+  ],
+  "logo": {
+    "src": "https://decoims.com/storefront-tanstack/49270f27-32c9-4da3-aef8-e154dd7bcdd1/1742560193760-ed9f7e80-86a8-4b72-9809-2e4e2e5f0e53.png",
+    "alt": "Deco Storefront",
+    "width": 160,
+    "height": 40
+  },
+  "navItems": [
+    {
+      "children": [
+        {
+          "image": [],
+          "children": [],
+          "name": "Hello"
+        },
+        {
+          "image": [],
+          "children": [],
+          "name": "World"
+        }
+      ],
+      "@type": "SiteNavigationElement",
+      "url": "/deals",
+      "name": "Deals"
+    },
+    {
+      "@type": "SiteNavigationElement",
+      "url": "/valentines-day",
+      "name": "Valentine's Day",
+      "children": []
+    },
+    {
+      "@type": "SiteNavigationElement",
+      "url": "/women",
+      "name": "Women",
+      "children": []
+    },
+    {
+      "@type": "SiteNavigationElement",
+      "url": "/men",
+      "name": "Men",
+      "children": []
+    },
+    {
+      "@type": "SiteNavigationElement",
+      "url": "/clearance",
+      "name": "Clearance",
+      "children": []
+    },
+    {
+      "@type": "SiteNavigationElement",
+      "url": "/activities",
+      "name": "Activities",
+      "children": []
+    }
+  ],
+  "loading": "eager"
+}

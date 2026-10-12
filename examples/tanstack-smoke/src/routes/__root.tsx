@@ -1,10 +1,29 @@
-import { createRootRoute, Outlet } from "@tanstack/react-router";
-import { DecoRootLayout } from "@decocms/tanstack";
+// TanStack Start's root document (see the Start quick start); nothing here is Deco-specific.
+import type { ReactNode } from "react";
+import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 
 export const Route = createRootRoute({
-  component: () => (
-    <DecoRootLayout siteName="tanstack-smoke-fixture">
-      <Outlet />
-    </DecoRootLayout>
-  ),
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "Deco example" },
+    ],
+  }),
+  component: () => <Outlet />,
+  shellComponent: RootDocument,
 });
+
+function RootDocument({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  );
+}

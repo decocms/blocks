@@ -1,0 +1,20 @@
+{
+  "__resolveType": "page",
+  "name": "Summer shirt",
+  "path": "/:slug/p",
+  "seo": {
+    "__resolveType": "seo",
+    "title": "Summer shirt | Deco example",
+    "description": "Light cotton shirt for hot days."
+  },
+  "sections": [
+    { "__resolveType": "promo-banner", "title": "Free shipping over $50", "href": "/shipping" },
+    {
+      "__resolveType": "product-hero",
+      "name": "Summer shirt",
+      "price": 49,
+      "currency": "USD",
+      "image": "/images/summer-shirt.jpg"
+    }
+  ]
+}
