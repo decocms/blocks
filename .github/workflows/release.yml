@@ -44,18 +44,28 @@ name: Release
 
 on:
   push:
-    # main releases the 14 lockstep @decocms/* packages under blocks-v*.*.*
-    # tags (.releaserc.json). Publishing goes through npm Trusted Publishing
-    # (OIDC) — each package has this workflow configured as its trusted
-    # publisher on npmjs.com; the "Release" step's id-token permission lets
-    # `npm publish` exchange a GitHub OIDC token for a short-lived npm auth
-    # token at publish time. No stored npm token.
+    # 7.x is the maintenance line of the v7 packages since v8 took main.
+    # It releases all 17 lockstep @decocms/* packages under the same
+    # blocks-v*.*.* tags, within 7.x (.releaserc.json). @decocms/blocks and
+    # the apps v8 also ships (algolia, magento, resend, shopify, vtex, wake)
+    # publish on the `latest-7` dist-tag, because `latest` is 8.x; the
+    # v7-only packages (tanstack, nextjs, blocks-admin, blocks-cli, eitri,
+    # apps-commerce/-blog/-website/-salesforce/-nuvemshop) keep `latest`.
+    # npm refuses a dist-tag that parses as a semver range, so it can't be
+    # `7.x` or `v7`.
+    #
+    # Publishing goes through npm Trusted Publishing (OIDC): each package
+    # names this workflow FILE (release.yml) as its trusted publisher on
+    # npmjs.com, so keep the file name. The "Release" step's id-token
+    # permission lets `npm publish` exchange a GitHub OIDC token for a
+    # short-lived npm auth token at publish time. No stored npm token.
     #
     # History: this line developed on the `v7` branch (tag seed blocks-v7.0.0
-    # via a manual bootstrap publish) until PR #315 merged it into main; the
+    # via a manual bootstrap publish) until PR #315 merged it into main, and
+    # released from main until v8 merged there (seed blocks-v8.0.0); the
     # legacy single-package @decocms/start line (v*.*.* tags) is retired —
     # its tags remain in the repo but nothing releases or advances them.
-    branches: [main]
+    branches: [7.x]
   # Manual escape hatch to verify what a release WOULD do without publishing,
   # tagging, or opening a GitHub release. Run from the Actions tab.
   workflow_dispatch:

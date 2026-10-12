@@ -12,7 +12,7 @@ on:
       - "package.json"
       - ".github/workflows/skills-check.yml"
   push:
-    branches: [main]
+    branches: [main, 7.x]
     paths:
       - ".agents/skills/**"
       - "scripts/skills-*.ts"

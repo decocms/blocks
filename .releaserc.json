@@ -1,5 +1,10 @@
 {
   "branches": [
+    {
+      "name": "7.x",
+      "range": "7.x",
+      "channel": "latest-7"
+    },
     "main"
   ],
   "tagFormat": "blocks-v${version}",
@@ -57,7 +62,7 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "VERSION=${nextRelease.version} node scripts/sync-versions.mjs",
-        "publishCmd": "if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish version ${nextRelease.version} for: $(ls -d packages/*/)\"; else failed=0; for dir in packages/*/; do (cd \"$dir\" && npm publish --access public --tag latest) || { echo \"::error::npm publish failed for $dir\"; failed=1; }; done; exit \"$failed\"; fi"
+        "publishCmd": "V7_CHANNEL_PKGS=\" blocks apps-algolia apps-magento apps-resend apps-shopify apps-vtex apps-wake \"; failed=0; for dir in packages/*/; do name=$(basename \"$dir\"); case \"$V7_CHANNEL_PKGS\" in *\" $name \"*) tag=\"${nextRelease.channel ? nextRelease.channel : 'latest'}\";; *) tag=latest;; esac; if [ \"$DRY_RUN\" = \"true\" ]; then echo \"[dry-run] would publish @decocms/$name@${nextRelease.version} --tag $tag\"; else (cd \"$dir\" && npm publish --access public --tag \"$tag\") || { echo \"::error::npm publish failed for $dir\"; failed=1; }; fi; done; exit \"$failed\""
       }
     ],
     "@semantic-release/github"
