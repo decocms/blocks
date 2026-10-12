@@ -55,7 +55,12 @@ on:
     # via a manual bootstrap publish) until PR #315 merged it into main; the
     # legacy single-package @decocms/start line (v*.*.* tags) is retired —
     # its tags remain in the repo but nothing releases or advances them.
-    branches: [main]
+    # PAUSED for the v8 cut: v7 now releases from the 7.x branch, and the
+    # seed tag blocks-v8.0.0 sits on this commit. Until the v8 squash
+    # merges (its release.yml triggers on main again), a push to main must
+    # not release: a v7 fix here would ship as 8.0.1 on `latest`. No branch
+    # is named release-paused; the manual dry run below still works.
+    branches: [release-paused]
   # Manual escape hatch to verify what a release WOULD do without publishing,
   # tagging, or opening a GitHub release. Run from the Actions tab.
   workflow_dispatch:
