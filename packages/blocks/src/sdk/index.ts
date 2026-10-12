@@ -55,6 +55,7 @@ export {
   parseRedirectsCsv,
   type Redirect,
   type RedirectMap,
+  redirectLocation,
   registerRedirectResolveType,
 } from "./redirects";
 export { createServerTimings, type ServerTimings } from "./serverTimings";

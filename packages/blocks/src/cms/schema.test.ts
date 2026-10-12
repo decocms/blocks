@@ -354,3 +354,55 @@ describe("composeMeta idempotency", () => {
     expect(recomposed.schema.root.sections.anyOf).toHaveLength(sectionsAnyOf.length);
   });
 });
+
+describe("composeMeta: requestToParam function block", () => {
+  const fnKey = b64("website/functions/requestToParam.ts");
+
+  it("bakes the function block, its props and the RequestURLParam type", () => {
+    const meta = composeMeta(emptySiteMeta());
+    expect(meta.manifest.blocks.functions?.["website/functions/requestToParam.ts"]).toEqual({
+      $ref: `#/definitions/${fnKey}`,
+      namespace: "website",
+    });
+    expect(meta.schema.definitions[`${fnKey}@Props`].properties.param).toMatchObject({
+      type: "string",
+      default: "slug",
+    });
+    const paramType = meta.schema.definitions[`${fnKey}@RequestURLParam`];
+    expect(paramType.anyOf[0]).toEqual({ type: "string", title: "Force param" });
+    expect(paramType.anyOf[1].properties.__resolveType.enum).toEqual([
+      "website/functions/requestToParam.ts",
+    ]);
+    expect(meta.schema.root.functions.anyOf).toContainEqual({
+      $ref: `#/definitions/${fnKey}`,
+      inputSchema: `#/definitions/${fnKey}@Props`,
+    });
+  });
+});
+
+describe("composeMeta: Resolvable wrapping of array props", () => {
+  it("leaves a plain array of objects inline (no saved-block picker, as in deco-cx/deco)", () => {
+    const site = emptySiteMeta();
+    const images = {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          imageSrc: { type: "string", format: "image-uri" },
+          width: { type: "number" },
+          height: { type: "number" },
+          widthMobile: { type: "number" },
+          heightMobile: { type: "number" },
+        },
+      },
+      title: "Images",
+    };
+    site.schema.definitions["slider.tsx@Props"] = {
+      type: "object",
+      properties: { images },
+      required: ["images"],
+    };
+    const meta = composeMeta(site);
+    expect(meta.schema.definitions["slider.tsx@Props"].properties.images).toEqual(images);
+  });
+});

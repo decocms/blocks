@@ -145,7 +145,7 @@ export const TEXT_SIZE_MAP: Record<string, string> = {
 };
 
 export interface GotchaFinding {
-  /** Gotcha number in the deco-to-tanstack-migration skill's css-styling.md */
+  /** Gotcha number in the target-tanstack-deco skill's references/styling.md (decocms/migrations) */
   gotcha: number;
   message: string;
 }
@@ -165,7 +165,7 @@ export function detectDaisyUiV5StructuralIssues(content: string): GotchaFinding[
       gotcha: 37,
       message:
         "DaisyUI .collapse usage found — its expand/collapse chain breaks under Tailwind v4. " +
-        "Replace with native <details>/<summary> (see skill css-styling.md #37).",
+        "Replace with native <details>/<summary> (see target-tanstack-deco skill, references/styling.md #37).",
     });
   }
 
@@ -248,7 +248,7 @@ export function detectLogicalPropertyConflict(classes: string[]): GotchaFinding[
         message:
           `Mixed "${shorthand}-*" with "${sides[0]}-*"/"${sides[1]}-*" in the same className — ` +
           `Tailwind v4's logical properties (padding-inline vs padding-inline-start) don't cascade the same as v3's physical properties. ` +
-          `Replace the shorthand with explicit longhand at every breakpoint (see skill css-styling.md #42).`,
+          `Replace the shorthand with explicit longhand at every breakpoint (see target-tanstack-deco skill, references/styling.md #42).`,
       });
       break; // one finding per className string is enough signal
     }

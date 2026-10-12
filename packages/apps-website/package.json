@@ -15,6 +15,7 @@
     "./mod": "./src/mod.ts",
     "./client": "./src/client.ts",
     "./types": "./src/types.ts",
+    "./functions/*": "./src/functions/*.ts",
     "./components/*": "./src/components/*.tsx",
     "./loaders/*": "./src/loaders/*.ts",
     "./loaders/fonts/*": "./src/loaders/fonts/*.ts",

@@ -42,7 +42,13 @@ function findRepoRoot(): string {
 const repoRoot = findRepoRoot();
 
 /** Commerce apps whose upstream egress must be instrumented. */
-const REQUIRED = ["apps-vtex", "apps-shopify", "apps-magento", "apps-salesforce"] as const;
+const REQUIRED = [
+  "apps-vtex",
+  "apps-shopify",
+  "apps-magento",
+  "apps-salesforce",
+  "apps-nuvemshop",
+] as const;
 
 describe("commerce apps instrumentation guardrail", () => {
   for (const app of REQUIRED) {

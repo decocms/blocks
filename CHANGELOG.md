@@ -8,6 +8,65 @@ merges to `main`; this file is the human-curated breaking-change ledger.
 For per-release auto-generated notes (every commit, every fix), see
 [GitHub Releases](https://github.com/decocms/deco-start/releases).
 
+## Unreleased — CMS schema: `RequestURLParam` picker, no saved-block mode on plain arrays
+
+Fixes [#644](https://github.com/decocms/blocks/issues/644).
+
+- **`RequestURLParam`** (`@decocms/apps-website/functions/requestToParam`) is
+  emitted as deco-cx/deco did: an `anyOf` of "Force param" (string) and the
+  `website/functions/requestToParam.ts` block. `composeMeta` now bakes that
+  function into `manifest.blocks.functions` / `schema.root.functions`. Sites
+  that declared such props as `string` can switch the type back to get the
+  "Get params from request parameters" option in the admin; saved values
+  resolve exactly as before.
+- **`wrapResolvableProperties` no longer wraps every array of objects.** Only
+  arrays a loader can fill (product arrays) get `anyOf [Resolvable, inline,
+  ...loaders]`. A plain array of objects (> 3 fields) used to gain a "Select
+  from saved" mode that deco-cx/deco never offered. Runtime resolution of
+  already-saved references is unchanged; only the admin form loses that mode.
+
+## Unreleased — `?sc=` restored on orderForm mutations (`@decocms/apps-vtex`)
+
+### Behavior change — writes now carry the configured sales channel
+
+Six orderForm mutations were reaching VTEX without `sc`, so the API fell back to
+the account default: `updateOrderFormAttachment`, `updateItemAttachment`,
+`removeItemAttachment`, `updateItemPrice`, `updateOrderFormProfile` and
+`setShippingPostalCode`. Their `deco-cx/apps` counterparts all send it (verified
+against `vtex/actions/cart/*.ts` in both `0.133.28` and `0.159.3`); the port
+dropped it. They now use the same `scParam()` the rest of the file already does.
+
+**What changes for you — and it is not a subset.** `initVtexFromBlocks()`
+defaults to `salesChannel: vtexBlock.salesChannel || "1"`, so effectively every
+VTEX site has a channel configured. These six writes therefore start carrying
+`?sc=` everywhere, not only on sites that set the field explicitly. Previously
+they used the account default silently — a 200 and a well-formed orderForm
+either way, so nothing surfaced.
+
+Why that is a smaller change than it sounds: `getOrCreateCart` **already** sends
+`sc`, so the orderForm these calls write to was already created in the
+configured channel. The six were the inconsistent ones; they now agree with the
+cart they mutate. A store whose configured channel equals its account default —
+the common case, `sc=1` — sees byte-identical results. A store where the two
+differ sees the writes move to the configured channel, which is the bug being
+fixed.
+
+Verified against a live VTEX account that all six endpoints accept `?sc=`:
+`attachments/marketingData`, `attachments/shippingData`, `profile`,
+`items/:i/attachments/:a` and `items/:i/price` return 200 with the same payload
+shape with and without it. Adding the parameter cannot turn a working call into
+a failing one.
+
+**Multi-channel caveat.** `scParam()` reads the channel from the app config, not
+from the request's `vtex_segment` (which is where `deco-cx/apps` takes it,
+`segment.payload.channel`). On a store where the segment channel can differ from
+the configured one, these writes now pin to the configured one. That gap is
+pre-existing and applies to every `sc`-sending call in the file; sourcing the
+channel from the segment is a candidate follow-up.
+
+Deliberately left without `sc`, to match `deco-cx/apps`: `addOffering`,
+`removeOffering`, `updateSelectableGifts`, `clearOrderFormMessages`.
+
 ## Unreleased — Admin async (⚡) toggle is the source of truth for deferral
 
 ### Behavior change — position-based auto-deferral is off by default

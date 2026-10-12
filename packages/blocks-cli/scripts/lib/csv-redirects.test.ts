@@ -83,6 +83,30 @@ describe("buildCsvRedirectBlocks", () => {
     expect(matchRedirect("/dup", map)).toMatchObject({ to: "/from-cms" });
   });
 
+  it("carries discardQueryParameters and the loader's forcePermanentRedirects", () => {
+    writeCsv("f.csv", "from,to\n/a,/b,true\n/c,/d\n/e,/f,temporary\n");
+    const blocks = {
+      x: {
+        __resolveType: "website/loaders/redirectsFromCsv.ts",
+        from: "f.csv",
+        forcePermanentRedirects: true,
+      },
+    };
+    const csvBlocks = buildCsvRedirectBlocks(blocks, { blocksDir, silent: true });
+    expect(csvBlocks["__csv_redirects__f.csv"]).toEqual({
+      __resolveType: "website/loaders/redirects.ts",
+      redirects: [
+        { from: "/a", to: "/b", type: "permanent", discardQueryParameters: true },
+        { from: "/c", to: "/d", type: "permanent" },
+        { from: "/e", to: "/f", type: "temporary" },
+      ],
+    });
+    const map = loadRedirects(csvBlocks);
+    expect(matchRedirect("/a", map)).toMatchObject({ status: 301, discardQueryParameters: true });
+    // Temporary under the default (legacy) semantics.
+    expect(matchRedirect("/e", map)).toMatchObject({ status: 302 });
+  });
+
   it("returns {} when no CSV loader is referenced", () => {
     const blocks = { a: { __resolveType: "website/loaders/redirect.ts" } };
     expect(buildCsvRedirectBlocks(blocks, { blocksDir, silent: true })).toEqual({});

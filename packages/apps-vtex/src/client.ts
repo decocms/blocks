@@ -145,10 +145,27 @@ export interface VtexConfig {
 	 * @default "com.br"
 	 */
 	domain?: string;
+	/**
+	 * Answer a PLP whose URL names a page that does not exist (`?page=0`,
+	 * `?page=-1`, `?page=abc`) as not found — the IS loader returns `null` —
+	 * the way deco-cx's loader did on Fresh, instead of clamping it to the
+	 * first page. From the app block's `advancedConfigs.invalidPageNotFound`.
+	 * @default false
+	 */
+	invalidPageNotFound?: boolean;
 }
 
 let _config: VtexConfig | null = null;
 let _fetch: FetchFn | InstrumentedFetch = withFetchTimeout();
+
+/**
+ * Whether a PLP whose URL names a page that does not exist (`?page=0`,
+ * `?page=-1`, `?page=abc`) answers as not found — see
+ * `VtexConfig.invalidPageNotFound`. `false` while VTEX is not configured.
+ */
+export function getInvalidPageNotFound(): boolean {
+	return _config?.invalidPageNotFound === true;
+}
 
 export function configureVtex(config: VtexConfig) {
 	_config = config;
@@ -720,5 +737,6 @@ export function initVtexFromBlocks(blocks: Record<string, any>) {
 		appToken,
 		country: vtexBlock.country,
 		domain: vtexBlock.domain,
+		invalidPageNotFound: vtexBlock.advancedConfigs?.invalidPageNotFound === true,
 	});
 }

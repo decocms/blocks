@@ -41,7 +41,7 @@ KV DOWN / key absent       serve the bundled blocks.gen snapshot (this build's o
 | `index:revision:<id>` | DJB2 hex hash of that snapshot — polled for change detection | same |
 | `index:live` | the currently-live `<id>` (pointer) | deploy step, **post-activation** |
 | `index:deployments` | JSON `[{id, ts}]` (newest last) — GC bookkeeping | build-time sync |
-| `redirect:<id>:<path>` | `{to, status}` — ONE key per exact redirect | build-time sync; content-push sync |
+| `redirect:<id>:<path>` | `{from, to, status[, discardQueryParameters]}` — ONE key per folded path; an array of those when several sources fold to it | build-time sync; content-push sync |
 
 `index:revision:<id>` **must** equal `computeRevision(blocks)`
 (`packages/blocks/src/cms/blockSource.ts`, DJB2 over `JSON.stringify`) — the
@@ -63,13 +63,19 @@ list is never loaded; `lookupExactRedirect` reads only the path being requested.
 
 **Glob rules stay in the decofile.** `/old/*` must be scanned in order against
 the path, so it can never be a key lookup. There are tens of them, not thousands.
+**Query-scoped rules (`/old?map=ft`) stay too**: the request-time lookup keys by
+pathname alone, so a request costs one KV read, not two.
 
 Three consequences worth knowing:
 
 - **`<path>` is `normalizePath(from)`** (origin stripped, trailing slash dropped,
-  lower-cased). The writer and the request-time lookup must produce it
-  identically or a rule is stored under a key nothing asks for. Never inline a
-  different normalization.
+  lower-cased) in both redirect semantics. The writer and the request-time
+  lookup must produce it identically or a rule is stored under a key nothing
+  asks for. Never inline a different normalization. The value carries each
+  source as written, so `redirects.semantics: "fresh"` (byte-for-byte match)
+  picks among the rules sharing a key at request time; the sync never needs to
+  know which semantics the worker runs. Temporary is stored as 307 and answered
+  as 302 under the default `"legacy"`.
 - **Matching order is exact → KV → glob**, not "matchRedirect → KV". Otherwise a
   glob would win over an exact rule, inverting the precedence. That is why
   `matchRedirect` is split into `matchExactRedirect` / `matchPatternRedirect`.

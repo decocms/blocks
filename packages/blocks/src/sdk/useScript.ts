@@ -147,7 +147,7 @@ export function inlineScript(js: string) {
  *   2. `createServerFn` + `useMutation` for server actions.
  *   3. Direct `invoke` calls (`~/server/invoke`) for ad-hoc loaders.
  *
- * See: deco-to-tanstack-migration skill, "useComponent / partial sections"
+ * See: source-deco-fresh skill (decocms/migrations), "useComponent / partial sections"
  * section, for the per-pattern recipes.
  *
  * ## SSR-safe stub behavior (since 2.27)
@@ -175,7 +175,7 @@ const DEPRECATION_MESSAGE =
   "The Fresh/Deno HTMX partial-section pattern does not apply on " +
   "TanStack Start / Cloudflare Workers. Replace call-sites with " +
   "createServerFn + useMutation, or local React state. See the " +
-  "deco-to-tanstack-migration skill for per-pattern recipes. " +
+  "source-deco-fresh skill (decocms/migrations) for per-pattern recipes. " +
   "Run `deco-post-cleanup` and look for rule [9] htmx-residue to find " +
   "every site call-site that still depends on this.";
 

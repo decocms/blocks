@@ -2,7 +2,8 @@
  * Post-migration cleanup audit — rule implementations.
  *
  * Each rule mirrors a section in
- * `.agents/skills/deco-to-tanstack-migration/references/post-migration-cleanup.md`.
+ * the `target-tanstack-deco` skill in decocms/migrations
+ * (`references/post-migration-cleanup.md`).
  * The intent is to take the human checklist and make it programmatically
  * detectable so future migrations get the same scrubbing automatically.
  *
@@ -1234,7 +1235,7 @@ const ruleHtmxResidue: Rule = {
         severity: "warning",
         file: `${rel}:${firstLine}`,
         message: `${occurrences.length} hx-* element(s) — ${catSummary}`,
-        fix: `Rewrite per .agents/skills/deco-to-tanstack-migration/references/htmx-rewrite.md (run \`deco-htmx-analyze\` for the per-category breakdown)`,
+        fix: `Rewrite per the source-deco-fresh skill (decocms/migrations), references/htmx-rewrite.md (run \`deco-htmx-analyze\` for the per-category breakdown)`,
         meta: {
           total: occurrences.length,
           byCategory: Object.fromEntries(byCat),

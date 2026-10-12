@@ -95,13 +95,11 @@ function forwardCtxHeadersTo(response: Response): void {
 }
 
 const isDev =
-  typeof globalThis.process !== "undefined" &&
-  globalThis.process.env?.NODE_ENV === "development";
+  typeof globalThis.process !== "undefined" && globalThis.process.env?.NODE_ENV === "development";
 
 function selectFields(data: unknown, select?: string[]): unknown {
   if (!select?.length || !data || typeof data !== "object") return data;
-  if (Array.isArray(data))
-    return data.map((item) => selectFields(item, select));
+  if (Array.isArray(data)) return data.map((item) => selectFields(item, select));
   const result: Record<string, unknown> = {};
   for (const key of select) {
     if (key in (data as Record<string, unknown>)) {
@@ -133,9 +131,7 @@ async function parseBody(request: Request): Promise<any> {
       for (const [key, value] of formData.entries()) {
         if (obj[key] !== undefined) {
           // Multiple values → array
-          const existing = Array.isArray(obj[key])
-            ? (obj[key] as unknown[])
-            : [obj[key]];
+          const existing = Array.isArray(obj[key]) ? (obj[key] as unknown[]) : [obj[key]];
           existing.push(value);
           obj[key] = existing;
         } else {
@@ -162,11 +158,27 @@ async function parseBody(request: Request): Promise<any> {
     return {};
   }
 
-  // JSON (default for POST)
+  // JSON (default for POST). An empty body is `{}` (a bodiless POST is a
+  // legitimate "no props" call). A body that DECLARES itself JSON but does
+  // not parse is a client bug, not "no props": running the handler with `{}`
+  // would silently execute an action without its input. Mirrors
+  // deco-runtime's `json` parsing strategy, which throws on invalid JSON
+  // instead of swallowing it. Without an explicit JSON content-type the
+  // lenient `try-json` behavior stays (`{}` on failure).
+  const text = await request.text();
+  if (text.trim() === "") return {};
   try {
-    return await request.json();
+    return JSON.parse(text);
   } catch {
+    if (contentType.includes("application/json")) throw new InvalidJsonBody();
     return {};
+  }
+}
+
+/** Thrown by `parseBody` for a declared-JSON body that does not parse → 400. */
+class InvalidJsonBody extends Error {
+  constructor() {
+    super("Invalid JSON");
   }
 }
 
@@ -244,7 +256,13 @@ async function dispatchInvoke(request: Request): Promise<Response> {
   const invokeKey = pathParts[1] || "";
   const select = url.searchParams.get("select")?.split(",").filter(Boolean);
 
-  const body = await parseBody(request);
+  let body: any;
+  try {
+    body = await parseBody(request);
+  } catch (error) {
+    if (error instanceof InvalidJsonBody) return errorResponse(error.message, 400);
+    throw error;
+  }
 
   // Single invoke by key
   if (invokeKey) {
@@ -274,12 +292,7 @@ async function dispatchInvoke(request: Request): Promise<Response> {
   }
 
   // Batch invoke
-  if (
-    request.method === "POST" &&
-    body &&
-    typeof body === "object" &&
-    !Array.isArray(body)
-  ) {
+  if (request.method === "POST" && body && typeof body === "object" && !Array.isArray(body)) {
     const results: Record<string, unknown> = {};
 
     const entries = Object.entries(body as Record<string, unknown>);

@@ -4,7 +4,8 @@
  *
  * Read-only audit that scans a migrated site for dead code and obsolete
  * boilerplate that the framework now owns. Mirrors the human checklist at
- * `.agents/skills/deco-to-tanstack-migration/references/post-migration-cleanup.md`
+ * the `target-tanstack-deco` skill in decocms/migrations
+ * (`references/post-migration-cleanup.md`)
  * but turns it into something CI can actually run.
  *
  * Usage (from a migrated site directory):
@@ -93,7 +94,7 @@ function showHelp() {
     npx -p @decocms/blocks-cli deco-post-cleanup --fix
     npx -p @decocms/blocks-cli deco-post-cleanup --fix --strict   # fail CI if anything left
 
-  See: .agents/skills/deco-to-tanstack-migration/references/post-migration-cleanup.md
+  See: the target-tanstack-deco skill in decocms/migrations (references/post-migration-cleanup.md)
   `);
 }
 

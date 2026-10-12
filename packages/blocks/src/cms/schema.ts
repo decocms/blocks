@@ -979,6 +979,72 @@ function buildFrameworkSections(sectionAnyOf: any[], loaderUnion: any[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Functions: website/functions/requestToParam.ts
+// ---------------------------------------------------------------------------
+
+const REQUEST_TO_PARAM_TYPE = "website/functions/requestToParam.ts";
+
+/**
+ * The `requestToParam` function block and the `RequestURLParam` prop type the
+ * schema generator points at, shaped as deco-cx/deco emitted them. The runtime
+ * already resolves saved `requestToParam` blocks (WELL_KNOWN_TYPES); without
+ * these definitions the admin could not offer "Get params from request
+ * parameters" for a `RequestURLParam` prop.
+ *
+ * deco-cx/deco gave `param` a `dynamic-options` picker backed by
+ * `website/loaders/options/urlParams.ts`, which has no port here — a plain
+ * string (default `slug`) keeps the field editable instead of an empty picker.
+ */
+function buildFunctionDefinitions() {
+  const fnKey = toBase64(REQUEST_TO_PARAM_TYPE);
+  const propsKey = `${fnKey}@Props`;
+  const paramTypeKey = `${fnKey}@RequestURLParam`;
+
+  const fnDef = {
+    title: "Get params from request parameters",
+    description: "Set param to slug for routes of type /:slug",
+    type: "object",
+    allOf: [{ $ref: `#/definitions/${propsKey}` }],
+    required: ["__resolveType"],
+    properties: {
+      __resolveType: {
+        type: "string",
+        enum: [REQUEST_TO_PARAM_TYPE],
+        default: REQUEST_TO_PARAM_TYPE,
+      },
+    },
+  };
+
+  return {
+    definitions: {
+      [fnKey]: fnDef,
+      [propsKey]: {
+        type: "object",
+        properties: {
+          param: {
+            type: "string",
+            default: "slug",
+            description: "Param name to extract from the Request URL",
+            title: "Param",
+          },
+        },
+        required: ["param"],
+      },
+      [paramTypeKey]: {
+        anyOf: [{ type: "string", title: "Force param" }, fnDef],
+      },
+    } as Record<string, any>,
+    manifestBlocks: {
+      [REQUEST_TO_PARAM_TYPE]: { $ref: `#/definitions/${fnKey}`, namespace: "website" },
+    } as Record<string, any>,
+    functionAnyOf: [
+      { $ref: `#/definitions/${RESOLVABLE_LITERAL_KEY}` },
+      { $ref: `#/definitions/${fnKey}`, inputSchema: `#/definitions/${propsKey}` },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Post-processing: wrap complex properties with Resolvable anyOf
 // ---------------------------------------------------------------------------
 
@@ -1012,10 +1078,14 @@ function wrapResolvableProperties(
       const shouldWrap = isLoaderCompatibleProperty(propSchema);
       if (!shouldWrap) continue;
 
-      const { nullable, title, hide, ...rest } = propSchema;
-
-      // Determine which loader refs to include based on property type
+      // Only where a loader can actually fill the property (product arrays).
+      // deco-cx/deco offered no saved-block picker for a plain array of
+      // objects, and wrapping every one added a "Select from saved" mode the
+      // CMS user never had.
       const loaderRefs = isProductArrayProperty(propSchema) ? productLoaderRefs : [];
+      if (loaderRefs.length === 0) continue;
+
+      const { nullable, title, hide, ...rest } = propSchema;
 
       const wrapped: any = {
         anyOf: [resolvableRef, { ...rest, title: title || "Inline data" }, ...loaderRefs],
@@ -1066,9 +1136,13 @@ function wrapNestedProperties(
       if (!propSchema || typeof propSchema !== "object") continue;
       if (propSchema.anyOf || propSchema.$ref) continue;
 
-      if (isLoaderCompatibleProperty(propSchema)) {
+      const nestedLoaderRefs =
+        isLoaderCompatibleProperty(propSchema) && isProductArrayProperty(propSchema)
+          ? productLoaderRefs
+          : [];
+      if (nestedLoaderRefs.length > 0) {
         const { nullable, title, hide, ...rest } = propSchema;
-        const loaderRefs = isProductArrayProperty(propSchema) ? productLoaderRefs : [];
+        const loaderRefs = nestedLoaderRefs;
         const wrapped: any = {
           anyOf: [resolvableRef, { ...rest, title: title || "Inline data" }, ...loaderRefs],
         };
@@ -1153,6 +1227,7 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
   const page = buildPageSchema(fullSectionAnyOf);
   const actions = buildActionDefinitions();
   const matchers = buildMatcherDefinitions();
+  const functions = buildFunctionDefinitions();
 
   const sectionRefDef = { title: "Section", anyOf: fullSectionAnyOf };
 
@@ -1166,6 +1241,7 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
     ...loaders.definitions,
     ...actions.definitions,
     ...matchers.definitions,
+    ...functions.definitions,
     ...fwSections.definitions,
     ...page.definitions,
     ...(siteMeta.schema?.definitions || {}),
@@ -1203,6 +1279,10 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
           ...(siteMeta.manifest?.blocks?.matchers || {}),
           ...matchers.manifestBlocks,
         },
+        functions: {
+          ...(siteMeta.manifest?.blocks?.functions || {}),
+          ...functions.manifestBlocks,
+        },
       },
     },
     schema: {
@@ -1213,6 +1293,7 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
         pages: { anyOf: page.rootAnyOf },
         loaders: { anyOf: loaderUnion },
         matchers: { anyOf: matchers.matcherAnyOf },
+        functions: { title: "functions", anyOf: functions.functionAnyOf },
       },
     },
   };

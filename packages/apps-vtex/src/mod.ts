@@ -73,6 +73,12 @@ export interface Props {
 	advancedConfigs?: {
 		doNotFetchVariantsForRelatedProducts?: boolean;
 		removeUTMFromCacheKey?: boolean;
+		/**
+		 * @title Invalid ?page= is not found
+		 * @description A listing URL whose ?page= names no page (0, -1, abc) renders the PLP's not-found state instead of page 1, as on Deco for Fresh. The PLP section must answer that state with a 404 status, or it becomes a soft 404.
+		 * @default false
+		 */
+		invalidPageNotFound?: boolean;
 	};
 
 	/** @title Cached Search Terms */
@@ -151,6 +157,7 @@ export async function configure(
 		appToken: appToken ?? undefined,
 		country: block.country,
 		domain: block.domain,
+		invalidPageNotFound: block.advancedConfigs?.invalidPageNotFound === true,
 	};
 
 	// Bridge: maintain global singleton for backward compat

@@ -42,10 +42,12 @@
         "packages/apps-vtex/src/**",
         "packages/apps-wake/src/**",
         "packages/apps-magento/src/**",
+        "packages/apps-nuvemshop/src/**",
         "packages/apps-resend/src/**",
         "packages/apps-shopify/src/**",
         "packages/apps-website/src/**",
         "!packages/apps-vtex/src/hooks/**",
+        "!packages/apps-nuvemshop/src/hooks/**",
         "!packages/*/src/**/*.test.ts",
         "!packages/*/src/**/__tests__/**"
       ],

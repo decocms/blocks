@@ -7,6 +7,7 @@ import * as actions_cart_updateItems from "./actions/cart/updateItems";
 import * as actions_user_signIn from "./actions/user/signIn";
 import * as actions_user_signUp from "./actions/user/signUp";
 import * as loaders_cart from "./loaders/cart";
+import * as loaders_categories_listAllCategories from "./loaders/categories/listAllCategories";
 import * as loaders_ProductDetailsPage from "./loaders/ProductDetailsPage";
 import * as loaders_ProductList from "./loaders/ProductList";
 import * as loaders_ProductListingPage from "./loaders/ProductListingPage";
@@ -22,6 +23,7 @@ const manifest = {
 		"shopify/loaders/ProductListingPage": loaders_ProductListingPage,
 		"shopify/loaders/RelatedProducts": loaders_RelatedProducts,
 		"shopify/loaders/cart": loaders_cart,
+		"shopify/loaders/categories/listAllCategories": loaders_categories_listAllCategories,
 		"shopify/loaders/shop": loaders_shop,
 		"shopify/loaders/user": loaders_user,
 	},

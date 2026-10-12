@@ -20,6 +20,9 @@ export { initShopify, initShopifyFromBlocks } from "./init";
 export type { CartLine, ShopifyCart } from "./loaders/cart";
 // Cart
 export { createCart, getCart } from "./loaders/cart";
+export type { Category } from "./loaders/categories/listAllCategories";
+// Categories
+export { default as listAllCategoriesLoader } from "./loaders/categories/listAllCategories";
 export { default as productDetailsPageLoader } from "./loaders/ProductDetailsPage";
 // Product Loaders
 export { default as productListLoader } from "./loaders/ProductList";

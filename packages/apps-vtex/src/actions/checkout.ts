@@ -28,6 +28,19 @@ import {
  */
 export const DEFAULT_EXPECTED_SECTIONS: string[] = SECTIONS_FULL;
 
+/**
+ * `sc=<salesChannel>` for endpoints that build their query by hand.
+ *
+ * Every orderForm mutation needs it: VTEX recalculates prices, availability and
+ * promotions against the channel on the request, and without it falls back to
+ * the account default — silently, with a 200 and a well-formed orderForm, so
+ * the storefront has no way to tell it got the wrong numbers.
+ *
+ * Note this reads the channel from the app config, not from the request's
+ * `vtex_segment` (where `deco-cx/apps` takes it from, `segment.payload.channel`).
+ * That is a pre-existing choice of this package, applied consistently across
+ * every call site here.
+ */
 function scParam(): string {
   const sc = getVtexConfig().salesChannel;
   return sc ? `sc=${sc}` : "";
@@ -271,8 +284,9 @@ export async function updateOrderFormAttachment(
     expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
   } = props;
   if (!orderFormId) throw new Error("Order form ID is required");
+  const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
-    `/api/checkout/pub/orderForm/${orderFormId}/attachments/${attachment}`,
+    `/api/checkout/pub/orderForm/${orderFormId}/attachments/${attachment}${sc ? `?${sc}` : ""}`,
     {
       method: "POST",
       body: JSON.stringify({ expectedOrderFormSections, ...body }),
@@ -299,8 +313,11 @@ export async function updateItemAttachment(props: UpdateItemAttachmentProps): Pr
     noSplitItem = true,
     expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
   } = props;
+  const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
-    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}`,
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}${
+      sc ? `?${sc}` : ""
+    }`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -331,8 +348,11 @@ export async function removeItemAttachment(props: RemoveItemAttachmentProps): Pr
     noSplitItem = true,
     expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
   } = props;
+  const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
-    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}`,
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}${
+      sc ? `?${sc}` : ""
+    }`,
     {
       method: "DELETE",
       body: JSON.stringify({
@@ -357,8 +377,9 @@ export interface UpdateItemPriceProps {
 
 export async function updateItemPrice(props: UpdateItemPriceProps): Promise<OrderForm> {
   const { orderFormId, itemIndex, price } = props;
+  const sc = scParam();
   return vtexFetchWithCookies<OrderForm>(
-    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/price`,
+    `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/price${sc ? `?${sc}` : ""}`,
     { method: "PUT", body: JSON.stringify({ price }) },
   );
 }
@@ -428,8 +449,9 @@ export async function updateOrderFormProfile(
 ): Promise<OrderForm> {
   const { orderFormId, fields, ignoreProfileData } = props;
   const body = ignoreProfileData ? { ...fields, ignoreProfileData: true } : fields;
+  const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
-    `/api/checkout/pub/orderForm/${orderFormId}/profile`,
+    `/api/checkout/pub/orderForm/${orderFormId}/profile${sc ? `?${sc}` : ""}`,
     { method: "PATCH", body: JSON.stringify(body) },
   );
   return forceHttpsOnAssets(result);
@@ -506,8 +528,9 @@ export async function setShippingPostalCode(props: SetShippingPostalCodeProps): 
     // CheckoutOrderFormOwnership cookie. vtexFetchWithCookies ensures
     // any such Set-Cookie reaches the browser via RequestContext,
     // keeping the storefront and VTEX bound to the same orderForm.
+    const sc = scParam();
     await vtexFetchWithCookies<any>(
-      `/api/checkout/pub/orderForm/${orderFormId}/attachments/shippingData`,
+      `/api/checkout/pub/orderForm/${orderFormId}/attachments/shippingData${sc ? `?${sc}` : ""}`,
       {
         method: "POST",
         body: JSON.stringify({

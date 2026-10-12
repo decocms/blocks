@@ -16,6 +16,19 @@ export function buildQuery(def: QueryDefinition): string {
 	return fragments ? `${fragments}\n${def.query}` : def.query;
 }
 
+export interface GraphQLErrorEntry {
+	message: string;
+	extensions?: { code?: string };
+}
+
+/** Thrown when the response carries `errors`; keeps them for callers that branch on the code. */
+export class ShopifyGraphQLError extends Error {
+	constructor(readonly errors: GraphQLErrorEntry[]) {
+		super(`Shopify GraphQL errors: ${errors.map((e) => e.message).join(", ")}`);
+		this.name = "ShopifyGraphQLError";
+	}
+}
+
 export interface GraphQLClient {
 	query<T>(query: string | QueryDefinition, variables?: Record<string, unknown>): Promise<T>;
 }
@@ -54,10 +67,10 @@ export function createGraphqlClient(
 				throw new Error(`Shopify GraphQL error: ${response.status} ${response.statusText}`);
 			}
 
-			const json = (await response.json()) as { data?: T; errors?: Array<{ message: string }> };
+			const json = (await response.json()) as { data?: T; errors?: GraphQLErrorEntry[] };
 
 			if (json.errors?.length) {
-				throw new Error(`Shopify GraphQL errors: ${json.errors.map((e) => e.message).join(", ")}`);
+				throw new ShopifyGraphQLError(json.errors);
 			}
 
 			if (json.data === undefined) {

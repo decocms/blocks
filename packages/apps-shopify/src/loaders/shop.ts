@@ -1,6 +1,6 @@
 import { getShopifyClient } from "../client";
 import { GetShopInfo } from "../utils/storefront/queries";
-import type { Metafield } from "../utils/types";
+import type { LanguageContextArgs, Metafield } from "../utils/types";
 
 export interface Shop {
 	name: string;
@@ -21,7 +21,7 @@ export interface Shop {
 	} | null>;
 }
 
-export interface Props {
+export interface Props extends LanguageContextArgs {
 	metafields?: Metafield[];
 }
 
@@ -29,7 +29,11 @@ export default async function shopLoader(props?: Props): Promise<Shop> {
 	const client = getShopifyClient();
 	const metafields = props?.metafields || [];
 
-	const data = await client.query<{ shop: Shop }>(GetShopInfo, { identifiers: metafields });
+	const data = await client.query<{ shop: Shop }>(GetShopInfo, {
+		identifiers: metafields,
+		languageCode: props?.languageCode,
+		countryCode: props?.countryCode,
+	});
 
 	return data.shop;
 }

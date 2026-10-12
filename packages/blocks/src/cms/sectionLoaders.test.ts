@@ -459,6 +459,27 @@ describe("runSingleSectionLoader — nested section recursion", () => {
     expect(grandchild.props).toMatchObject({ tag: "deep", deep: true });
   });
 
+  it("runs the loader of a section nested inside a plain object in an array (variants[].section)", async () => {
+    const banner = vi.fn(async (props: any) => ({ ...props, ranBanner: true }));
+    registerSectionLoader("site/sections/Banner.tsx", banner);
+
+    const parent = makeSection("site/sections/Tabs.tsx", {
+      variants: [
+        { name: "Linho", section: { Component: "site/sections/Banner.tsx", props: { id: 1 } } },
+        { name: "Sem seção" },
+      ],
+      layout: { aside: { Component: "site/sections/Banner.tsx", props: { id: 2 } } },
+    });
+
+    const result = await runSingleSectionLoader(parent, new Request("https://store.com/vitrine"));
+
+    expect(banner).toHaveBeenCalledTimes(2);
+    const props = result.props as any;
+    expect(props.variants[0].section.props).toMatchObject({ id: 1, ranBanner: true });
+    expect(props.variants[1]).toEqual({ name: "Sem seção" });
+    expect(props.layout.aside.props).toMatchObject({ id: 2, ranBanner: true });
+  });
+
   it("ignores nested objects that do not look like sections", async () => {
     const loader = vi.fn(async (props: Record<string, unknown>) => props);
     registerSectionLoader("site/sections/Leaf.tsx", loader);
@@ -498,6 +519,103 @@ describe("runSingleSectionLoader — nested section recursion", () => {
       foo: "bar",
       ran: true,
     });
+  });
+});
+
+describe("runSingleSectionLoader — nested walk cost and cycles", () => {
+  // A PLP-sized payload: hundreds of products, each a deep plain-object tree,
+  // and not a single nested section anywhere.
+  const bigLeafProps = () => ({
+    products: Array.from({ length: 200 }, (_, i) => ({
+      productID: String(i),
+      offers: { offers: [{ price: i, seller: "1", priceSpecification: [{ price: i }] }] },
+      image: [{ url: `https://img/${i}.jpg`, additionalProperty: [{ name: "a", value: "b" }] }],
+      isVariantOf: { hasVariant: [{ sku: `${i}-1` }, { sku: `${i}-2` }] },
+    })),
+  });
+
+  it("walks props without a nested section synchronously — no Promise.all, same reference", async () => {
+    const out = bigLeafProps();
+    registerSectionLoader("site/sections/PLP.tsx", async () => out);
+
+    const all = vi.spyOn(Promise, "all");
+    try {
+      const result = await runSingleSectionLoader(
+        makeSection("site/sections/PLP.tsx"),
+        new Request("https://store.com/c"),
+      );
+      expect(result.props).toBe(out);
+      expect(all).not.toHaveBeenCalled();
+    } finally {
+      all.mockRestore();
+    }
+  });
+
+  it("only descends into the subtree that holds a nested section", async () => {
+    const banner = vi.fn(async (props: any) => ({ ...props, ranBanner: true }));
+    registerSectionLoader("site/sections/Banner.tsx", banner);
+    const big = bigLeafProps();
+    const parent = makeSection("site/sections/Wrapper.tsx", {
+      ...big,
+      aside: { Component: "site/sections/Banner.tsx", props: { id: 1 } },
+    });
+
+    const result = await runSingleSectionLoader(parent, new Request("https://store.com/"));
+
+    expect(banner).toHaveBeenCalledTimes(1);
+    const props = result.props as any;
+    expect(props.aside.props).toMatchObject({ id: 1, ranBanner: true });
+    // Untouched subtrees keep identity.
+    expect(props.products).toBe(big.products);
+  });
+
+  it("survives cyclic loader output — the page resolves and the section keeps its props", async () => {
+    const cyclic: Record<string, unknown> = { name: "a" };
+    cyclic.self = cyclic;
+    const list: unknown[] = [cyclic];
+    list.push(list);
+    const out = { cyclic, list };
+    registerSectionLoader("site/sections/Cyclic.tsx", async () => out);
+    registerSectionLoader("site/sections/Other.tsx", async (props) => ({ ...props, ok: true }));
+
+    const results = await runSectionLoaders(
+      [makeSection("site/sections/Cyclic.tsx"), makeSection("site/sections/Other.tsx")],
+      new Request("https://store.com/"),
+    );
+
+    expect(results[0].props).toBe(out);
+    expect((results[1].props as any).ok).toBe(true);
+  });
+
+  it("enriches a subtree shared by two props in both places", async () => {
+    const banner = vi.fn(async (props: any) => ({ ...props, ranBanner: true }));
+    registerSectionLoader("site/sections/Banner.tsx", banner);
+    const shared = { section: { Component: "site/sections/Banner.tsx", props: { id: 1 } } };
+    const parent = makeSection("site/sections/Tabs.tsx", { a: shared, b: [shared] });
+
+    const result = await runSingleSectionLoader(parent, new Request("https://store.com/"));
+
+    const props = result.props as any;
+    expect(props.a.section.props).toMatchObject({ id: 1, ranBanner: true });
+    expect(props.b[0].section.props).toMatchObject({ id: 1, ranBanner: true });
+  });
+
+  it("runs a nested section reachable through a cycle exactly once", async () => {
+    const banner = vi.fn(async (props: any) => ({ ...props, ranBanner: true }));
+    registerSectionLoader("site/sections/Banner.tsx", banner);
+    const layout: Record<string, unknown> = {
+      aside: { Component: "site/sections/Banner.tsx", props: { id: 1 } },
+    };
+    layout.parent = layout;
+    registerSectionLoader("site/sections/Cyclic.tsx", async () => ({ layout }));
+
+    const result = await runSingleSectionLoader(
+      makeSection("site/sections/Cyclic.tsx"),
+      new Request("https://store.com/"),
+    );
+
+    expect(banner).toHaveBeenCalledTimes(1);
+    expect((result.props as any).layout.aside.props).toMatchObject({ id: 1, ranBanner: true });
   });
 });
 

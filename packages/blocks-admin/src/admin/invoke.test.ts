@@ -14,14 +14,10 @@
  * Set-Cookie headers (readable via `response.headers.getSetCookie()`).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearDraftCache, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
-import {
-  clearInvokeHandlers,
-  handleInvoke,
-  registerInvokeHandlers,
-} from "./invoke";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { clearInvokeHandlers, handleInvoke, registerInvokeHandlers } from "./invoke";
 
 const COOKIE_A = "checkout.vtex.com__orderFormId=of-123; Path=/; HttpOnly";
 const COOKIE_B = "segment=eyJjYW1wYWlnbnMiOiJ4In0=; Path=/; HttpOnly";
@@ -58,9 +54,7 @@ describe("handleInvoke — Set-Cookie propagation (single)", () => {
     });
 
     const request = makeInvokeRequest("vtex/actions/addItemsToCart");
-    const response = await RequestContext.run(request, () =>
-      handleInvoke(request),
-    );
+    const response = await RequestContext.run(request, () => handleInvoke(request));
 
     const cookies = response.headers.getSetCookie();
     expect(cookies).toHaveLength(3);
@@ -79,9 +73,7 @@ describe("handleInvoke — Set-Cookie propagation (single)", () => {
     });
 
     const request = makeInvokeRequest("vtex/actions/foo");
-    const response = await RequestContext.run(request, () =>
-      handleInvoke(request),
-    );
+    const response = await RequestContext.run(request, () => handleInvoke(request));
 
     // The regressed bug appended a single comma-joined string, so
     // `getSetCookie()` returned a 1-element array. The fix appends each
@@ -98,9 +90,7 @@ describe("handleInvoke — Set-Cookie propagation (single)", () => {
     });
 
     const request = makeInvokeRequest("vtex/actions/withHeader");
-    const response = await RequestContext.run(request, () =>
-      handleInvoke(request),
-    );
+    const response = await RequestContext.run(request, () => handleInvoke(request));
     expect(response.headers.get("x-vtex-trace-id")).toBe("abc-123");
   });
 
@@ -110,9 +100,7 @@ describe("handleInvoke — Set-Cookie propagation (single)", () => {
     });
 
     const request = makeInvokeRequest("vtex/loaders/productList");
-    const response = await RequestContext.run(request, () =>
-      handleInvoke(request),
-    );
+    const response = await RequestContext.run(request, () => handleInvoke(request));
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 });
@@ -139,9 +127,7 @@ describe("handleInvoke — Set-Cookie propagation (batch)", () => {
       "vtex/actions/addItemsToCart": { orderFormId: "x" },
       "vtex/loaders/productList": {},
     });
-    const response = await RequestContext.run(request, () =>
-      handleInvoke(request),
-    );
+    const response = await RequestContext.run(request, () => handleInvoke(request));
 
     const cookies = response.headers.getSetCookie();
     expect(cookies).toHaveLength(3);
@@ -165,8 +151,7 @@ describe("handleInvoke — draft binding", () => {
     clearDraftCache();
     setBlocks({ "site/x": { value: "published" } });
     registerInvokeHandlers({
-      "site/loaders/x.ts": async () =>
-        (loadBlocks() as Record<string, any>)["site/x"],
+      "site/loaders/x.ts": async () => (loadBlocks() as Record<string, any>)["site/x"],
     });
   });
   afterEach(() => {
@@ -177,14 +162,11 @@ describe("handleInvoke — draft binding", () => {
   });
 
   function invokeReq(headers: Record<string, string>): Request {
-    return new Request(
-      "https://preview.example/deco/invoke/site/loaders/x.ts",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", ...headers },
-        body: "{}",
-      },
-    );
+    return new Request("https://preview.example/deco/invoke/site/loaders/x.ts", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: "{}",
+    });
   }
 
   it("resolves loaders against the DRAFT when the request carries an allowed draft cookie", async () => {
@@ -197,8 +179,7 @@ describe("handleInvoke — draft binding", () => {
     const res = await handleInvoke(
       invokeReq({
         "x-forwarded-host": "preview.example",
-        cookie:
-          "__deco_draft=studio.decocms.com/api/o/decofile/m/main%3Ftoken%3Dt@vX",
+        cookie: "__deco_draft=studio.decocms.com/api/o/decofile/m/main%3Ftoken%3Dt@vX",
       }),
     );
     expect(await res.json()).toEqual({ value: "draft" });
@@ -212,9 +193,7 @@ describe("handleInvoke — draft binding", () => {
       return new Response("{}");
     }) as unknown as typeof fetch;
 
-    const res = await handleInvoke(
-      invokeReq({ "x-forwarded-host": "preview.example" }),
-    );
+    const res = await handleInvoke(invokeReq({ "x-forwarded-host": "preview.example" }));
     expect(await res.json()).toEqual({ value: "published" });
     expect(called).toBe(false);
   });
@@ -229,10 +208,49 @@ describe("handleInvoke — draft binding", () => {
     const res = await handleInvoke(
       invokeReq({
         "x-forwarded-host": "prod.example",
-        cookie:
-          "__deco_draft=studio.decocms.com/api/o/decofile/m/main%3Ftoken%3Dt@vX",
+        cookie: "__deco_draft=studio.decocms.com/api/o/decofile/m/main%3Ftoken%3Dt@vX",
       }),
     );
     expect(await res.json()).toEqual({ value: "published" });
+  });
+});
+
+describe("handleInvoke — malformed JSON body", () => {
+  const seen: unknown[] = [];
+  beforeEach(() => {
+    seen.length = 0;
+    clearInvokeHandlers();
+    registerInvokeHandlers({
+      "site/loaders/echo.ts": async (props: unknown) => {
+        seen.push(props);
+        return { ok: true };
+      },
+    });
+  });
+
+  const post = (body: string, headers: Record<string, string>) =>
+    new Request("http://localhost/deco/invoke/site/loaders/echo.ts", {
+      method: "POST",
+      headers,
+      body,
+    });
+
+  it("answers 400 Invalid JSON for a declared-JSON body that does not parse, without running the handler", async () => {
+    const res = await handleInvoke(post("{not json", { "content-type": "application/json" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Invalid JSON" });
+    expect(seen).toEqual([]);
+  });
+
+  it("treats an empty declared-JSON body as no props", async () => {
+    const res = await handleInvoke(post("", { "content-type": "application/json" }));
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{}]);
+  });
+
+  it("stays lenient without a JSON content-type (try-json: {} on failure)", async () => {
+    const res = await handleInvoke(post("{not json", {}));
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{}]);
   });
 });

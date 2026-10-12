@@ -3,7 +3,7 @@
  * source site's custom CSS before it's appended to the generated
  * `src/styles/app.css` (see templates/app-css.ts).
  *
- * Covers two gotchas from the migration skill (references/css-styling.md):
+ * Covers two gotchas from the migration skill (target-tanstack-deco, references/styling.md):
  *   - the v3 `theme()` CSS helper function is gone in v4 — CSS-first config
  *     means theme values live as custom properties, so `theme(colors.x.y)`
  *     must become `var(--color-x-y)` (gotcha referenced alongside #48).

@@ -30,7 +30,7 @@ export function setShopifyFetch(fetchFn: FetchFn) {
 export function configureShopify(config: ShopifyConfig) {
 	_config = config;
 	_client = createGraphqlClient(
-		`https://${config.storeName}.myshopify.com/api/2025-04/graphql.json`,
+		`https://${config.storeName}.myshopify.com/api/2026-04/graphql.json`,
 		{
 			"X-Shopify-Storefront-Access-Token": config.storefrontAccessToken,
 		},

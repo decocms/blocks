@@ -178,7 +178,7 @@ export function transform(ctx: MigrationContext): void {
           "    </button>\n" +
           "  )}\n\n" +
           "Add \"use client\" to the top of the file. " +
-          "See deco-to-tanstack-migration skill, 'Ver mais / Load More' section.",
+          "See source-deco-fresh skill (decocms/migrations), 'Ver mais / Load More' section.",
         severity: "warning",
       });
     }
@@ -209,7 +209,7 @@ export function transform(ctx: MigrationContext): void {
           "(a) local React state for client-side toggles, " +
           "(b) `createServerFn` + `useMutation` for server actions, or " +
           "(c) a direct `invoke` call (`~/server/invoke`) for ad-hoc loaders. " +
-          "See: deco-to-tanstack-migration skill, 'useComponent / partial sections' section.",
+          "See: source-deco-fresh skill (decocms/migrations), 'useComponent / partial sections' section.",
         severity: "error",
       });
     }

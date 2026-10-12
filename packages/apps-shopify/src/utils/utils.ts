@@ -157,3 +157,21 @@ export const getFiltersByUrl = (url: URL) => {
 	});
 	return filters;
 };
+
+/**
+ * Splits a PDP slug into the product handle and the optional trailing
+ * variant id (`my-product-40306064162993`). Only a 10–16 digit tail counts as
+ * a variant id, so handles that end in a number (`t-shirt-2`) stay intact.
+ */
+export const parseProductSlug = (slug?: string): { handle: string; skuId?: number } => {
+	if (!slug) return { handle: "" };
+
+	const splitted = slug.split("-");
+	const lastSegment = splitted[splitted.length - 1];
+
+	if (/^\d{10,16}$/.test(lastSegment)) {
+		return { handle: splitted.slice(0, -1).join("-"), skuId: Number(lastSegment) };
+	}
+
+	return { handle: slug };
+};

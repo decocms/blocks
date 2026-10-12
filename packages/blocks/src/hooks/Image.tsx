@@ -131,6 +131,19 @@ function optimizeShopify(originalSrc: string, width: number, height?: number): s
 	return url.href;
 }
 
+// Nuvemshop's product CDN serves only fixed sizes, picked by a filename suffix
+// (`…-480-0.webp`, `…-1024-1024.webp`); any other size answers 403, and so does
+// the deco image proxy for this host.
+const NUVEMSHOP_IMAGE_RE =
+	/^(https:\/\/[a-z0-9-]+\.mitiendanube\.com\/stores\/.+\/products\/.+)-\d+-\d+\.(\w+)$/;
+const NUVEMSHOP_SIZES = [50, 100, 240, 320, 480, 640];
+
+function optimizeNuvemshop(match: RegExpMatchArray, width: number): string {
+	const [, base, ext] = match;
+	const size = NUVEMSHOP_SIZES.find((s) => s >= width);
+	return `${base}-${size ? `${size}-0` : "1024-1024"}.${ext}`;
+}
+
 // -------------------------------------------------------------------------
 // Core optimization function
 // Ported from deco-cx/apps website/components/Image.tsx
@@ -142,7 +155,7 @@ function optimizeShopify(originalSrc: string, width: number, height?: number): s
  * For Deco-hosted images (decocache / S3 / decoims), strips the known prefix and
  * routes through the Deco image CDN for edge resize + format conversion.
  *
- * For platform-specific images (VTEX, Shopify), rewrites the URL using
+ * For platform-specific images (VTEX, Shopify, Nuvemshop), rewrites the URL using
  * the platform's native resize params — no CDN proxy needed.
  *
  * Data URIs are returned as-is.
@@ -175,6 +188,9 @@ export function getOptimizedMediaUrl(opts: OptimizationOptions): string {
 	if (originalSrc.startsWith("https://cdn.shopify.com")) {
 		return optimizeShopify(originalSrc, width, height);
 	}
+
+	const nuvemshop = originalSrc.match(NUVEMSHOP_IMAGE_RE);
+	if (nuvemshop) return optimizeNuvemshop(nuvemshop, width);
 
 	let imageSource = originalSrc.replace(DECO_ASSET_PREFIX_RE, "").split("?")[0];
 	if (CLOUDFLARE_CDNS.has(imageCdnDomain)) imageSource = imageSource.replace(DECOIMS_PREFIX_RE, "");

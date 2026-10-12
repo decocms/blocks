@@ -53,6 +53,7 @@ fragment Collection on Collection {
   }
   title
   updatedAt
+  onlineStoreUrl
 }`;
 
 const Product = gql`
@@ -174,6 +175,10 @@ fragment Cart on Cart {
   id
   checkoutUrl
   totalQuantity
+  buyerIdentity {
+    countryCode
+    email
+  }
   lines(first: 100) {
     nodes {
       id
@@ -266,28 +271,29 @@ const Customer = gql`
 `;
 
 export const CreateCart = {
-	query: gql`mutation CreateCart {
-    payload: cartCreate { 
-      cart { id } 
+	query: gql`mutation CreateCart($languageCode: LanguageCode, $countryCode: CountryCode) @inContext(language: $languageCode, country: $countryCode) {
+    payload: cartCreate {
+      cart { id }
+      userErrors { field message }
     }
   }`,
 };
 
 export const GetCart = {
 	fragments: [Cart],
-	query: gql`query GetCart($id: ID!) { cart(id: $id) { ...Cart } }`,
+	query: gql`query GetCart($id: ID!, $languageCode: LanguageCode, $countryCode: CountryCode) @inContext(language: $languageCode, country: $countryCode) { cart(id: $id) { ...Cart } }`,
 };
 
 export const GetProduct = {
 	fragments: [Product, ProductVariant, Collection],
-	query: gql`query GetProduct($handle: String, $identifiers: [HasMetafieldsIdentifier!]!) {
+	query: gql`query GetProduct($handle: String, $identifiers: [HasMetafieldsIdentifier!]!, $languageCode: LanguageCode, $countryCode: CountryCode) @inContext(language: $languageCode, country: $countryCode) {
       product(handle: $handle) { ...Product }
     }`,
 };
 
 export const ListProducts = {
 	fragments: [Product, ProductVariant, Collection],
-	query: gql`query ListProducts($first: Int, $after: String, $query: String, $identifiers: [HasMetafieldsIdentifier!]!) {
+	query: gql`query ListProducts($first: Int, $after: String, $query: String, $identifiers: [HasMetafieldsIdentifier!]!, $languageCode: LanguageCode, $countryCode: CountryCode) @inContext(language: $languageCode, country: $countryCode) {
     products(first: $first, after: $after, query: $query) {
       nodes {
         ...Product 
@@ -307,8 +313,10 @@ export const SearchProducts = {
       $productFilters: [ProductFilter!]
       $sortKey: SearchSortKeys, 
       $reverse: Boolean,
-      $identifiers: [HasMetafieldsIdentifier!]!
-     ){
+      $identifiers: [HasMetafieldsIdentifier!]!,
+      $languageCode: LanguageCode,
+      $countryCode: CountryCode
+     ) @inContext(language: $languageCode, country: $countryCode) {
     search(
       first: $first, 
       last: $last, 
@@ -348,9 +356,12 @@ export const ProductsByCollection = {
       $sortKey: ProductCollectionSortKeys, 
       $reverse: Boolean, 
       $filters: [ProductFilter!],
-      $identifiers: [HasMetafieldsIdentifier!]!
-    ){
+      $identifiers: [HasMetafieldsIdentifier!]!,
+      $languageCode: LanguageCode,
+      $countryCode: CountryCode
+    ) @inContext(language: $languageCode, country: $countryCode) {
     collection(handle: $handle) {
+      id
       handle
       description
       title
@@ -382,7 +393,7 @@ export const ProductsByCollection = {
 
 export const ProductRecommendations = {
 	fragments: [Product, ProductVariant, Collection],
-	query: gql`query productRecommendations($productId: ID!, $identifiers: [HasMetafieldsIdentifier!]!) {
+	query: gql`query productRecommendations($productId: ID!, $identifiers: [HasMetafieldsIdentifier!]!, $languageCode: LanguageCode, $countryCode: CountryCode) @inContext(language: $languageCode, country: $countryCode) {
     productRecommendations(productId: $productId) {
       ...Product
     }
@@ -390,7 +401,7 @@ export const ProductRecommendations = {
 };
 
 export const GetShopInfo = {
-	query: gql`query GetShopInfo($identifiers: [HasMetafieldsIdentifier!]!) {
+	query: gql`query GetShopInfo($identifiers: [HasMetafieldsIdentifier!]!, $languageCode: LanguageCode, $countryCode: CountryCode) @inContext(language: $languageCode, country: $countryCode) {
     shop {
       name
       description
@@ -519,6 +530,39 @@ export const SignInWithEmailAndPassword = {
       customerUserErrors {
         code
         message
+      }
+    }
+  }`,
+};
+
+export const ListAllCategories = {
+	fragments: [Collection],
+	query: gql`query ListAllCategories(
+      $after: String,
+      $before: String,
+      $first: Int,
+      $last: Int,
+      $query: String,
+      $reverse: Boolean,
+      $sortKey: CollectionSortKeys
+    ) {
+    collections(
+      first: $first,
+      after: $after,
+      before: $before,
+      last: $last,
+      query: $query,
+      reverse: $reverse,
+      sortKey: $sortKey
+    ) {
+      nodes {
+        ...Collection
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        endCursor
+        startCursor
       }
     }
   }`,

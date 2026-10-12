@@ -38,8 +38,8 @@ alwaysApply: true
   https://github.com/decocms/blocks/blob/main/.cursor/rules/migration-tooling-policy.mdc
 - **Plan (living tracker, decisions + waves):**
   https://github.com/decocms/blocks/blob/main/MIGRATION_TOOLING_PLAN.md
-- **Migration skill (phase playbook):**
-  https://github.com/decocms/blocks/blob/main/.agents/skills/deco-to-tanstack-migration/SKILL.md
+- **Migration skills (phase playbook):** \`source-deco-fresh\` and
+  \`target-tanstack-deco\` in \`decocms/migrations\` (internal; referred to by name)
 
 ## What you need to know in this site
 

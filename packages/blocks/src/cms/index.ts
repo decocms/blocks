@@ -117,6 +117,7 @@ export {
   registerCommerceLoader,
   registerCommerceLoaders,
   registerEagerSections,
+  registerFallbackPropsSections,
   registerMatcher,
   registerNeverDeferSections,
   registerSeoSections,

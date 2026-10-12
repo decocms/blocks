@@ -1,0 +1,636 @@
+{
+  "data": [
+    {
+      "id": 372191296,
+      "name": "Vestido Primavera Verde",
+      "handle": "vestido-primavera-verde",
+      "description": "<p>Leve, rodado e com decote quadrado. Um vestido feito para dançar.</p><p><strong>Cores disponíveis:</strong> Verde, Terracota<br><strong>Tamanhos:</strong> PP / P / M / G</p><p><strong>Cuidados:</strong></p><ul><li>Lavar à mão com água fria</li><li>Secar à sombra</li><li>Não torcer</li></ul>",
+      "images": [
+        {
+          "id": 1289346924,
+          "src": "https://dcdn-us.mitiendanube.com/stores/008/336/778/products/3-55d3a8e6def5e221ec17912362168089-1024-1024.webp",
+          "alt": "",
+          "height": 1000,
+          "width": 1000
+        },
+        {
+          "id": 1289346933,
+          "src": "https://dcdn-us.mitiendanube.com/stores/008/336/778/products/4-36018cb5232407e09417912362172425-1024-1024.webp",
+          "alt": "",
+          "height": 1000,
+          "width": 1000
+        }
+      ],
+      "variants": [
+        {
+          "id": 1612650933,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 1,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 31,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-1-PP",
+          "values": ["PP", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:54+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982723,
+              "variant_id": 1612650933,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 31
+            }
+          ]
+        },
+        {
+          "id": 1612650943,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 2,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 34,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-1-P",
+          "values": ["P", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:54+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982732,
+              "variant_id": 1612650943,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 34
+            }
+          ]
+        },
+        {
+          "id": 1612650947,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 3,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 12,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-1-M",
+          "values": ["M", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:54+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982741,
+              "variant_id": 1612650947,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 12
+            }
+          ]
+        },
+        {
+          "id": 1612650952,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 4,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 15,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-1-G",
+          "values": ["G", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:55+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982746,
+              "variant_id": 1612650952,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 15
+            }
+          ]
+        },
+        {
+          "id": 1612650955,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 5,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 18,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-2-PP",
+          "values": ["PP", "Terracota"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:55+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982749,
+              "variant_id": 1612650955,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 18
+            }
+          ]
+        },
+        {
+          "id": 1612650959,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 6,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 21,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-2-P",
+          "values": ["P", "Terracota"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:55+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982753,
+              "variant_id": 1612650959,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 21
+            }
+          ]
+        },
+        {
+          "id": 1612650964,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 7,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 24,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-2-M",
+          "values": ["M", "Terracota"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:56+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982757,
+              "variant_id": 1612650964,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 24
+            }
+          ]
+        },
+        {
+          "id": 1612650969,
+          "image_id": 1289346924,
+          "product_id": 372191296,
+          "position": 8,
+          "price": "249.90",
+          "price_without_taxes": null,
+          "compare_at_price": "249.90",
+          "promotional_price": "219.90",
+          "stock_management": true,
+          "stock": 27,
+          "weight": "0.390",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD028-2-G",
+          "values": ["G", "Terracota"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:56+0000",
+          "updated_at": "2026-10-05T21:36:57+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243982762,
+              "variant_id": 1612650969,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 27
+            }
+          ]
+        }
+      ],
+      "brand": null,
+      "tags": "",
+      "categories": [
+        {
+          "id": 41376195,
+          "name": "Vestidos",
+          "handle": "vestidos",
+          "parent": null,
+          "google_shopping_category": ""
+        }
+      ],
+      "attributes": ["Tamanho", "Cor"],
+      "seo_title": "",
+      "seo_description": "",
+      "free_shipping": false,
+      "video_url": null,
+      "created_at": "2026-10-05T21:36:53+0000"
+    },
+    {
+      "id": 372190980,
+      "name": "Vestido Primavera Mini",
+      "handle": "vestido-primavera-mini",
+      "description": "<p>Mini vestido romântico com amarração na cintura. Perfeito para passeios e encontros.</p><p><strong>Cores disponíveis:</strong> Estampado, Verde<br><strong>Tamanhos:</strong> PP / P / M / G</p><p><strong>Cuidados:</strong></p><ul><li>Lavar à mão com água fria</li><li>Secar à sombra</li><li>Não torcer</li></ul>",
+      "images": [
+        {
+          "id": 1289346271,
+          "src": "https://dcdn-us.mitiendanube.com/stores/008/336/778/products/3-0d5580ddfa49c98a7c17912361647803-1024-1024.webp",
+          "alt": "",
+          "height": 1000,
+          "width": 1000
+        },
+        {
+          "id": 1289346282,
+          "src": "https://dcdn-us.mitiendanube.com/stores/008/336/778/products/4-d813ddf6fe51a7d6e117912361651473-1024-1024.webp",
+          "alt": "",
+          "height": 1000,
+          "width": 1000
+        }
+      ],
+      "variants": [
+        {
+          "id": 1612649896,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 1,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 11,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-1-PP",
+          "values": ["PP", "Estampado"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:02+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981888,
+              "variant_id": 1612649896,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 11
+            }
+          ]
+        },
+        {
+          "id": 1612649925,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 2,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 14,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-1-P",
+          "values": ["P", "Estampado"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:02+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981894,
+              "variant_id": 1612649925,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 14
+            }
+          ]
+        },
+        {
+          "id": 1612649940,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 3,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 17,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-1-M",
+          "values": ["M", "Estampado"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:02+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981898,
+              "variant_id": 1612649940,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 17
+            }
+          ]
+        },
+        {
+          "id": 1612649942,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 4,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 20,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-1-G",
+          "values": ["G", "Estampado"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:03+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981905,
+              "variant_id": 1612649942,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 20
+            }
+          ]
+        },
+        {
+          "id": 1612649947,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 5,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 23,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-2-PP",
+          "values": ["PP", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:03+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981910,
+              "variant_id": 1612649947,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 23
+            }
+          ]
+        },
+        {
+          "id": 1612649953,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 6,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 26,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-2-P",
+          "values": ["P", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:03+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981914,
+              "variant_id": 1612649953,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 26
+            }
+          ]
+        },
+        {
+          "id": 1612649957,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 7,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 29,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-2-M",
+          "values": ["M", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:04+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981919,
+              "variant_id": 1612649957,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 29
+            }
+          ]
+        },
+        {
+          "id": 1612649962,
+          "image_id": 1289346271,
+          "product_id": 372190980,
+          "position": 8,
+          "price": "169.90",
+          "price_without_taxes": null,
+          "compare_at_price": "169.90",
+          "promotional_price": "139.90",
+          "stock_management": true,
+          "stock": 32,
+          "weight": "0.270",
+          "width": "0.00",
+          "height": "0.00",
+          "depth": "0.00",
+          "sku": "MD018-2-G",
+          "values": ["G", "Verde"],
+          "barcode": null,
+          "mpn": null,
+          "age_group": null,
+          "gender": null,
+          "created_at": "2026-10-05T21:36:04+0000",
+          "updated_at": "2026-10-05T21:36:05+0000",
+          "cost": null,
+          "visible": true,
+          "inventory_levels": [
+            {
+              "id": 1243981922,
+              "variant_id": 1612649962,
+              "location_id": "01M46ZD8MN4T7KKYQNDV2NDS7J",
+              "stock": 32
+            }
+          ]
+        }
+      ],
+      "brand": null,
+      "tags": "",
+      "categories": [
+        {
+          "id": 41376195,
+          "name": "Vestidos",
+          "handle": "vestidos",
+          "parent": null,
+          "google_shopping_category": ""
+        }
+      ],
+      "attributes": ["Tamanho", "Cor"],
+      "seo_title": "",
+      "seo_description": "",
+      "free_shipping": false,
+      "video_url": null,
+      "created_at": "2026-10-05T21:36:01+0000"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 2,
+    "total": 2,
+    "total_pages": 1
+  }
+}

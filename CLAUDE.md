@@ -10,7 +10,7 @@ This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo housing the
 
 ## Migration tooling policy (constitutional)
 
-This repo also hosts the migration scripts + skills that move Deco storefronts from Fresh/Deno to TanStack Start. That work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt. This governs the migration *scripts and skills*, not the package split itself.
+This repo also hosts the migration scripts (the skills now live in `decocms/migrations`) that move Deco storefronts from Fresh/Deno to TanStack Start. That work is governed by signed-off architectural decisions (D1–D5) and a strict priority order — see [`.cursor/rules/migration-tooling-policy.mdc`](./.cursor/rules/migration-tooling-policy.mdc) (always-loaded) and [`MIGRATION_TOOLING_PLAN.md`](./MIGRATION_TOOLING_PLAN.md) (full record). Defer to the plan when in doubt. This governs the migration *scripts and skills*, not the package split itself.
 
 ## Tech Stack
 
@@ -45,10 +45,7 @@ packages/
 examples/
 ├── tanstack-smoke/   real TanStack Start app consuming runtime+admin+tanstack
 └── next-smoke/       real Next.js app consuming runtime+admin+next
-.agents/skills/
-├── deco-to-tanstack-migration/   Fresh/Preact/Deno -> TanStack Start (site-code migration)
-├── deco-migrate-script/          the automated 8-phase script backing the above
-└── deco-next-package-migration/  old single-package @decocms/start -> the split, for Next.js sites
+.agents/skills/        framework + package skills (index: .agents/skills/README.md); .claude/skills is a symlink to it
 ```
 
 **The dependency graph is one-way and load-bearing.** `runtime` never imports from `admin`/`cli`/`tanstack`/`next`. `tanstack` and `next` never import from each other. When splitting a concern between packages, check which side of this graph it belongs on before writing code — a circular need (Phase 1's `createSiteSetup` originally needed both runtime-only and admin-only options) is resolved by splitting the function, not by adding a back-edge.
@@ -127,21 +124,36 @@ A few symbols have real, intended-for-external-use implementations that aren't r
 
 If you're the one wiring up a new site and hit one of these, the fix belongs in the package (add the export), not another copy-pasted local shim — check this list first.
 
-## Migration Skills
+## Skills: what lives here, what lives elsewhere
 
-Three, each with a distinct scope:
+One folder, `.agents/skills/`, and only skills that describe the framework and its packages **as they are today** (one skill per package or concern). Claude Code discovers them through the `.claude/skills` symlink. Gate: `bun run skills:check && bun run skills:readme:check` (regenerate the index with `bun run skills:readme`) (copied from `decocms/migrations` — SKILL.md ≤10KB as an index, references ≤15KB, generated index; CI in `.github/workflows/skills-check.yml`). New skill: `cp -r .agents/skill-template .agents/skills/<name>`.
 
-1. **`deco-to-tanstack-migration`** (`.agents/skills/`) — the site-code migration playbook, Fresh/Preact/Deno → TanStack Start/React/Workers. Import rewrites, Deco-framework elimination, commerce type migration, platform hooks (useCart/useUser/useWishlist), Vite config, documented gotchas.
-2. **`deco-migrate-script`** — the automated script backing (1): 8 phases (analyze → scaffold → transform → cleanup → report → verify → bootstrap → compile), invoked via `@decocms/blocks-cli`'s `scripts/migrate.ts`.
-3. **`deco-next-package-migration`** — a different migration: moving a site *off the old single-package `@decocms/start`* (the abandoned `/next`, `/core`, `/node` tiers specifically) *onto the current split*, for sites building on `@decocms/nextjs`. Has its own import-mapping reference and worked `setup.ts`/admin-routes templates, proven end-to-end against a real production Next.js site.
+**Load the skill before editing or debugging what it covers** — they hold the constraints the code alone doesn't show:
 
-Don't conflate (1)/(2) with (3) — the first pair migrates a site's *framework* (Fresh → TanStack), the third migrates a site's *package dependency* on an already-TanStack-or-Next site.
+| Touching / debugging | Skill |
+|---|---|
+| `packages/apps-vtex/**`, cart (`useCart`, `createCart`, orderForm), VTEX cookies/auth, sales channel | `apps-vtex` |
+| `packages/apps-nuvemshop/**`, Nuvemshop Storefront API fields/facets/sort, store login/register/`store_session_payload`, `/comprar/` 403 | `apps-nuvemshop` |
+| Any cache layer: `workerEntry.ts`, `sdk/cacheHeaders.ts`, `sdk/cachedLoader.ts`, `sdk/fetchCache.ts`, layout caches in `cms/resolve.ts`/`cms/sectionLoaders.ts`, `staleTime`/`gcTime`, `X-Cache` | `deco-caching` |
+| A site's `src/routes/*`, `cmsRouteConfig`, admin route configs, SEO/head | `deco-cms-route-config` |
+| `invoke.gen.ts`/`invoke.ts`, `createServerFn`, CORS on cart/checkout | `deco-server-functions-invoke` |
+| Origin egress / cache hit rate / HTML size audits | `deco-storefront-egress-guardrails` |
+| `packages/blocks-cli/scripts/migrate*` | `deco-migrate-script` (code), `run-migration` (try it on a site) |
+
+Writing a skill: the `description` is the only thing the model reads before deciding to load it — lead with the package, then "Use when …" with the symbols, file paths, error strings and symptoms someone would actually type. Keep it quoted (the check enforces it). Prefer adding a `references/` file to an existing package skill over a new skill: every skill's description sits in context all the time.
+
+Everything else has another home — refer to it by skill **name**, never by path (those repos are private):
+
+- **`decocms/migrations`** — anything that only makes sense with a "before" and an "after": the Fresh → TanStack playbook (`source-deco-fresh`, `target-tanstack-deco`), running the migrator (`tools-migrate-script`), package upgrades (`upgrades-decocms-v6-to-v7`, `upgrades-next-package-split`), known issues by subject (`knowledge-known-issues`).
+- **`decocms/skills`** — generic craft true regardless of migration: incidents, perf audits, e2e, memory debugging, deployment.
+
+`deco-migrate-script` (here) is for *developing* the migrator in `@decocms/blocks-cli`; `tools-migrate-script` (migrations) is for *running* it on a site. Don't re-create a moved playbook here.
 
 ## Cache & upstream observability (apps must follow this to be covered)
 
 Cache/upstream telemetry reaches ClickHouse only through two shared chokepoints in `@decocms/blocks`. A new commerce app is instrumented **for free** iff it uses both — there is no per-metric wiring beyond this:
 
-1. **Upstream HTTP** (`http.client.request.duration`, `provider`/`operation`/`status_class`/`cached` labels) — route every egress fetch through `createInstrumentedFetch` (`@decocms/blocks/sdk/instrumentedFetch`) with an `onComplete` that calls `recordCommerceMetric`. The per-provider factory pattern is `createVtexFetch` / `createShopifyFetch` / `createMagentoFetch` / `createSalesforceFetch` (each in that app's `src/utils/instrumentedFetch.ts`, plus a `src/utils/operationRouter.ts`). **The factory existing is not enough — the site must actually wire it**: call `setXFetch(createXFetch())` once at boot (VTEX/Shopify/Magento default to an uninstrumented `globalThis.fetch` until you do, so a site that forgets stays dark). Salesforce is the exception: `createHttpClient` defaults its `fetcher` to the instrumented fetch, so its loaders are covered without per-site wiring.
+1. **Upstream HTTP** (`http.client.request.duration`, `provider`/`operation`/`status_class`/`cached` labels) — route every egress fetch through `createInstrumentedFetch` (`@decocms/blocks/sdk/instrumentedFetch`) with an `onComplete` that calls `recordCommerceMetric`. The per-provider factory pattern is `createVtexFetch` / `createShopifyFetch` / `createMagentoFetch` / `createSalesforceFetch` / `createNuvemshopFetch` (each in that app's `src/utils/instrumentedFetch.ts`, plus a `src/utils/operationRouter.ts`). **The factory existing is not enough — the site must actually wire it**: call `setXFetch(createXFetch())` once at boot (VTEX/Shopify/Magento default to an uninstrumented `globalThis.fetch` until you do, so a site that forgets stays dark). Salesforce and Nuvemshop are the exceptions: their clients default to the instrumented fetch (Salesforce's `createHttpClient` `fetcher`, Nuvemshop's `client.ts` transport — which also routes GETs through `createFetchCache`), so their loaders are covered without per-site wiring.
 2. **In-memory SWR cache hit/miss** (`deco.cache.requests`, `deco.cache.layer="swr"`, `deco.cache.provider=<provider>`) — cache upstream GETs via `createFetchCache` from `@decocms/blocks/sdk/fetchCache` (the single shared SWR/dedup/stale-if-error impl). Do **not** copy-paste a per-app fetch cache — that's how VTEX and a production Magento cache went dark. The metric MUST be emitted inside the cache (not in `createInstrumentedFetch`): on a HIT the cache returns before `doFetch` runs, so the instrumented fetch never sees it. The `swr` layer joins the framework's `edge` (Cloudflare Cache API, `workerEntry.ts`) and `cachedLoader` (`sdk/cachedLoader.ts`) layers on the same `deco.cache.requests` counter — note the backend rides on `deco.cache.provider`, distinct from `deco.cache.profile` (page-type, set by `edge`), so the two never blend in a `sum by` panel.
 
 A guardrail test (`packages/apps-commerce/src/instrumentation-guardrail.test.ts`) checks that each listed commerce app *ships* an instrumented `src/utils/instrumentedFetch.ts` (it greps for the two required symbols; it does **not** verify the site wired `setXFetch`) — add new providers to its `REQUIRED` list. Exception: `apps-algolia` uses the `algoliasearch` SDK's own transport/cache and is intentionally not instrumented here.

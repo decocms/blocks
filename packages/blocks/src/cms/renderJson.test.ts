@@ -18,7 +18,12 @@ const getSectionModule = (c: string) => modules[c];
 describe("serializeRenderJson", () => {
   it("applies a projection function to the props", () => {
     const out = serializeRenderJson(
-      [{ component: "site/sections/Product/ProductDetails.tsx", props: { storeConfig: {}, page: 1 } }],
+      [
+        {
+          component: "site/sections/Product/ProductDetails.tsx",
+          props: { storeConfig: {}, page: 1 },
+        },
+      ],
       { getSectionModule },
     );
     expect(out).toEqual([
@@ -38,9 +43,12 @@ describe("serializeRenderJson", () => {
   });
 
   it("passes full props through when there is no renderJson export", () => {
-    const out = serializeRenderJson([{ component: "site/sections/Footer/Footer.tsx", props: { y: 2 } }], {
-      getSectionModule,
-    });
+    const out = serializeRenderJson(
+      [{ component: "site/sections/Footer/Footer.tsx", props: { y: 2 } }],
+      {
+        getSectionModule,
+      },
+    );
     expect(out).toEqual([{ component: "site/sections/Footer/Footer.tsx", props: { y: 2 } }]);
   });
 
@@ -94,9 +102,12 @@ describe("serializeRenderJson", () => {
   });
 
   it("strips injected keys even when a projection rest-spreads them through", () => {
-    const out = serializeRenderJson([{ component: "a", props: { keep: 1, __pageUrl: "u", device: "d" } }], {
-      getSectionModule: () => ({ renderJson: (p: Record<string, unknown>) => p }), // identity passes __ through
-    });
+    const out = serializeRenderJson(
+      [{ component: "a", props: { keep: 1, __pageUrl: "u", device: "d" } }],
+      {
+        getSectionModule: () => ({ renderJson: (p: Record<string, unknown>) => p }), // identity passes __ through
+      },
+    );
     expect(out).toEqual([{ component: "a", props: { keep: 1 } }]);
   });
 
@@ -120,15 +131,18 @@ describe("serializeRenderJson", () => {
   });
 
   it("does not emit a lazyUrl for a dropped deferred section", () => {
-    const out = serializeRenderJson([{ component: "site/sections/Header.tsx", props: {}, index: 0 }], {
-      getSectionModule,
-      sectionsToIgnore: ["SeoV2.tsx"],
-      deferred: [
-        { component: "website/sections/Seo/SeoV2.tsx", index: 1 }, // suffix-dropped
-        { component: "site/sections/Theme/Theme.tsx", index: 2 }, // renderJson === false
-      ],
-      lazyUrlFor: (ref) => `/p?renderJson&__lazy=${ref.index}`,
-    });
+    const out = serializeRenderJson(
+      [{ component: "site/sections/Header.tsx", props: {}, index: 0 }],
+      {
+        getSectionModule,
+        sectionsToIgnore: ["SeoV2.tsx"],
+        deferred: [
+          { component: "website/sections/Seo/SeoV2.tsx", index: 1 }, // suffix-dropped
+          { component: "site/sections/Theme/Theme.tsx", index: 2 }, // renderJson === false
+        ],
+        lazyUrlFor: (ref) => `/p?renderJson&__lazy=${ref.index}`,
+      },
+    );
     expect(out).toEqual([{ component: "site/sections/Header.tsx", props: {} }]);
   });
 });
@@ -136,7 +150,9 @@ describe("serializeRenderJson", () => {
 describe("isSecretValue / stringifyWithoutSecrets", () => {
   it("detects a resolved Secret ({ get: fn }) and an unresolved secret block", () => {
     expect(isSecretValue({ get: () => "plaintext" })).toBe(true);
-    expect(isSecretValue({ __resolveType: "website/loaders/secret.ts", encrypted: "x" })).toBe(true);
+    expect(isSecretValue({ __resolveType: "website/loaders/secret.ts", encrypted: "x" })).toBe(
+      true,
+    );
   });
 
   it("does not flag content that merely has a `get` method or other shapes", () => {
@@ -163,5 +179,162 @@ describe("isSecretValue / stringifyWithoutSecrets", () => {
     });
     expect("apiKey" in out).toBe(false);
     expect("block" in out).toBe(false);
+  });
+});
+
+describe("serializeRenderJson — nested sections", () => {
+  const nestedModules: Record<string, RenderJsonModule> = {
+    "site/sections/Tabs.tsx": {},
+    "site/sections/Banner.tsx": {
+      renderJson: ({ link, media, ...rest }: any) => ({ ...rest, path: link, image: media.mobile }),
+    },
+    "site/sections/Theme.tsx": { renderJson: false },
+  };
+  const getSectionModule = (c: string) => nestedModules[c];
+
+  it("projects a section nested in a plain object inside an array and writes it as { component, props }", () => {
+    const out = serializeRenderJson(
+      [
+        {
+          component: "site/sections/Tabs.tsx",
+          props: {
+            variants: [
+              {
+                name: "Linho",
+                section: {
+                  Component: "site/sections/Banner.tsx",
+                  props: {
+                    link: "roupas/linho",
+                    media: { desktop: "d.jpg", mobile: "m.jpg" },
+                    device: "mobile",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+      { getSectionModule },
+    );
+    expect(out).toEqual([
+      {
+        component: "site/sections/Tabs.tsx",
+        props: {
+          variants: [
+            {
+              name: "Linho",
+              section: {
+                component: "site/sections/Banner.tsx",
+                props: { path: "roupas/linho", image: "m.jpg" },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("drops a nested section with renderJson === false: null in an object, removed from an array", () => {
+    const out = serializeRenderJson(
+      [
+        {
+          component: "site/sections/Tabs.tsx",
+          props: {
+            aside: { Component: "site/sections/Theme.tsx", props: {} },
+            sections: [
+              { Component: "site/sections/Theme.tsx", props: {} },
+              {
+                Component: "site/sections/Banner.tsx",
+                props: { link: "a", media: { mobile: "m" } },
+              },
+            ],
+          },
+        },
+      ],
+      { getSectionModule },
+    );
+    expect(out[0]).toEqual({
+      component: "site/sections/Tabs.tsx",
+      props: {
+        aside: null,
+        sections: [{ component: "site/sections/Banner.tsx", props: { path: "a", image: "m" } }],
+      },
+    });
+  });
+
+  it("recurses through the parent's projection output (wrapper inside wrapper)", () => {
+    const out = serializeRenderJson(
+      [
+        {
+          component: "site/sections/Tabs.tsx",
+          props: {
+            child: {
+              Component: "site/sections/Tabs.tsx",
+              props: {
+                grandchild: {
+                  Component: "site/sections/Banner.tsx",
+                  props: { link: "x", media: { mobile: "y" } },
+                },
+              },
+            },
+          },
+        },
+      ],
+      { getSectionModule },
+    );
+    expect((out[0] as any).props.child.props.grandchild).toEqual({
+      component: "site/sections/Banner.tsx",
+      props: { path: "x", image: "y" },
+    });
+  });
+
+  it("leaves props without nested sections untouched (same reference)", () => {
+    const props = { items: [{ id: 1 }], config: { Component: "ButtonStyle", color: "red" } };
+    const out = serializeRenderJson([{ component: "site/sections/Tabs.tsx", props }], {
+      getSectionModule,
+    });
+    expect((out[0] as any).props).toBe(props);
+  });
+});
+
+describe("serializeRenderJson — keepInjectedKeys", () => {
+  it("keeps a loader-owned injected key only for the sections that opt in", () => {
+    const out = serializeRenderJson(
+      [
+        {
+          component: "site/sections/Product/ProductDetails.tsx",
+          props: { device: "desktop", isMobile: false, page: 1 },
+        },
+        { component: "site/sections/Footer/Footer.tsx", props: { device: "desktop", y: 2 } },
+      ],
+      {
+        keepInjectedKeys: (c) => (c.endsWith("ProductDetails.tsx") ? ["device"] : undefined),
+      },
+    );
+    expect(out).toEqual([
+      {
+        component: "site/sections/Product/ProductDetails.tsx",
+        props: { device: "desktop", page: 1 },
+      },
+      { component: "site/sections/Footer/Footer.tsx", props: { y: 2 } },
+    ]);
+  });
+
+  it("applies to nested sections too", () => {
+    const out = serializeRenderJson(
+      [
+        {
+          component: "site/sections/Wrapper.tsx",
+          props: {
+            child: { Component: "site/sections/Rich.tsx", props: { device: "mobile", a: 1 } },
+          },
+        },
+      ],
+      { keepInjectedKeys: (c) => (c === "site/sections/Rich.tsx" ? ["device"] : undefined) },
+    );
+    expect((out[0] as any).props.child).toEqual({
+      component: "site/sections/Rich.tsx",
+      props: { device: "mobile", a: 1 },
+    });
   });
 });

@@ -12,7 +12,7 @@ const CSS_REVIEW_KEYWORDS = [
   "tailwind.config.ts",
   "safelist",
   "oklch",
-  "css-styling.md",
+  "styling.md",
   "@theme",
   "@apply",
   "@utility",

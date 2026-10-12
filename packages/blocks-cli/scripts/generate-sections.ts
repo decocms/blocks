@@ -54,6 +54,7 @@ interface SectionMeta {
   clientOnly?: boolean;
   seo?: boolean;
   hasLoadingFallback?: boolean;
+  fallbackProps?: string[];
   renderJson?: false;
   hasRenderJson?: boolean;
 }
@@ -77,6 +78,17 @@ const LOADING_FALLBACK_INLINE_RE = /export\s+(?:function|const|let|var)\s+Loadin
 // `LoadingFallback`), but that's unrealistic in section files and would surface
 // as a loud build error rather than silent CLS.
 const LOADING_FALLBACK_REEXPORT_RE = /export\s*\{[^}]*\bLoadingFallback\b[^}]*\}/;
+// `export const fallbackProps = ["title", "subtitle"]` — the props a deferred
+// section lets its LoadingFallback render. Nothing a section does not name is
+// serialized, so the list is the opt-in; array of string literals only.
+const FALLBACK_PROPS_RE = /export\s+const\s+fallbackProps\s*=\s*\[([^\]]*)\]/;
+
+function extractFallbackProps(content: string): string[] | null {
+  const match = content.match(FALLBACK_PROPS_RE);
+  if (!match) return null;
+  const props = [...match[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+  return props.length > 0 ? props : null;
+}
 
 function hasLoadingFallbackExport(content: string): boolean {
   return (
@@ -103,6 +115,12 @@ function extractMeta(content: string): SectionMeta | null {
 
   if (hasLoadingFallbackExport(content)) {
     meta.hasLoadingFallback = true;
+    found = true;
+  }
+
+  const fallbackProps = extractFallbackProps(content);
+  if (fallbackProps) {
+    meta.fallbackProps = fallbackProps;
     found = true;
   }
 
@@ -235,6 +253,7 @@ lines.push("  sync?: boolean;");
 lines.push("  clientOnly?: boolean;");
 lines.push("  seo?: boolean;");
 lines.push("  hasLoadingFallback?: boolean;");
+lines.push("  fallbackProps?: string[];");
 lines.push("  renderJson?: false;");
 lines.push("  hasRenderJson?: boolean;");
 lines.push("}");
@@ -242,7 +261,9 @@ lines.push("");
 lines.push("export const sectionMeta: Record<string, SectionMetaEntry> = {");
 for (const e of entries) {
   const props = Object.entries(e.meta)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : v}`)
+    // Arrays (fallbackProps) need JSON — template interpolation would emit
+    // `title,subtitle` and the generated file would not parse.
+    .map(([k, v]) => `${k}: ${typeof v === "string" || Array.isArray(v) ? JSON.stringify(v) : v}`)
     .join(", ");
   lines.push(`  "${e.key}": { ${props} },`);
 }

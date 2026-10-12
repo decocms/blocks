@@ -14,11 +14,6 @@ Optimize add-to-cart bandwidth from 97 KB → 0.3 KB by returning only essential
 
 **Benefit:** ~99.7% bandwidth reduction, no duplicate cart fetches.
 
-### [Signal Reactivity in React (Preact→React Migration Gotcha)](./deco-signal-reactivity-react.md)
-Critical migration gotcha: reading `signal.value` in render doesn't re-render in React. Use `useSignalValue` hook instead.
-
-**Symptom:** Drawer/modal doesn't open on click, but analytics logs fire.
-
 ### [Micro-Skeletons Without Layout Shift](./deco-micro-skeletons.md)
 Implement fine-grained loading states per line/section using pulse-in-place (not fixed boxes) to preserve exact dimensions and avoid CLS violations.
 

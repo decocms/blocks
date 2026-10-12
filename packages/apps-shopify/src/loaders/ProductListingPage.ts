@@ -2,7 +2,7 @@ import type { ProductListingPage } from "@decocms/apps-commerce/types";
 import { getShopifyClient } from "../client";
 import { ProductsByCollection, SearchProducts } from "../utils/storefront/queries";
 import { type ProductShopify, toFilter, toProduct } from "../utils/transform";
-import type { Metafield } from "../utils/types";
+import type { LanguageContextArgs, Metafield } from "../utils/types";
 import {
 	getFiltersByUrl,
 	searchSortOptions,
@@ -31,7 +31,7 @@ interface ProductConnection {
 	filters?: FilterNode[];
 }
 
-export interface Props {
+export interface Props extends LanguageContextArgs {
 	query?: string;
 	collectionName?: string;
 	count: number;
@@ -60,6 +60,7 @@ export default async function productListingPageLoader(
 	const endCursor = props.endCursor || pageUrl.searchParams.get("endCursor") || "";
 	const startCursor = props.startCursor || pageUrl.searchParams.get("startCursor") || "";
 	const metafields = props.metafields || [];
+	const { languageCode, countryCode } = props;
 
 	const isSearch = Boolean(query);
 	let hasNextPage = false;
@@ -67,6 +68,7 @@ export default async function productListingPageLoader(
 	let shopifyProducts: ProductConnection | undefined;
 	let shopifyFilters: FilterNode[] | undefined;
 	let records: number | undefined;
+	let collectionId: string | undefined;
 	let collectionTitle: string | undefined;
 	let collectionDescription: string | undefined;
 
@@ -83,6 +85,8 @@ export default async function productListingPageLoader(
 			query,
 			productFilters: getFiltersByUrl(pageUrl),
 			identifiers: metafields,
+			languageCode,
+			countryCode,
 			...searchSortShopify[sort],
 		});
 
@@ -92,10 +96,12 @@ export default async function productListingPageLoader(
 		hasNextPage = Boolean(data.search?.pageInfo.hasNextPage);
 		hasPreviousPage = Boolean(data.search?.pageInfo.hasPreviousPage);
 	} else {
-		const pathname = props.collectionName || pageUrl.pathname.split("/")[1];
+		// Last non-empty segment, so /{lang}/collections/<handle> resolves too.
+		const pathname = props.collectionName || pageUrl.pathname.split("/").filter(Boolean).pop();
 
 		const data = await client.query<{
 			collection?: {
+				id?: string;
 				title?: string;
 				description?: string;
 				products: ProductConnection;
@@ -108,6 +114,8 @@ export default async function productListingPageLoader(
 			identifiers: metafields,
 			handle: pathname,
 			filters: getFiltersByUrl(pageUrl),
+			languageCode,
+			countryCode,
 			...sortShopify[sort],
 		});
 
@@ -115,6 +123,7 @@ export default async function productListingPageLoader(
 		shopifyFilters = data.collection?.products?.filters;
 		hasNextPage = Boolean(data.collection?.products.pageInfo.hasNextPage);
 		hasPreviousPage = Boolean(data.collection?.products.pageInfo.hasPreviousPage);
+		collectionId = data.collection?.id;
 		collectionTitle = data.collection?.title;
 		collectionDescription = data.collection?.description;
 	}
@@ -143,10 +152,11 @@ export default async function productListingPageLoader(
 		"@type": "ProductListingPage",
 		breadcrumb: {
 			"@type": "BreadcrumbList",
+			"@id": collectionId,
 			itemListElement: [
 				{
 					"@type": "ListItem" as const,
-					name: isSearch ? query : pageUrl.pathname.split("/")[1],
+					name: isSearch ? query : pageUrl.pathname.split("/").filter(Boolean).pop(),
 					item: isSearch ? pageUrl.href : pageUrl.pathname,
 					position: 2,
 				},

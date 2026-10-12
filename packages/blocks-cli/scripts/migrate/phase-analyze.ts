@@ -732,7 +732,7 @@ export function analyze(ctx: MigrationContext): void {
       }
     }
     console.log(
-      "    See: deco-to-tanstack-migration skill, 'useComponent / partial sections' section",
+      "    See: source-deco-fresh skill (decocms/migrations), 'useComponent / partial sections' section",
     );
   }
 

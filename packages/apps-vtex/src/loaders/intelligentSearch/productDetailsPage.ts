@@ -100,7 +100,11 @@ export default async function vtexProductDetailsPage(
 				description: preferDescription
 					? product.description
 					: product.metaTagDescription || product.description?.substring(0, 160) || "",
-				canonical: `/${product.linkText}/p`,
+				// Absolute, on the storefront origin the product URLs already use. deco-cx
+				// `vtex/loaders/legacy/productDetailsPage.ts` does
+				// `new URL(`/${linkText}/p`, url.origin).href`; the bare path reached
+				// `<link rel="canonical">`, `og:url` and the ItemPage JSON-LD `url`.
+				canonical: new URL(`/${product.linkText}/p`, baseUrl).href,
 				noIndexing: indexingSkus ? false : !!skuId,
 			},
 		};

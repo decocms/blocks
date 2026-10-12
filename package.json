@@ -17,6 +17,9 @@
     "format": "biome format packages/*/src packages/*/scripts",
     "format:fix": "biome format --write packages/*/src packages/*/scripts",
     "audit:secrets": "bun packages/blocks-cli/scripts/audit-secrets.ts --source packages --mode block",
+    "skills:check": "bun run scripts/skills-check.ts",
+    "skills:readme": "bun run scripts/skills-readme.ts",
+    "skills:readme:check": "bun run scripts/skills-readme.ts --check",
     "check": "bun run typecheck && bun run lint && bun run lint:unused && bun run audit:secrets",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist .cache .wrangler/state node_modules/.vite && bun install"
   },
