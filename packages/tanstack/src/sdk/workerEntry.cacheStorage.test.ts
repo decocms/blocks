@@ -8,6 +8,15 @@ import {
   getCacheStorageContext,
 } from "@decocms/blocks/sdk/cacheStorage";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createFetchCache } from "@decocms/blocks/sdk/fetchCache";
+import { __resetKvHydrationStateForTests, DATA_VERSION_TIMEOUT_MS } from "./kvHydration";
+
+const FETCH_KNOBS = {
+  maxEntries: 10,
+  freshTtlMs: { success: 60_000, notFound: 1_000, serverError: 0 },
+  staleIfErrorMs: 60_000,
+  inflightBackstopMs: 5_000,
+};
 import { createDecoWorkerEntry } from "./workerEntry";
 
 function makeKV(): CacheKVNamespace {
@@ -89,6 +98,123 @@ describe("worker cache storage injection", () => {
     await worker.fetch(request("/two", { authorization: "Bearer private" }), bindings, ctx);
     expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
+  });
+
+  // A fresh fetch cache per request: its memory tier can't answer, so a hit
+  // proves the shared (KV) entry was found under the same key.
+  function fetchWorker(opts: object = {}) {
+    const upstream = vi.fn(async () => Response.json({ ok: true }));
+    const worker = createDecoWorkerEntry(
+      {
+        fetch: async () => {
+          const cache = createFetchCache({ provider: "test", ...FETCH_KNOBS });
+          const body = await cache.fetchWithCache("https://upstream.test/x", upstream);
+          return Response.json(body, { headers: { "cache-control": "no-store" } });
+        },
+      },
+      { ...options, ...opts },
+    );
+    return { worker, upstream };
+  }
+
+  it("DECO_DATA_CACHE_ON_DEPLOY=preserve keeps fetch results across deploys and publishes", async () => {
+    const { worker, upstream } = fetchWorker();
+    const bindings = { ...env(), DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+    await worker.fetch(request("/one"), bindings, ctx);
+    await flush();
+    // Distinct paths: only the fetch cache is under test, not the HTML cache.
+    await worker.fetch(request("/two"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    // A CMS publish (new decofile revision) keeps them too.
+    setBlocks({ published: { __resolveType: "x" } });
+    await worker.fetch(request("/three"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    // A new DECO_DATA_CACHE_PURGE value drops the preserved data once.
+    await worker.fetch(request("/four"), { ...bindings, DECO_DATA_CACHE_PURGE: "2026-09-22" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    await flush();
+  });
+
+  it("loader results stay per-build even with preserve", async () => {
+    const upstream = vi.fn(async () => ({ n: 1 }));
+    const loader = createCachedLoader("worker-preserve-loader", upstream, {
+      policy: "no-cache",
+      maxAge: 60_000,
+    });
+    const worker = createDecoWorkerEntry(
+      {
+        fetch: async () =>
+          Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+      },
+      options,
+    );
+    const bindings = { ...env(), DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+    await worker.fetch(request("/a"), bindings, ctx);
+    await flush();
+    clearLoaderCache();
+    await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    await flush();
+  });
+
+  it("invalidate or unset keeps fetch results per build", async () => {
+    for (const extra of [{}, { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" }, { DECO_DATA_CACHE_ON_DEPLOY: "yes" }]) {
+      const { worker, upstream } = fetchWorker();
+      const bindings = { ...env(), ...extra };
+      await worker.fetch(request("/a"), bindings, ctx);
+      await flush();
+      await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+      expect(upstream).toHaveBeenCalledTimes(2);
+      await flush();
+    }
+  });
+
+  it("a new cache:data-version in DECO_KV purges preserved data without a deploy", async () => {
+    __resetKvHydrationStateForTests();
+    const { worker, upstream } = fetchWorker();
+    const DECO_KV = makeKV();
+    const bindings = { ...env(), DECO_KV, DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+    await worker.fetch(request("/a"), bindings, ctx);
+    await flush();
+    await worker.fetch(request("/b"), bindings, ctx);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    await DECO_KV.put("cache:data-version", "v2", { expirationTtl: 60 });
+    __resetKvHydrationStateForTests(); // skip the poll interval
+    await worker.fetch(request("/c"), bindings, ctx);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    await flush();
+  });
+
+  it("a hung cache:data-version read falls back instead of holding the request", async () => {
+    vi.useFakeTimers();
+    try {
+      __resetKvHydrationStateForTests();
+      const { worker, upstream } = fetchWorker();
+      const DECO_KV = { ...makeKV(), get: () => new Promise<string | null>(() => {}) };
+      const bindings = { ...env(), DECO_KV, DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
+      const pending = worker.fetch(request("/a"), bindings, ctx);
+      await vi.advanceTimersByTimeAsync(DATA_VERSION_TIMEOUT_MS);
+      expect((await pending).status).toBe(200);
+      expect(upstream).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      await flush();
+    }
+  });
+
+  it("honours dataCacheOnDeployEnv renames and opt-out", async () => {
+    const run = async (opts: object, extra: Record<string, string>) => {
+      const { worker, upstream } = fetchWorker(opts);
+      const bindings = { ...env(), ...extra };
+      await worker.fetch(request("/a"), bindings, ctx);
+      await flush();
+      await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+      await flush();
+      return upstream.mock.calls.length;
+    };
+    expect(await run({ dataCacheOnDeployEnv: "KEEP" }, { KEEP: "preserve" })).toBe(1);
+    expect(
+      await run({ dataCacheOnDeployEnv: false }, { DECO_DATA_CACHE_ON_DEPLOY: "preserve" }),
+    ).toBe(2);
   });
 
   it("stores public server-function POSTs by body and excludes unmarked responses", async () => {

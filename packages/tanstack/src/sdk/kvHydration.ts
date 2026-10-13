@@ -51,6 +51,8 @@ const G = globalThis as unknown as {
     kvHydrated?: boolean;
     kvHydration?: Promise<void> | null;
     kvLastPolledAt?: number;
+    dataVersion?: string | null;
+    dataVersionAt?: number;
   };
 };
 if (!G.__deco) G.__deco = {};
@@ -255,9 +257,62 @@ async function pollRevisionOnce(kv: KVNamespace, deploymentId: string): Promise<
   }
 }
 
+/** KV key holding the preserved data-cache version. Writing a new value (the
+ * control-plane does, via the CF API) purges preserved loader/fetch data for
+ * every isolate within one poll — no deploy. */
+export const DATA_CACHE_VERSION_KEY = "cache:data-version";
+
+/** Deadline for one `cache:data-version` read. Calibration knob. */
+export const DATA_VERSION_TIMEOUT_MS = 1_000;
+
+/**
+ * Current `DATA_CACHE_VERSION_KEY` value, or "" without a `DECO_KV` binding.
+ * The first call per isolate awaits the read (so a cold isolate never reads
+ * purged keys); after that the cached value is returned and refreshed in the
+ * background every `POLL_INTERVAL_MS`. A failed or slow read (over
+ * `DATA_VERSION_TIMEOUT_MS`) keeps the last value. Only resolved strings are
+ * kept, never a pending read: a `DECO_KV.get` that never settles would otherwise
+ * hold every later request of the isolate.
+ */
+export async function getDataCacheVersion(env: Env, ctx?: ExecutionContextLike): Promise<string> {
+  const kv = getKV(env);
+  if (!kv) return "";
+  const d = G.__deco!;
+  const read = (prev: string): Promise<string> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      kv.get(DATA_CACHE_VERSION_KEY).then(
+        (v) => v ?? "",
+        () => prev,
+      ),
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve(prev), DATA_VERSION_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
+  if (d.dataVersion == null) {
+    d.dataVersionAt = Date.now();
+    d.dataVersion = await read("");
+    return d.dataVersion;
+  }
+  const current = d.dataVersion;
+  if (Date.now() - (d.dataVersionAt ?? 0) >= POLL_INTERVAL_MS) {
+    d.dataVersionAt = Date.now();
+    // Background refresh: requests keep the current value meanwhile.
+    const swap = read(current).then((v) => {
+      d.dataVersion = v;
+    });
+    if (ctx?.waitUntil) ctx.waitUntil(swap);
+    else void swap.catch(() => {});
+  }
+  return current;
+}
+
 /** Test-only: reset the isolate-level hydration flags. */
 export function __resetKvHydrationStateForTests(): void {
   G.__deco!.kvHydrated = false;
   G.__deco!.kvHydration = null;
   G.__deco!.kvLastPolledAt = 0;
+  G.__deco!.dataVersion = null;
+  G.__deco!.dataVersionAt = 0;
 }
