@@ -9,6 +9,7 @@
  * individual loader entries. Site-specific loaders are merged via `extra`.
  */
 
+import type { Seo } from "@decocms/apps-commerce/types";
 import { createCachedLoader } from "@decocms/blocks/sdk/cachedLoader";
 import type { CacheProfileName } from "@decocms/blocks/sdk/cacheHeaders";
 import { getCategoryTree } from "./loaders/catalog";
@@ -187,7 +188,8 @@ export function createVtexCommerceLoaders(
 									],
 									numberOfItems: 1,
 								};
-								result.seo = { ...result.seo, title: collectionName };
+								// Same partial Seo as before typing: just the title when the page had none.
+								result.seo = { ...result.seo, title: collectionName } as Seo;
 							}
 						}
 						return result;

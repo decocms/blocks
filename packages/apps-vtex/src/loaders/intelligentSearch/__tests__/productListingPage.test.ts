@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ProductListingPage } from "@decocms/apps-commerce/types";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from "vitest";
 import {
 	configureVtex,
 	getInvalidPageNotFound,
@@ -8,6 +9,14 @@ import {
 import { configure } from "../../../mod";
 import { clearFetchCache } from "../../../utils/fetchCache";
 import vtexProductListingPage, { mapLabelledFuzzyToFuzzy, resolvePage } from "../productListingPage";
+
+describe("vtexProductListingPage return type", () => {
+	// generate-schema matches loaders to section props by the return type's name:
+	// typed `any`, no `page: ProductListingPage` prop got this loader as a picker.
+	it("is ProductListingPage, so the CMS can offer it for ProductListingPage props", () => {
+		expectTypeOf(vtexProductListingPage).returns.resolves.toEqualTypeOf<ProductListingPage | null>();
+	});
+});
 
 describe("mapLabelledFuzzyToFuzzy", () => {
 	it("translates 'automatic' to 'auto'", () => {

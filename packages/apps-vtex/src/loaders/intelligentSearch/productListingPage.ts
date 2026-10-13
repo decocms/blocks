@@ -1,3 +1,4 @@
+import type { ProductListingPage, Seo } from "@decocms/apps-commerce/types";
 import {
 	filtersFromPageTypes,
 	getInvalidPageNotFound,
@@ -289,13 +290,15 @@ function pageTypesToBreadcrumb(pageTypes: PageType[]) {
 
 // -- SEO from page types (mirrors original pageTypesToSeo) --
 
-function pageTypesToSeo(pageTypes: PageType[]) {
+// deco-cx's version also sets `canonical`; this one never has, and adding it
+// would change every PLP's canonical tag, so the cast keeps the output as is.
+function pageTypesToSeo(pageTypes: PageType[]): Seo | undefined {
 	const current = pageTypes[pageTypes.length - 1];
 	if (!current) return undefined;
 	return {
 		title: current.title || current.name || "",
 		description: current.metaTagDescription || "",
-	};
+	} as Seo;
 }
 
 // -- Build IS query params (mirrors original withDefaultParams) --
@@ -366,7 +369,9 @@ function isValidPLPPath(path: string): boolean {
  * 4. Transform facets to FilterToggle format
  * 5. Build pagination from IS response
  */
-export default async function vtexProductListingPage(props: PLPProps): Promise<any | null> {
+export default async function vtexProductListingPage(
+	props: PLPProps,
+): Promise<ProductListingPage | null> {
 	const pageUrl = props.__pageUrl ? new URL(props.__pageUrl, "https://localhost") : null;
 
 	const query = props.query ?? pageUrl?.searchParams.get("q") ?? "";
