@@ -575,9 +575,14 @@ describe("default prop titles (deco-cx/deco beautify)", () => {
   it.each([
     ["marginTop", "Margin Top"],
     ["hideUnavailableItems", "Hide Unavailable Items"],
-    ["jsonLDs", "Json L Ds"],
-    ["taxID", "Tax I D"],
     ["title", "Title"],
+    // Acronyms stay whole (deco-cx/deco split them letter by letter).
+    ["CTA", "CTA"],
+    ["titleCTA", "Title CTA"],
+    ["taxID", "Tax ID"],
+    ["jsonLDs", "Json L Ds"], // a plural acronym is ambiguous; same as upstream
+    ["XMLHttpRequest", "XML Http Request"],
+    ["RangePriceProps", "Range Price Props"],
   ])("%s → %s", (name, title) => {
     expect(beautify(name)).toBe(title);
   });

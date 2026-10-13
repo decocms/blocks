@@ -134,11 +134,16 @@ export function definitionIdForPath(filePath: string, rootDir: string): string {
 
 /**
  * Default title for a prop without `@title`, as deco-cx/deco derives it
- * (`engine/schema/utils.ts`): a space before every capital, first character
- * uppercased — `marginTop` → "Margin Top", `jsonLDs` → "Json L Ds".
+ * (`engine/schema/utils.ts`): words split at capitals, first character
+ * uppercased — `marginTop` → "Margin Top". Unlike deco-cx/deco, a run of
+ * capitals stays one word (`CTA` → "CTA", `titleCTA` → "Title CTA", where
+ * upstream gave " C T A") and a PascalCase name gets no leading space.
  */
 export function beautify(propName: string): string {
-  return propName.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+  return propName
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/^./, (c) => c.toUpperCase());
 }
 
 /**
