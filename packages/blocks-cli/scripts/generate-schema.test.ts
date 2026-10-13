@@ -8,6 +8,7 @@ import {
   EITRI_FORMAT_ALIASES,
   WIDGET_TYPE_FORMATS,
   applyWidgetFormat,
+  beautify,
   definitionIdForPath,
   normalizeFormats,
   typeToJsonSchema,
@@ -567,5 +568,37 @@ describe("typeToJsonSchema with RequestURLParam", () => {
     const key = `${Buffer.from("website/functions/requestToParam.ts").toString("base64")}@RequestURLParam`;
     expect(schema.properties.slug).toEqual({ $ref: `#/definitions/${key}`, title: "Slug" });
     expect(schema.properties.plain.type).toBe("string");
+  });
+});
+
+describe("default prop titles (deco-cx/deco beautify)", () => {
+  it.each([
+    ["marginTop", "Margin Top"],
+    ["hideUnavailableItems", "Hide Unavailable Items"],
+    ["title", "Title"],
+    // Acronyms stay whole (deco-cx/deco split them letter by letter).
+    ["CTA", "CTA"],
+    ["titleCTA", "Title CTA"],
+    ["taxID", "Tax ID"],
+    ["jsonLDs", "Json L Ds"], // a plural acronym is ambiguous; same as upstream
+    ["XMLHttpRequest", "XML Http Request"],
+    ["RangePriceProps", "Range Price Props"],
+  ])("%s → %s", (name, title) => {
+    expect(beautify(name)).toBe(title);
+  });
+
+  it("titles an un-annotated prop, keeps an explicit @title", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/titles.ts",
+      `export interface Props {
+         marginTop?: number;
+         /** @title Custom */
+         noFlex?: boolean;
+       }`,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    expect(schema.properties.marginTop.title).toBe("Margin Top");
+    expect(schema.properties.noFlex.title).toBe("Custom");
   });
 });
