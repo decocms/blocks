@@ -42,7 +42,7 @@
  */
 import { exec, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -228,6 +228,27 @@ function isSeededDeployPipeline() {
 }
 
 /**
+ * `deco.sectionPackages` from the site's package.json → the realpath of each
+ * package's src/ (Vite reports realpaths for symlinked `file:` deps). Mirrors
+ * blocks-cli's readSectionPackages, which owns the "package missing" error.
+ * ponytail: only the site's own node_modules, no hoisted-workspace lookup.
+ */
+function readSectionPackageSrcDirs(cwd) {
+  try {
+    const { deco } = JSON.parse(readFileSync(path.join(cwd, "package.json"), "utf8"));
+    return Object.entries(deco?.sectionPackages ?? {}).flatMap(([namespace, name]) => {
+      try {
+        return [{ namespace, srcDir: realpathSync(path.join(cwd, "node_modules", name, "src")) }];
+      } catch {
+        return [];
+      }
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
  * @param {object} [opts]
  * @param {boolean | "auto"} [opts.fastDeploy="auto"] Stub `blocks.gen` out of
  *   the SERVER bundle too, so the worker's only copy of the decofile is the one
@@ -276,6 +297,7 @@ function isSeededDeployPipeline() {
  * @returns {import("vite").PluginOption}
  */
 export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) {
+  const sectionPackages = readSectionPackageSrcDirs(process.cwd());
   // Resolved once: the pipeline's answer cannot change mid-build.
   const stubBlocks = fastDeploy === "auto" ? isSeededDeployPipeline() : fastDeploy === true;
   // Set from the `config` hook (which Vite always runs before `load`). The
@@ -752,7 +774,8 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       const isSchemaSource = (file) => {
         const rel = path.relative(cwd, file);
         return (
-          schemaWatchDirs.some((d) => rel.startsWith(d + path.sep)) &&
+          (schemaWatchDirs.some((d) => rel.startsWith(d + path.sep)) ||
+            sectionPackages.some((p) => file.startsWith(p.srcDir + path.sep))) &&
           (rel.endsWith(".tsx") || rel.endsWith(".ts"))
         );
       };
@@ -1105,7 +1128,15 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       const map = {};
       for (const [fileName, chunk] of Object.entries(bundle)) {
         if (chunk.type === "chunk" && chunk.facadeModuleId) {
-          const match = chunk.facadeModuleId.match(/\/(sections\/.+\.tsx)$/);
+          const id = chunk.facadeModuleId;
+          const pkg = sectionPackages.find((p) =>
+            id.startsWith(path.join(p.srcDir, "sections") + path.sep),
+          );
+          if (pkg) {
+            map[`${pkg.namespace}/${path.relative(pkg.srcDir, id)}`] = fileName;
+            continue;
+          }
+          const match = id.match(/\/(sections\/.+\.tsx)$/);
           if (match) {
             map["site/" + match[1]] = fileName;
           }

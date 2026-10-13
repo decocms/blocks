@@ -127,7 +127,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
-import { listScopedPackages, resolvePackageDirectory } from "./lib/installedPackages";
+import {
+  listScopedPackages,
+  readSectionPackages,
+  resolvePackageDirectory,
+} from "./lib/installedPackages";
 import { resolveInvokeSource } from "./lib/invokeSource";
 
 // Bump when the digests file format or digest recipe changes — recorded in
@@ -529,7 +533,10 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
   const actionsDirAbs = path.resolve(cwd, opts.actionsDir);
 
   const blocksDirExists = fs.existsSync(blocksDirAbs);
-  const sectionsDirExists = fs.existsSync(sectionsDirAbs);
+  const sectionPackages = readSectionPackages(cwd);
+  // deco.sectionPackages lets a site with no src/sections still own sections.
+  const sectionsDirExists = fs.existsSync(sectionsDirAbs) || sectionPackages.length > 0;
+  const packageJson = statEntry(cwd, path.join(cwd, "package.json"));
   const isNext = isNextjsSite(cwd);
   const hasTanstackStart = hasPackage(cwd, "@tanstack/react-start");
 
@@ -596,7 +603,15 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
       stage: 1,
       ...enabledIf(sectionsDirExists, `${opts.sectionsDir} does not exist`),
       inputs: () =>
-        sortEntries(walkTree(cwd, sectionsDirAbs, [".ts", ".tsx"], isExcludedCodegenFile)),
+        sortEntries(
+          [
+            ...walkTree(cwd, sectionsDirAbs, [".ts", ".tsx"], isExcludedCodegenFile),
+            ...sectionPackages.flatMap((p) =>
+              walkTree(cwd, p.sectionsDir, [".ts", ".tsx"], isExcludedCodegenFile),
+            ),
+            packageJson,
+          ].filter((e): e is InputEntry => e !== null),
+        ),
       outputs: [sectionsGen],
     },
     {
@@ -688,8 +703,12 @@ export function buildPlan(cwd: string, opts: CliOptions): GeneratorPlan[] {
       inputs: () => {
         const entries = [
           ...walkTree(cwd, path.join(cwd, "src"), [".ts", ".tsx"]),
-          ...[statEntry(cwd, path.join(cwd, "tsconfig.json"))].filter(
+          ...[statEntry(cwd, path.join(cwd, "tsconfig.json")), packageJson].filter(
             (e): e is InputEntry => e !== null,
+          ),
+          // Section packages: their whole src/, since section Props reach into it.
+          ...sectionPackages.flatMap((p) =>
+            walkTree(cwd, path.dirname(p.sectionsDir), [".ts", ".tsx"]),
           ),
         ];
         if (!opts.skipApps) {

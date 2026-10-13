@@ -464,3 +464,62 @@ describe("generate-sections output hygiene (non-registry)", () => {
     expect(generated.endsWith("\n\n")).toBe(false);
   }, 30_000);
 });
+
+describe("generate-sections deco.sectionPackages", () => {
+  let site: string;
+
+  beforeEach(() => {
+    site = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-pkg-"));
+    fs.writeFileSync(
+      path.join(site, "package.json"),
+      JSON.stringify({ deco: { sectionPackages: { ui: "@zeedog/ui" } } }),
+    );
+    fs.mkdirSync(path.join(site, "src/sections"), { recursive: true });
+    fs.writeFileSync(
+      path.join(site, "src/sections/Hero.tsx"),
+      "export const eager = true;\nexport default function Hero() { return null; }\n",
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(site, { recursive: true, force: true });
+  });
+
+  it("scans the package's src/sections as <namespace>/sections/... and emits packageSectionImports through node_modules", () => {
+    const ui = path.join(site, "vendor/ui");
+    fs.mkdirSync(path.join(ui, "src/sections/Nested"), { recursive: true });
+    fs.writeFileSync(path.join(ui, "package.json"), JSON.stringify({ name: "@zeedog/ui" }));
+    fs.writeFileSync(
+      path.join(ui, "src/sections/Banner.tsx"),
+      "export const sync = true;\nexport default function Banner() { return null; }\n",
+    );
+    fs.writeFileSync(
+      path.join(ui, "src/sections/Nested/Plain.tsx"),
+      "export default function Plain() { return null; }\n",
+    );
+    // `file:./vendor/ui` installs as a symlink in dev.
+    fs.mkdirSync(path.join(site, "node_modules/@zeedog"), { recursive: true });
+    fs.symlinkSync(ui, path.join(site, "node_modules/@zeedog/ui"), "dir");
+
+    const { code, stderr } = runGenerator([], { cwd: site });
+    expect(code, stderr).toBe(0);
+
+    const generated = fs.readFileSync(path.join(site, ".deco/sections.gen.ts"), "utf-8");
+    expect(generated).toContain(`"site/sections/Hero.tsx": { eager: true },`);
+    expect(generated).toContain(`"ui/sections/Banner.tsx": { sync: true },`);
+    expect(generated).toContain(
+      `import * as _sync0 from "../node_modules/@zeedog/ui/src/sections/Banner";`,
+    );
+    expect(generated).toContain(`"ui/sections/Banner.tsx": _sync0,`);
+    // Every package file is importable, convention exports or not.
+    expect(generated).toContain(
+      `"ui/sections/Nested/Plain.tsx": () => import("../node_modules/@zeedog/ui/src/sections/Nested/Plain"),`,
+    );
+  }, 30_000);
+
+  it("fails loudly when a declared package is not installed", () => {
+    const { code, stderr } = runGenerator([], { cwd: site });
+    expect(code).not.toBe(0);
+    expect(stderr).toContain(`"@zeedog/ui" is not installed`);
+  }, 30_000);
+});

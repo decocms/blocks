@@ -544,6 +544,44 @@ describe("generate-schema default output path (.deco/)", () => {
     expect(meta.manifest.blocks.sections).toHaveProperty("site/sections/Hero.tsx");
   }, 30_000);
 
+  it("emits deco.sectionPackages sections under their own namespace, with Props resolved across the package", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ deco: { sectionPackages: { ui: "@zeedog/ui" } } }),
+    );
+    const ui = path.join(tmpDir, "vendor", "ui");
+    fs.mkdirSync(path.join(ui, "src", "sections"), { recursive: true });
+    fs.mkdirSync(path.join(ui, "src", "components"), { recursive: true });
+    fs.writeFileSync(path.join(ui, "package.json"), JSON.stringify({ name: "@zeedog/ui" }));
+    fs.writeFileSync(
+      path.join(ui, "src", "components", "Card.ts"),
+      "export interface Card { image: string; }\n",
+    );
+    fs.writeFileSync(
+      path.join(ui, "src", "sections", "Banner.tsx"),
+      [
+        'import type { Card } from "../components/Card";',
+        "export interface Props { title: string; card: Card; }",
+        "export default function Banner(props: Props) { return null; }",
+      ].join("\n"),
+    );
+    fs.mkdirSync(path.join(tmpDir, "node_modules", "@zeedog"), { recursive: true });
+    fs.symlinkSync(ui, path.join(tmpDir, "node_modules", "@zeedog", "ui"), "dir");
+
+    const { code, stderr } = runGenerator(["--skip-apps"], { cwd: tmpDir });
+    expect(code, stderr).toBe(0);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(tmpDir, ".deco", "meta.gen.json"), "utf-8"));
+    expect(meta.manifest.blocks.sections).toHaveProperty("site/sections/Hero.tsx");
+    expect(meta.manifest.blocks.sections["ui/sections/Banner.tsx"]).toMatchObject({
+      namespace: "ui",
+    });
+    const section =
+      meta.schema.definitions[Buffer.from("ui/sections/Banner.tsx").toString("base64")];
+    const props = meta.schema.definitions[section.allOf[0].$ref.replace("#/definitions/", "")];
+    expect(Object.keys(props.properties)).toEqual(["title", "card"]);
+  }, 30_000);
+
   it("does not warn about a legacy default path", () => {
     const { code, stderr } = runGenerator(["--skip-apps"], { cwd: tmpDir });
     expect(code).toBe(0);

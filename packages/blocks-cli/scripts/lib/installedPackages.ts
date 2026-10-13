@@ -17,6 +17,41 @@ export function resolvePackageDirectory(cwd: string, name: string): string | nul
   return null;
 }
 
+interface SectionPackage {
+  namespace: string;
+  sectionsDir: string;
+}
+
+/** Packages whose `src/sections/**` the site exposes as CMS sections, read from
+ * the site's package.json: `"deco": { "sectionPackages": { "ui": "@acme/ui" } }`.
+ * Section keys become `<namespace>/sections/<path>`. The node_modules path
+ * (not the realpath) is kept so generated imports stay stable whether the
+ * package is a symlink (dev) or a copy (CI). Throws when a declared package is
+ * missing, because skipping it would silently drop its sections from the admin. */
+export function readSectionPackages(cwd: string): SectionPackage[] {
+  let pkg: { deco?: { sectionPackages?: Record<string, string> } };
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8"));
+  } catch {
+    return [];
+  }
+  return Object.entries(pkg.deco?.sectionPackages ?? {}).map(([namespace, name]) => {
+    if (namespace === "site") {
+      throw new Error(
+        `deco.sectionPackages: namespace "site" is reserved for the site's own sections (${name})`,
+      );
+    }
+    const dir = resolvePackageDirectory(cwd, name);
+    if (!dir) {
+      throw new Error(
+        `deco.sectionPackages: "${name}" is not installed. If it is a git submodule, ` +
+          "run `git submodule update --init` and reinstall dependencies.",
+      );
+    }
+    return { namespace, sectionsDir: path.join(dir, "src", "sections") };
+  });
+}
+
 /** Installed packages in a scope, keyed by full package name. The nearest
  * copy wins, matching resolvePackageDirectory even with mixed local/hoisted
  * installs; shadowed ancestor copies must not enter codegen fingerprints. */
