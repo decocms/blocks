@@ -133,6 +133,15 @@ export function definitionIdForPath(filePath: string, rootDir: string): string {
 }
 
 /**
+ * Default title for a prop without `@title`, as deco-cx/deco derives it
+ * (`engine/schema/utils.ts`): a space before every capital, first character
+ * uppercased — `marginTop` → "Margin Top", `jsonLDs` → "Json L Ds".
+ */
+export function beautify(propName: string): string {
+  return propName.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+}
+
+/**
  * Map JSDoc tags to JSON Schema 7 keywords.
  * Supports all 20+ tags from deco-cx/deco.
  */
@@ -770,11 +779,11 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
             ? {
                 type: "array",
                 items: { $ref: `#/definitions/${SECTION_REF_DEF_KEY}` },
-                title: name.charAt(0).toUpperCase() + name.slice(1),
+                title: beautify(name),
               }
             : {
                 $ref: `#/definitions/${SECTION_REF_DEF_KEY}`,
-                title: name.charAt(0).toUpperCase() + name.slice(1),
+                title: beautify(name),
               };
           if (prop.isOptional() || typeHint.includes("null") || typeHint.includes("undefined")) {
             sectionSchema.nullable = true;
@@ -795,7 +804,7 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         if (baseHint === "RequestURLParam" && nonNullTypes.every((t) => t.isString())) {
           const paramSchema: any = {
             $ref: `#/definitions/${REQUEST_URL_PARAM_DEF_KEY}`,
-            title: name.charAt(0).toUpperCase() + name.slice(1),
+            title: beautify(name),
           };
           applyJsDocToSchema(paramSchema, tags);
           properties[name] = paramSchema;
@@ -820,7 +829,7 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
                 ...matchingLoaders.map((k) => ({ $ref: `#/definitions/${toBase64(k)}` })),
                 ...matchingFlags.map((f) => ({ $ref: `#/definitions/${f.defKey}` })),
               ],
-              title: name.charAt(0).toUpperCase() + name.slice(1),
+              title: beautify(name),
             };
             if (prop.isOptional() || typeHint.includes("null") || typeHint.includes("undefined")) {
               blockRefSchema.nullable = true;
@@ -841,7 +850,7 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
           schema.format = "password";
         }
 
-        if (!schema.title) schema.title = name.charAt(0).toUpperCase() + name.slice(1);
+        if (!schema.title) schema.title = beautify(name);
 
         // A site flag over this prop's type → the value may also be that flag
         // (`{ __resolveType: "site/flags/…", variants }`). Without the branch the
