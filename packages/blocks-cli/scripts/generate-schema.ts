@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
  *   --sections    Sections directory (default: "src/sections")
  *   --loaders     Loaders directory  (default: "src/loaders")
  *   --flags       Flags directory    (default: "src/flags")
+ *   --matchers    Matchers directory (default: "src/matchers")
  *   --apps        Apps directory     (default: "src/apps")
  *   --skip-apps   Skip app schema generation
  *   --out         Output file        (default: ".deco/meta.gen.json")
@@ -73,6 +74,7 @@ let FRAMEWORK_VERSION = "1.0.0";
 let SECTIONS_REL = "src/sections";
 let LOADERS_REL = "src/loaders";
 let FLAGS_REL = "src/flags";
+let MATCHERS_REL = "src/matchers";
 let APPS_REL = "src/apps";
 let SKIP_APPS = false;
 let OUT_REL = NEW_DEFAULT_OUT_REL;
@@ -92,6 +94,7 @@ if (isMainModule()) {
   SECTIONS_REL = arg("sections", SECTIONS_REL);
   LOADERS_REL = arg("loaders", LOADERS_REL);
   FLAGS_REL = arg("flags", FLAGS_REL);
+  MATCHERS_REL = arg("matchers", MATCHERS_REL);
   APPS_REL = arg("apps", APPS_REL);
   SKIP_APPS = argv.includes("--skip-apps");
   OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
@@ -233,7 +236,8 @@ export const WIDGET_TYPE_FORMATS: Record<string, string> = {
   VideoWidget: "video-uri",
   HTMLWidget: "html",
   RichText: "rich-text",
-  Color: "color",
+  // deco-cx/deco's widget format; the admin renders "color" the same way.
+  Color: "color-input",
   Secret: "password",
   TextArea: "textarea",
   Code: "code",
@@ -270,13 +274,24 @@ export function normalizeFormats(node: unknown, aliases: Record<string, string>)
 }
 
 /**
+ * Whether a type annotation names a widget type as a whole identifier:
+ * `Color`, `Color | null`, `ImageWidget[]` do; `ButtonColor`, `BgColor` (a
+ * site's own select of named colors) or a literal `"Color reverse"` don't.
+ */
+function mentionsWidget(typeText: string, widgetType: string): boolean {
+  // Literal members (`"Color reverse"`) are option labels, not type names.
+  const names = typeText.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '""');
+  return new RegExp(`(^|[^\\w$])${widgetType}($|[^\\w$])`).test(names);
+}
+
+/**
  * Detect known widget types and set the appropriate format.
  */
 function applyWidgetDetection(schema: any, typeText: string): void {
   if (schema.format) return;
 
   for (const [widgetType, format] of Object.entries(WIDGET_TYPE_FORMATS)) {
-    if (typeText === widgetType || typeText.includes(widgetType)) {
+    if (mentionsWidget(typeText, widgetType)) {
       schema.format = format;
       return;
     }
@@ -288,8 +303,8 @@ function applyWidgetDetection(schema: any, typeText: string): void {
  * and union types by applying the format to the correct inner schema.
  */
 export function applyWidgetFormat(schema: any, typeHint: string): void {
-  const matchedFormat = Object.entries(WIDGET_TYPE_FORMATS).find(
-    ([wt]) => typeHint === wt || typeHint.includes(wt),
+  const matchedFormat = Object.entries(WIDGET_TYPE_FORMATS).find(([wt]) =>
+    mentionsWidget(typeHint, wt),
   )?.[1];
 
   if (!matchedFormat) {
@@ -537,6 +552,31 @@ export interface FlagBlock {
   key: string;
   title: string;
   defKey: string;
+  /** Over `Resolved<T>` (`MultivariateProps<Resolved<T>>`): offered only on `Resolved<T>` props. */
+  resolved?: boolean;
+}
+
+/**
+ * Schema of a `Resolved<T>` prop, as deco-cx/deco emitted it: the stored value
+ * is `{ __resolveType: "resolved", data: T }`, where `data` is what the editor
+ * fills (a loader, for a loader-backed `T`). `Resolved<T>` is an alias of `T`
+ * at the type level, so without this it was offered loaders directly and its
+ * stored `{ __resolveType: "resolved", … }` value matched none of them.
+ */
+export function resolvedSchema(dataSchema: any): any {
+  return {
+    type: "object",
+    required: ["data", "__resolveType"],
+    properties: {
+      data: { ...dataSchema, title: "Data" },
+      __resolveType: {
+        type: "string",
+        const: "resolved",
+        default: "resolved",
+        title: "__resolve Type",
+      },
+    },
+  };
 }
 
 /**
@@ -874,10 +914,41 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         const outputTypeName = loaderTypeName(propType);
         // By resolved type name, else by the annotation: `ImageWidget` is an
         // alias of `string`, and TypeScript keeps no alias symbol on primitives.
-        const matchingFlags =
+        // `Resolved<T>` props take only flags over `Resolved<T>`, others the rest.
+        const isResolved = /^Resolved\s*</.test(baseHint);
+        const matchingFlags = (
           (outputTypeName ? ctx?.outputTypeToFlags?.get(outputTypeName) : undefined) ??
           ctx?.outputTypeToFlags?.get(baseHint) ??
-          [];
+          []
+        ).filter((f) => !!f.resolved === isResolved);
+
+        if (isResolved) {
+          const loaders =
+            (outputTypeName ? ctx?.outputTypeToLoaderKeys?.get(outputTypeName) : undefined) ?? [];
+          const dataSchema = loaders.length
+            ? {
+                anyOf: [
+                  { $ref: `#/definitions/${RESOLVABLE_KEY}` },
+                  ...loaders.map((k) => ({ $ref: `#/definitions/${toBase64(k)}` })),
+                ],
+              }
+            : typeToJsonSchema(propType, new Set(visited), ctx);
+          const inline = resolvedSchema(dataSchema);
+          applyJsDocToSchema(inline, tags);
+          if (!inline.title) inline.title = beautify(name);
+          let resolvedProp: any = inline;
+          if (matchingFlags.length > 0) {
+            const { title, description, ...rest } = inline;
+            resolvedProp = { anyOf: [{ ...rest, title }, ...matchingFlags.map(flagBranch)], title };
+            if (description) resolvedProp.description = description;
+          }
+          if (prop.isOptional() || typeHint.includes("null") || typeHint.includes("undefined")) {
+            resolvedProp.nullable = true;
+          }
+          properties[name] = resolvedProp;
+          if (!prop.isOptional()) required.push(name);
+          continue;
+        }
 
         // Loader output type → block-ref: emit anyOf [Resolvable, ...matchingLoaders]
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
@@ -980,7 +1051,9 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
 export function getJsDocTags(symbol: MorphSymbol): Record<string, string> {
   const tags: Record<string, string> = {};
   for (const decl of symbol.getDeclarations()) {
-    const jsDocs = Node.isJSDocable(decl) ? decl.getJsDocs() : [];
+    // `/** … */ const X = …`: the JSDoc sits on the variable statement.
+    const docHost = Node.isVariableDeclaration(decl) ? decl.getVariableStatement() : decl;
+    const jsDocs = docHost && Node.isJSDocable(docHost) ? docHost.getJsDocs() : [];
     for (const doc of jsDocs) {
       const desc = doc.getDescription().trim();
       if (desc) tags.description = desc;
@@ -1245,6 +1318,7 @@ function generateMeta(): MetaResponse {
   const sectionsDir = path.resolve(root, SECTIONS_REL);
   const loadersDir = path.resolve(root, LOADERS_REL);
   const flagsDir = path.resolve(root, FLAGS_REL);
+  const matchersDir = path.resolve(root, MATCHERS_REL);
   const srcDir = path.join(root, "src");
 
   const project = new Project({
@@ -1335,6 +1409,7 @@ function generateMeta(): MetaResponse {
         key: flagKey,
         title: titleTag && !titleTag.includes("/") ? titleTag : flagKey,
         defKey: toBase64(flagKey),
+        resolved: /MultivariateProps\s*<\s*Resolved\s*</.test(sourceFile.getFullText()),
       };
       const valueTypeName = loaderTypeName(valueType);
       siteFlags.push({ flag, valueType, valueTypeName });
@@ -1652,7 +1727,9 @@ function generateMeta(): MetaResponse {
             ],
           }
         : typeToJsonSchema(valueType, undefined, ctx);
-      definitions[`${flag.defKey}@Props`] = multivariatePropsSchema(valueSchema);
+      definitions[`${flag.defKey}@Props`] = multivariatePropsSchema(
+        flag.resolved ? resolvedSchema(valueSchema) : valueSchema,
+      );
       const { allOf, required, properties } = flagBranch(flag);
       definitions[flag.defKey] = { title: flag.title, type: "object", allOf, required, properties };
       flagBlocks[flag.key] = { $ref: `#/definitions/${flag.defKey}`, namespace: SITE_NAMESPACE };
@@ -1934,6 +2011,59 @@ function generateMeta(): MetaResponse {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Site matchers (src/matchers/**): rule blocks the content stores by key
+  // (`site/matchers/url.ts`). The runtime evaluates whatever the site registers;
+  // without a schema entry the editor lists no such rule and can't open one.
+  // ---------------------------------------------------------------------------
+  const matcherBlocks: Record<string, any> = {};
+  const matcherRootAnyOf: any[] = [{ $ref: `#/definitions/${RESOLVABLE_KEY}` }];
+  const matcherFiles = fs.existsSync(matchersDir) ? findTsxFiles(matchersDir) : [];
+  for (const filePath of matcherFiles) {
+    const relativePath = path.relative(srcDir, filePath).replaceAll("\\", "/");
+    const matcherKey = `${SITE_NAMESPACE}/${relativePath}`;
+    try {
+      const sourceFile = getSourceFile(project, filePath, sourceFileCache);
+      const defaultSym = sourceFile.getDefaultExportSymbol();
+      if (!defaultSym || defaultSym.getTypeAtLocation(sourceFile).getCallSignatures().length === 0)
+        continue;
+      const target = defaultSym.isAlias()
+        ? (defaultSym.getAliasedSymbol() ?? defaultSym)
+        : defaultSym;
+      const docs = { ...getJsDocTags(defaultSym), ...getJsDocTags(target) };
+
+      let propsSchema: any = null;
+      const propsInterface = sourceFile.getInterface("Props");
+      if (propsInterface) propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, ctx);
+      const propsTypeAlias = sourceFile.getTypeAlias("Props");
+      if (!propsSchema && propsTypeAlias)
+        propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, ctx);
+      if (!propsSchema) {
+        const localPropsType = extractDefaultExportPropsType(sourceFile);
+        if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, ctx);
+      }
+      propsSchema ??= { type: "object", properties: {} };
+
+      const defKey = toBase64(matcherKey);
+      definitions[defKey] = {
+        title: docs.title && !docs.title.includes("/") ? docs.title : matcherKey,
+        ...(docs.description ? { description: docs.description } : {}),
+        ...(docs.icon ? { icon: docs.icon } : {}),
+        type: "object",
+        required: ["__resolveType", ...(propsSchema.required || [])],
+        properties: {
+          __resolveType: { type: "string", enum: [matcherKey], default: matcherKey },
+          ...(propsSchema.properties || {}),
+        },
+      };
+      matcherBlocks[matcherKey] = { $ref: `#/definitions/${defKey}`, namespace: SITE_NAMESPACE };
+      matcherRootAnyOf.push({ $ref: `#/definitions/${defKey}` });
+      console.log(`  ✓ matcher ${matcherKey}`);
+    } catch (e) {
+      console.warn(`  ✗ matcher ${matcherKey}: ${(e as Error).message}`);
+    }
+  }
+
   // Eitri @format aliases → JSON-Schema formats (e.g. datetime → date-time).
   // Done as a final pass over the generated definitions so every prop schema,
   // however deeply nested, is normalized before it reaches Studio.
@@ -1954,6 +2084,7 @@ function generateMeta(): MetaResponse {
         sections: sectionBlocks,
         loaders: loaderBlocks,
         flags: flagBlocks,
+        matchers: matcherBlocks,
         apps: appBlocks,
       },
     },
@@ -1965,7 +2096,7 @@ function generateMeta(): MetaResponse {
         actions: emptyAnyOf,
         pages: emptyAnyOf,
         handlers: emptyAnyOf,
-        matchers: emptyAnyOf,
+        matchers: { anyOf: matcherRootAnyOf },
         flags: { anyOf: flagRootAnyOf },
         functions: emptyAnyOf,
         apps: { anyOf: appRootAnyOf },

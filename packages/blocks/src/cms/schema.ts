@@ -1294,6 +1294,16 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
   const page = buildPageSchema(fullSectionAnyOf);
   const actions = buildActionDefinitions();
   const matchers = buildMatcherDefinitions();
+  // The site's own matchers (src/matchers, emitted by the schema generator)
+  // join the framework's, as the site's loaders join the loader union above.
+  const seenMatcherRefs = new Set<string>(matchers.matcherAnyOf.map((r: any) => r.$ref));
+  const matcherUnion = [
+    ...matchers.matcherAnyOf,
+    ...(siteMeta.schema?.root?.matchers?.anyOf ?? []).filter(
+      (ref: any): ref is { $ref: string } =>
+        Boolean(ref) && typeof ref.$ref === "string" && !seenMatcherRefs.has(ref.$ref),
+    ),
+  ];
   const functions = buildFunctionDefinitions();
 
   const sectionRefDef = { title: "Section", anyOf: fullSectionAnyOf };
@@ -1359,7 +1369,7 @@ export function composeMeta(siteMeta: MetaResponse, options?: ComposeMetaOptions
         sections: { anyOf: fullSectionAnyOf },
         pages: { anyOf: page.rootAnyOf },
         loaders: { anyOf: loaderUnion },
-        matchers: { anyOf: matchers.matcherAnyOf },
+        matchers: { anyOf: matcherUnion },
         functions: { title: "functions", anyOf: functions.functionAnyOf },
       },
     },
