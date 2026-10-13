@@ -560,6 +560,19 @@ export function extractFlagValueType(sourceFile: SourceFile): Type | null {
 }
 
 /**
+ * deco-cx/apps' typed multivariate flags over a widget type (annotation name).
+ * `website/flags/multivariate/image.ts` is `MultivariateFlag<ImageWidget>`.
+ */
+const BUILTIN_WIDGET_FLAGS = [
+  {
+    key: "website/flags/multivariate/image.ts",
+    title: "Image Variants",
+    widget: "ImageWidget",
+    valueSchema: { type: "string", format: "image-uri" },
+  },
+];
+
+/**
  * A flag block as an `anyOf` branch of a prop it can fill, in deco-cx/deco's
  * shape: inline, carrying its own `__resolveType`, with the variants schema
  * behind the `allOf`. The admin recognizes a block option by the
@@ -859,8 +872,12 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         }
 
         const outputTypeName = loaderTypeName(propType);
+        // By resolved type name, else by the annotation: `ImageWidget` is an
+        // alias of `string`, and TypeScript keeps no alias symbol on primitives.
         const matchingFlags =
-          (outputTypeName ? ctx?.outputTypeToFlags?.get(outputTypeName) : undefined) ?? [];
+          (outputTypeName ? ctx?.outputTypeToFlags?.get(outputTypeName) : undefined) ??
+          ctx?.outputTypeToFlags?.get(baseHint) ??
+          [];
 
         // Loader output type → block-ref: emit anyOf [Resolvable, ...matchingLoaders]
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
@@ -1278,6 +1295,28 @@ function generateMeta(): MetaResponse {
   // a `Product[]` inside a flag's value is a loader picker, not the whole
   // inlined Product type.
   // ---------------------------------------------------------------------------
+  // deco-cx/apps' typed multivariate flags over widget types, which deco-cx/deco
+  // offered on every field of that type (an image field could hold image
+  // variants). Their value schema is the widget's own.
+  for (const builtin of BUILTIN_WIDGET_FLAGS) {
+    const flag: FlagBlock = {
+      key: builtin.key,
+      title: builtin.title,
+      defKey: toBase64(builtin.key),
+    };
+    const existing = outputTypeToFlags.get(builtin.widget) ?? [];
+    existing.push(flag);
+    outputTypeToFlags.set(builtin.widget, existing);
+    definitions[`${flag.defKey}@Props`] = multivariatePropsSchema(builtin.valueSchema);
+    const { allOf, required, properties } = flagBranch(flag);
+    definitions[flag.defKey] = { title: flag.title, type: "object", allOf, required, properties };
+    flagBlocks[flag.key] = { $ref: `#/definitions/${flag.defKey}`, namespace: "website" };
+    flagRootAnyOf.push({
+      $ref: `#/definitions/${flag.defKey}`,
+      inputSchema: `#/definitions/${flag.defKey}@Props`,
+    });
+  }
+
   const flagFiles = fs.existsSync(flagsDir) ? findTsxFiles(flagsDir) : [];
   const siteFlags: Array<{ flag: FlagBlock; valueType: Type; valueTypeName: string | null }> = [];
   for (const filePath of flagFiles) {
