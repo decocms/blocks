@@ -486,19 +486,6 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
   return loaderTypeName(ret);
 }
 
-/**
- * deco-cx/apps' typed multivariate flags over a widget type (annotation name).
- * `website/flags/multivariate/image.ts` is `MultivariateFlag<ImageWidget>`.
- */
-const BUILTIN_WIDGET_FLAGS = [
-  {
-    key: "website/flags/multivariate/image.ts",
-    title: "Image Variants",
-    widget: "ImageWidget",
-    valueSchema: { type: "string", format: "image-uri" },
-  },
-];
-
 /** A site flag block (`src/flags/**`): its key, picker title and definition id. */
 export interface FlagBlock {
   key: string;
@@ -525,6 +512,19 @@ export function extractFlagValueType(sourceFile: SourceFile): Type | null {
   const value = variantsType.getArrayElementType()?.getProperty("value");
   return value ? value.getTypeAtLocation(sourceFile) : null;
 }
+
+/**
+ * deco-cx/apps' typed multivariate flags over a widget type (annotation name).
+ * `website/flags/multivariate/image.ts` is `MultivariateFlag<ImageWidget>`.
+ */
+const BUILTIN_WIDGET_FLAGS = [
+  {
+    key: "website/flags/multivariate/image.ts",
+    title: "Image Variants",
+    widget: "ImageWidget",
+    valueSchema: { type: "string", format: "image-uri" },
+  },
+];
 
 /**
  * A flag block as an `anyOf` branch of a prop it can fill, in deco-cx/deco's
