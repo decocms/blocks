@@ -105,7 +105,7 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
-import { ensureBlocksHydrated, maybePollRevision } from "./kvHydration";
+import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
 import { lookupExactRedirect } from "./kvRedirects";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
@@ -422,6 +422,33 @@ export interface DecoWorkerEntryOptions {
    * ```
    */
   cacheVersionEnv?: string | false;
+
+  /**
+   * Environment variable choosing what a deploy does to the `createFetchCache`
+   * entries (`fetch:*`, raw upstream responses) in shared storage (e.g. KV):
+   *
+   *   - `"invalidate"` (or unset — the default): keyed by build and CMS revision,
+   *     a deploy or publish starts them cold. Today's behaviour.
+   *   - `"preserve"`: keyed without build or CMS revision, they survive both.
+   *     A raw response doesn't depend on the code or the decofile; the new
+   *     code re-transforms it, so a deploy can't serve an old shape.
+   *
+   * `cachedLoader` results, HTML responses and sections stay per-build in both
+   * modes: they hold code output. Segment/device and geo stay in every key.
+   * Any other value falls back to `"invalidate"`.
+   *
+   * To drop preserved responses once, set `DECO_DATA_CACHE_PURGE` to a new value
+   * (any string, e.g. the date), or write a new `cache:data-version` in DECO_KV.
+   *
+   * @default "DECO_DATA_CACHE_ON_DEPLOY"
+   *
+   * @example
+   * ```jsonc
+   * // wrangler.jsonc
+   * "vars": { "DECO_DATA_CACHE_ON_DEPLOY": "preserve" }
+   * ```
+   */
+  dataCacheOnDeployEnv?: string | false;
 
   /**
    * Security headers appended to every SSR response (HTML pages).
@@ -1186,6 +1213,7 @@ export function createDecoWorkerEntry(
     redirects: redirectsOpt,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
+    dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     cspMode = "report-only",
@@ -1826,7 +1854,8 @@ export function createDecoWorkerEntry(
   // handlePurge (Bearer `purgeTokenEnv`). Per-isolate by nature — the isolate
   // that serves this request clears its cache; other live isolates keep theirs
   // until they're recycled or hit too. For a guaranteed global flush, redeploy
-  // (loader cache keys are build-hash versioned).
+  // (loader cache keys are build-hash versioned; preserved `fetch:*` entries are
+  // not — see `dataCacheOnDeployEnv`).
   async function handlePurgeLoaders(
     request: Request,
     env: Record<string, unknown>,
@@ -2305,24 +2334,36 @@ export function createDecoWorkerEntry(
       } catch {
         /* Missing storage is a cache miss, never a storefront failure. */
       }
+      const preserveData = !!dataCacheOnDeployEnv && env[dataCacheOnDeployEnv] === "preserve";
+      // Purge without a deploy: bump `cache:data-version` in DECO_KV.
+      const kvDataVersion = preserveData && storage ? await getDataCacheVersion(env, ctx) : "";
+      // Everything but the version is shared by the build and data scopes.
+      // Revision is left out of `variant`: build-scoped stores add it below, while
+      // preserved fetch data skips it — a raw upstream response does not depend on
+      // the decofile (a publish that changes props changes the URL, hence the key).
+      const variant = [
+        segment
+          ? hashSegment(segment)
+          : isMobileUA(request.headers.get("user-agent") ?? "")
+            ? "mobile"
+            : "desktop",
+        buildGeoCacheParam(
+          (request as unknown as { cf?: Record<string, string> }).cf,
+          effectiveGeoKey(),
+        ),
+        privateRequest ? crypto.randomUUID() : null,
+      ];
+      const scopeFor = (version: string, revision: string | null = getRevision()) =>
+        JSON.stringify([url.origin, version, revision, ...variant]);
       bindCacheStorage({
         storage,
         disabled: privateRequest || isDevMode(),
-        scope: JSON.stringify([
-          new URL(request.url).origin,
-          getBuildHash(env),
-          getRevision(),
-          segment
-            ? hashSegment(segment)
-            : isMobileUA(request.headers.get("user-agent") ?? "")
-              ? "mobile"
-              : "desktop",
-          buildGeoCacheParam(
-            (request as unknown as { cf?: Record<string, string> }).cf,
-            effectiveGeoKey(),
-          ),
-          privateRequest ? crypto.randomUUID() : null,
-        ]),
+        scope: scopeFor(getBuildHash(env)),
+        // Only `createFetchCache` (`fetch:*`) uses dataScope. Preserve keys it without
+        // build or CMS revision; invalidate keeps today's per-build key.
+        dataScope: preserveData
+          ? scopeFor(`data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}:${kvDataVersion}`, null)
+          : undefined,
         waitUntil: (work) => ctx.waitUntil(work),
       });
     }

@@ -130,7 +130,13 @@ function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T>
 export function createFetchCache(config: FetchCacheConfig): FetchCache {
   const { provider, maxEntries, freshTtlMs, staleIfErrorMs, inflightBackstopMs } = config;
 
-  const store = createCacheStore<CacheEntry>(`fetch:${provider}`, maxEntries);
+  const store = createCacheStore<CacheEntry>(
+    `fetch:${provider}`,
+    maxEntries,
+    undefined,
+    undefined,
+    "data",
+  );
   const inflight = new Map<string, Promise<CacheEntry>>();
 
   function freshTtlForStatus(status: number): number {
