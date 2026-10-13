@@ -88,6 +88,30 @@ function dateMatcher(rule: Record<string, unknown>, _ctx: MatcherContext): boole
 // -------------------------------------------------------------------------
 
 function hostMatcher(rule: Record<string, unknown>, ctx: MatcherContext): boolean {
+  // deco-cx/apps format: `includes` (substring) and/or `match` (regex), both
+  // optional and AND'ed, against the request host.
+  const includes = rule.includes as string | undefined;
+  const match = rule.match as string | undefined;
+  if (includes || match) {
+    let host = ctx.request?.headers.get("host") ?? ctx.headers?.host ?? "";
+    if (!host && ctx.url) {
+      try {
+        host = new URL(ctx.url).host;
+      } catch {
+        host = "";
+      }
+    }
+    if (match) {
+      if (!isSafePattern(match)) return false;
+      try {
+        if (!new RegExp(match).test(host)) return false;
+      } catch {
+        return false;
+      }
+    }
+    return includes ? host.includes(includes) : true;
+  }
+
   const hostToMatch = rule.host as string | undefined;
   if (!hostToMatch) return false;
 
@@ -118,20 +142,13 @@ function isSafePattern(pattern: string): boolean {
 function pathnameMatcher(rule: Record<string, unknown>, ctx: MatcherContext): boolean {
   const path = ctx.path ?? "";
 
-  // CMS "case" format: { type: "Includes" | "Equals" | "Not Includes" | "Starts With", pathname: "/..." }
-  const caseObj = rule.case as { type?: string; pathname?: string } | undefined;
-  if (caseObj?.pathname) {
-    switch (caseObj.type) {
-      case "Equals":
-        return path === caseObj.pathname;
-      case "Not Includes":
-        return !path.includes(caseObj.pathname);
-      case "Starts With":
-        return path.startsWith(caseObj.pathname);
-      case "Includes":
-      default:
-        return path.includes(caseObj.pathname);
-    }
+  // CMS "case" format (deco-cx/apps): { type: "Equals" | "Includes" | "Template", pathname, negate? }
+  // plus "Not Includes" / "Starts With". `negate` inverts any of them.
+  const caseObj = rule.case as { type?: string; pathname?: string; negate?: boolean } | undefined;
+  if (caseObj) {
+    if (!caseObj.pathname) return false;
+    const result = pathnameCase(caseObj.type, path, caseObj.pathname);
+    return caseObj.negate ? !result : result;
   }
 
   // Standard format: pattern (regex), includes (exact/glob), excludes (exact/glob)
@@ -182,11 +199,73 @@ function pathnameMatcher(rule: Record<string, unknown>, ctx: MatcherContext): bo
   return true;
 }
 
+function pathnameCase(type: string | undefined, path: string, pathname: string): boolean {
+  switch (type) {
+    case "Equals":
+      return path === pathname;
+    case "Not Includes":
+      return !path.includes(pathname);
+    case "Starts With":
+      return path.startsWith(pathname);
+    case "Template": {
+      // "/:slug/p" → each `:segment` matches one path segment, whole path.
+      const escaped = pathname
+        .split(/(:[^/]+)/)
+        .map((part) => (part.startsWith(":") ? "[^/]+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+        .join("");
+      return new RegExp(`^${escaped}$`).test(path);
+    }
+    default: // "Includes"
+      return path.includes(pathname);
+  }
+}
+
 // -------------------------------------------------------------------------
 // Query string matcher
 // -------------------------------------------------------------------------
 
+type QueryCase = { type?: string; value?: string };
+const QUERY_OPERATIONS: Record<string, (param: string, value: string) => boolean> = {
+  Equals: (a, b) => a === b,
+  Greater: (a, b) => a > b,
+  GreaterOrEquals: (a, b) => a >= b,
+  Lesser: (a, b) => a < b,
+  LesserOrEquals: (a, b) => a <= b,
+  Includes: (a, b) => a.includes(b),
+};
+
+/**
+ * deco-cx/apps format: every condition must hold. A condition fails when its
+ * param is absent; `Exists` holds when it is present; the other operations
+ * hold when at least one of the param's values compares true (string compare,
+ * as upstream).
+ */
+function queryStringConditions(
+  conditions: Array<{ param?: string; case?: QueryCase }>,
+  url: URL,
+): boolean {
+  return conditions.every((condition) => {
+    const values = condition.param ? url.searchParams.getAll(condition.param) : [];
+    if (values.length === 0) return false;
+    const type = condition.case?.type;
+    if (type === "Exists") return true;
+    const compare = type ? QUERY_OPERATIONS[type] : undefined;
+    const expected = condition.case?.value;
+    if (!compare || expected === undefined) return false;
+    return values.some((value) => compare(value, expected));
+  });
+}
+
 function queryStringMatcher(rule: Record<string, unknown>, ctx: MatcherContext): boolean {
+  if (Array.isArray(rule.conditions)) {
+    if (!ctx.url) return false;
+    try {
+      return queryStringConditions(rule.conditions, new URL(ctx.url));
+    } catch {
+      return false;
+    }
+  }
+
   const key = (rule.key ?? rule.param) as string | undefined;
   const value = rule.value as string | undefined;
 

@@ -252,6 +252,43 @@ export interface MatcherConfig {
   propsSchema?: Record<string, any>;
 }
 
+/** A hidden, const discriminator — deco-cx/deco's shape for `type: "X"` literals. */
+function constType(type: string) {
+  return { type: "string", const: type, default: type, readonly: "*", hide: "true", title: "Type" };
+}
+
+/** One `case` branch of deco-cx/apps' pathname matcher. */
+function pathnameCaseSchema(type: string) {
+  return {
+    title: type,
+    type: "object",
+    required: ["type"],
+    properties: {
+      pathname: { type: "string", title: "Pathname", description: 'Must start with "/"' },
+      negate: {
+        type: "boolean",
+        title: "Negate",
+        description: "Inverts the match result (NOT)",
+        default: false,
+      },
+      type: constType(type),
+    },
+  };
+}
+
+/** One `case` branch of deco-cx/apps' query string matcher condition. */
+function queryCaseSchema(type: string, hasValue: boolean) {
+  return {
+    title: type,
+    type: "object",
+    required: hasValue ? ["value", "type"] : ["type"],
+    properties: {
+      ...(hasValue ? { value: { type: "string", title: "Value" } } : {}),
+      type: constType(type),
+    },
+  };
+}
+
 const matcherRegistry: MatcherConfig[] = [];
 
 /** Register a single matcher schema for the admin. */
@@ -300,6 +337,7 @@ registerMatcherSchemas([
       type: "object",
       properties: {
         mobile: { type: "boolean", title: "Mobile" },
+        tablet: { type: "boolean", title: "Tablet" },
         desktop: { type: "boolean", title: "Desktop" },
       },
     },
@@ -355,7 +393,10 @@ registerMatcherSchemas([
     propsSchema: {
       type: "object",
       properties: {
-        host: { type: "string", title: "Hostname" },
+        includes: { type: "string", title: "Includes" },
+        match: { type: "string", title: "Match" },
+        // Pre-parity format, still evaluated; kept so stored values validate.
+        host: { type: "string", title: "Hostname", hide: "true" },
       },
     },
   },
@@ -367,18 +408,16 @@ registerMatcherSchemas([
     namespace: "website",
     propsSchema: {
       type: "object",
+      required: ["case"],
       properties: {
-        pattern: { type: "string", title: "Regex Pattern" },
-        includes: {
-          type: "array",
-          title: "Includes",
-          items: { type: "string" },
+        case: {
+          title: "Operation",
+          anyOf: ["Equals", "Includes", "Template"].map(pathnameCaseSchema),
         },
-        excludes: {
-          type: "array",
-          title: "Excludes",
-          items: { type: "string" },
-        },
+        // Pre-parity format, still evaluated; kept so stored values validate.
+        pattern: { type: "string", title: "Regex Pattern", hide: "true" },
+        includes: { type: "array", title: "Includes", items: { type: "string" }, hide: "true" },
+        excludes: { type: "array", title: "Excludes", items: { type: "string" }, hide: "true" },
       },
     },
   },
@@ -390,9 +429,37 @@ registerMatcherSchemas([
     namespace: "website",
     propsSchema: {
       type: "object",
+      required: ["conditions"],
       properties: {
-        key: { type: "string", title: "Parameter Name" },
-        value: { type: "string", title: "Parameter Value" },
+        conditions: {
+          type: "array",
+          title: "Conditions",
+          items: {
+            type: "object",
+            title: "{{{param}}} {{{case.type}}} {{{case.value}}}",
+            required: ["param", "case"],
+            properties: {
+              param: { type: "string", title: "Param" },
+              case: {
+                title: "Case",
+                anyOf: [
+                  ...[
+                    "Equals",
+                    "Greater",
+                    "Lesser",
+                    "GreaterOrEquals",
+                    "LesserOrEquals",
+                    "Includes",
+                  ].map((type) => queryCaseSchema(type, true)),
+                  queryCaseSchema("Exists", false),
+                ],
+              },
+            },
+          },
+        },
+        // Pre-parity format, still evaluated; kept so stored values validate.
+        key: { type: "string", title: "Parameter Name", hide: "true" },
+        value: { type: "string", title: "Parameter Value", hide: "true" },
       },
     },
   },

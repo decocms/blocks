@@ -316,3 +316,132 @@ describe("dateMatcher — parity with deco-cx/apps website/matchers/date.ts", ()
     expect(matchDate({ end: "not-a-date" })).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// deco-cx/apps parity: pathname `case` (Template, negate), queryString
+// `conditions`, host `includes`/`match`. Migrated content stores these shapes;
+// the pre-parity readers ignored them, so e.g. a "brand segment" rule
+// (`/:slug/p` AND `?brand=x`) never matched.
+// ---------------------------------------------------------------------------
+
+function urlCtx(url: string, headers: Record<string, string> = {}): MatcherContext {
+  const u = new URL(url);
+  return { url, path: u.pathname, request: new Request(url, { headers }) };
+}
+
+const PATHNAME_KEY = "website/matchers/pathname.ts";
+const QUERY_KEY = "website/matchers/queryString.ts";
+const HOST_KEY = "website/matchers/host.ts";
+
+describe("pathnameMatcher — deco-cx/apps `case`", () => {
+  const pathname = (c: Record<string, unknown>, url: string) =>
+    evaluateMatcher({ __resolveType: PATHNAME_KEY, case: c }, urlCtx(url));
+
+  it("Template matches one path segment per `:param`, whole path", () => {
+    const c = { type: "Template", pathname: "/:slug/p" };
+    expect(pathname(c, "https://x.com/vestido-123-456/p")).toBe(true);
+    expect(pathname(c, "https://x.com/a/b/p")).toBe(false);
+    expect(pathname(c, "https://x.com/vestido-123-456/p/extra")).toBe(false);
+    expect(pathname(c, "https://x.com/farm-etc")).toBe(false);
+  });
+
+  it("negate inverts the result", () => {
+    const c = { type: "Includes", pathname: "/farm-etc", negate: true };
+    expect(pathname(c, "https://x.com/farm-etc/novidades")).toBe(false);
+    expect(pathname(c, "https://x.com/novidades")).toBe(true);
+  });
+
+  it("keeps Equals / Includes", () => {
+    expect(pathname({ type: "Equals", pathname: "/tapume" }, "https://x.com/tapume")).toBe(true);
+    expect(pathname({ type: "Equals", pathname: "/tapume" }, "https://x.com/tapume/a")).toBe(false);
+    expect(pathname({ type: "Includes", pathname: "/farm-etc" }, "https://x.com/farm-etc/a")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a case without a pathname (as upstream)", () => {
+    expect(pathname({ type: "Includes" }, "https://x.com/anything")).toBe(false);
+  });
+});
+
+describe("queryStringMatcher — deco-cx/apps `conditions`", () => {
+  const query = (conditions: unknown[], url: string) =>
+    evaluateMatcher({ __resolveType: QUERY_KEY, conditions }, urlCtx(url));
+
+  it("Equals on a param", () => {
+    const conditions = [{ param: "brand", case: { type: "Equals", value: "farmetc" } }];
+    expect(query(conditions, "https://x.com/v-1-2/p?brand=farmetc")).toBe(true);
+    expect(query(conditions, "https://x.com/v-1-2/p?brand=farm")).toBe(false);
+    expect(query(conditions, "https://x.com/v-1-2/p")).toBe(false);
+  });
+
+  it("every condition must hold; Exists only needs the param", () => {
+    const conditions = [
+      { param: "a", case: { type: "Exists" } },
+      { param: "b", case: { type: "Includes", value: "x" } },
+    ];
+    expect(query(conditions, "https://x.com/?a=&b=1x2")).toBe(true);
+    expect(query(conditions, "https://x.com/?b=1x2")).toBe(false);
+    expect(query(conditions, "https://x.com/?a=1&b=2")).toBe(false);
+  });
+
+  it("matches when any of a repeated param's values does", () => {
+    const conditions = [{ param: "c", case: { type: "Equals", value: "2" } }];
+    expect(query(conditions, "https://x.com/?c=1&c=2")).toBe(true);
+  });
+
+  it("keeps the key/value format", () => {
+    expect(
+      evaluateMatcher(
+        { __resolveType: QUERY_KEY, key: "utm_source", value: "x" },
+        urlCtx("https://x.com/?utm_source=x"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("a saved brand-segment rule (multi of pathname + queryString)", () => {
+  const segment = {
+    __resolveType: "website/matchers/multi.ts",
+    op: "or",
+    matchers: [
+      { __resolveType: PATHNAME_KEY, case: { type: "Includes", pathname: "/farm-etc" } },
+      {
+        __resolveType: "website/matchers/multi.ts",
+        op: "and",
+        matchers: [
+          { __resolveType: PATHNAME_KEY, case: { type: "Template", pathname: "/:slug/p" } },
+          {
+            __resolveType: QUERY_KEY,
+            conditions: [{ param: "brand", case: { type: "Equals", value: "farmetc" } }],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("matches a brand listing and a brand PDP, not the other brand's PDP", () => {
+    expect(evaluateMatcher(segment, urlCtx("https://x.com/farm-etc/novidades"))).toBe(true);
+    expect(evaluateMatcher(segment, urlCtx("https://x.com/caneca-1-2/p?brand=farmetc"))).toBe(true);
+    expect(evaluateMatcher(segment, urlCtx("https://x.com/vestido-1-2/p?brand=farm"))).toBe(false);
+  });
+});
+
+describe("hostMatcher — deco-cx/apps `includes` / `match`", () => {
+  const host = (rule: Record<string, unknown>, url: string) =>
+    evaluateMatcher({ __resolveType: HOST_KEY, ...rule }, urlCtx(url));
+
+  it("includes is a substring of the host", () => {
+    expect(host({ includes: "www.example.com" }, "https://www.example.com/a")).toBe(true);
+    expect(host({ includes: "www.example.com" }, "https://preview.example.com/a")).toBe(false);
+  });
+
+  it("match is a regex; both must hold when both are set", () => {
+    expect(host({ match: "^www\\." }, "https://www.example.com/")).toBe(true);
+    expect(host({ match: "^www\\.", includes: "other" }, "https://www.example.com/")).toBe(false);
+  });
+
+  it("keeps the host format", () => {
+    expect(host({ host: "www.example.com" }, "https://www.example.com/")).toBe(true);
+  });
+});
