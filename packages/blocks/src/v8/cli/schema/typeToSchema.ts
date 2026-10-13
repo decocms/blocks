@@ -413,7 +413,18 @@ const RUNTIME_INJECTED_TYPES = new Set([
   "FormData",
 ]);
 
-const titleCase = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
+/**
+ * Default title for a prop without `@title`, as the v7 site editor showed it:
+ * words split at capitals, first character uppercased — `marginTop` →
+ * "Margin Top". A run of capitals stays one word (`CTA` → "CTA", `titleCTA`
+ * → "Title CTA") and a PascalCase name gets no leading space.
+ */
+export function titleCase(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/^./, (c) => c.toUpperCase());
+}
 
 /** `Secret | undefined` → `Secret`: the annotation without its nullish members. */
 function stripNullish(typeHint: string): string {
