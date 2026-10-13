@@ -75,7 +75,9 @@ export function joinInflight<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      onStall().then(resolve, reject);
+      // `onStall` may throw synchronously (a non-async loader wrapper); route it
+      // into the Promise chain so the joiner rejects instead of hanging.
+      Promise.resolve().then(onStall).then(resolve, reject);
     }, ms);
     shared.then(
       (value) => {

@@ -57,6 +57,16 @@ describe("joinInflight", () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_INFLIGHT_TIMEOUT_MS);
     await expect(joined).resolves.toBe("fresh");
   });
+
+  it("rejects instead of hanging when the fallback throws synchronously", async () => {
+    vi.useFakeTimers();
+    const joined = joinInflight(never<string>(), () => {
+      throw new Error("sync");
+    });
+    const settled = expect(joined).rejects.toThrow("sync");
+    await vi.advanceTimersByTimeAsync(DEFAULT_INFLIGHT_TIMEOUT_MS);
+    await settled;
+  });
 });
 
 describe("createCachedLoaderFromModule — owner request cancelled", () => {
