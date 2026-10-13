@@ -20,7 +20,7 @@ import {
 } from "../middleware/observability";
 import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
 import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cacheStorage";
-import { withInflightTimeout } from "./inflightTimeout";
+import { joinInflight, withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
 // Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
@@ -200,6 +200,32 @@ function evictIfNeeded() {
 
 const inflightRequests = new Map<string, Promise<unknown>>();
 
+/** Free a dedup slot only while it still holds `promise` — never a newer flight. */
+function releaseSlot(map: Map<string, Promise<unknown>>, key: string, promise: Promise<unknown>) {
+  if (map.get(key) === promise) map.delete(key);
+}
+
+/**
+ * Start shared work: keep it alive past its own request and publish it in the
+ * dedup map.
+ *
+ * On Workers a Promise's subrequests belong to the request that created it.
+ * When that client disconnects the runtime cancels its pending I/O, the
+ * Promise never settles, and every caller that joined it would wait forever.
+ * `cacheBackground` registers it with the owner's `ctx.waitUntil`, so the
+ * owner's invocation stays alive until the work settles and the joiners get
+ * the answer. Inert outside the worker entry (no `waitUntil` bound).
+ */
+function publishInflight<T>(
+  map: Map<string, Promise<unknown>>,
+  key: string,
+  promise: Promise<T>,
+): Promise<T> {
+  cacheBackground(promise);
+  map.set(key, promise);
+  return promise;
+}
+
 function resolveOptions(
   optionsOrProfile: CachedLoaderOptions | CacheProfileName,
 ): CachedLoaderOptions {
@@ -256,8 +282,16 @@ export function createCachedLoader<TProps, TResult>(
 
   if (policy === "no-store") return loaderFn;
 
-  return async (props: TProps): Promise<TResult> => {
+  const cachedFn = async (props: TProps): Promise<TResult> => {
     const cacheKey = cache.key(`${BUILD}::${name}::${keyFn(props)}`);
+    // Joining another caller's flight is bounded by a timer of THIS caller's
+    // request (see `joinInflight`): if the owner's request was cancelled and
+    // its Promise will never settle, evict the dead slot and run again.
+    const join = (shared: Promise<unknown>): Promise<TResult> =>
+      joinInflight(shared as Promise<TResult>, () => {
+        releaseSlot(inflightRequests, cacheKey, shared);
+        return cachedFn(props);
+      });
     const retention =
       maxAge +
       Math.max(staleIfError, policy === "stale-while-revalidate" ? staleWhileRevalidate : 0);
@@ -270,7 +304,7 @@ export function createCachedLoader<TProps, TResult>(
       // Treat in-flight dedup as a cache hit — avoided the origin call.
       recordCacheMetric(true, name, undefined, "cachedLoader");
       const start = performance.now();
-      return inflight.then((r) => {
+      return join(inflight).then((r) => {
         recordLoaderMetric(name, performance.now() - start, "HIT");
         return r as TResult;
       });
@@ -296,9 +330,8 @@ export function createCachedLoader<TProps, TResult>(
           recordLoaderError(name);
           throw err;
         })
-        .finally(() => inflightRequests.delete(cacheKey));
-      inflightRequests.set(cacheKey, promise);
-      return promise;
+        .finally(() => releaseSlot(inflightRequests, cacheKey, promise));
+      return publishInflight(inflightRequests, cacheKey, promise);
     }
 
     let entry = cache.get(cacheKey) as CacheEntry<TResult> | undefined;
@@ -308,7 +341,7 @@ export function createCachedLoader<TProps, TResult>(
     }
     // Another caller may have started the origin fetch while storage was being read.
     const pending = inflightRequests.get(cacheKey);
-    if (pending) return pending as Promise<TResult>;
+    if (pending) return join(pending);
     const now = Date.now();
     const isStale = entry ? now - entry.createdAt > maxAge : true;
 
@@ -424,11 +457,11 @@ export function createCachedLoader<TProps, TResult>(
         recordLoaderError(name);
         throw err;
       })
-      .finally(() => inflightRequests.delete(cacheKey));
+      .finally(() => releaseSlot(inflightRequests, cacheKey, promise));
 
-    inflightRequests.set(cacheKey, promise);
-    return promise;
+    return publishInflight(inflightRequests, cacheKey, promise);
   };
+  return cachedFn;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +507,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
 
   const cacheKeyFn = mod.cacheKey;
 
-  return (props: TProps, req?: Request): Promise<TResult> => {
+  const dedupedFn = (props: TProps, req?: Request): Promise<TResult> => {
     const request = req ?? RequestContext.current?.request ?? undefined;
 
     let keyPart: string | null;
@@ -491,14 +524,21 @@ export function createCachedLoaderFromModule<TProps, TResult>(
 
     const key = cache.key(`${BUILD}::${name}::${keyPart}`);
     const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
-    if (existing) return existing;
+    if (existing) {
+      // Bounded by this caller's own timer: a flight whose owner request was
+      // cancelled never settles — evict it and run again (see `joinInflight`).
+      return joinInflight(existing, () => {
+        releaseSlot(moduleInflight, key, existing);
+        return dedupedFn(props, req);
+      });
+    }
 
-    const promise = Promise.resolve(mod.default(props, req)).finally(() => {
-      moduleInflight.delete(key);
+    const promise: Promise<TResult> = Promise.resolve(mod.default(props, req)).finally(() => {
+      releaseSlot(moduleInflight, key, promise);
     });
-    moduleInflight.set(key, promise);
-    return promise;
+    return publishInflight(moduleInflight, key, promise);
   };
+  return dedupedFn;
 }
 
 /**
