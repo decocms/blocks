@@ -30,6 +30,7 @@ describe("generate-schema site multivariate flags", () => {
 
   const FLAG = "site/flags/multivariate/content.ts";
   const LIST_FLAG = "site/flags/multivariate/products.ts";
+  const IMAGE_FLAG = "website/flags/multivariate/image.ts";
 
   beforeAll(() => {
     fixture = mkdtempSync(path.join(tmpdir(), "schema-flags-"));
@@ -59,7 +60,8 @@ describe("generate-schema site multivariate flags", () => {
     );
     write(
       "src/types.ts",
-      `export interface Content { matcher?: string[]; label: string; }
+      `export type ImageWidget = string;
+       export interface Content { matcher?: string[]; label: string; }
        export interface Kit { name: string; content: Content; }
        export interface Product { productID: string; }`,
     );
@@ -92,8 +94,10 @@ describe("generate-schema site multivariate flags", () => {
     );
     write(
       "src/sections/Example.tsx",
-      `import type { Content, Product } from "../types";
+      `import type { Content, ImageWidget, Product } from "../types";
        export interface Props {
+         banner?: ImageWidget;
+         gallery?: ImageWidget[];
          /**
           * @title Main content
           * @description Shown on top
@@ -151,6 +155,7 @@ describe("generate-schema site multivariate flags", () => {
 
   it("registers each flag in the manifest and in root.flags", () => {
     expect(meta.manifest.blocks.flags).toEqual({
+      [IMAGE_FLAG]: { $ref: `#/definitions/${btoa(IMAGE_FLAG)}`, namespace: "website" },
       [FLAG]: { $ref: `#/definitions/${btoa(FLAG)}`, namespace: "site" },
       [LIST_FLAG]: { $ref: `#/definitions/${btoa(LIST_FLAG)}`, namespace: "site" },
     });
@@ -209,5 +214,26 @@ describe("generate-schema site multivariate flags", () => {
     const hidden = sectionProps().hidden;
     expect(hidden.anyOf).toBeUndefined();
     expect(hidden.type).toBe("object");
+  });
+
+  it("offers image variants on an ImageWidget prop, as deco-cx/deco did", () => {
+    const { banner, gallery } = sectionProps();
+    expect(banner.anyOf).toEqual([
+      { type: "string", format: "image-uri", title: "Banner" },
+      {
+        title: "Image Variants",
+        type: "object",
+        allOf: [{ $ref: `#/definitions/${btoa(IMAGE_FLAG)}@Props` }],
+        required: ["__resolveType"],
+        properties: {
+          __resolveType: { type: "string", enum: [IMAGE_FLAG], default: IMAGE_FLAG },
+        },
+      },
+    ]);
+    const value = def(`${btoa(IMAGE_FLAG)}@Props`).properties!.variants.items!.properties!.value;
+    expect(value).toMatchObject({ type: "string", format: "image-uri" });
+    // A list of images is not an image: deco-cx/deco offered no variants there.
+    expect(gallery.anyOf).toBeUndefined();
+    expect(gallery.type).toBe("array");
   });
 });
