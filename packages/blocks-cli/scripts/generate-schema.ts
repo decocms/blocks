@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
  *   --version     Framework version  (default: "1.0.0")
  *   --sections    Sections directory (default: "src/sections")
  *   --loaders     Loaders directory  (default: "src/loaders")
+ *   --flags       Flags directory    (default: "src/flags")
  *   --apps        Apps directory     (default: "src/apps")
  *   --skip-apps   Skip app schema generation
  *   --out         Output file        (default: ".deco/meta.gen.json")
@@ -71,6 +72,7 @@ let SITE_NAME = "storefront";
 let FRAMEWORK_VERSION = "1.0.0";
 let SECTIONS_REL = "src/sections";
 let LOADERS_REL = "src/loaders";
+let FLAGS_REL = "src/flags";
 let APPS_REL = "src/apps";
 let SKIP_APPS = false;
 let OUT_REL = NEW_DEFAULT_OUT_REL;
@@ -89,6 +91,7 @@ if (isMainModule()) {
   FRAMEWORK_VERSION = arg("version", FRAMEWORK_VERSION);
   SECTIONS_REL = arg("sections", SECTIONS_REL);
   LOADERS_REL = arg("loaders", LOADERS_REL);
+  FLAGS_REL = arg("flags", FLAGS_REL);
   APPS_REL = arg("apps", APPS_REL);
   SKIP_APPS = argv.includes("--skip-apps");
   OUT_REL = arg("out", NEW_DEFAULT_OUT_REL);
@@ -374,6 +377,12 @@ interface GenerationContext {
   /** Loader output type name → loader keys, for block-ref pickers. Sections only. */
   outputTypeToLoaderKeys?: Map<string, string[]>;
   /**
+   * Flag value type name → the site's flag blocks over that type (see
+   * flagBranch). A prop of that type also accepts the flag, which is what
+   * makes the admin offer — and recognize — variants on that field.
+   */
+  outputTypeToFlags?: Map<string, FlagBlock[]>;
+  /**
    * Shared definitions sink. When present, a recursive named type (e.g.
    * `interface Link { submenu?: Link[] }`) is emitted once as a definition and
    * the cycle becomes a `$ref` to it — what deco-cx/deco emits. Without it the
@@ -475,6 +484,87 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
     if (args.length) ret = args[0];
   }
   return loaderTypeName(ret);
+}
+
+/** A site flag block (`src/flags/**`): its key, picker title and definition id. */
+export interface FlagBlock {
+  key: string;
+  title: string;
+  defKey: string;
+}
+
+/**
+ * The value type a multivariate flag chooses between: `T` in
+ * `export default function (props: MultivariateProps<T>): MultivariateFlag<T>`,
+ * read from the props' `variants[].value` so it does not depend on what the
+ * helper types are called or where they are imported from.
+ */
+export function extractFlagValueType(sourceFile: SourceFile): Type | null {
+  const propsType = extractDefaultExportPropsType(sourceFile);
+  const variants = propsType?.getProperty("variants");
+  if (!variants) return null;
+  let variantsType = variants.getTypeAtLocation(sourceFile);
+  if (variantsType.isUnion()) {
+    const nonNull = variantsType.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
+    if (nonNull.length !== 1) return null;
+    variantsType = nonNull[0];
+  }
+  const value = variantsType.getArrayElementType()?.getProperty("value");
+  return value ? value.getTypeAtLocation(sourceFile) : null;
+}
+
+/**
+ * A flag block as an `anyOf` branch of a prop it can fill, in deco-cx/deco's
+ * shape: inline, carrying its own `__resolveType`, with the variants schema
+ * behind the `allOf`. The admin recognizes a block option by the
+ * `__resolveType` on the branch itself, and treats a field whose only block
+ * option is a flag with `variants` as a field with variants — a `$ref` branch
+ * would make it a plain block picker instead.
+ */
+export function flagBranch(flag: FlagBlock): any {
+  return {
+    title: flag.title,
+    type: "object",
+    allOf: [{ $ref: `#/definitions/${flag.defKey}@Props` }],
+    required: ["__resolveType"],
+    properties: {
+      __resolveType: { type: "string", enum: [flag.key], default: flag.key },
+    },
+  };
+}
+
+/**
+ * Input schema of a multivariate flag over a value schema. `rule` is any
+ * matcher; the admin edits it with its own matcher picker, so it only needs to
+ * be a block reference (same shape composeMeta gives the section flag).
+ */
+export function multivariatePropsSchema(valueSchema: any): any {
+  return {
+    title: "Multivariate",
+    type: "object",
+    required: ["variants"],
+    properties: {
+      variants: {
+        type: "array",
+        title: "Variants",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["rule", "value"],
+          properties: {
+            rule: {
+              title: "Rule",
+              type: "object",
+              required: ["__resolveType"],
+              properties: { __resolveType: { type: "string" } },
+              additionalProperties: true,
+            },
+            value: { ...valueSchema, title: "Content" },
+          },
+        },
+      },
+    },
+  };
 }
 
 export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: GenerationContext): any {
@@ -713,10 +803,13 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
           continue;
         }
 
+        const outputTypeName = loaderTypeName(propType);
+        const matchingFlags =
+          (outputTypeName ? ctx?.outputTypeToFlags?.get(outputTypeName) : undefined) ?? [];
+
         // Loader output type → block-ref: emit anyOf [Resolvable, ...matchingLoaders]
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
         if (ctx?.outputTypeToLoaderKeys) {
-          const outputTypeName = loaderTypeName(propType);
           const matchingLoaders =
             (outputTypeName ? ctx.outputTypeToLoaderKeys.get(outputTypeName) : undefined) ??
             (outputTypeName !== baseHint ? ctx.outputTypeToLoaderKeys.get(baseHint) : undefined);
@@ -725,6 +818,7 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
               anyOf: [
                 { $ref: `#/definitions/${RESOLVABLE_KEY}` },
                 ...matchingLoaders.map((k) => ({ $ref: `#/definitions/${toBase64(k)}` })),
+                ...matchingFlags.map((f) => ({ $ref: `#/definitions/${f.defKey}` })),
               ],
               title: name.charAt(0).toUpperCase() + name.slice(1),
             };
@@ -748,6 +842,22 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         }
 
         if (!schema.title) schema.title = name.charAt(0).toUpperCase() + name.slice(1);
+
+        // A site flag over this prop's type → the value may also be that flag
+        // (`{ __resolveType: "site/flags/…", variants }`). Without the branch the
+        // admin can't read a stored flag and shows the bare, empty object form.
+        if (matchingFlags.length > 0 && schema.hide !== "true") {
+          const { title, description, nullable, ...inline } = schema;
+          const flagged: any = {
+            anyOf: [{ ...inline, title }, ...matchingFlags.map(flagBranch)],
+            title,
+          };
+          if (description) flagged.description = description;
+          if (nullable) flagged.nullable = true;
+          properties[name] = flagged;
+          if (!prop.isOptional()) required.push(name);
+          continue;
+        }
 
         properties[name] = schema;
         // A hidden prop (runtime-injected type, ReactNode, @hide) can never be
@@ -1053,6 +1163,7 @@ function generateMeta(): MetaResponse {
   const root = process.cwd();
   const sectionsDir = path.resolve(root, SECTIONS_REL);
   const loadersDir = path.resolve(root, LOADERS_REL);
+  const flagsDir = path.resolve(root, FLAGS_REL);
   const srcDir = path.join(root, "src");
 
   const project = new Project({
@@ -1065,12 +1176,20 @@ function generateMeta(): MetaResponse {
   const loaderBlocks: Record<string, any> = {};
   const sectionRootAnyOf: any[] = [];
   const loaderRootAnyOf: any[] = [{ $ref: `#/definitions/${RESOLVABLE_KEY}` }];
+  const flagBlocks: Record<string, any> = {};
+  const flagRootAnyOf: any[] = [{ $ref: `#/definitions/${RESOLVABLE_KEY}` }];
   const outputTypeToLoaderKeys = new Map<string, string[]>();
+  const outputTypeToFlags = new Map<string, FlagBlock[]>();
   const sourceFileCache: SourceFileCache = new Map();
   const moduleResolutionCache: ModuleResolutionCache = new Map();
   const propsSchemaCache: PropsSchemaCache = new Map();
   // Shared by every pass so each recursive type is emitted as one definition.
-  const schemaRefs: GenerationContext = { definitions, rootDir: root, recursiveRefs: new Set() };
+  const schemaRefs: GenerationContext = {
+    definitions,
+    rootDir: root,
+    recursiveRefs: new Set(),
+    outputTypeToFlags,
+  };
 
   // Resolvable: the admin's deRefUntil expects the LITERAL key "Resolvable",
   // not a base64-encoded version. We store both for compatibility.
@@ -1085,6 +1204,46 @@ function generateMeta(): MetaResponse {
   definitions[RESOLVABLE_KEY] = resolvableDef;
   definitions[resolvableB64Key] = resolvableDef;
   sectionRootAnyOf.push({ $ref: `#/definitions/${RESOLVABLE_KEY}` });
+
+  // ---------------------------------------------------------------------------
+  // Flags pass: the site's multivariate flags (src/flags/**, e.g.
+  // `MultivariateFlag<BannerContent>`). Only registers each flag's value type
+  // here, before every props pass: a prop of that type gets the flag as an
+  // extra branch (see flagBranch), wherever the prop is — section, loader or
+  // app. The flags' own schemas are built after the loader passes (below), so
+  // a `Product[]` inside a flag's value is a loader picker, not the whole
+  // inlined Product type.
+  // ---------------------------------------------------------------------------
+  const flagFiles = fs.existsSync(flagsDir) ? findTsxFiles(flagsDir) : [];
+  const siteFlags: Array<{ flag: FlagBlock; valueType: Type; valueTypeName: string | null }> = [];
+  for (const filePath of flagFiles) {
+    const relativePath = path.relative(srcDir, filePath).replaceAll("\\", "/");
+    const flagKey = `${SITE_NAMESPACE}/${relativePath}`;
+    try {
+      const sourceFile = getSourceFile(project, filePath, sourceFileCache);
+      const defaultSym = sourceFile.getDefaultExportSymbol();
+      const valueType = extractFlagValueType(sourceFile);
+      if (!defaultSym || !valueType) {
+        console.log(`  · flag ${flagKey} (not a multivariate flag, skipped)`);
+        continue;
+      }
+      const titleTag = getJsDocTags(defaultSym).title;
+      const flag: FlagBlock = {
+        key: flagKey,
+        title: titleTag && !titleTag.includes("/") ? titleTag : flagKey,
+        defKey: toBase64(flagKey),
+      };
+      const valueTypeName = loaderTypeName(valueType);
+      siteFlags.push({ flag, valueType, valueTypeName });
+      if (valueTypeName) {
+        const existing = outputTypeToFlags.get(valueTypeName) ?? [];
+        existing.push(flag);
+        outputTypeToFlags.set(valueTypeName, existing);
+      }
+    } catch (e) {
+      console.warn(`  ✗ flag ${flagKey}: ${(e as Error).message}`);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // First pass: scan loaders — build input schemas + outputTypeToLoaderKeys map
@@ -1328,6 +1487,33 @@ function generateMeta(): MetaResponse {
   }
 
   const ctx: GenerationContext = { ...schemaRefs, outputTypeToLoaderKeys };
+
+  // The flags' own schemas (registered in the flags pass above). A value type
+  // loaders return (`Product[] | null`) is a loader picker, as for a prop.
+  for (const { flag, valueType, valueTypeName } of siteFlags) {
+    try {
+      const matchingLoaders = valueTypeName ? outputTypeToLoaderKeys.get(valueTypeName) : undefined;
+      const valueSchema = matchingLoaders?.length
+        ? {
+            anyOf: [
+              { $ref: `#/definitions/${RESOLVABLE_KEY}` },
+              ...matchingLoaders.map((k) => ({ $ref: `#/definitions/${toBase64(k)}` })),
+            ],
+          }
+        : typeToJsonSchema(valueType, undefined, ctx);
+      definitions[`${flag.defKey}@Props`] = multivariatePropsSchema(valueSchema);
+      const { allOf, required, properties } = flagBranch(flag);
+      definitions[flag.defKey] = { title: flag.title, type: "object", allOf, required, properties };
+      flagBlocks[flag.key] = { $ref: `#/definitions/${flag.defKey}`, namespace: SITE_NAMESPACE };
+      flagRootAnyOf.push({
+        $ref: `#/definitions/${flag.defKey}`,
+        inputSchema: `#/definitions/${flag.defKey}@Props`,
+      });
+      console.log(`  ✓ flag ${flag.key}${valueTypeName ? ` → ${valueTypeName}` : ""}`);
+    } catch (e) {
+      console.warn(`  ✗ flag ${flag.key}: ${(e as Error).message}`);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Commerce "extension wrapper" loaders (deco-cx parity).
@@ -1600,7 +1786,14 @@ function generateMeta(): MetaResponse {
     version: FRAMEWORK_VERSION,
     namespace: SITE_NAMESPACE,
     site: SITE_NAME,
-    manifest: { blocks: { sections: sectionBlocks, loaders: loaderBlocks, apps: appBlocks } },
+    manifest: {
+      blocks: {
+        sections: sectionBlocks,
+        loaders: loaderBlocks,
+        flags: flagBlocks,
+        apps: appBlocks,
+      },
+    },
     schema: {
       definitions,
       root: {
@@ -1610,7 +1803,7 @@ function generateMeta(): MetaResponse {
         pages: emptyAnyOf,
         handlers: emptyAnyOf,
         matchers: emptyAnyOf,
-        flags: emptyAnyOf,
+        flags: { anyOf: flagRootAnyOf },
         functions: emptyAnyOf,
         apps: { anyOf: appRootAnyOf },
       },
