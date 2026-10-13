@@ -76,6 +76,13 @@ describe("generate-schema loader props and commerce extension wrappers", () => {
        export default function settings(_p: Props): Settings { return { ids: [] }; }`,
     );
     write(
+      "src/loaders/kits.ts",
+      `import type { Product } from "../types";
+       export interface Props { kits: Product[]; }
+       /** @title Kits */
+       export default function kits({ kits }: Props): Product[] { return kits; }`,
+    );
+    write(
       "src/loaders/extensions/injectProducts.ts",
       `import type { ExtensionOf, Product, ProductListingPage, Settings } from "../../types";
        export interface Props {
@@ -153,23 +160,31 @@ describe("generate-schema loader props and commerce extension wrappers", () => {
     expect(def(btoa("site/loaders/plp.ts")).title).toBe("site/loaders/plp.ts");
   });
 
-  it("keeps a loader prop inline and offers the loaders of its type beside it", () => {
+  it("keeps a loader's list prop inline and offers the loaders of its type beside it", () => {
     const props = def(btoa(EXTENSION)).properties!;
     const [inline, ...loaders] = props.products.anyOf!;
     expect(inline.type).toBe("array");
     expect(inline.items?.properties?.productID.type).toBe("string");
-    expect(loaders).toEqual([loaderBranch("site/loaders/productList.ts", "Product list")]);
-
-    const [inlineSettings, ...settingsLoaders] = props.settings.anyOf!;
-    expect(inlineSettings.properties?.ids.type).toBe("array");
-    expect(settingsLoaders).toEqual([loaderBranch("site/loaders/settings.ts", "Global settings")]);
-
+    expect(loaders).toEqual([
+      loaderBranch("site/loaders/kits.ts", "Kits"),
+      loaderBranch("site/loaders/productList.ts", "Product list"),
+    ]);
     expect(props.append).toMatchObject({ type: "boolean", title: "Add to the end" });
   });
 
-  it("never offers a loader in its own props", () => {
-    const fallback = def(btoa("site/loaders/settings.ts")).properties!.fallback;
+  it("offers a list loader in its own list prop (content nests it, as deco-cx/deco allowed)", () => {
+    const kits = def(btoa("site/loaders/kits.ts")).properties!.kits;
+    expect(kits.anyOf?.[0].type).toBe("array");
+    expect(kits.anyOf).toContainEqual(loaderBranch("site/loaders/kits.ts", "Kits"));
+  });
+
+  it("keeps a loader's object prop inline only", () => {
+    // The admin can't keep an object editable in place beside block options:
+    // it would edit a stored plain value through the picked loader's form.
+    const { settings } = def(btoa(EXTENSION)).properties!;
+    expect(settings.anyOf).toBeUndefined();
+    expect(settings.properties?.ids.type).toBe("array");
+    const { fallback } = def(btoa("site/loaders/settings.ts")).properties!;
     expect(fallback.anyOf).toBeUndefined();
-    expect(fallback.properties?.ids.type).toBe("array");
   });
 });

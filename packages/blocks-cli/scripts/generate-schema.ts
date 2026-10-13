@@ -383,15 +383,14 @@ interface GenerationContext {
    */
   outputTypeToFlags?: Map<string, FlagBlock[]>;
   /**
-   * Loader input schemas: a prop of a type other loaders return keeps its inline
-   * form and offers those loaders beside it — `anyOf [inline T, ...loaders]`,
-   * deco-cx/deco's shape — instead of the section-only `[Resolvable, ...]`
-   * picker. A loader's config (`AviseMeProducts`, a list of media kits) stays
-   * editable in place.
+   * Loader input schemas: a list prop (`T[]`) of a type loaders return keeps its
+   * inline form and offers those loaders beside it — `anyOf [inline T[],
+   * ...loaders]`, deco-cx/deco's shape, which the admin renders as an editable
+   * list that can also hold a loader (`array` + `loaderRef`). Object props stay
+   * inline only: for an object the admin draws a block picker and edits a
+   * stored plain value through the picked loader's form, not in place.
    */
   loaderPicksInline?: boolean;
-  /** The loader whose props are being built: never offered in its own props. */
-  selfLoaderKey?: string;
   /** Loader key → picker label (its @title), for inline loader branches. */
   loaderTitles?: Map<string, string>;
   /**
@@ -853,13 +852,13 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
         let inlineLoaders: string[] = [];
         if (ctx?.outputTypeToLoaderKeys) {
-          const matchingLoaders = (
+          const matchingLoaders =
             (outputTypeName ? ctx.outputTypeToLoaderKeys.get(outputTypeName) : undefined) ??
             (outputTypeName !== baseHint ? ctx.outputTypeToLoaderKeys.get(baseHint) : undefined) ??
-            []
-          ).filter((k) => k !== ctx.selfLoaderKey);
-          if (ctx.loaderPicksInline) inlineLoaders = matchingLoaders;
-          else if (matchingLoaders.length) {
+            [];
+          if (ctx.loaderPicksInline) {
+            if (outputTypeName?.endsWith("[]")) inlineLoaders = matchingLoaders;
+          } else if (matchingLoaders.length) {
             const blockRefSchema: any = {
               anyOf: [
                 { $ref: `#/definitions/${RESOLVABLE_KEY}` },
@@ -1305,12 +1304,7 @@ function generateMeta(): MetaResponse {
   // ---------------------------------------------------------------------------
   const pendingLoaderDefs: Array<() => void> = [];
   const loaderTitles = new Map<string, string>();
-  const loaderCtx = (selfLoaderKey: string): GenerationContext => ({
-    ...ctx,
-    loaderPicksInline: true,
-    selfLoaderKey,
-    loaderTitles,
-  });
+  const loaderCtx = (): GenerationContext => ({ ...ctx, loaderPicksInline: true, loaderTitles });
   /** Extended type name → extension loader keys (see extractExtensionTargetTypeName). */
   const extensionTargetToLoaderKeys = new Map<string, string[]>();
   const registerExtension = (sourceFile: SourceFile, loaderKey: string) => {
@@ -1359,7 +1353,7 @@ function generateMeta(): MetaResponse {
       pendingLoaderDefs.push(() => {
         try {
           // Extract Props (input schema)
-          const lctx = loaderCtx(loaderKey);
+          const lctx = loaderCtx();
           let propsSchema: any = null;
           const propsInterface = sourceFile.getInterface("Props");
           if (propsInterface)
@@ -1528,7 +1522,7 @@ function generateMeta(): MetaResponse {
         try {
           if (!entry.propsSchema) {
             const { sourceFile } = entry;
-            const lctx = loaderCtx(cmsKey);
+            const lctx = loaderCtx();
             // Extract Props (input schema)
             let propsSchema: any = null;
             const propsInterface = sourceFile.getInterface("Props");
