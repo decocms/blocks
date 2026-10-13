@@ -71,7 +71,7 @@ describe("applyWidgetFormat", () => {
     // returns {}. The intended widget must still be recovered.
     const schema: any = {};
     applyWidgetFormat(schema, "Color");
-    expect(schema).toEqual({ type: "string", format: "color" });
+    expect(schema).toEqual({ type: "string", format: "color-input" });
   });
 
   it.each(Object.entries(WIDGET_TYPE_FORMATS))(
@@ -86,7 +86,7 @@ describe("applyWidgetFormat", () => {
   it("applies the format to a resolved string schema", () => {
     const schema: any = { type: "string" };
     applyWidgetFormat(schema, "Color");
-    expect(schema).toEqual({ type: "string", format: "color" });
+    expect(schema).toEqual({ type: "string", format: "color-input" });
   });
 
   it("does not overwrite a schema that resolved to a $ref", () => {
@@ -103,7 +103,7 @@ describe("applyWidgetFormat", () => {
 });
 
 describe("typeToJsonSchema with an unresolvable widget alias import", () => {
-  it("emits { type: string, format: color } for a Color field imported from a CDN", () => {
+  it("emits { type: string, format: color-input } for a Color field imported from a CDN", () => {
     const project = new Project({
       useInMemoryFileSystem: true,
       compilerOptions: { skipLibCheck: true, noResolve: false },
@@ -130,7 +130,7 @@ describe("typeToJsonSchema with an unresolvable widget alias import", () => {
     expect(schema.properties.textLeftColor).toEqual({
       title: "Cor do Texto",
       type: "string",
-      format: "color",
+      format: "color-input",
     });
   }, 30_000);
 });
@@ -600,5 +600,29 @@ describe("default prop titles (deco-cx/deco beautify)", () => {
     const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
     expect(schema.properties.marginTop.title).toBe("Margin Top");
     expect(schema.properties.noFlex.title).toBe("Custom");
+  });
+});
+
+describe("widget detection by the whole type name", () => {
+  it("does not treat a type that merely contains a widget name as that widget", () => {
+    const project = strictProject();
+    const sf = project.createSourceFile(
+      "/colors.ts",
+      `type Color = string;
+       type ButtonColor = "Default" | "Primary";
+       export interface Props {
+         brand?: Color;
+         buttons?: ButtonColor;
+         variation?: "Simple" | "Color reverse";
+       }`,
+    );
+    const schema = typeToJsonSchema(sf.getInterfaceOrThrow("Props").getType());
+    applyWidgetFormat(schema.properties.brand, "Color");
+    applyWidgetFormat(schema.properties.buttons, "ButtonColor");
+    applyWidgetFormat(schema.properties.variation, '"Simple" | "Color reverse"');
+    expect(schema.properties.variation.format).toBeUndefined();
+    expect(schema.properties.brand.format).toBe("color-input");
+    expect(schema.properties.buttons.format).toBeUndefined();
+    expect(schema.properties.buttons.enum).toEqual(["Default", "Primary"]);
   });
 });
