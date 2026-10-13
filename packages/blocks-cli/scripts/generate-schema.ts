@@ -383,6 +383,17 @@ interface GenerationContext {
    */
   outputTypeToFlags?: Map<string, FlagBlock[]>;
   /**
+   * Loader input schemas: a list prop (`T[]`) of a type loaders return keeps its
+   * inline form and offers those loaders beside it — `anyOf [inline T[],
+   * ...loaders]`, deco-cx/deco's shape, which the admin renders as an editable
+   * list that can also hold a loader (`array` + `loaderRef`). Object props stay
+   * inline only: for an object the admin draws a block picker and edits a
+   * stored plain value through the picked loader's form, not in place.
+   */
+  loaderPicksInline?: boolean;
+  /** Loader key → picker label (its @title), for inline loader branches. */
+  loaderTitles?: Map<string, string>;
+  /**
    * Shared definitions sink. When present, a recursive named type (e.g.
    * `interface Link { submenu?: Link[] }`) is emitted once as a definition and
    * the cycle becomes a `$ref` to it — what deco-cx/deco emits. Without it the
@@ -486,6 +497,27 @@ function extractLoaderOutputTypeName(sourceFile: SourceFile): string | null {
   return loaderTypeName(ret);
 }
 
+/**
+ * For an extension loader — default export returning `ExtensionOf<T>` (or a
+ * Promise of it), e.g. `ExtensionOf<ProductListingPage | null>` — the name of
+ * `T`, so the commerce extension wrapper over `T` can offer it in its
+ * `extensions` list. Null for any other loader.
+ */
+export function extractExtensionTargetTypeName(sourceFile: SourceFile): string | null {
+  const sym = sourceFile.getDefaultExportSymbol();
+  if (!sym) return null;
+  const callSigs = sym.getTypeAtLocation(sourceFile).getCallSignatures();
+  if (!callSigs.length) return null;
+  let ret = callSigs[0].getReturnType();
+  if (ret.getSymbol()?.getName() === "Promise") {
+    const args = ret.getTypeArguments();
+    if (args.length) ret = args[0];
+  }
+  if (ret.getAliasSymbol()?.getName() !== "ExtensionOf") return null;
+  const [target] = ret.getAliasTypeArguments();
+  return target ? loaderTypeName(target) : null;
+}
+
 /** A site flag block (`src/flags/**`): its key, picker title and definition id. */
 export interface FlagBlock {
   key: string;
@@ -522,13 +554,22 @@ export function extractFlagValueType(sourceFile: SourceFile): Type | null {
  * would make it a plain block picker instead.
  */
 export function flagBranch(flag: FlagBlock): any {
+  return blockBranch(flag.key, flag.title, `${flag.defKey}@Props`);
+}
+
+/** A loader as an inline `anyOf` branch (same shape as flagBranch). */
+export function loaderBranch(key: string, title: string): any {
+  return blockBranch(key, title, toBase64(key));
+}
+
+function blockBranch(key: string, title: string, inputDefKey: string): any {
   return {
-    title: flag.title,
+    title,
     type: "object",
-    allOf: [{ $ref: `#/definitions/${flag.defKey}@Props` }],
+    allOf: [{ $ref: `#/definitions/${inputDefKey}` }],
     required: ["__resolveType"],
     properties: {
-      __resolveType: { type: "string", enum: [flag.key], default: flag.key },
+      __resolveType: { type: "string", enum: [key], default: key },
     },
   };
 }
@@ -809,11 +850,15 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
 
         // Loader output type → block-ref: emit anyOf [Resolvable, ...matchingLoaders]
         // baseHint strips "| null | undefined" so "ProductListingPage | null" → "ProductListingPage"
+        let inlineLoaders: string[] = [];
         if (ctx?.outputTypeToLoaderKeys) {
           const matchingLoaders =
             (outputTypeName ? ctx.outputTypeToLoaderKeys.get(outputTypeName) : undefined) ??
-            (outputTypeName !== baseHint ? ctx.outputTypeToLoaderKeys.get(baseHint) : undefined);
-          if (matchingLoaders?.length) {
+            (outputTypeName !== baseHint ? ctx.outputTypeToLoaderKeys.get(baseHint) : undefined) ??
+            [];
+          if (ctx.loaderPicksInline) {
+            if (outputTypeName?.endsWith("[]")) inlineLoaders = matchingLoaders;
+          } else if (matchingLoaders.length) {
             const blockRefSchema: any = {
               anyOf: [
                 { $ref: `#/definitions/${RESOLVABLE_KEY}` },
@@ -846,10 +891,15 @@ export function typeToJsonSchema(type: Type, visited = new Set<string>(), ctx?: 
         // A site flag over this prop's type → the value may also be that flag
         // (`{ __resolveType: "site/flags/…", variants }`). Without the branch the
         // admin can't read a stored flag and shows the bare, empty object form.
-        if (matchingFlags.length > 0 && schema.hide !== "true") {
+        // Same for loaders of this type in a loader's props (loaderPicksInline).
+        const blockBranches = [
+          ...inlineLoaders.map((k) => loaderBranch(k, ctx?.loaderTitles?.get(k) ?? k)),
+          ...matchingFlags.map(flagBranch),
+        ];
+        if (blockBranches.length > 0 && schema.hide !== "true") {
           const { title, description, nullable, ...inline } = schema;
           const flagged: any = {
-            anyOf: [{ ...inline, title }, ...matchingFlags.map(flagBranch)],
+            anyOf: [{ ...inline, title }, ...blockBranches],
             title,
           };
           if (description) flagged.description = description;
@@ -1246,8 +1296,24 @@ function generateMeta(): MetaResponse {
   }
 
   // ---------------------------------------------------------------------------
-  // First pass: scan loaders — build input schemas + outputTypeToLoaderKeys map
+  // First pass: scan loaders — register each loader and its output type. The
+  // input schemas are built later (pendingLoaderDefs), once every loader's
+  // output type is known (site, app and extension wrappers): a loader prop of a
+  // type other loaders return gets the same block-ref picker a section prop
+  // gets, e.g. an extension loader's `products: Product[]` → product loaders.
   // ---------------------------------------------------------------------------
+  const pendingLoaderDefs: Array<() => void> = [];
+  const loaderTitles = new Map<string, string>();
+  const loaderCtx = (): GenerationContext => ({ ...ctx, loaderPicksInline: true, loaderTitles });
+  /** Extended type name → extension loader keys (see extractExtensionTargetTypeName). */
+  const extensionTargetToLoaderKeys = new Map<string, string[]>();
+  const registerExtension = (sourceFile: SourceFile, loaderKey: string) => {
+    const target = extractExtensionTargetTypeName(sourceFile);
+    if (!target) return;
+    const existing = extensionTargetToLoaderKeys.get(target) ?? [];
+    existing.push(loaderKey);
+    extensionTargetToLoaderKeys.set(target, existing);
+  };
   const loaderFiles = fs.existsSync(loadersDir) ? findTsxFiles(loadersDir) : [];
   console.log(`Found ${loaderFiles.length} loader files`);
   for (const filePath of loaderFiles) {
@@ -1260,35 +1326,7 @@ function generateMeta(): MetaResponse {
 
     try {
       const sourceFile = getSourceFile(project, filePath, sourceFileCache);
-
-      // Extract Props (input schema)
-      let propsSchema: any = null;
-      const propsInterface = sourceFile.getInterface("Props");
-      if (propsInterface)
-        propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, schemaRefs);
-
-      const propsTypeAlias = sourceFile.getTypeAlias("Props");
-      if (!propsSchema && propsTypeAlias)
-        propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, schemaRefs);
-
-      if (!propsSchema) {
-        const localPropsType = extractDefaultExportPropsType(sourceFile);
-        if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, schemaRefs);
-      }
-
-      if (!propsSchema) propsSchema = { type: "object", properties: {} };
-
-      // Register flat loader definition (Bug #2: spread props, not nested under "props:")
       const loaderDefKey = toBase64(loaderKey);
-      definitions[loaderDefKey] = {
-        title: loaderKey,
-        type: "object",
-        required: ["__resolveType", ...(propsSchema?.required || [])],
-        properties: {
-          __resolveType: { type: "string", enum: [loaderKey], default: loaderKey },
-          ...(propsSchema?.properties || {}),
-        },
-      };
 
       loaderBlocks[loaderKey] = {
         $ref: `#/definitions/${loaderDefKey}`,
@@ -1296,18 +1334,61 @@ function generateMeta(): MetaResponse {
       };
       loaderRootAnyOf.push({ $ref: `#/definitions/${loaderDefKey}` });
 
-      // Extract return type name for block-ref detection in sections (Bug #3)
+      // Extract return type name for block-ref detection (Bug #3)
       const outputTypeName = extractLoaderOutputTypeName(sourceFile);
       if (outputTypeName) {
         const existing = outputTypeToLoaderKeys.get(outputTypeName) ?? [];
         existing.push(loaderKey);
         outputTypeToLoaderKeys.set(outputTypeName, existing);
       }
+      registerExtension(sourceFile, loaderKey);
 
-      const propCount = Object.keys(propsSchema.properties || {}).length;
-      console.log(
-        `  ✓ loader ${loaderKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""})`,
-      );
+      // The picker label, as for app loaders: a slash-free JSDoc @title on the
+      // default export, else the key.
+      const defaultSym = sourceFile.getDefaultExportSymbol();
+      const titleTag = defaultSym ? getJsDocTags(defaultSym).title : undefined;
+      const title = titleTag && !titleTag.includes("/") ? titleTag : loaderKey;
+      loaderTitles.set(loaderKey, title);
+
+      pendingLoaderDefs.push(() => {
+        try {
+          // Extract Props (input schema)
+          const lctx = loaderCtx();
+          let propsSchema: any = null;
+          const propsInterface = sourceFile.getInterface("Props");
+          if (propsInterface)
+            propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, lctx);
+
+          const propsTypeAlias = sourceFile.getTypeAlias("Props");
+          if (!propsSchema && propsTypeAlias)
+            propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, lctx);
+
+          if (!propsSchema) {
+            const localPropsType = extractDefaultExportPropsType(sourceFile);
+            if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, lctx);
+          }
+
+          if (!propsSchema) propsSchema = { type: "object", properties: {} };
+
+          // Register flat loader definition (Bug #2: spread props, not nested under "props:")
+          definitions[loaderDefKey] = {
+            title,
+            type: "object",
+            required: ["__resolveType", ...(propsSchema?.required || [])],
+            properties: {
+              __resolveType: { type: "string", enum: [loaderKey], default: loaderKey },
+              ...(propsSchema?.properties || {}),
+            },
+          };
+
+          const propCount = Object.keys(propsSchema.properties || {}).length;
+          console.log(
+            `  ✓ loader ${loaderKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""})`,
+          );
+        } catch (e) {
+          console.warn(`  ✗ loader ${loaderKey}: ${(e as Error).message}`);
+        }
+      });
     } catch (e) {
       console.warn(`  ✗ loader ${loaderKey}: ${(e as Error).message}`);
     }
@@ -1386,7 +1467,9 @@ function generateMeta(): MetaResponse {
 
   // De-duplicate: when re-export files point to the same source, parse once
   const appLoaderCache = new Map<string, {
-    propsSchema: any;
+    sourceFile: SourceFile;
+    /** Built on first use, in the deferred pass (see pendingLoaderDefs). */
+    propsSchema?: any;
     outputTypeName: string | null;
     title: string | null;
     hidden: boolean;
@@ -1423,40 +1506,60 @@ function generateMeta(): MetaResponse {
         const title = titleTag && !titleTag.includes("/") ? titleTag : null;
         const hidden = !!loaderTags.ignore;
 
-        // Extract Props (input schema)
-        let propsSchema: any = null;
-        const propsInterface = sourceFile.getInterface("Props");
-        if (propsInterface)
-          propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, schemaRefs);
-
-        const propsTypeAlias = sourceFile.getTypeAlias("Props");
-        if (!propsSchema && propsTypeAlias)
-          propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, schemaRefs);
-
-        if (!propsSchema) {
-          const localPropsType = extractDefaultExportPropsType(sourceFile);
-          if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, schemaRefs);
-        }
-
-        if (!propsSchema) propsSchema = { type: "object", properties: {} };
-
         const outputTypeName = extractLoaderOutputTypeName(sourceFile);
-        cached = { propsSchema, outputTypeName, title, hidden };
+        cached = { sourceFile, outputTypeName, title, hidden };
         appLoaderCache.set(realPath, cached);
       }
 
-      const { propsSchema, outputTypeName, title, hidden } = cached;
+      const entry = cached;
+      if (!entry.hidden) registerExtension(entry.sourceFile, appLoader.cmsKey);
+      loaderTitles.set(appLoader.cmsKey, entry.title ?? appLoader.cmsKey);
+      const { outputTypeName, title, hidden } = entry;
       const loaderDefKey = toBase64(appLoader.cmsKey);
+      const cmsKey = appLoader.cmsKey;
 
-      definitions[loaderDefKey] = {
-        title: title ?? appLoader.cmsKey,
-        type: "object",
-        required: ["__resolveType", ...(propsSchema?.required || [])],
-        properties: {
-          __resolveType: { type: "string", enum: [appLoader.cmsKey], default: appLoader.cmsKey },
-          ...(propsSchema?.properties || {}),
-        },
-      };
+      pendingLoaderDefs.push(() => {
+        try {
+          if (!entry.propsSchema) {
+            const { sourceFile } = entry;
+            const lctx = loaderCtx();
+            // Extract Props (input schema)
+            let propsSchema: any = null;
+            const propsInterface = sourceFile.getInterface("Props");
+            if (propsInterface)
+              propsSchema = typeToJsonSchema(propsInterface.getType(), undefined, lctx);
+
+            const propsTypeAlias = sourceFile.getTypeAlias("Props");
+            if (!propsSchema && propsTypeAlias)
+              propsSchema = typeToJsonSchema(propsTypeAlias.getType(), undefined, lctx);
+
+            if (!propsSchema) {
+              const localPropsType = extractDefaultExportPropsType(sourceFile);
+              if (localPropsType) propsSchema = typeToJsonSchema(localPropsType, undefined, lctx);
+            }
+
+            entry.propsSchema = propsSchema ?? { type: "object", properties: {} };
+          }
+          const { propsSchema } = entry;
+
+          definitions[loaderDefKey] = {
+            title: title ?? cmsKey,
+            type: "object",
+            required: ["__resolveType", ...(propsSchema?.required || [])],
+            properties: {
+              __resolveType: { type: "string", enum: [cmsKey], default: cmsKey },
+              ...(propsSchema?.properties || {}),
+            },
+          };
+
+          const propCount = Object.keys(propsSchema.properties || {}).length;
+          console.log(
+            `  ${hidden ? "·" : "✓"} app loader ${cmsKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""}${hidden ? ", hidden" : ""})`,
+          );
+        } catch (e) {
+          console.warn(`  ✗ app loader ${cmsKey}: ${(e as Error).message}`);
+        }
+      });
 
       loaderBlocks[appLoader.cmsKey] = {
         $ref: `#/definitions/${loaderDefKey}`,
@@ -1476,11 +1579,6 @@ function generateMeta(): MetaResponse {
           outputTypeToLoaderKeys.set(outputTypeName, existing);
         }
       }
-
-      const propCount = Object.keys(propsSchema.properties || {}).length;
-      console.log(
-        `  ${hidden ? "·" : "✓"} app loader ${appLoader.cmsKey} (${propCount} props${outputTypeName ? ` → ${outputTypeName}` : ""}${hidden ? ", hidden" : ""})`,
-      );
     } catch (e) {
       console.warn(`  ✗ app loader ${appLoader.cmsKey}: ${(e as Error).message}`);
     }
@@ -1537,7 +1635,8 @@ function generateMeta(): MetaResponse {
     },
   ];
   for (const wrapper of COMMERCE_EXTENSION_WRAPPERS) {
-    const matchingLoaders = outputTypeToLoaderKeys.get(wrapper.outputType) ?? [];
+    const matchingLoaders = [...(outputTypeToLoaderKeys.get(wrapper.outputType) ?? [])];
+    const extensionLoaders = extensionTargetToLoaderKeys.get(wrapper.outputType) ?? [];
     // A wrapper whose base loader type has no matching loaders in the site is
     // useless (its `data` picker would only offer Resolvable). Non-commerce
     // sites (e.g. Eitri) have none, so skip it instead of injecting a phantom
@@ -1561,7 +1660,12 @@ function generateMeta(): MetaResponse {
         extensions: {
           type: "array",
           title: "The data Extensions",
-          items: { anyOf: [{ $ref: `#/definitions/${RESOLVABLE_KEY}` }] },
+          items: {
+            anyOf: [
+              { $ref: `#/definitions/${RESOLVABLE_KEY}` },
+              ...extensionLoaders.map((k) => ({ $ref: `#/definitions/${toBase64(k)}` })),
+            ],
+          },
         },
       },
     };
@@ -1570,10 +1674,16 @@ function generateMeta(): MetaResponse {
       namespace: "commerce",
     };
     loaderRootAnyOf.push({ $ref: `#/definitions/${wrapperDefKey}` });
+    // The wrapper returns what it wraps, so a prop of that type offers it too
+    // (a PLP section's `page` → "listingPage.ts" with its extensions).
+    outputTypeToLoaderKeys.set(wrapper.outputType, [...matchingLoaders, wrapper.key]);
     console.log(
-      `  ✓ commerce extension wrapper ${wrapper.key} (data → ${matchingLoaders.length} loader(s))`,
+      `  ✓ commerce extension wrapper ${wrapper.key} (data → ${matchingLoaders.length} loader(s), ${extensionLoaders.length} extension(s))`,
     );
   }
+
+  // Loader input schemas, now that every loader output type is registered.
+  for (const buildLoaderDef of pendingLoaderDefs) buildLoaderDef();
 
   // ---------------------------------------------------------------------------
   // Second pass: scan sections

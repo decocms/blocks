@@ -186,7 +186,10 @@ describe("generate-schema site multivariate flags", () => {
 
   it("offers the flag on a nested prop of a loader's props (a list of items with flagged content)", () => {
     const loader = def(btoa("site/loaders/kits.ts"));
-    const kit = loader.properties!.kits.items!;
+    // A list prop of a type a loader returns also offers that loader (here,
+    // the loader itself); its inline branch is the list.
+    const kits = loader.properties!.kits;
+    const kit = (kits.anyOf?.[0] ?? kits).items!;
     expect(kit.properties!.name.type).toBe("string");
     expectFlagged(kit.properties!.content, FLAG, "Content Variants");
   });
