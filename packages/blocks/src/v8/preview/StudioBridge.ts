@@ -9,8 +9,9 @@
  * navigation only).
  *
  * It does nothing unless the page is framed, and in a frame it answers only
- * messages from the parent window whose origin is one of Studio's
- * (`STUDIO_ORIGINS`, plus `trustedOrigins`). It doesn't trust the page's own
+ * messages from the parent window whose origin is one of `trustedOrigins`.
+ * The binding passes Studio's origins in (`@decocms/blocks` holds no list of
+ * them); with none, the bridge answers nothing. It doesn't trust the page's own
  * origin: under a test runner that proxies the site, the runner's own messages
  * would navigate the page.
  *
@@ -21,16 +22,17 @@
  * the script itself is static.
  */
 import { createElement, type ReactNode } from "react";
-import { STUDIO_ORIGINS } from "../studio.ts";
 
 export interface StudioBridgeProps {
   /** The site's name in Deco (the "." shortcut sends it to Studio). */
   site: string;
   /**
-   * Origins to trust besides Studio's, in the same form (`https://host`, or
-   * `https://*.host` for any name under it): a Studio running elsewhere.
+   * The origins Studio's site editor frames the page from, in the CSP source
+   * form (`https://host`, or `https://*.host` for any name under it, same
+   * scheme and port). Required: the binding owns Studio's origins and passes
+   * them here. An empty list makes the bridge answer nothing.
    */
-  trustedOrigins?: readonly string[];
+  trustedOrigins: readonly string[];
   /**
    * v7's editor shortcut: on a page that isn't framed, "." (or Ctrl+Shift+E)
    * opens it in Studio, and Ctrl or Cmd+"." opens it in a new tab. Off by
@@ -111,14 +113,14 @@ if(window.self!==window.top){
  */
 export function StudioBridge({
   site,
-  trustedOrigins = [],
+  trustedOrigins,
   editShortcut = false,
   nonce,
 }: StudioBridgeProps): ReactNode {
   return createElement("script", {
     "data-deco-studio-bridge": "",
     "data-site": site,
-    "data-origins": JSON.stringify([...STUDIO_ORIGINS, ...trustedOrigins]),
+    "data-origins": JSON.stringify(trustedOrigins),
     "data-shortcut": editShortcut ? "" : undefined,
     nonce,
     // Browsers hide a nonce from the DOM after parsing, which React would

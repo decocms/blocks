@@ -23,5 +23,5 @@ export declare function withDeco<C extends NextConfig>(
 /** The header rules `withDeco` puts first: a `?__draft=` query, or the `__deco_draft` cookie. */
 export declare const DECO_DRAFT_HEADERS: HeaderRule[];
 
-/** `STUDIO_ORIGINS` of `@decocms/blocks` in `allowedDevOrigins` form. */
+/** `STUDIO_ORIGINS` (`@decocms/nextjs`) in `allowedDevOrigins` form. */
 export declare const STUDIO_DEV_ORIGINS: string[];

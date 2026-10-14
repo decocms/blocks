@@ -35,9 +35,29 @@ describe("DraftPreviewIndicator", () => {
 });
 
 describe("StudioBridge", () => {
-  it("is @decocms/blocks/preview's, rendered on the server as one script", async () => {
+  it("is @decocms/blocks/preview's script, answering Studio's origins (STUDIO_ORIGINS)", async () => {
     const preview = await import("@decocms/blocks/preview");
-    expect(StudioBridge).toBe(preview.StudioBridge);
-    expect(renderToStaticMarkup(<StudioBridge site="acme" />)).toMatch(/^<script[^>]*>/);
+    const { STUDIO_ORIGINS } = await import("./studio.ts");
+    const html = renderToStaticMarkup(<StudioBridge site="acme" />);
+    expect(html).toMatch(/^<script[^>]*>/);
+    expect(html).toBe(
+      renderToStaticMarkup(<preview.StudioBridge site="acme" trustedOrigins={STUDIO_ORIGINS} />),
+    );
+    const host = document.body.appendChild(document.createElement("div"));
+    host.innerHTML = html;
+    const script = host.querySelector("script[data-deco-studio-bridge]");
+    expect(script?.getAttribute("data-site")).toBe("acme");
+    expect(JSON.parse(script?.getAttribute("data-origins") ?? "null")).toEqual([
+      "https://studio.decocms.com",
+      "https://studio-stg.decocms.com",
+      "https://decocms.com",
+      "https://*.decocms.com",
+    ]);
+  });
+
+  it("passes the site's shortcut and nonce through", () => {
+    const html = renderToStaticMarkup(<StudioBridge site="acme" editShortcut nonce="n1" />);
+    expect(html).toContain('data-shortcut=""');
+    expect(html).toContain('nonce="n1"');
   });
 });

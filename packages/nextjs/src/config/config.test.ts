@@ -1,20 +1,15 @@
 // @vitest-environment node
 import { createRequire } from "node:module";
-import {
-  DRAFT_COOKIE,
-  DRAFT_PARAM,
-  draftResponseHeaders,
-  isStudioOrigin,
-  STUDIO_ORIGINS,
-} from "@decocms/blocks";
 import { describe, expect, it } from "vitest";
+import { DRAFT_COOKIE, DRAFT_PARAM, draftResponseHeaders } from "../draft.ts";
+import { isStudioOrigin, STUDIO_ORIGINS } from "../studio.ts";
 import type * as Config from "./index.cjs";
 
 const require = createRequire(import.meta.url);
 const { withDeco, DECO_DRAFT_HEADERS, STUDIO_DEV_ORIGINS } =
   require("./index.cjs") as typeof Config;
 
-describe("the names withDeco repeats are @decocms/blocks'", () => {
+describe("the names withDeco repeats are the package's (src/draft.ts, src/studio.ts)", () => {
   it("draft query and cookie, and the draft response headers", () => {
     expect(DECO_DRAFT_HEADERS.map((r) => r.has?.[0])).toEqual([
       { type: "query", key: DRAFT_PARAM },
@@ -28,10 +23,10 @@ describe("the names withDeco repeats are @decocms/blocks'", () => {
   });
 
   it("Studio's origins, as allowedDevOrigins hosts", () => {
-    const fromBlocks = STUDIO_ORIGINS.map((o) => new URL(o.replace("*.", "wildcard.")).host).map(
+    const fromPackage = STUDIO_ORIGINS.map((o) => new URL(o.replace("*.", "wildcard.")).host).map(
       (h) => h.replace(/^wildcard\./, "**."),
     );
-    expect(STUDIO_DEV_ORIGINS).toEqual(fromBlocks);
+    expect(STUDIO_DEV_ORIGINS).toEqual(fromPackage);
     for (const host of ["studio.decocms.com", "a.b.decocms.com", "decocms.com"]) {
       expect(isStudioOrigin(`https://${host}`)).toBe(true);
     }

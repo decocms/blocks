@@ -1,8 +1,8 @@
 /**
  * Where Deco Studio runs: the origins its site editor frames a site from and
- * talks to it from (`postMessage`). One list for every binding, so the
- * TanStack worker's `frame-ancestors`, a Next.js config's `allowedDevOrigins`
- * and the Studio bridge never drift apart.
+ * talks to it from (`postMessage`). One list, so the worker's
+ * `frame-ancestors` and the Studio bridge `DecoDocument` mounts never drift
+ * apart.
  *
  * No module state and no framework code: safe in a browser bundle.
  */

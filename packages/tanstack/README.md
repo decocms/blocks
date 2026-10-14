@@ -29,6 +29,14 @@ Options, each for a value a site needs to change: `csp`, `segment`, `cacheProfil
 
 A draft link (`?__draft=`) previews where v7 allowed it: on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. A site that declares no hosts previews only on those two, not on every host. `previewHosts: [...]` replaces the declared list with exact hosts (`["localhost:5173"]` for local development), as v7's `DECO_ALLOWED_PREVIEW_HOSTS` did; `previewHosts: "none"` turns previews off on every host. The worker passes the accepted draft to the app in the `x-deco-draft` request header: read it with `contentClient(cms)` from `@decocms/tanstack/server`.
 
+### Names and Studio's origins
+
+The root export holds what the worker, `/server` and `DecoDocument` share, for a site's own code: the draft names (`DRAFT_PARAM` `__draft`, `DRAFT_COOKIE` `__deco_draft`, `DRAFT_HEADER` `x-deco-draft`), `draftResponseHeaders(pointer)` (`no-store, private`, `Vary: Cookie`, `noindex`), and Studio's origins: `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` (what the worker's `frame-ancestors` starts from) and `isStudioOrigin`. `DecoDocument` passes `STUDIO_ORIGINS` to the Studio bridge.
+
+```ts
+import { DRAFT_HEADER, STUDIO_ORIGINS } from "@decocms/tanstack";
+```
+
 ## The app
 
 ```ts

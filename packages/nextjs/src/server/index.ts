@@ -21,8 +21,8 @@
  */
 
 import type { Client, CMS } from "@decocms/blocks";
-import { DRAFT_HEADER, DRAFT_PARAM } from "@decocms/blocks";
 import { headers } from "next/headers.js";
+import { DRAFT_HEADER, DRAFT_PARAM } from "../draft.ts";
 import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 

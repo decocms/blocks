@@ -53,7 +53,7 @@ describe("v8 core bundle", () => {
     }
   });
 
-  it("@decocms/blocks/preview bundles for a browser with no server code: only its own files, the draft names, Studio's origins and React", () => {
+  it("@decocms/blocks/preview bundles for a browser with no server code: only its own files, the draft names and React (no Studio origin list)", () => {
     for (const args of [
       ["--platform=browser"],
       ["--platform=neutral", "--conditions=workerd,worker,browser", "--main-fields=module,main"],
@@ -79,7 +79,7 @@ describe("v8 core bundle", () => {
         const inputs = Object.keys(JSON.parse(readFileSync(metafile, "utf-8")).inputs);
         for (const input of inputs) {
           expect(input, input).toMatch(
-            /(^|\/)(packages\/blocks\/src\/v8\/(preview\/[^/]+|draft\.ts|studio\.ts)|node_modules\/(react|scheduler)\/.*)$/,
+            /(^|\/)(packages\/blocks\/src\/v8\/(preview\/[^/]+|draft\.ts)|node_modules\/(react|scheduler)\/.*)$/,
           );
         }
         expect(inputs.some((i) => i.endsWith("v8/draft.ts"))).toBe(true);

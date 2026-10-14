@@ -18,7 +18,8 @@
  * The draft itself is the capability: a host check only bounds where a draft
  * link works. A request the check refuses gets the release, never an error.
  */
-import { type CMS, DRAFT_COOKIE, DRAFT_PARAM, parseDraftPointer } from "@decocms/blocks";
+import { type CMS, parseDraftPointer } from "@decocms/blocks";
+import { DRAFT_COOKIE, DRAFT_PARAM } from "../draft.ts";
 
 export interface PreviewPolicy {
   /** The site's name: `<site>.deco.site` and `<site>.deco-cx.workers.dev` may preview. */

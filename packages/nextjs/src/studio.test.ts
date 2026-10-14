@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** Studio's origins: one list for frame-ancestors, allowedDevOrigins and the Studio bridge. */
+/** Studio's origins: one list for the Studio bridge, withDeco()'s dev origins and a site's own frame-ancestors. */
 import { describe, expect, it } from "vitest";
 import { isStudioOrigin, STUDIO_FRAME_ANCESTORS, STUDIO_ORIGINS } from "./studio";
 

@@ -5,17 +5,9 @@
  * these names are the documented ones; see /next/api-reference.
  */
 export { createCMS, resetForTests } from "./cms.ts";
-export {
-  DRAFT_COOKIE,
-  DRAFT_HEADER,
-  DRAFT_PARAM,
-  draftResponseHeaders,
-  formatDraftPointer,
-  parseDraftPointer,
-} from "./draft.ts";
+export { formatDraftPointer, parseDraftPointer } from "./draft.ts";
 export { matchRoute } from "./matchRoute.ts";
 export { remoteLoader } from "./remoteLoader.ts";
-export { isStudioOrigin, STUDIO_FRAME_ANCESTORS, STUDIO_ORIGINS } from "./studio.ts";
 export type {
   Analytics,
   Block,

@@ -8,7 +8,7 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19.
 | --- | --- |
 | `@decocms/nextjs/proxy` | Draft previews in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, or `draftProxy` for a site with no proxy of its own. No React and no block map. |
 | `@decocms/nextjs/server` | Draft previews in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
-| `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page) and `StudioBridge` (lets Studio's site editor drive the page). |
+| `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page) and `StudioBridge` (lets Studio's site editor drive the page), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/image-loader` | `createDecoImageLoader(imageUrl)`: a next/image loader over an `ImageUrl` from `@decocms/blocks/image`. |
 
@@ -62,6 +62,12 @@ import { StudioBridge } from "@decocms/nextjs";
 </body>
 ```
 
+Studio's origins are the package's own (`STUDIO_ORIGINS`), so the bridge takes only the site's name; `editShortcut` (v7's "." shortcut) and `nonce` are optional.
+
+## Names and Studio's origins
+
+For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `DRAFT_HEADER` (`x-deco-draft`), `draftResponseHeaders(pointer)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
+
 ## next.config
 
 ```js
@@ -75,11 +81,20 @@ module.exports = withDeco({ images: { loader: "custom", loaderFile: "./src/image
 
 ```ts
 // src/image-loader.ts
+import { vtexCatalogWebp, vtexFileManager } from "@decocms/apps-vtex/image"; // your platform's helpers, if any
+import { createImageUrl, decoCdn } from "@decocms/blocks/image";
 import { createDecoImageLoader, nextImageOptimizer } from "@decocms/nextjs/image-loader";
-import { imageUrl } from "./imageUrl"; // createImageUrl({ providers: [...] }) from @decocms/blocks/image
+
+const imageUrl = createImageUrl({
+  providers: [
+    vtexCatalogWebp(),
+    vtexFileManager({ via: "query" }),
+    decoCdn({ quality: "high", fit: "contain", layout: "quality-last" }),
+  ],
+});
 export default createDecoImageLoader(imageUrl, { fallback: nextImageOptimizer });
 ```
 
-A source a provider resizes gets the provider's URL; any other goes to `fallback` (`nextImageOptimizer` uses Next's own `/_next/image`), or comes back unchanged.
+The loader knows no commerce platform: the site lists its platform's helpers (`@decocms/apps-vtex/image`, `@decocms/apps-shopify/image`) before the Deco CDN, and the first provider that takes a source makes its URL. Any other source goes to `fallback` (`nextImageOptimizer` uses Next's own `/_next/image`), or comes back unchanged. With the providers above, a Next storefront's current loader URLs come out byte for byte (`tests/nextjs-image-loader.golden.test.ts` in the repository).
 
 `examples/nextjs-binding-smoke` in the repository is a complete app, and its `bun run smoke` checks the whole flow on `next start`.
