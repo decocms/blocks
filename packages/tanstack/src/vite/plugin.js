@@ -334,8 +334,8 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
         // byte of that whitespace is paid twice in the isolate (module source +
         // the string literal), at two-byte width since the schema has accented
         // text. On a real site: 7.3 MB chunk / +15 MB heap, vs 3.3 MB compact.
-        const raw = JSON.stringify(JSON.parse(readFileSync(file, "utf-8")));
-        return `export default JSON.parse(${JSON.stringify(raw)});`;
+        const compact = JSON.stringify(JSON.parse(readFileSync(file, "utf-8")));
+        return `export default JSON.parse(${JSON.stringify(compact)});`;
       }
 
       // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
