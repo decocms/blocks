@@ -16,6 +16,10 @@
  * `changes.list`, `changes.get` and `changes.discard` need the app root to be
  * inside a git work tree, and answer Unavailable otherwise. `deco serve`
  * refuses to start outside one. The other methods don't need git.
+ * `changes.discard` also brings the git index entries of the files it
+ * restores (and both sides of a staged rename involving one) back to `HEAD`,
+ * so a block staged with `git add`/`git mv`/`git rm` isn't left staged; no
+ * other path's staging is touched.
  * Commits are serialized per `.deco` folder (in process and across processes)
  * and applied with staged files and atomic renames, rolled back on failure,
  * with the folder fsynced before a commit returns.
@@ -304,7 +308,21 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
           for (const [file, expected] of Object.entries(attempt.expected)) {
             if ((await freshVersion(file)) !== expected) return { status: "stale" } as const;
           }
-          await applyFileChange(blocksDir, decoDir, { put: attempt.put, delete: attempt.delete });
+          // A discard also unstages what it restores, before writing, so a
+          // failed write puts the index back too: all or nothing.
+          const restaged =
+            attempt.reason === "discard"
+              ? await gitBase.unstage([...Object.keys(attempt.put), ...attempt.delete])
+              : undefined;
+          try {
+            await applyFileChange(blocksDir, decoDir, {
+              put: attempt.put,
+              delete: attempt.delete,
+            });
+          } catch (error) {
+            await restaged?.().catch(() => {});
+            throw error;
+          }
           const versions: Record<string, string> = {};
           for (const [file, content] of Object.entries(attempt.put))
             versions[file] = gitBlobHash(content);
