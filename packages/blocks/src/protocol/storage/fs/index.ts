@@ -10,6 +10,12 @@
  * - Uploads go to `public/assets` (or `assetsDir`), never overwriting a file.
  *
  * A file's version is its git blob hash, as `git hash-object` prints it.
+ *
+ * Its base (what `changes.*` compares with) is the git `HEAD` of the
+ * repository the app root is in, read with the `git` binary (./git.ts):
+ * `changes.list`, `changes.get` and `changes.discard` need the app root to be
+ * inside a git work tree, and answer Unavailable otherwise. `deco serve`
+ * refuses to start outside one. The other methods don't need git.
  * Commits are serialized per `.deco` folder (in process and across processes)
  * and applied with staged files and atomic renames, rolled back on failure,
  * with the folder fsynced before a commit returns.
@@ -35,6 +41,7 @@ import {
   type StoredFileBody,
   type StoredSchema,
 } from "../../storage.ts";
+import { createGitBase } from "./git.ts";
 import { gitBlobHash, revisionOf } from "./hash.ts";
 import { withCommitLock } from "./lock.ts";
 import { applyFileChange, sweepStaleTransactions } from "./transaction.ts";
@@ -58,6 +65,8 @@ export interface FsStorageOptions {
   pollIntervalMs?: number;
   /** How long a commit waits for another process's lock (default 10 s). */
   lockTimeoutMs?: number;
+  /** The git binary the base is read with (default `git`, from `PATH`). */
+  git?: string;
 }
 
 export type FsStorage = ContentStorage & {
@@ -134,6 +143,7 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
   const lockOptions = { timeoutMs: options.lockTimeoutMs ?? 10_000, staleMs: 30_000 };
   let repoRoot: Promise<string> | undefined;
   let swept = false;
+  const gitBase = createGitBase(root, { git: options.git });
 
   /** file -> stat fingerprint and its hash, so a poll only rehashes changed files. */
   const hashCache = new Map<string, { fingerprint: string; version: string }>();
@@ -279,6 +289,12 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
             await sweepStaleTransactions(decoDir);
             swept = true;
           }
+          if (
+            attempt.expectedBase !== undefined &&
+            (await gitBase.base()).revision !== attempt.expectedBase
+          ) {
+            return { status: "stale" } as const;
+          }
           if (attempt.expectedSchemaVersion !== undefined) {
             const schema = await readSchema();
             if ((schema?.version ?? null) !== attempt.expectedSchemaVersion) {
@@ -298,6 +314,27 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
       } catch (error) {
         wrapIoError(error);
       }
+    },
+
+    base: () => gitBase.base(),
+
+    async changes(base, current) {
+      const [files, baseFiles] = await Promise.all([
+        gitBase.differing(base, current.files),
+        gitBase.baseFiles(base),
+      ]);
+      return { files, baseFiles };
+    },
+
+    async readBaseFiles(base, files) {
+      for (const file of files) assertBlockFile(file);
+      const versions = new Map((await gitBase.baseFiles(base)).map((f) => [f.file, f.version]));
+      const bodies = await gitBase.readBase(base, files);
+      const out: Record<string, StoredFileBody> = Object.create(null);
+      for (const [file, bytes] of bodies) {
+        out[file] = { text: new TextDecoder().decode(bytes), version: versions.get(file)! };
+      }
+      return out;
     },
 
     async putAsset(name, body) {

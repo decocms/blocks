@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { gitInit } from "../../protocol/__tests__/git";
 import { createContentClient } from "../../protocol/client";
 import { ContentProtocolError, ErrorCode } from "../../protocol/errors";
 import { createFixture, type Fixture, recorder, STORE_FILES } from "../cli/__tests__/fixture";
@@ -112,7 +113,7 @@ describe("hosted-releases-internals", () => {
 });
 
 describe("draft-synchronization", () => {
-  it("DS-2: deco serve edits the working tree only: no git or GitHub calls", () => {
+  it("DS-2: deco serve edits the working tree only: no GitHub calls, local git read-only", () => {
     const sources = [
       "../cli/serve/server.ts",
       ...fs
@@ -122,9 +123,16 @@ describe("draft-synchronization", () => {
     ];
     for (const file of sources) {
       const text = fs.readFileSync(path.join(HERE, file), "utf8");
-      expect(text, file).not.toMatch(
-        /child_process|api\.github|github\.com|simple-git|isomorphic-git/,
-      );
+      expect(text, file).not.toMatch(/api\.github|github\.com|simple-git|isomorphic-git/);
+      // Only the base reader runs git (the local HEAD is the base the site
+      // editor's change list compares with), and only commands that read.
+      if (file.endsWith("/git.ts")) {
+        expect(text, file).not.toMatch(
+          /"(-w|commit|add|restore|checkout|reset|update-index|stash|push|fetch|pull|write-tree|update-ref)"/,
+        );
+      } else {
+        expect(text, file).not.toMatch(/child_process/);
+      }
     }
   });
 
@@ -135,6 +143,7 @@ describe("draft-synchronization", () => {
       site = createFixture({ ".deco/blocks/Hero.json": hero });
       site.write(".deco/schema.gen.json", meta);
       fs.mkdirSync(path.join(site.root, "apps"), { recursive: true });
+      gitInit(site.root);
       server = await startServer({
         cwd: site.root,
         port: 0,
@@ -202,6 +211,7 @@ describe("hosted-site-editor", () => {
     fixture = createFixture({ ".deco/blocks/Hero.json": hero });
     fixture.write(".deco/schema.gen.json", meta);
     fs.mkdirSync(path.join(fixture.root, "src", "deep"), { recursive: true });
+    gitInit(fixture.root);
     for (const options of [
       { cwd: path.join(fixture.root, "src", "deep") },
       { cwd: "/", root: fixture.root, assets: "static/uploads" },

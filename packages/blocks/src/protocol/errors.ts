@@ -67,6 +67,23 @@ export interface UnavailableData {
 }
 
 /**
+ * `error.data` of the Unsupported (-32006) a client raises for an endpoint it
+ * can't talk to. `outdated`: same major, an older minor than the client needs
+ * (such as an 8.1.x `deco serve`, or a server that answered a `changes.*`
+ * call with MethodNotFound): update the server. `major`: another major.
+ * `protocol`: not a `deco-content` endpoint.
+ */
+export interface UnsupportedEndpointData {
+  reason: "outdated" | "major" | "protocol";
+  /** The protocol version this client needs. */
+  required: { major: number; minor: number };
+  /** What the endpoint reported (`describe`'s `protocol` and `version`), when it did. */
+  actual?: { protocol: unknown; major: unknown; minor: unknown };
+  /** The endpoint's `describe().server`, when it reported one. */
+  server?: { name: string; version: string };
+}
+
+/**
  * An error a method fails with. The server turns it into the JSON-RPC
  * `error` object; the client throws it back.
  */

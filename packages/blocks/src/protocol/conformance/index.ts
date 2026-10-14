@@ -15,11 +15,13 @@
  *
  * or collect a report with `runConformance(options)`. The suite writes only
  * names under its own prefix and deletes them after each case (uploads, which
- * the protocol can't delete, stay in the asset folder). Cases that
+ * the protocol can't delete, stay in the asset folder; a `baseEntry` is put
+ * back with `changes.discard`). Cases that
  * don't apply to an endpoint (a read-only one, one without a schema) skip
  * themselves. Browser-safe: it only needs `fetch`.
  */
 import { assetCases } from "./cases/assets.ts";
+import { changesCases } from "./cases/changes.ts";
 import { guardCases } from "./cases/guards.ts";
 import { readCases } from "./cases/reads.ts";
 import type { ConformanceCase } from "./cases/types.ts";
@@ -37,6 +39,7 @@ export const conformanceCases: readonly ConformanceCase[] = [
   ...readCases,
   ...writeCases,
   ...guardCases,
+  ...changesCases,
   ...assetCases,
 ];
 

@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ensureGitWorkTree, git, gitInit } from "../../protocol/__tests__/git";
 import { ErrorCode } from "../../protocol/errors";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
 import { BLOCKS_MAJOR } from "../../protocol/types";
@@ -137,6 +138,7 @@ async function serveFixture(
   options: Parameters<typeof startServer>[0] = {},
 ): Promise<RunningServer & { log: ReturnType<typeof recorder> }> {
   const log = recorder();
+  ensureGitWorkTree(options.root ? path.resolve(root, options.root) : root);
   const s = await startServer({ cwd: root, port: 0, reporter: log, ...options });
   servers.push(s);
   return Object.assign(s, { log });
@@ -152,10 +154,10 @@ afterAll(async () => {
 function monorepo(files: Record<string, string | object> = STORE_FILES) {
   const app = fixture(files);
   const repo = tmpDir();
-  fs.mkdirSync(path.join(repo, ".git"));
   fs.mkdirSync(path.join(repo, "apps"));
   const appRoot = path.join(repo, "apps", "storefront");
   fs.cpSync(app.root, appRoot, { recursive: true, verbatimSymlinks: true });
+  gitInit(repo);
   return { repo, appRoot };
 }
 
@@ -662,6 +664,7 @@ describe("cli.mdx", () => {
     const log = recorder();
     let s: RunningServer;
     try {
+      ensureGitWorkTree(f.root);
       s = await startServer({ cwd: f.root, reporter: log });
     } catch (error) {
       // Something else holds 4545 on this machine: the error names the port.
@@ -1294,6 +1297,7 @@ describe("site-editor.mdx", () => {
       "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
       "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
       "Preview              http://localhost:5173",
+      `Changes              compared with main (${git(repo, "rev-parse", "--short=7", "HEAD")})`,
       `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://localhost:${port}/rpc`)}`,
     ]);
     const url = new URL(s.siteEditorUrl);
@@ -1449,10 +1453,15 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp01.json")).toBe(true);
   });
 
-  it("cp-02: exactly four methods; anything else is -32601", async () => {
-    for (const m of ["describe", "schema.get", "blocks.list"]) {
+  it("cp-02: exactly seven methods; anything else is -32601", async () => {
+    for (const m of ["describe", "schema.get", "blocks.list", "changes.list"]) {
       expect((await call(s, m)).result, m).toBeDefined();
     }
+    expect((await call(s, "changes.get", { names: [] })).result, "changes.get").toBeDefined();
+    expect(
+      (await call(s, "changes.discard", { names: [] })).result,
+      "changes.discard",
+    ).toBeDefined();
     for (const m of ["blocks.rename", "blocks.get", "schema.put", "rpc.discover"]) {
       expect((await call(s, m, {})).error.code, m).toBe(ErrorCode.MethodNotFound);
     }

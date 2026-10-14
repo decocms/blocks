@@ -32,6 +32,12 @@ export interface MemoryStorageState {
   assets: Record<string, string>;
   /** `false` simulates an app root with no `.deco` folder at all. */
   hasDecoFolder: boolean;
+  /** The base's saved-block files (what `changes.*` compares with), by file name. Default: none. */
+  base: Record<string, string>;
+  /** The base's revision; moves with every `setBase`/`commitBase`. */
+  baseRevision: string;
+  /** The base's branch. Default `null`. */
+  baseRef: string | null;
 }
 
 export interface MemoryStorageOptions {
@@ -51,6 +57,10 @@ export interface MemoryStorage extends ContentStorage {
   setFile(file: string, content: string | null): void;
   /** Replaces `schema.gen.json` (`null` removes it). */
   setSchema(schema: string | object | null): void;
+  /** Replaces the base's files, as a publish (or an outside commit) would. */
+  setBase(files: Record<string, string>): void;
+  /** Makes the current files the base, as a commit of every change would. */
+  commitBase(): void;
   /** How many commits landed. */
   readonly commits: number;
 }
@@ -65,8 +75,13 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     secretsPublicKey: null,
     assets: {},
     hasDecoFolder: true,
+    base: {},
+    baseRevision: "base-0",
+    baseRef: null,
     ...options.state,
   });
+  // structuredClone keeps shared references: the base is never the files object.
+  state.base = { ...state.base };
   const description: StorageDescription = {
     kind: "git",
     root: ".",
@@ -107,6 +122,9 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       if (!isBlockFileName(file)) throw new StorageInvalidFileError(file);
     }
     if (!state.hasDecoFolder) throw new StorageNotFoundError("no .deco folder");
+    if (attempt.expectedBase !== undefined && attempt.expectedBase !== state.baseRevision) {
+      return { status: "stale" };
+    }
     if (
       attempt.expectedSchemaVersion !== undefined &&
       (await schemaVersion()) !== attempt.expectedSchemaVersion
@@ -173,6 +191,36 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       return state.secretsPublicKey;
     },
 
+    async base() {
+      return { revision: state.baseRevision, resolvedRef: state.baseRef };
+    },
+
+    async changes(_base, snapshot) {
+      const baseFiles = await Promise.all(
+        Object.entries(state.base).map(async ([file, content]) => ({
+          file,
+          version: await version(content),
+          size: new TextEncoder().encode(content).byteLength,
+        })),
+      );
+      const baseVersion = new Map(baseFiles.map((f) => [f.file, f.version]));
+      const current = new Map(snapshot.files.map((f) => [f.file, f.version]));
+      const files = new Set<string>();
+      for (const [file, v] of current) if (baseVersion.get(file) !== v) files.add(file);
+      for (const file of baseVersion.keys()) if (!current.has(file)) files.add(file);
+      return { files: [...files], baseFiles };
+    },
+
+    async readBaseFiles(_base, files) {
+      const out: Record<string, StoredFileBody> = Object.create(null);
+      for (const file of files) {
+        if (!(file in state.base)) continue;
+        const text = state.base[file]!;
+        out[file] = { text, version: await version(text) };
+      }
+      return out;
+    },
+
     commit(attempt): Promise<CommitResult> {
       // Serialized, so a commit's checks and its mutation are one atomic step.
       const run = commitQueue.then(() => commitNow(attempt));
@@ -192,6 +240,15 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     setFile(file, content) {
       if (content === null) delete state.files[file];
       else state.files[file] = content;
+    },
+
+    setBase(files) {
+      state.base = { ...files };
+      state.baseRevision = `base-${Math.random().toString(36).slice(2, 10)}`;
+    },
+
+    commitBase() {
+      storage.setBase(state.files);
     },
 
     setSchema(schema) {

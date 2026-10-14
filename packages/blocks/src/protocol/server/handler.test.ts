@@ -293,7 +293,7 @@ describe("describe", () => {
     const { result } = (await call(handler, rpc(1, "describe"))).body;
     expect(result).toEqual({
       protocol: "deco-content",
-      version: { major: 1, minor: 0 },
+      version: { major: 1, minor: 1 },
       server: { name: "deco-cli", version: "8.0.0" },
       kind: "working-tree",
       readOnly: false,

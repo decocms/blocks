@@ -14,8 +14,16 @@ import {
 
 const { publicKeyPem: PUBLIC_KEY } = await generateSecretsKeyPair();
 
+const BASE_ENTRY = "pages-Committed";
+const baseFiles = { [`${BASE_ENTRY}.json`]: '{\n  "path": "/committed"\n}\n' };
+
 const storage: MemoryStorage = createMemoryStorage({
-  state: { schema: JSON.stringify(schemaFixture), secretsPublicKey: PUBLIC_KEY },
+  state: {
+    schema: JSON.stringify(schemaFixture),
+    secretsPublicKey: PUBLIC_KEY,
+    files: baseFiles,
+    base: baseFiles,
+  },
 });
 const handler = route(createContentHandler(storage), createAssetHandler(storage));
 
@@ -27,6 +35,7 @@ defineConformanceSuite(
     assetsEndpoint: "http://memory.test/assets/",
     secretField: { blockType: SECRET_BLOCK, field: SECRET_FIELD },
     secretsPublicKey: PUBLIC_KEY,
+    baseEntry: { name: BASE_ENTRY },
   },
 );
 
@@ -34,7 +43,12 @@ const schemaless = createContentHandler(createMemoryStorage());
 
 defineConformanceSuite(
   { describe, it },
-  { endpoint: "http://memory.test/rpc", fetch: (request) => schemaless(request), hasSchema: false },
+  {
+    endpoint: "http://memory.test/rpc",
+    fetch: (request) => schemaless(request),
+    hasSchema: false,
+    emptyBase: true,
+  },
   "schemaless memory storage conformance",
 );
 

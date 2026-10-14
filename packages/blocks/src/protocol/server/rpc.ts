@@ -16,6 +16,7 @@ import { validateParams } from "../params.ts";
 import { MAX_BATCH_CALLS, METHOD_NAMES, type MethodName, type RpcId } from "../types.ts";
 import { type Core, toProtocolError } from "./core.ts";
 import { blocksApply } from "./methods/apply.ts";
+import { changesDiscard, changesGet, changesList } from "./methods/changes.ts";
 import { blocksList, describe, schemaGet } from "./methods/read.ts";
 
 type Envelope = { id: RpcId; method: MethodName; params: unknown };
@@ -57,6 +58,12 @@ async function run(core: Core, envelope: Envelope): Promise<unknown> {
       return blocksList(core, validateParams("blocks.list", envelope.params));
     case "blocks.apply":
       return blocksApply(core, validateParams("blocks.apply", envelope.params));
+    case "changes.list":
+      return changesList(core, validateParams("changes.list", envelope.params));
+    case "changes.get":
+      return changesGet(core, validateParams("changes.get", envelope.params));
+    case "changes.discard":
+      return changesDiscard(core, validateParams("changes.discard", envelope.params));
   }
 }
 

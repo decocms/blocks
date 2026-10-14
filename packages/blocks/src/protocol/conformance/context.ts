@@ -33,6 +33,18 @@ export interface ConformanceOptions {
   assetsEndpoint?: string | URL;
   /** Prefix of every name the suite creates (default `conformance-<random>`). */
   namePrefix?: string;
+  /**
+   * An entry the harness put in the endpoint's base (for `deco serve`: a
+   * block committed to `HEAD`) and left unchanged, for the `changes.*` cases
+   * that modify, delete and restore a base entry. Each case puts it back.
+   * Leave out to skip those cases.
+   */
+  baseEntry?: { name: string };
+  /**
+   * The endpoint's base holds no saved blocks (such as a repository with no
+   * commits yet), so every entry is a change. Enables the empty-base case.
+   */
+  emptyBase?: boolean;
 }
 
 /** Thrown by `ctx.skip()`: the case doesn't apply to this endpoint. */
