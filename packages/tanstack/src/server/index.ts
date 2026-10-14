@@ -6,8 +6,9 @@
  * allowlist), and handed to the app in the `x-deco-draft` request header; the
  * worker removes any copy that arrives from outside. These read that header.
  */
-import { type Client, type CMS, DRAFT_HEADER } from "@decocms/blocks";
+import type { Client, CMS } from "@decocms/blocks";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
+import { DRAFT_HEADER } from "../draft.ts";
 
 /** The draft `request` renders (checked by the worker), or `null` for the release. */
 export function requestDraft(request: Request = getRequest()): string | null {

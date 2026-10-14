@@ -91,6 +91,7 @@ Opinionated by design: the behaviour every Deco TanStack site should have is fix
 
 | Import path | File |
 |---|---|
+| `@decocms/tanstack` | `src/index.ts` — the draft names (`DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`), `draftResponseHeaders` (`src/draft.ts`) and Studio's origins (`STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS`, `isStudioOrigin`, `src/studio.ts`): the binding owns them, `@decocms/blocks` doesn't export them; the worker, `/server` and `DecoDocument` (which passes `STUDIO_ORIGINS` to `StudioBridge`) use them. No imports: browser-safe |
 | `@decocms/tanstack/worker` | `src/worker/index.ts` — `createDecoWorker({ serverEntry, cms, site, buildHash, … })`: liveness, 404 for v7's admin paths, Studio `frame-ancestors`, the draft host allowlist (v7's, `drafts.ts`) with the cookie, the `x-deco-draft` request header and no-store/noindex responses, CMS redirects, the edge cache (`<build>.<revision>`, device + `segment` parts), `__cseg` CDN caching of navigation data, Set-Cookie dedupe, `x-page-status`, `onCache`, and `routes` as the one escape hatch. Server only |
 | `@decocms/tanstack/server` | `src/server/index.ts` — `contentClient(cms, request?)`, `requestDraft`, `markPrivate`, `isServerFnCall` (read the draft the worker decided). Server only |
 | `@decocms/tanstack/start` | `src/start/index.ts` — `decoServerFnFetch` for `createStart({ serverFns: { fetch } })`. Browser-safe |
