@@ -24,7 +24,7 @@
   <img alt="Any framework" src="https://img.shields.io/badge/framework-any-FF4154?style=flat-square" />
 </p>
 
-`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; `@decocms/nextjs`, for any Next.js App Router app; and thin upstream clients, `@decocms/apps-*`. Packages export TypeScript source directly: no bundled dist layer, no duplicated runtime state.
+`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; `@decocms/nextjs`, for any Next.js App Router app; and thin upstream clients, `@decocms/apps-*`. Each package publishes JavaScript compiled file for file by `tsc` (`dist/`, with declarations), plus its TypeScript source under a `source` export condition for the workspace: nothing is bundled, so no runtime state is duplicated.
 
 v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce` and the rest) is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 
@@ -50,7 +50,7 @@ v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@d
 
 ## Packages
 
-All packages are versioned and released in lockstep.
+All packages are versioned and released in lockstep, starting at 8.3.0 for the bindings. The bindings and the clients take `@decocms/blocks` as a peer dependency (`^8.3.0`), so a site installs one copy of it.
 
 | Package | Purpose |
 | --- | --- |

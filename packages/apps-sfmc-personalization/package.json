@@ -29,7 +29,10 @@
     "test": "vitest run --root ../.. packages/apps-sfmc-personalization/",
     "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@decocms/blocks": "^8.3.0"
+  },
+  "devDependencies": {
     "@decocms/blocks": "workspace:*"
   },
   "publishConfig": {
