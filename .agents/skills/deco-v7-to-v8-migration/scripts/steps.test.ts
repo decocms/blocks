@@ -595,7 +595,7 @@ export function Root() {
     expect(nextNote).toContain("v7's Next.js binding didn't");
   });
 
-  it("with no previewHosts on a named TanStack site, writes no list and asks for previewHosts: []", () => {
+  it("with no previewHosts on a named TanStack site, writes no list: the worker keeps v7's two hosts with no extra option", () => {
     site({
       "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
       ".env": "DECO_SITE_NAME=acme\n",
@@ -606,7 +606,8 @@ export function Root() {
     expect(exists("CMS.json")).toBe(false);
     const note = report.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
     expect(note).toContain('pass site: "acme" to createDecoWorker');
-    expect(note).toContain("previewHosts: []");
+    expect(note).toContain("allows only those two, as v7 did");
+    expect(note).not.toContain("previewHosts: []");
   });
 
   it("reads a Site block named Site, and collectorAddress={'…'}", () => {

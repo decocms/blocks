@@ -394,13 +394,13 @@ function bindingPreviewHosts(
   if (framework === "tanstack") {
     return `pass site: "${name}" to createDecoWorker${found}: the worker lets ${hosts} preview, as v7 did${
       noList
-        ? `; v7 allowed previews only there, while with no list in CMS.json every host previews, so also pass previewHosts: [] to keep v7's hosts (add your dev and staging hosts to it)`
+        ? `; with no preview.hosts in CMS.json the worker allows only those two, as v7 did, so add your staging hosts to CMS.json's preview.hosts and your dev server (localhost:5173) to previewHosts in development`
         : ""
     } (@decocms/tanstack/worker)`;
   }
   return `pass site: "${name}" to decideDraft and bindDraft${found}, the same options to both: they let ${hosts} preview, which v7's Next.js binding didn't (name it for the product owner)${
     noList
-      ? `; v7 allowed previews nowhere without previewHosts, while with no list in CMS.json every host previews, so pass previewHosts: [] to allow only those two, or previewHosts: "none" to keep none`
+      ? `; with no preview.hosts in CMS.json the binding allows only those two (v7 allowed none: leave site out to keep none), so add your staging hosts to CMS.json's preview.hosts and your dev server (localhost:3000) to previewHosts in development`
       : ""
   } (@decocms/nextjs/proxy, @decocms/nextjs/server)`;
 }
