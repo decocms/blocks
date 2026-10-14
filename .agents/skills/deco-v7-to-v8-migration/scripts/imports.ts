@@ -7,15 +7,21 @@
  *   points at the copy in `src/vendor`;
  * - `createInstrumentedFetch` from `@decocms/blocks/sdk/instrumentedFetch`
  *   comes from `@decocms/blocks/fetch`, and `createInstrumentedFetch("x")`
- *   becomes `createInstrumentedFetch({ provider: "x" })`.
+ *   becomes `createInstrumentedFetch({ provider: "x" })`;
+ * - names a v8 binding exports with v7's props and behaviour move to it
+ *   (`MOVES`): `createDecoRouter` to `@decocms/tanstack/router`,
+ *   `NavigationProgress` and, on a TanStack site, `Image`/`Picture`/`Source`
+ *   to `@decocms/tanstack/react`, and so on. An import declaration that mixes
+ *   moved and other names is split.
  *
- * Every other v7 import is reported with where its replacement lives; none
- * is shimmed. Imports of the next major's documented entry points are left
- * alone.
+ * Every other v7 import is reported with where its replacement lives, name by
+ * name where the bindings replace them (`NAME_HINTS`); none is shimmed.
+ * Imports of the next major's documented entry points are left alone.
  */
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { type Framework, siteFramework } from "./framework";
 import type { Report } from "./report";
 import { relativeSpecifier, resolvePackageFile } from "./vendor";
 
@@ -66,7 +72,180 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/blocks/analytics": "*",
   "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",
+  "@decocms/blocks/image": "*",
+  "@decocms/blocks/vite": "*",
+  // v7 had a /preview too, with other names (DraftPreviewBadge).
+  "@decocms/blocks/preview": new Set([
+    "DraftBadge",
+    "DraftBadgeProps",
+    "StudioBridge",
+    "StudioBridgeProps",
+  ]),
+  // The v8 bindings. Subpaths v7 never had are whole; the rest list v8's names.
+  "@decocms/tanstack/worker": "*",
+  "@decocms/tanstack/server": "*",
+  "@decocms/tanstack/start": "*",
+  "@decocms/tanstack/router": "*",
+  "@decocms/tanstack/react": "*",
+  "@decocms/tanstack/scope": "*",
+  "@decocms/tanstack/vite": new Set([
+    "decoTanstack",
+    "DecoTanstackOptions",
+    "gitBuildHash",
+    "resolveBuildHash",
+  ]),
+  "@decocms/nextjs/proxy": "*",
+  "@decocms/nextjs/server": "*",
+  "@decocms/nextjs/image-loader": "*",
+  // v7's DraftPreviewIndicator kept its name but now shows what bindDraft bound: reported.
+  "@decocms/nextjs": new Set([
+    "DraftBadge",
+    "DraftPreviewIndicatorProps",
+    "StudioBridge",
+    "StudioBridgeProps",
+  ]),
+  "@decocms/nextjs/config": new Set([
+    "DECO_DRAFT_HEADERS",
+    "HeaderRule",
+    "STUDIO_DEV_ORIGINS",
+    "withDeco",
+    "WithDecoOptions",
+  ]),
 };
+
+const IMAGE_COMPONENTS = [
+  "Image",
+  "ImageProps",
+  "Picture",
+  "PictureProps",
+  "Source",
+  "SourceProps",
+];
+
+/**
+ * v7 names a v8 binding exports with the same props and behaviour, by v7
+ * specifier: the codemod points the import at the binding. `only` limits a
+ * move to sites on that binding.
+ */
+export const MOVES: Record<string, { only?: Framework; names: Record<string, string> }> = {
+  "@decocms/tanstack": {
+    names: {
+      createDecoRouter: "@decocms/tanstack/router",
+      decoParseSearch: "@decocms/tanstack/router",
+      decoStringifySearch: "@decocms/tanstack/router",
+      NavigationProgress: "@decocms/tanstack/react",
+      StableOutlet: "@decocms/tanstack/react",
+    },
+  },
+  "@decocms/tanstack/sdk/serverFnFetch": {
+    names: { decoServerFnFetch: "@decocms/tanstack/start" },
+  },
+  "@decocms/blocks/hooks": {
+    only: "tanstack",
+    names: Object.fromEntries(IMAGE_COMPONENTS.map((n) => [n, "@decocms/tanstack/react"])),
+  },
+};
+
+/** The hints for names the bindings replace, by v7 specifier: checked before `HINTS`. */
+const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
+  {
+    specifier: /^@decocms\/tanstack$/,
+    names: ["createDecoWorkerEntry"],
+    hint: "createDecoWorker({ serverEntry, cms, site, buildHash }) from @decocms/tanstack/worker: drafts and their host allowlist, the edge cache, liveness, Studio framing, CMS redirects and cookies are built in; what the site's entry did differently goes in its options (segment, csp, cacheProfiles, preload, routes)",
+  },
+  {
+    specifier: /^@decocms\/tanstack$/,
+    names: ["DecoRootLayout", "PreviewProviders", "DraftPreviewIndicator"],
+    hint: "DecoDocument from @decocms/tanstack/react, the root route's component: it mounts StudioBridge and DraftBadge",
+  },
+  {
+    specifier: /^@decocms\/tanstack$/,
+    names: [
+      "cmsRouteConfig",
+      "cmsHomeRouteConfig",
+      "loadCmsPage",
+      "loadCmsHomePage",
+      "CmsPage",
+      "NotFoundPage",
+      "withSiteGlobals",
+      "DecoPageRenderer",
+      "SectionRenderer",
+      "SectionList",
+      "loadDeferredSection",
+    ],
+    hint: "render pages with createCMS and matchRoute (/next/tanstack-start-descriptors), reading the draft the worker accepted with contentClient(cms) from @decocms/tanstack/server",
+  },
+  {
+    specifier: /^@decocms\/tanstack$/,
+    names: ["decoInvokeRouteConfig", "decoMetaRouteConfig", "decoRenderRouteConfig"],
+    hint: "v7's admin and invoke routes: delete them (createDecoWorker answers 404 on v7's admin paths; /deco/invoke becomes server functions)",
+  },
+  {
+    specifier: /^@decocms\/tanstack$/,
+    names: ["setupTanstackFastDeploy", "kvLoader"],
+    hint: "fast deploy is the hosted CMS: createCMS({ site, token }) (/next/content#create-the-cms)",
+  },
+  {
+    specifier: /^@decocms\/nextjs$/,
+    names: [
+      "createDecoPage",
+      "createDecoPreviewPage",
+      "DecoPageRenderer",
+      "SectionRenderer",
+      "DeferredSectionBoundary",
+      "ClientOnlySection",
+      "DecoRootLayout",
+    ],
+    hint: "render pages with createCMS (/next/nextjs); drafts with bindDraft and contentClient from @decocms/nextjs/server, and StudioBridge from @decocms/nextjs in the root layout",
+  },
+  {
+    specifier: /^@decocms\/nextjs$/,
+    names: ["DraftPreviewIndicator"],
+    hint: "the same name in @decocms/nextjs 8: it shows the draft bindDraft(cms, { searchParams, site }) from @decocms/nextjs/server bound for the page, so call that first",
+  },
+  {
+    specifier: /^@decocms\/(nextjs|blocks\/preview)$/,
+    names: [
+      "DraftPreviewBadge",
+      "DraftPreviewBadgeProps",
+      "buildExitUrl",
+      "buildShareUrl",
+      "isFramed",
+      "DECO_MARK_DATA_URI",
+    ],
+    hint: "DraftBadge from @decocms/blocks/preview (DecoDocument and DraftPreviewIndicator mount it)",
+  },
+  {
+    specifier: /^@decocms\/nextjs\/config$/,
+    names: ["DECO_REWRITES"],
+    hint: "gone with v7's /deco/* handlers: withDeco from @decocms/nextjs/config adds no rewrites",
+  },
+  {
+    specifier: /^@decocms\/blocks\/hooks$/,
+    names: IMAGE_COMPONENTS,
+    hint: "on Next.js, next/image with createDecoImageLoader from @decocms/nextjs/image-loader; elsewhere, URLs from createImageUrl, srcSet and preloadLink in @decocms/blocks/image",
+  },
+  {
+    specifier: /^@decocms\/blocks\/hooks$/,
+    names: [
+      "registerImageCdnDomain",
+      "registerImageQuality",
+      "getImageCdnDomain",
+      "getImageQuality",
+      "getOptimizedMediaUrl",
+      "getSrcSet",
+      "FACTORS",
+      "ImageQuality",
+      "FitOptions",
+    ],
+    hint: 'createImageUrl({ providers: [vtexCatalog({ size: "exact" }), shopify(), decoCdn({ domain, quality, proxyOtherHosts: true })] }) from @decocms/blocks/image gives v7\'s URLs with the domain and quality the site registered; url(src, { width, height, fit }) and srcSet(url, src, …) replace getOptimizedMediaUrl and getSrcSet; on TanStack, pass it to ImageUrlProvider from @decocms/tanstack/react',
+  },
+  {
+    specifier: /^@decocms\/blocks\/hooks$/,
+    names: ["LiveControls"],
+    hint: "StudioBridge from @decocms/blocks/preview: DecoDocument (@decocms/tanstack/react) mounts it; a Next.js root layout renders StudioBridge from @decocms/nextjs",
+  },
+];
 
 /** Where each v7 import's replacement lives, first match wins. */
 const HINTS: [RegExp, string][] = [
@@ -124,15 +303,64 @@ const HINTS: [RegExp, string][] = [
     "apps are thin upstream clients now; call the platform's client from your own code (/next/upstream-clients)",
   ],
   [
-    /^@decocms\/(tanstack|nextjs)(\/|$)/,
-    "the v7 framework binding: the next major has none, so drop the dependency and follow your framework's guide (/next/tanstack-start-descriptors, /next/nextjs)",
+    /^@decocms\/blocks\/sdk\/(cacheHeaders|responseCache|cacheStorage|mergeCacheControl)$/,
+    "on TanStack Start, createDecoWorker's edge cache (cacheProfiles changes DEFAULT_CACHE_PROFILES, from @decocms/tanstack/worker); a Next.js site keeps its own cache headers",
+  ],
+  [
+    /^@decocms\/blocks\/sdk\/csp$/,
+    "createDecoWorker's csp option (@decocms/tanstack/worker): Studio's frame-ancestors are always added",
+  ],
+  [
+    /^@decocms\/blocks\/sdk\/redirects$/,
+    "createDecoWorker applies the CMS redirects before any route",
+  ],
+  [
+    /^@decocms\/tanstack\/vite$/,
+    "decoTanstack({ buildHash }) from @decocms/tanstack/vite; it includes decoContent() from @decocms/blocks/vite",
+  ],
+  [
+    /^@decocms\/tanstack\/sdk\/startEntry$/,
+    "createStart(() => ({ serverFns: { fetch: decoServerFnFetch } })) with decoServerFnFetch from @decocms/tanstack/start; createDecoWorker decides the draft, so no draft middleware",
+  ],
+  [
+    /^@decocms\/tanstack\/sdk\/cdnSegment$/,
+    "createDecoWorker's segment option; DecoDocument publishes the __cseg token and decoServerFnFetch sends it",
+  ],
+  [
+    /^@decocms\/tanstack\/sdk\/cookiePassthrough$/,
+    "createDecoWorker sends one Set-Cookie per cookie; a server function sets cookies with TanStack Start's own setCookie",
+  ],
+  [
+    /^@decocms\/tanstack\/sdk\/deferredSectionLoader$/,
+    "the next major has no async rendering (the script unwrapped the Lazy and Deferred sections)",
+  ],
+  [/^@decocms\/tanstack\/daemon$/, "local editing is deco serve (/next/cli)"],
+  [
+    /^@decocms\/nextjs\/routeHandlers$/,
+    "v7's /deco/* route handlers: delete them; the site editor uses the content protocol (/next/studio-compatibility)",
+  ],
+  [
+    /^@decocms\/nextjs\/setup$/,
+    "setup is createCMS from @decocms/blocks, with the block map in .deco/index.ts (/next/content#create-the-cms)",
+  ],
+  [
+    /^@decocms\/nextjs\/middleware$/,
+    "draft previews in proxy.ts: decideDraft, draftRequestHeaders, rewriteToDraftRoute and applyDraft from @decocms/nextjs/proxy, or draftProxy",
+  ],
+  [
+    /^@decocms\/tanstack(\/|$)/,
+    "a v7 name: @decocms/tanstack 8 has createDecoWorker (/worker), DecoDocument and Image (/react), createDecoRouter (/router), decoServerFnFetch (/start), contentClient (/server) and decoTanstack (/vite); see the skill's import map",
+  ],
+  [
+    /^@decocms\/nextjs(\/|$)/,
+    "a v7 name: @decocms/nextjs 8 has the draft proxy (/proxy), bindDraft and contentClient (/server), withDeco (/config), createDecoImageLoader (/image-loader) and StudioBridge; see the skill's import map",
   ],
 ];
 const DEFAULT_HINT = "no v8 equivalent";
 /** Prerelease root exports that became CMS methods. */
-const DRAFT_HELPERS = new Set(["draftPointer", "draftCookie", "DRAFT_COOKIE"]);
+const DRAFT_HELPERS = new Set(["draftPointer", "draftCookie"]);
 const DRAFT_HINT =
-  "draftPointer and draftCookie are the async cms.draftPointer and cms.draftCookie now (they check the preview hosts), and DRAFT_COOKIE is gone: pass cms.draftPointer the request, or { url, headers } (/next/api-reference#draft-pointers)";
+  "draftPointer and draftCookie are the async cms.draftPointer and cms.draftCookie now: pass cms.draftPointer the request, or { url, headers } (/next/api-reference#draft-pointers); on TanStack Start and Next.js the binding decides the draft (contentClient from @decocms/tanstack/server, bindDraft from @decocms/nextjs/server)";
 
 const SOURCE = /\.(tsx?|mts|cts)$/;
 
@@ -200,17 +428,27 @@ function findImports(source: ts.SourceFile): Found[] {
   return found;
 }
 
-function isDocumented(specifier: string, names: string[]): boolean {
-  const api = V8_API[specifier];
-  if (!api) return false;
-  return api === "*" || names.every((n) => api.has(n));
+/** The hint for each of `names` imported from `specifier`, names grouped by hint. */
+function hintsFor(specifier: string, names: string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const add = (hint: string, name: string) => out.set(hint, [...(out.get(hint) ?? []), name]);
+  const general = HINTS.find(([pattern]) => pattern.test(specifier))?.[1] ?? DEFAULT_HINT;
+  for (const name of names) {
+    if (specifier === "@decocms/blocks" && DRAFT_HELPERS.has(name)) {
+      add(DRAFT_HINT, name);
+      continue;
+    }
+    const byName = NAME_HINTS.find((h) => h.specifier.test(specifier) && h.names.includes(name));
+    add(byName?.hint ?? general, name);
+  }
+  return out;
 }
 
-function hintFor(specifier: string, names: Iterable<string>): string {
-  if (specifier === "@decocms/blocks" && [...names].some((n) => DRAFT_HELPERS.has(n))) {
-    return DRAFT_HINT;
-  }
-  return HINTS.find(([pattern]) => pattern.test(specifier))?.[1] ?? DEFAULT_HINT;
+/** The names of `specifier` the next major doesn't export (all of them for an unknown entry point). */
+function undocumented(specifier: string, names: string[]): string[] {
+  const api = V8_API[specifier];
+  if (api === "*") return [];
+  return api ? names.filter((n) => !api.has(n)) : names;
 }
 
 /** `createInstrumentedFetch("x")` calls, or null when one has another argument shape. */
@@ -246,6 +484,9 @@ interface Edit {
 export function rewriteImports(root: string, report: Report, vendored: Map<string, string>): void {
   const reported = new Map<string, { names: Set<string>; files: Set<string> }>();
   let rewrittenFiles = 0;
+  const framework = siteFramework(root);
+  /** Names moved to a binding, by target, for the report. */
+  const moved = new Map<string, Set<string>>();
 
   for (const file of listSources(path.join(root, "src"))) {
     const text = fs.readFileSync(file, "utf8");
@@ -307,16 +548,55 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
         }
       }
 
-      // 3. The next major's documented API: nothing to do.
-      if (isDocumented(specifier, found.names)) continue;
+      // 3. Names a v8 binding exports unchanged: point them at it, splitting the declaration.
+      let names = found.names;
+      const move = MOVES[specifier];
+      if (
+        move &&
+        (!move.only || move.only === framework) &&
+        decl &&
+        !decl.importClause?.name &&
+        bindings &&
+        ts.isNamedImports(bindings)
+      ) {
+        const byTarget = new Map<string, ts.ImportSpecifier[]>();
+        const rest: ts.ImportSpecifier[] = [];
+        for (const el of bindings.elements) {
+          const target = move.names[(el.propertyName ?? el.name).text];
+          if (target) byTarget.set(target, [...(byTarget.get(target) ?? []), el]);
+          else rest.push(el);
+        }
+        if (byTarget.size > 0) {
+          const typeOnly = decl.importClause?.isTypeOnly ? "type " : "";
+          const quote = found.literal.getText(source)[0];
+          const line = (els: ts.ImportSpecifier[], from: string) =>
+            `import ${typeOnly}{ ${els.map((el) => el.getText(source)).join(", ")} } from ${quote}${from}${quote};`;
+          const lines = [...byTarget].map(([target, els]) => line(els, target));
+          if (rest.length > 0) lines.push(line(rest, specifier));
+          edits.push({ start: decl.getStart(source), end: decl.getEnd(), text: lines.join("\n") });
+          for (const [target, els] of byTarget) {
+            const set = moved.get(target) ?? new Set();
+            for (const el of els) set.add((el.propertyName ?? el.name).text);
+            moved.set(target, set);
+          }
+          names = rest.map((el) => (el.propertyName ?? el.name).text);
+          if (names.length === 0) continue;
+        }
+      }
 
-      // 4. Everything else: report.
-      const entry = reported.get(specifier) ?? { names: new Set(), files: new Set() };
-      for (const n of found.names) entry.names.add(n);
-      entry.files.add(
-        `${rel}:${source.getLineAndCharacterOfPosition(found.literal.getStart(source)).line + 1}`,
-      );
-      reported.set(specifier, entry);
+      // 4. The next major's documented API: nothing to do.
+      const left = undocumented(specifier, names);
+      if (left.length === 0) continue;
+
+      // 5. Everything else: report, by hint.
+      const where = `${rel}:${source.getLineAndCharacterOfPosition(found.literal.getStart(source)).line + 1}`;
+      for (const [hint, group] of hintsFor(specifier, left)) {
+        const key = `${specifier}\0${hint}`;
+        const entry = reported.get(key) ?? { names: new Set(), files: new Set() };
+        for (const n of group) entry.names.add(n);
+        entry.files.add(where);
+        reported.set(key, entry);
+      }
     }
 
     if (edits.length > 0) {
@@ -336,13 +616,32 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
       message: `rewrote imports in ${rewrittenFiles} files`,
     });
   }
-  for (const [specifier, { names, files }] of [...reported].sort(([a], [b]) => (a < b ? -1 : 1))) {
+  for (const [target, names] of [...moved].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    report.done.push({
+      step: "imports",
+      subject: target,
+      message: `${[...names].join(", ")} now come from the v8 binding`,
+    });
+  }
+  if (
+    moved.get("@decocms/tanstack/react")?.has("Image") ||
+    moved.get("@decocms/tanstack/react")?.has("Picture")
+  ) {
+    report.manual.push({
+      step: "imports",
+      subject: "Image, Picture, Source",
+      message:
+        "they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, v7's defaults without one: if the site called registerImageCdnDomain or registerImageQuality, wrap every page in <ImageUrlProvider value={createImageUrl({ providers: [vtexCatalog({ size: \"exact\" }), shopify(), decoCdn({ domain, quality, proxyOtherHosts: true })] })}> (@decocms/blocks/image) through createDecoRouter's Wrap option, so every URL stays v7's",
+    });
+  }
+  for (const [key, { names, files }] of [...reported].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const [specifier, hint] = key.split("\0");
     const list = [...files];
     const where = `${list.slice(0, 3).join(", ")}${list.length > 3 ? `, +${list.length - 3} more` : ""}`;
     report.manual.push({
       step: "imports",
       subject: `${specifier} {${[...names].join(", ")}}`,
-      message: `${hintFor(specifier, names)}; in ${where}`,
+      message: `${hint}; in ${where}`,
     });
   }
 }

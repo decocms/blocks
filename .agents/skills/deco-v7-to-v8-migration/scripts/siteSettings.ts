@@ -7,9 +7,10 @@
  * - the v7 Site block's (`Site` or `site`) `previewHosts` → `preview.hosts`,
  *   each entry trimmed and lowercased as v7 compared it (the field moves; the
  *   rest of the Site block stays). An entry that isn't a host pattern is left
- *   out and reported. On TanStack Start, v7 also allowed the site's
- *   `<site>.deco.site` and `<site>.deco-cx.workers.dev` (from `DECO_SITE_NAME`):
- *   they're added when the name is found, and reported when it isn't;
+ *   out and reported. The hosts Deco runs the site on (`<site>.deco.site`,
+ *   `<site>.deco-cx.workers.dev`, which v7's TanStack worker added for
+ *   `DECO_SITE_NAME`) are not written: the v8 bindings allow them from their
+ *   `site` option, and the report names the value to pass;
  * - a literal `collectorAddress` on v7's `OneDollarStats` component in
  *   `src/` → `analytics.collector`;
  * - a prerelease `Telemetry` / `Analytics` saved block (type `telemetry` /
@@ -24,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { formatHostPattern, LEGACY_ALIASES, parseHostPattern } from "@decocms/blocks/cli";
 import { blockFileName, serializeBlock } from "@decocms/blocks/protocol/keys";
+import { siteFramework } from "./framework";
 import type { Report } from "./report";
 import { isPlainObject, type JsonObject, readContent } from "./walk";
 
@@ -90,22 +92,7 @@ function isPrereleaseBlock(node: unknown, type: string): boolean {
 }
 
 /**
- * Whether v7 ran on `@decocms/tanstack`, whose worker entry added the site's
- * deco-hosted domains to the preview hosts. v7's Next.js binding never did.
- */
-function isTanStackSite(root: string): boolean {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-    return ["dependencies", "devDependencies"].some(
-      (field) => isPlainObject(pkg[field]) && Object.hasOwn(pkg[field], "@decocms/tanstack"),
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The `DECO_SITE_NAME` v7's TanStack worker read: from the Workers vars in
+ * The site's name, `DECO_SITE_NAME` as v7 read it: from the Workers vars in
  * `wrangler.*` first, else from `.env`/`.dev.vars` and the Vite config's
  * fallback. `undefined` when there's none, or several that disagree.
  */
@@ -144,7 +131,7 @@ function v7SiteName(root: string): { name?: string; candidates: string[] } {
   return { name: candidates.length === 1 ? candidates[0] : undefined, candidates };
 }
 
-/** The hosts v7's TanStack worker always allowed for a named site. */
+/** The hosts Deco runs a named site on: v7's TanStack worker always allowed them, the v8 bindings do with `site`. */
 function decoHostedHosts(site: string): string[] {
   return [`${site}.deco.site`, `${site}.deco-cx.workers.dev`];
 }
@@ -231,9 +218,9 @@ export function foldSiteSettings(root: string, report: Report): void {
   /** Saved blocks to write back, without a field that moved. */
   const rewrite = new Map<string, JsonObject>();
 
-  // The v7 Site block's preview hosts, plus the deco-hosted ones v7's TanStack worker added.
-  const tanstack = isTanStackSite(root);
-  const siteName = tanstack ? v7SiteName(root) : { candidates: [] };
+  // The v7 Site block's preview hosts. The hosts Deco runs the site on come from the binding's `site`.
+  const framework = siteFramework(root);
+  const siteName = v7SiteName(root);
   let previewHosts: string[] | undefined;
   for (const name of SITE_BLOCKS) {
     const site = blocks[name];
@@ -253,15 +240,7 @@ export function foldSiteSettings(root: string, report: Report): void {
       }
       previewHosts.push(formatHostPattern(pattern));
     }
-    if (tanstack && siteName.name) previewHosts.push(...decoHostedHosts(siteName.name));
     previewHosts = [...new Set(previewHosts)];
-    if (tanstack && !siteName.name) {
-      report.manual.push({
-        step: "settings",
-        subject: "preview hosts",
-        message: `v7 also allowed previews on <site>.deco.site and <site>.deco-cx.workers.dev for the site named by DECO_SITE_NAME${siteName.candidates.length > 1 ? ` (found several: ${siteName.candidates.join(", ")})` : ""}; add the ones you use to CMS.json's preview.hosts (/next/releases-and-drafts#allow-previews-per-host)`,
-      });
-    }
     const folded = fold(settings, "preview", previewHosts, "hosts");
     const preview = settings.preview;
     const hosts = isPlainObject(preview) ? preview.hosts : undefined;
@@ -280,20 +259,20 @@ export function foldSiteSettings(root: string, report: Report): void {
     }
     break;
   }
-
-  // No previewHosts at all: v7's TanStack worker still allowed previews only on the site's
-  // deco-hosted hosts, while v8 allows every host without a list. Keep v7's list when the name is known.
-  if (
-    previewHosts === undefined &&
-    settings.preview === undefined &&
-    tanstack &&
-    siteName.name &&
-    fold(settings, "preview", decoHostedHosts(siteName.name), "hosts")
-  ) {
-    previewHosts = decoHostedHosts(siteName.name);
-    done.push(
-      `preview.hosts: ${previewHosts.join(", ")} (v7 allowed previews only there, from DECO_SITE_NAME; add your dev and staging hosts)`,
-    );
+  const noList = previewHosts === undefined && settings.preview === undefined;
+  if (framework) {
+    report.manual.push({
+      step: "settings",
+      subject: "preview hosts",
+      message: bindingPreviewHosts(framework, siteName, noList),
+    });
+  } else if (noList && current === undefined) {
+    report.manual.push({
+      step: "settings",
+      subject: "preview hosts",
+      message:
+        "with no previewHosts, v7 allowed previews nowhere; the next major allows every host unless preview.hosts lists some, so add that list to CMS.json if you relied on it (/next/releases-and-drafts#allow-previews-per-host)",
+    });
   }
 
   // A literal collectorAddress on OneDollarStats.
@@ -373,8 +352,9 @@ export function foldSiteSettings(root: string, report: Report): void {
     {
       step: "settings",
       subject: "DECO_ALLOWED_PREVIEW_HOSTS",
-      message:
-        "if your hosting sets it, put its hosts in CMS.json's preview.hosts, or in createCMS({ preview: { hosts } }) to make them the most content may allow; its none is an empty list (/next/releases-and-drafts#allow-previews-per-host)",
+      message: framework
+        ? `if your hosting sets it, pass its hosts as the previewHosts option of ${framework === "tanstack" ? "createDecoWorker" : "decideDraft and bindDraft"} (they replace CMS.json's preview.hosts; the site's Deco hosts stay allowed), and its none as previewHosts: "none"`
+        : "if your hosting sets it, put its hosts in CMS.json's preview.hosts, or in createCMS({ preview: { hosts } }) to make them the most content may allow; its none is an empty list (/next/releases-and-drafts#allow-previews-per-host)",
     },
     {
       step: "settings",
@@ -389,18 +369,6 @@ export function foldSiteSettings(root: string, report: Report): void {
         "if your hosting sets them, the enabled ones become the analytics section's enabled and ONEDOLLAR_COLLECTOR its collector (/next/analytics)",
     },
   );
-  if (previewHosts === undefined && settings.preview === undefined && current === undefined) {
-    const v7Hosts = siteName.name
-      ? `only on ${decoHostedHosts(siteName.name).join(" and ")} (from DECO_SITE_NAME)`
-      : tanstack
-        ? "only on <site>.deco.site and <site>.deco-cx.workers.dev for the site named by DECO_SITE_NAME, or nowhere without one"
-        : "nowhere";
-    report.manual.push({
-      step: "settings",
-      subject: "preview hosts",
-      message: `with no previewHosts, v7 allowed previews ${v7Hosts}; the next major allows every host unless preview.hosts lists some, so add that list to CMS.json if you relied on it (/next/releases-and-drafts#allow-previews-per-host)`,
-    });
-  }
 }
 
 /** Whether every field of `part` is already in `whole` with the same value. */
@@ -409,4 +377,30 @@ function isSubset(part: unknown, whole: unknown): boolean {
     return JSON.stringify(part) === JSON.stringify(whole);
   }
   return Object.entries(part).every(([key, value]) => isSubset(value, whole[key]));
+}
+
+/** What to pass the binding so drafts preview where v7 let them. */
+function bindingPreviewHosts(
+  framework: "tanstack" | "nextjs",
+  siteName: { name?: string; candidates: string[] },
+  noList: boolean,
+): string {
+  const name = siteName.name ?? "<site>";
+  const found =
+    siteName.name === undefined
+      ? ` (DECO_SITE_NAME wasn't found${siteName.candidates.length > 1 ? `; several: ${siteName.candidates.join(", ")}` : ""}: use the site's name in Deco)`
+      : "";
+  const hosts = decoHostedHosts(name).join(" and ");
+  if (framework === "tanstack") {
+    return `pass site: "${name}" to createDecoWorker${found}: the worker lets ${hosts} preview, as v7 did${
+      noList
+        ? `; v7 allowed previews only there, while with no list in CMS.json every host previews, so also pass previewHosts: [] to keep v7's hosts (add your dev and staging hosts to it)`
+        : ""
+    } (@decocms/tanstack/worker)`;
+  }
+  return `pass site: "${name}" to decideDraft and bindDraft${found}, the same options to both: they let ${hosts} preview, which v7's Next.js binding didn't (name it for the product owner)${
+    noList
+      ? `; v7 allowed previews nowhere without previewHosts, while with no list in CMS.json every host previews, so pass previewHosts: [] to allow only those two, or previewHosts: "none" to keep none`
+      : ""
+  } (@decocms/nextjs/proxy, @decocms/nextjs/server)`;
 }

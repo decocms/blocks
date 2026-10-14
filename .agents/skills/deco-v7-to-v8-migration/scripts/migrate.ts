@@ -22,6 +22,7 @@ import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
+import { siteFramework, V8_RANGE } from "./framework";
 import { rewriteImports } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
@@ -67,11 +68,12 @@ function addScripts(root: string, report: Report): void {
       message: `added ${added.join(" and ")}`,
     });
   }
+  const framework = siteFramework(root);
+  const binding = framework ? `@decocms/${framework}` : undefined;
   report.manual.push({
     step: "scripts",
     subject: "package.json",
-    message:
-      "depend on the next major of @decocms/blocks, drop the v7 codegen from build and the @decocms/blocks-admin, @decocms/blocks-cli, @decocms/tanstack and @decocms/nextjs dependencies once nothing imports them (the next major has no framework binding)",
+    message: `depend on @decocms/blocks ${V8_RANGE}${binding ? ` and ${binding} ${V8_RANGE} (the v8 binding, released with blocks at one version)` : ""}, drop the v7 codegen from build and the @decocms/blocks-admin and @decocms/blocks-cli dependencies once nothing imports them`,
   });
 }
 

@@ -1,6 +1,6 @@
 # Import map: v7 → v8
 
-What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `src/`. Source of truth: `V8_API` and `HINTS` in that file; keep this table in step with them.
+What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `src/`. Source of truth: `V8_API`, `MOVES`, `NAME_HINTS` and `HINTS` in that file; keep these tables in step with them.
 
 ## Rewritten by the script
 
@@ -8,10 +8,16 @@ What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `s
 |---|---|
 | `@decocms/apps-<x>/loaders/…`, `…/actions/…` that the content calls | the vendored copy in `src/vendor/<app>/…` (relative import) |
 | `createInstrumentedFetch` from `@decocms/blocks/sdk/instrumentedFetch` | `createInstrumentedFetch` from `@decocms/blocks/fetch`; `createInstrumentedFetch("x")` becomes `createInstrumentedFetch({ provider: "x" })` |
+| `createDecoRouter`, `decoParseSearch`, `decoStringifySearch` (`@decocms/tanstack`) | the same names from `@decocms/tanstack/router` |
+| `NavigationProgress`, `StableOutlet` (`@decocms/tanstack`) | the same names from `@decocms/tanstack/react` |
+| `decoServerFnFetch` (`@decocms/tanstack/sdk/serverFnFetch`) | `@decocms/tanstack/start` |
+| `Image`, `Picture`, `Source` and their props types (`@decocms/blocks/hooks`), on a TanStack site | `@decocms/tanstack/react`, same props and markup; the report asks for an `ImageUrlProvider` when the site registered a CDN domain or quality |
+
+An import that mixes moved and other names is split; the rest is reported.
 
 ## Left alone (already the v8 API)
 
-`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, …; drafts are read with `cms.draftPointer`), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`.
+`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, `DRAFT_PARAM`, `DRAFT_COOKIE`, `draftResponseHeaders`, `STUDIO_ORIGINS`, …), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`, `/image`, `/vite`, `/preview` (`DraftBadge`, `StudioBridge`); every subpath of `@decocms/tanstack` 8 (`/worker`, `/server`, `/start`, `/router`, `/react`, `/scope`, and `/vite`'s `decoTanstack`), and of `@decocms/nextjs` 8 (`/proxy`, `/server`, `/image-loader`, `/config`'s `withDeco`, the root's `StudioBridge` and `DraftBadge`).
 
 ## Reported, with where the replacement lives (first match wins)
 
@@ -31,28 +37,39 @@ What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `s
 | `@decocms/apps-commerce`, `@decocms/apps/commerce` | converters, hooks and shared commerce types live in your platform template (copy them into the site) |
 | `@decocms/apps-website`, `@decocms/apps/website` | SEO, sitemaps, redirects live in your platform template |
 | any other `@decocms/apps-<x>`, `@decocms/apps/<x>` | apps are thin upstream clients: call `create<X>Client` from your own code (`/next/upstream-clients`) |
-| `@decocms/tanstack`, `@decocms/nextjs` | the v7 framework binding: v8 has none; drop the dependency and follow your framework's guide (`/next/tanstack-start-descriptors`, `/next/nextjs`) |
+| `@decocms/blocks/sdk/cacheHeaders`, `/responseCache`, `/cacheStorage`, `/mergeCacheControl` | on TanStack, `createDecoWorker`'s edge cache (`cacheProfiles` over `DEFAULT_CACHE_PROFILES`); a Next.js site keeps its own |
+| `@decocms/blocks/sdk/csp`, `/sdk/redirects` | `createDecoWorker`'s `csp` option; the worker applies CMS redirects |
+| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, site, buildHash })` from `@decocms/tanstack/worker` (`reference/framework-code.md`) |
+| `DecoRootLayout`, `PreviewProviders`, `DraftPreviewIndicator` (`@decocms/tanstack`) | `DecoDocument` from `@decocms/tanstack/react` |
+| `cmsRouteConfig`, `loadCmsPage`, `DecoPageRenderer`, … (`@decocms/tanstack`) | `createCMS` and `matchRoute` (`/next/tanstack-start-descriptors`), the draft from `contentClient(cms)` (`@decocms/tanstack/server`) |
+| `decoInvokeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig` | delete: the worker answers 404 on v7's admin paths |
+| `setupTanstackFastDeploy`, `kvLoader` | `createCMS({ site, token })` (`reference/hosted-releases.md`) |
+| `@decocms/tanstack/vite` (`decoVitePlugin`) | `decoTanstack({ buildHash })` from `@decocms/tanstack/vite` |
+| `@decocms/tanstack/sdk/startEntry`, `/sdk/cdnSegment`, `/sdk/cookiePassthrough` | `decoServerFnFetch` in `createStart`; the worker's `segment`; the worker's Set-Cookie handling |
+| `createDecoPage`, `DecoPageRenderer`, `DecoRootLayout`, … (`@decocms/nextjs`) | `createCMS` (`/next/nextjs`); `bindDraft` and `contentClient` from `@decocms/nextjs/server`; `StudioBridge` in the root layout |
+| `DraftPreviewIndicator` (`@decocms/nextjs`) | the same name in v8, showing what `bindDraft` bound: call that first |
+| `@decocms/nextjs/middleware` | `decideDraft` … `applyDraft` (or `draftProxy`) from `@decocms/nextjs/proxy` |
+| `@decocms/nextjs/routeHandlers`, `DECO_REWRITES` | delete: no `/deco/*` handlers in v8 |
+| `LiveControls` (`@decocms/blocks/hooks`) | `StudioBridge`: `DecoDocument` mounts it; a Next.js layout renders it from `@decocms/nextjs` |
+| `DraftPreviewBadge` (`@decocms/blocks/preview`, `@decocms/nextjs`) | `DraftBadge` from `@decocms/blocks/preview` |
+| `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl` with `decoCdn({ domain, quality, proxyOtherHosts: true })` from `@decocms/blocks/image`, `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
+| `Image`, `Picture` on a Next.js site | next/image with `createDecoImageLoader` from `@decocms/nextjs/image-loader` |
+| other v7 names under `@decocms/tanstack`, `@decocms/nextjs` | the v8 binding has no such name; see the rows above and `reference/framework-code.md` |
 | anything else under `@decocms/*` | no v8 equivalent (several have a site-code replacement: the next table) |
 
 ## What sites ended up writing themselves
 
-From the storefront and blog migrations, the reported imports above were replaced by site code like this:
+From the storefront and blog migrations, the reported imports with no binding equivalent were replaced by site code like this:
 
 | v7 import | Site code |
 |---|---|
-| `Image`, `Picture` (`@decocms/blocks/hooks`) | `src/vendor/blocks/Image.tsx`, a copy that keeps v7's exact CDN URLs; a narrower copy inlined where the site already builds image URLs (an image loader) is fine when it yields v7's URL for every input the site passes. Copy it from the `@decocms/blocks` version **the site has installed**, never from another site's vendored copy: the CDN host and the query parameters changed across 7.x (`decoims.com` → `assets.decocms.com`, `quality=`) |
-| `registerImageQuality` (`@decocms/blocks/hooks`, 7.52+) | the vendored `Image.tsx` starts with the quality the site registered (`let imageQuality = "high"`), so every URL keeps v7's `quality=` |
-| `LiveControls` (`@decocms/blocks/hooks`) | v7's editor bridge (`__DECO_STATE`, admin `postMessage`, the `.` shortcut to Studio). No v8 equivalent: keep a vendored copy in the root document if editors use the shortcut, and list it for the product owner either way |
 | `BreadcrumbJsonLd`, `PLPJsonLd`, `ProductJsonLd` (`@decocms/blocks/hooks`) | `src/vendor/blocks/JsonLd.tsx` |
-| `ANALYTICS_SCRIPT` (`@decocms/blocks/sdk/analytics`) on a site with no analytics SDK | the same `data-event` observer string in the site's root document, copied from the installed version (7.6x defers it until a Speculation Rules prerender activates) |
-| `NavigationProgress`, `StableOutlet` (`@decocms/tanstack`) | the site's root document; copy them from the installed version (the bar's markup changed in 7.6x) |
-| `withABTesting` (`@decocms/blocks/sdk/abTesting`) | nothing: a worker-level split between this worker and a fallback origin, driven by a `SITES_KV` config. Delete it and the binding, and list it for the product owner (`reference/framework-code.md`) |
+| `ANALYTICS_SCRIPT` (`@decocms/blocks/sdk/analytics`) on a site with no analytics SDK | on TanStack, nothing: `DecoDocument` renders the `data-event` observer; elsewhere the same observer string in the site's root document, copied from the installed version (7.6x defers it until a Speculation Rules prerender activates) |
+| `withABTesting` (`@decocms/blocks/sdk/abTesting`) | nothing: a worker-level split between this worker and a fallback origin, driven by a `SITES_KV` config. Delete it and the KV binding, and list it for the product owner (`reference/framework-code.md`) |
 | `signal` (`@decocms/blocks/sdk/signal`) | delete it when nothing imports the site's re-export; otherwise a local signal |
-| `cacheHeaders`, `detectCacheProfile`, a `cache-config.ts` (`@decocms/blocks/sdk/cacheHeaders`) | `src/server/cache-profiles.ts` |
 | `withFetchTimeout`, `FetchFn` (`@decocms/blocks/sdk/fetchTimeout`, 7.6x) in vendored loaders | a local `fetch(url, { ...init, signal: AbortSignal.timeout(10_000) })` (v7's default), or the v8 client's own fetch |
 | `useDevice`, `detectDevice` (`@decocms/blocks/sdk/*`) | `src/sdk/device.ts` with v7's user-agent patterns |
 | `getCookies`/`setCookie`, `RequestContext` | read the request and write response headers explicitly, or a site-owned `AsyncLocalStorage` (`src/request-state.server.ts`) |
 | `useCart`/`useUser`/`useWishlist`, cart loaders (`@decocms/apps-<x>`) | `src/vendor/<platform>/…` copies, sending through the v8 client (`createShopifyClient`, …) |
 | commerce types, offer/price helpers (`@decocms/apps-commerce`) | `src/vendor/commerce` |
 | `Seo`, JSON-LD components | the site's head builder (`src/head.ts`) and `src/vendor/blocks` |
-| edge cache, cache headers (`@decocms/tanstack` worker entry) | the site's worker entry (`src/server`, `src/worker-entry.ts`) |
