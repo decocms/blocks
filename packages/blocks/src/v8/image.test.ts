@@ -159,7 +159,17 @@ describe("decoCdn", () => {
     const cdn = createImageUrl({ providers: [decoCdn()] });
     const want = "https://assets.decocms.com/image?fit=cover&width=320&src=s/abc/hero.jpg";
 
-    it("for every Deco CDN image endpoint, http or https, any host case", () => {
+    const endpoint = (host: string) =>
+      `${host}/image?fit=contain&width=1440&height=480&quality=high&src=s/abc/hero.jpg`;
+
+    it("for every Deco CDN image endpoint, http or https, any host case, wherever it was resized", () => {
+      // The domain and its legacy host: matched before, and broken (src=image).
+      for (const host of ["https://assets.decocms.com", "https://decoims.com"]) {
+        expect(cdn.isOptimizable(endpoint(host))).toBe(true);
+        expect(cdn(endpoint(host), { width: 320 })).toBe(want);
+      }
+      // sources "all" resized every endpoint, into src=<cdn>/image.
+      const all = createImageUrl({ providers: [decoCdn({ sources: "all" })] });
       for (const host of [
         "https://assets.decocms.com",
         "https://decoims.com",
@@ -168,9 +178,20 @@ describe("decoCdn", () => {
         "http://assets.decocms.com",
         "HTTPS://DECOIMS.COM",
       ]) {
-        const resized = `${host}/image?fit=contain&width=1440&height=480&quality=high&src=s/abc/hero.jpg`;
-        expect(cdn.isOptimizable(resized)).toBe(true);
-        expect(cdn(resized, { width: 320 })).toBe(want);
+        expect(all(endpoint(host), { width: 320 })).toBe(want);
+      }
+    });
+
+    it("leaves a Deco CDN URL it never resized as it was (it was served fine)", () => {
+      for (const host of [
+        "https://deco-assets.edgedeco.com",
+        "https://deco-assets.decoazn.com",
+        "http://assets.decocms.com",
+        "HTTPS://DECOIMS.COM",
+        "https://Assets.Decocms.com",
+      ]) {
+        expect(cdn.isOptimizable(endpoint(host))).toBe(false);
+        expect(cdn(endpoint(host), { width: 320 })).toBe(endpoint(host));
       }
     });
 
