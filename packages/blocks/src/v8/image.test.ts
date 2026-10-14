@@ -184,7 +184,15 @@ describe("srcSet, parseSrcSet and preloadLink", () => {
       `${at(100, 150)} 100w, ${at(200, 300)} 200w`,
     );
     expect(srcSet(url, "", { width: 100 })).toBeUndefined();
-    expect(srcSet(url, src, {})).toBeUndefined();
+    expect(srcSet(url, src, { widths: [] })).toBeUndefined();
+  });
+
+  it("writes v7's NaN candidates when no width is given (v7's getSrcSet, byte for byte)", () => {
+    const nan = "https://assets.decocms.com/image?fit=cover&width=NaN&src=s/a.jpg";
+    expect(srcSet(url, src, {})).toBe(`${nan} NaNw, ${nan} NaNw`);
+    expect(srcSet(url, src, { height: 300 })).toBe(
+      `https://assets.decocms.com/image?fit=cover&width=NaN&height=300&src=s/a.jpg NaNw, https://assets.decocms.com/image?fit=cover&width=NaN&height=600&src=s/a.jpg NaNw`,
+    );
   });
 
   it("parses what srcSet builds, and URLs with commas", () => {
