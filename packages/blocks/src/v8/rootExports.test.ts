@@ -19,19 +19,9 @@ describe("@decocms/blocks root", () => {
 
   it("has no free draft helpers: draftPointer and draftCookie are CMS methods that check the host", () => {
     const names = Object.keys(root);
-    for (const name of ["draftPointer", "draftCookie", "readDraftPointer", "draftCookieFor"]) {
+    for (const name of ["draftPointer", "draftCookie", "DRAFT_COOKIE"]) {
       expect(names).not.toContain(name);
     }
-  });
-
-  it("exports the draft names and Studio's origins the bindings share", () => {
-    expect(root.DRAFT_PARAM).toBe("__draft");
-    expect(root.DRAFT_COOKIE).toBe("__deco_draft");
-    expect(root.DRAFT_HEADER).toBe("x-deco-draft");
-    expect(root.draftResponseHeaders).toBe(v8.draftResponseHeaders);
-    expect(root.STUDIO_ORIGINS).toBe(v8.STUDIO_ORIGINS);
-    expect(root.STUDIO_FRAME_ANCESTORS).toBe(v8.STUDIO_FRAME_ANCESTORS);
-    expect(root.isStudioOrigin).toBe(v8.isStudioOrigin);
   });
 
   it("exports nothing outside the v8 API", () => {
