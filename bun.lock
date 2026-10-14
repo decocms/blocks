@@ -76,6 +76,28 @@
         "wrangler": "4.110.0",
       },
     },
+    "examples/tanstack-worker-smoke": {
+      "name": "tanstack-worker-smoke-fixture",
+      "dependencies": {
+        "@decocms/blocks": "workspace:*",
+        "@decocms/tanstack": "workspace:*",
+        "@tanstack/react-router": "1.170.39",
+        "@tanstack/react-start": "1.168.58",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@cloudflare/vite-plugin": "1.44.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "@vitejs/plugin-react": "^6.1.1",
+        "seroval": "^1.6.2",
+        "typescript": "^5.9.0",
+        "vite": "^8.0.1",
+        "wrangler": "4.110.0",
+      },
+    },
     "packages/apps-algolia": {
       "name": "@decocms/apps-algolia",
       "version": "0.0.0",
@@ -147,6 +169,31 @@
         "react": "^19.0.0",
         "typescript": "^5.0.0",
         "vite": ">=6.0.0",
+      },
+      "optionalPeers": [
+        "vite",
+      ],
+    },
+    "packages/tanstack": {
+      "name": "@decocms/tanstack",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@decocms/blocks": "workspace:*",
+        "@tanstack/react-router": "1.170.39",
+        "@tanstack/react-start": "1.168.58",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "esbuild": "^0.27.3",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
+        "vite": "^8.0.1",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
+        "@tanstack/react-router": ">=1.166.0",
+        "@tanstack/react-start": ">=1.166.0",
+        "react": "^19.0.0",
+        "vite": ">=7.0.0",
       },
       "optionalPeers": [
         "vite",
@@ -269,6 +316,8 @@
     "@decocms/apps-wake": ["@decocms/apps-wake@workspace:packages/apps-wake"],
 
     "@decocms/blocks": ["@decocms/blocks@workspace:packages/blocks"],
+
+    "@decocms/tanstack": ["@decocms/tanstack@workspace:packages/tanstack"],
 
     "@emnapi/core": ["@emnapi/core@1.11.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ=="],
 
@@ -1307,6 +1356,8 @@
     "tanstack-rsc-smoke-fixture": ["tanstack-rsc-smoke-fixture@workspace:examples/tanstack-rsc-smoke"],
 
     "tanstack-smoke-fixture": ["tanstack-smoke-fixture@workspace:examples/tanstack-smoke"],
+
+    "tanstack-worker-smoke-fixture": ["tanstack-worker-smoke-fixture@workspace:examples/tanstack-worker-smoke"],
 
     "tapable": ["tapable@2.3.3", "", {}, "sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A=="],
 

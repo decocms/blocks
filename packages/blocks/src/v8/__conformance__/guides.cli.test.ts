@@ -815,7 +815,7 @@ export default {
     T,
   );
 
-  it("in-11: one package, @decocms/blocks, and upstream clients that depend only on it", () => {
+  it("in-11: one core package, @decocms/blocks; the framework bindings and upstream clients depend only on it", () => {
     const manifest = (name: string) =>
       JSON.parse(fs.readFileSync(path.join(REPO, "packages", name, "package.json"), "utf8"));
     const deco = (name: string) => {
@@ -827,11 +827,15 @@ export default {
     const packages = fs
       .readdirSync(path.join(REPO, "packages"))
       .filter((d) => fs.existsSync(path.join(REPO, "packages", d, "package.json")));
-    expect(packages.filter((d) => !d.startsWith("apps-"))).toEqual(["blocks"]);
+    // The framework bindings (@decocms/tanstack, @decocms/nextjs) never import each other.
+    const BINDINGS = ["tanstack", "nextjs"];
+    expect(packages.filter((d) => !d.startsWith("apps-") && !BINDINGS.includes(d))).toEqual([
+      "blocks",
+    ]);
     expect(packages.filter((d) => d.startsWith("apps-")).length).toBe(7);
     expect(deco("blocks")).toEqual([]);
-    for (const app of packages.filter((d) => d.startsWith("apps-"))) {
-      expect([app, deco(app)]).toEqual([app, ["@decocms/blocks"]]);
+    for (const dependent of packages.filter((d) => d !== "blocks")) {
+      expect([dependent, deco(dependent)]).toEqual([dependent, ["@decocms/blocks"]]);
     }
   });
 });
