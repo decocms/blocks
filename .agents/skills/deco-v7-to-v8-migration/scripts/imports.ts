@@ -24,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { type Framework, siteBlocksVersion, siteFramework } from "./framework";
+import { copyDecoCdnOptions, findImageCopies, type ImageCopy } from "./imageCopy";
 import type { Report } from "./report";
 import { relativeSpecifier, resolvePackageFile } from "./vendor";
 
@@ -236,6 +237,34 @@ export function v7ImageUrl(version: string | undefined): string {
     return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading", legacyHosts: ["decoims.com"]')} (${IMAGE_HELPERS}; ${registered})`;
   }
   return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading"')} (${IMAGE_HELPERS}; ${registered}${at(77, 1) ? nuvemshop : ""})`;
+}
+
+/**
+ * v7's image URLs as v8 code for a site that kept its own copy of v7's image
+ * helper: the options are read from the copy (and what the site registers
+ * with it), since the copy's URLs, not the release's, are what the site serves.
+ */
+export function copyImageUrl(
+  copy: ImageCopy,
+  registered: { domain?: string | null; quality?: string | null } = {},
+): string | undefined {
+  const rules = copy.rules;
+  if (!rules) return undefined;
+  const providers = [
+    rules.vtex ? "vtexCatalog()" : "",
+    rules.shopify ? "shopifyCdn()" : "",
+    rules.nuvemshop ? "nuvemshop" : "",
+    `decoCdn({ ${copyDecoCdnOptions(rules, registered)} })`,
+  ].filter(Boolean);
+  const helpers = [
+    "createImageUrl and decoCdn from @decocms/blocks/image",
+    rules.vtex ? "vtexCatalog from @decocms/apps-vtex/image" : "",
+    rules.shopify ? "shopifyCdn from @decocms/apps-shopify/image" : "",
+    rules.nuvemshop
+      ? "nuvemshop: the store's own provider for v7's Nuvemshop rule (reference/framework-code.md)"
+      : "",
+  ].filter(Boolean);
+  return `createImageUrl({ providers: [${providers.join(", ")}] }) (${helpers.join(", ")}; read from the site's copy of v7's image helper, ${copy.file}: these options reproduce its URLs, which win over its 7.x release's where they differ)`;
 }
 
 /** Stands for `v7ImageUrl(<the site's version>)` in a hint, replaced when reported. */
@@ -586,7 +615,11 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
   const reported = new Map<string, { names: Set<string>; files: Set<string> }>();
   let rewrittenFiles = 0;
   const framework = siteFramework(root);
-  const imageUrl = v7ImageUrl(siteBlocksVersion(root));
+  const images = findImageCopies(root);
+  const fromCopy = images.copies
+    .map((copy) => copyImageUrl(copy, images.registered))
+    .find((url) => url !== undefined);
+  const imageUrl = fromCopy ?? v7ImageUrl(siteBlocksVersion(root));
   /** Names moved to a binding, by target, for the report. */
   const moved = new Map<string, Set<string>>();
 
@@ -734,6 +767,16 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
       step: "imports",
       subject: "Image, Picture, Source",
       message: `they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, and @decocms/tanstack knows no commerce platform: without a provider every source goes through the Deco image CDN, where v7 resized VTEX catalog and Shopify images on their own hosts. Wrap every page in <ImageUrlProvider value={imageUrl}> through createDecoRouter's Wrap option, with imageUrl = ${imageUrl}, so every URL stays v7's`,
+    });
+  }
+  for (const copy of images.copies) {
+    const url = copyImageUrl(copy, images.registered);
+    report.manual.push({
+      step: "imports",
+      subject: copy.file,
+      message: url
+        ? `a copy of v7's image helper (getOptimizedMediaUrl): on v8, imageUrl = ${url}. url(src, { width, height, fit }) and srcSet(url, src, …) from @decocms/blocks/image replace its getOptimizedMediaUrl and getSrcSet, and on TanStack Start its Image, Picture and Source are @decocms/tanstack/react's under <ImageUrlProvider value={imageUrl}>. One difference, approved: an already-resized Deco CDN URL in the content (https://assets.decocms.com/image?…&src=…) is re-resized from its src, where the copy wrote src=image`
+        : "a copy of v7's image helper (getOptimizedMediaUrl) whose URL rules the script can't read (it was edited): compare its URLs with createImageUrl's before replacing it, and pick the decoCdn options that reproduce them (reference/framework-code.md)",
     });
   }
   const resolved = [...reported].map(
