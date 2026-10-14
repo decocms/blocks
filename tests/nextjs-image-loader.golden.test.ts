@@ -6,7 +6,12 @@
  * fixture). The loader is platform-neutral; the site composes the VTEX helpers
  * (`@decocms/apps-vtex/image`) with the Deco CDN itself, as below. This test
  * lives here, not in the package, because `@decocms/nextjs` depends on no
- * `@decocms/apps-*` package, not even for its tests. No case may change.
+ * `@decocms/apps-*` package, not even for its tests. The only changed cases
+ * are the product owner's approved ones (2026-10-14, fix 2: an already-resized
+ * Deco CDN URL is re-resized from its src), marked in the fixture with
+ * `before` and `reason`. Fix 1 (the store on `via: "query"` moves to
+ * `via: "thumbor"`) is a site change: `next-query` still pins the package's
+ * `via: "query"` output, unchanged.
  */
 import { readFileSync } from "node:fs";
 import { vtexCatalogWebp, vtexFileManager } from "@decocms/apps-vtex/image";
@@ -20,6 +25,8 @@ interface Case {
   src: string;
   opts?: ResizeOptions;
   expected: unknown;
+  before?: unknown;
+  reason?: string;
 }
 
 const FIXTURES = [
@@ -33,7 +40,7 @@ const golden: Case[] = FIXTURES.flatMap((path) =>
   readFileSync(new URL(path, import.meta.url), "utf-8")
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as Case & { before?: unknown }),
+    .map((line) => JSON.parse(line) as Case),
 ).filter((c) => c.config in LOADERS && c.call === "url");
 
 /** A Next storefront's `loaderFile`, on this package. */
@@ -50,10 +57,17 @@ function siteLoader(via: "thumbor" | "query") {
 }
 
 describe("createDecoImageLoader + @decocms/apps-vtex/image: each Next storefront's loader URLs", () => {
-  it("covers both loaders, from both fixtures, and no case is a changed URL", () => {
+  it("covers both loaders, from both fixtures, and only fix 2's approved cases changed", () => {
     expect(golden.length).toBeGreaterThan(1000);
     expect(new Set(golden.map((c) => c.config))).toEqual(new Set(Object.keys(LOADERS)));
-    expect(golden.filter((c) => "before" in c)).toEqual([]);
+    const changed = golden.filter((c) => "before" in c);
+    expect(changed).toHaveLength(60);
+    for (const c of changed) {
+      expect(c.src).toMatch(/^https:\/\/(assets\.decocms\.com|decoims\.com)\/image\?/);
+      expect(c.reason).toMatch(/^fix 2 \(PO 2026-10-14\)/);
+      expect(c.before).toMatch(/&src=image&/);
+      expect(c.expected).not.toEqual(c.before);
+    }
   });
 
   for (const [config, via] of Object.entries(LOADERS)) {
