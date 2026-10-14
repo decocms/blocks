@@ -5,6 +5,6 @@ import content from "../.deco/blocks.gen";
 // the proxy's (./cms.proxy.ts): the same options give one instance per process.
 export const cmsConfig = { content, dev: isNextDev(process.env.NODE_ENV) };
 
-// Where drafts preview: only the hosts Deco runs the site on (an empty list replaces the CMS
-// block's), the same in the proxy and the pages.
+// Where drafts preview: only the hosts Deco runs the site on (v7's default for a site that
+// declares no preview hosts; the empty list says so explicitly), the same in the proxy and the pages.
 export const preview = { site: "binding-smoke", previewHosts: [] as string[] };

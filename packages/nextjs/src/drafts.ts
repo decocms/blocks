@@ -6,8 +6,10 @@
  * and the site passes the same options to the proxy (`decideDraft`) and to
  * its pages (`bindDraft`).
  *
- * - The site's own preview hosts: the `CMS` block's (what `cms.draftPointer`
- *   checks; without a list there, every host).
+ * - The site's own preview hosts: the ones it declares, in the `CMS` block or
+ *   as `createCMS({ preview: { hosts } })` (matched as `cms.draftPointer`
+ *   matches them). A site that declares none has none, as in v7: blocks'
+ *   own default (every host) doesn't count as a declaration.
  * - The hosts Deco runs the site on, named after the site and always added:
  *   `<site>.deco.site` and `<site>.deco-cx.workers.dev`, exact.
  * - `previewHosts: [...]` replaces the site's own list (the inferred hosts are
@@ -51,7 +53,8 @@ function overrideHosts(policy: PreviewPolicy): string[] {
 /**
  * Whether `host` may preview without asking the CMS: `true` (an override or
  * inferred host), `false` (previews off, or the override leaves it out), or
- * `"cms"` when only the `CMS` block's preview hosts can say.
+ * `"cms"` when only the site's declared preview hosts can say (none declared:
+ * `false`, see {@link declaresPreviewHosts}).
  */
 export function previewHostDecision(host: string, policy: PreviewPolicy): boolean | "cms" {
   const override = overrideHosts(policy);
@@ -67,18 +70,43 @@ export function previewHostDecision(host: string, policy: PreviewPolicy): boolea
  * Whether any host may preview (v7's `isDraftPreviewEnabled`): a page checks
  * it before it reads the request's headers, so a site with previews off never
  * turns a static page dynamic. `false` for `previewHosts: "none"`; `true` with
- * a site name or an override list; otherwise whether the `CMS` block allows
- * any host.
+ * a site name or an override list; otherwise whether the site declares
+ * preview hosts and they allow any.
  */
 export async function isDraftPreviewEnabled(
-  cms: Pick<CMS, "settings">,
+  cms: Pick<CMS, "settings" | "forRelease">,
   policy: PreviewPolicy,
 ): Promise<boolean> {
   const override = overrideHosts(policy);
   if (override.includes("none")) return false;
   if (inferredPreviewHosts(policy.site).length > 0) return true;
   if (policy.previewHosts !== undefined) return override.length > 0;
-  return (await cms.settings()).preview.hosts.length > 0;
+  return (await declaresPreviewHosts(cms)) && (await cms.settings()).preview.hosts.length > 0;
+}
+
+/**
+ * Whether the site declares its own preview hosts: in the `CMS` block, or as
+ * `createCMS`'s `preview.hosts`. When it declares none, `cms.settings()`
+ * reports blocks' default, every host (`["*"]`), which v7 never had: there,
+ * a site without a list previewed only on its Deco hosts. The saved `CMS`
+ * block tells an explicit `["*"]` from that default.
+ */
+export async function declaresPreviewHosts(
+  cms: Pick<CMS, "settings" | "forRelease">,
+): Promise<boolean> {
+  const { hosts } = (await cms.settings()).preview;
+  if (hosts.length !== 1 || hosts[0] !== "*") return true;
+  try {
+    const [block] = await cms.forRelease().resolve<unknown>("CMS", { run: false });
+    const preview = isRecord(block) ? block.preview : undefined;
+    return isRecord(preview) && ("hosts" in preview || "__resolveType" in preview);
+  } catch {
+    return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const DRAFT_OFF = "off";
@@ -158,7 +186,7 @@ export function requestLike(
  * `CMS` block) allows.
  */
 export async function allowedDraft(
-  cms: Pick<CMS, "draftPointer">,
+  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
   request: RequestLike,
   policy: PreviewPolicy,
 ): Promise<string | null> {
@@ -171,7 +199,10 @@ export async function allowedDraft(
     return null;
   }
   const decision = previewHostDecision(host, policy);
-  const allowed = decision === "cms" ? (await cms.draftPointer(request)) !== null : decision;
+  const allowed =
+    decision === "cms"
+      ? (await declaresPreviewHosts(cms)) && (await cms.draftPointer(request)) !== null
+      : decision;
   return allowed ? pointer : null;
 }
 

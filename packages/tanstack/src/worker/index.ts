@@ -106,9 +106,11 @@ export interface DecoWorkerOptions<Env = unknown> {
   /** `Link: rel=preload` hints on every HTML response. */
   preload?: { styles?: readonly string[]; fonts?: readonly string[] };
   /**
-   * v7's `DECO_ALLOWED_PREVIEW_HOSTS`: replaces the `CMS` block's preview
-   * hosts (the site's Deco hosts stay allowed); `"none"` turns draft previews
-   * off on every host.
+   * v7's `DECO_ALLOWED_PREVIEW_HOSTS`: replaces the site's declared preview
+   * hosts (the `CMS` block's), exact hosts with their port
+   * (`["localhost:5173"]` for local development); the site's Deco hosts stay
+   * allowed. `"none"` turns draft previews off on every host. Without it and
+   * without hosts in the `CMS` block, drafts preview only on the Deco hosts.
    */
   previewHosts?: readonly string[] | "none";
   /**

@@ -49,7 +49,7 @@ Published pages stay static: the proxy sends only drafted requests to the draft 
 
 ### Draft hosts
 
-v7's allowlist. A draft link (`?__draft=`) previews on the `CMS` block's preview hosts (every host when it lists none) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. `previewHosts: [...]` replaces the `CMS` block's list; `previewHosts: "none"` turns previews off on every host. Hosts compare exactly, port included, on the host the visitor asked for (`x-forwarded-host`, else `host`). Pass the same options to `decideDraft` and `bindDraft`. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
+v7's allowlist. A draft link (`?__draft=`) previews on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s; a site that declares none has none, as in v7) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. `previewHosts: [...]` replaces the declared list (v7's `DECO_ALLOWED_PREVIEW_HOSTS`, such as `["localhost:3000"]` in development); `previewHosts: "none"` turns previews off on every host. Hosts compare exactly, port included, on the host the visitor asked for (`x-forwarded-host`, else `host`). Pass the same options to `decideDraft` and `bindDraft`. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
 
 ## The layout
 

@@ -42,7 +42,8 @@ function setup(
   const entry = recordingEntry(respond);
   const worker = createDecoWorker({
     serverEntry: entry,
-    cms: testCMS(),
+    // The test store declares its own host, so a draft link on ORIGIN previews.
+    cms: testCMS(snapshot({ previewHosts: ["store.example.com"] })),
     site: "acme",
     buildHash: "abc123",
     ...options,
@@ -454,7 +455,7 @@ describe("drafts", () => {
   });
 
   it("the draft cookie is the one cms.draftCookie writes", async () => {
-    const cms = testCMS();
+    const cms = testCMS(snapshot({ previewHosts: ["store.example.com"] }));
     const { get } = setup({ cms });
     const request = new Request(`${ORIGIN}${draftUrl}`);
     expect((await get(draftUrl)).headers.get("set-cookie")).toBe(await cms.draftCookie(request));
@@ -511,9 +512,22 @@ describe("the draft host allowlist (v7's, in the worker)", () => {
     return rendered;
   }
 
-  it("with no preview hosts in the CMS block, every host previews (blocks' default, unchanged)", async () => {
+  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, not blocks' every host)", async () => {
+    const cms = testCMS(snapshot());
+    expect((await cms.settings()).preview.hosts).toEqual(["*"]); // blocks' own default stays
     for (const host of ["store.example.com", "www.store.example.com", "localhost:5173"]) {
-      expect(await previews({}, host), host).toBe(true);
+      expect(await previews({ cms }, host), host).toBe(false);
+    }
+    for (const host of ["acme.deco.site", "acme.deco-cx.workers.dev"]) {
+      expect(await previews({ cms }, host), host).toBe(true);
+    }
+    expect(await previews({ cms, previewHosts: ["localhost:5173"] }, "localhost:5173")).toBe(true);
+  });
+
+  it('a CMS block that declares "*" previews on every host', async () => {
+    const cms = testCMS(snapshot({ previewHosts: ["*"] }));
+    for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
+      expect(await previews({ cms }, host), host).toBe(true);
     }
   });
 

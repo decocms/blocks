@@ -18,7 +18,8 @@ export function snapshot(options: { previewHosts?: string[] } = {}): Snapshot {
 let count = 0;
 
 /** A CMS of its own (a fresh content root) over `content`. */
-export function testCMS(content: Snapshot = snapshot()): CMS {
+// By default the test store declares its own host, so a draft on shop.example.com previews.
+export function testCMS(content: Snapshot = snapshot({ previewHosts: ["shop.example.com"] })): CMS {
   count += 1;
   return createCMS({
     blocks: {} as Blocks,
