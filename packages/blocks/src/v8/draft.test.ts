@@ -253,10 +253,43 @@ describe("draftPointer", () => {
     ).toBe(POINTER);
   });
 
-  it("returns the value as is: forDraft validates it", async () => {
-    expect(await draftPointer(request("https://store.example.com/?__draft=garbage"))).toBe(
-      "garbage",
-    );
+  it("ignores a ?__draft= that doesn't parse: the request gets the release", async () => {
+    for (const bad of ["garbage", "https://evil.example/x@1", "host/path", "a b/x@1", "x@1"]) {
+      const url = `https://store.example.com/?__draft=${encodeURIComponent(bad)}`;
+      expect(await draftPointer(request(url)), bad).toBeNull();
+    }
+  });
+
+  it("a ?__draft= that doesn't parse falls back to the cookie, like an empty one", async () => {
+    expect(
+      await draftPointer(
+        request("https://store.example.com/?__draft=garbage", `${DRAFT_COOKIE}=${encoded}`),
+      ),
+    ).toBe(POINTER);
+  });
+
+  it("ignores a cookie that doesn't parse", async () => {
+    for (const bad of ["garbage", "off", encodeURIComponent("https://evil.example/x@1")]) {
+      expect(
+        await draftPointer(request("https://store.example.com/", `${DRAFT_COOKIE}=${bad}`)),
+        bad,
+      ).toBeNull();
+    }
+  });
+
+  it("the documented wiring renders the release for a malformed value, never an error", async () => {
+    const site = createCMS({
+      blocks: {},
+      content: { revision: "r", blocks: {} },
+    });
+    for (const req of [
+      request("https://store.example.com/?__draft=garbage"),
+      request("https://store.example.com/", `${DRAFT_COOKIE}=garbage`),
+    ]) {
+      const pointer = await site.draftPointer(req);
+      const client = pointer ? site.forDraft(pointer) : site.forRelease();
+      expect(await client.revision()).toBe("r");
+    }
   });
 
   it("takes anything with url and headers (a framework wrapper)", async () => {
@@ -266,7 +299,9 @@ describe("draftPointer", () => {
         headers: new Headers(),
       }),
     ).toBe(POINTER);
-    expect(await draftPointer({ url: "/relative?__draft=x", headers: new Headers() })).toBe("x");
+    expect(
+      await draftPointer({ url: `/relative?__draft=${encoded}`, headers: new Headers() }),
+    ).toBe(POINTER);
   });
 
   it("ignores a cookie whose name only ends with __deco_draft", async () => {
