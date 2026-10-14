@@ -4,8 +4,10 @@
  * `isDraftPreviewEnabled`), ported as is. v7 read its override from the
  * `DECO_ALLOWED_PREVIEW_HOSTS` variable; here it is the `previewHosts` option.
  *
- * - The site's own preview hosts: the `CMS` block's (what `cms.draftPointer`
- *   checks; without a list there, every host).
+ * - The site's own preview hosts: the ones it declares, in the `CMS` block or
+ *   as `createCMS({ preview: { hosts } })` (matched as `cms.draftPointer`
+ *   matches them). A site that declares none has none, as in v7: blocks'
+ *   own default (every host) doesn't count as a declaration.
  * - The hosts Deco runs the site on, named after the site and always added:
  *   `<site>.deco.site` and `<site>.deco-cx.workers.dev`, exact.
  * - `previewHosts: [...]` replaces the site's own list (the inferred hosts are
@@ -34,7 +36,8 @@ export function inferredPreviewHosts(site: string | undefined): string[] {
 /**
  * Whether `host` may preview without asking the CMS: `true` (an override or
  * inferred host), `false` (previews off, or the override leaves it out), or
- * `"cms"` when only the `CMS` block's preview hosts can say.
+ * `"cms"` when only the site's declared preview hosts can say (none declared:
+ * `false`, see {@link declaresPreviewHosts}).
  */
 export function previewHostDecision(host: string, policy: PreviewPolicy): boolean | "cms" {
   const override =
@@ -47,6 +50,31 @@ export function previewHostDecision(host: string, policy: PreviewPolicy): boolea
   if (inferredPreviewHosts(policy.site).includes(h)) return true;
   if (policy.previewHosts !== undefined) return override.includes(h);
   return "cms";
+}
+
+/**
+ * Whether the site declares its own preview hosts: in the `CMS` block, or as
+ * `createCMS`'s `preview.hosts`. When it declares none, `cms.settings()`
+ * reports blocks' default, every host (`["*"]`), which v7 never had: there,
+ * a site without a list previewed only on its Deco hosts. The saved `CMS`
+ * block tells an explicit `["*"]` from that default.
+ */
+export async function declaresPreviewHosts(
+  cms: Pick<CMS, "settings" | "forRelease">,
+): Promise<boolean> {
+  const { hosts } = (await cms.settings()).preview;
+  if (hosts.length !== 1 || hosts[0] !== "*") return true;
+  try {
+    const [block] = await cms.forRelease().resolve<unknown>("CMS", { run: false });
+    const preview = isRecord(block) ? block.preview : undefined;
+    return isRecord(preview) && ("hosts" in preview || "__resolveType" in preview);
+  } catch {
+    return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const DRAFT_OFF = "off";
@@ -104,7 +132,7 @@ export interface DraftDecision {
 
 /** The draft a request renders, and the cookie its response sets, under `policy`. */
 export async function decideDraft(
-  cms: Pick<CMS, "draftPointer">,
+  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
   request: Request,
   policy: PreviewPolicy,
 ): Promise<DraftDecision> {
@@ -115,7 +143,10 @@ export async function decideDraft(
   const pointer = readDraftPointer(request);
   if (pointer === null) return { pointer: null, setCookie: null };
   const decision = previewHostDecision(url.host, policy);
-  const allowed = decision === "cms" ? (await cms.draftPointer(request)) !== null : decision;
+  const allowed =
+    decision === "cms"
+      ? (await declaresPreviewHosts(cms)) && (await cms.draftPointer(request)) !== null
+      : decision;
   if (!allowed) return { pointer: null, setCookie: null };
   const fromLink = param !== null && param === pointer;
   return {
