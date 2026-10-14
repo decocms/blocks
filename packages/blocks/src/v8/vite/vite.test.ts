@@ -81,6 +81,16 @@ describe("decoContent", () => {
     expect(plugin.name).toBe("decocms:content");
   });
 
+  it("pre-bundles the footer's import in the server environments only", () => {
+    type ConfigEnvironment = (name: string, config: { consumer?: string }) => unknown;
+    const configEnvironment = plugin.configEnvironment as unknown as ConfigEnvironment;
+    const include = { optimizeDeps: { include: ["@decocms/blocks/vite/hot"] } };
+    expect(configEnvironment("ssr", {})).toEqual(include);
+    expect(configEnvironment("worker", { consumer: "server" })).toEqual(include);
+    expect(configEnvironment("client", {})).toBeUndefined();
+    expect(configEnvironment("browser", { consumer: "client" })).toBeUndefined();
+  });
+
   it("matches only a site's .deco/blocks.gen.ts", () => {
     expect(isContentModule("/site/.deco/blocks.gen.ts")).toBe(true);
     expect(isContentModule("/site/.deco/blocks.gen.ts?v=123")).toBe(true);

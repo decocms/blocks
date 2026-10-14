@@ -69,6 +69,14 @@ export function decoContent(): Plugin {
   return {
     name: "decocms:content",
     apply: "serve",
+    configEnvironment(name, config) {
+      // The footer's import appears only after this transform, so the dependency
+      // scan can't see it: pre-bundle it up front in the server environments.
+      // Discovered on the first request instead, the worker re-optimizes its
+      // dependencies and reloads the whole program once.
+      if (name === "client" || config.consumer === "client") return;
+      return { optimizeDeps: { include: [HOT_MODULE] } };
+    },
     transform(code, id, options) {
       if (!isContentModule(id)) return null;
       const consumer = this.environment?.config.consumer;
