@@ -61,6 +61,15 @@ const LEADING_ASSET_HOST =
   /^https:\/\/(?:assets\.decocache\.com|deco-sites-assets\.s3\.sa-east-1\.amazonaws\.com)\//;
 /** Deco CDNs on Cloudflare: a decoims.com src= makes them fetch themselves (508), so it is stripped. */
 const CLOUDFLARE_DECO_CDNS = new Set(["assets.decocms.com", "decoims.com"]);
+/** Every host that serves the Deco image CDN's `/image?…&src=` endpoint. */
+const DECO_IMAGE_HOSTS = [
+  "assets.decocms.com",
+  "decoims.com",
+  "deco-assets.edgedeco.com",
+  "deco-assets.decoazn.com",
+];
+/** Characters an unwrapped `src` cannot carry raw in the query this provider writes. */
+const QUERY_UNSAFE = /[%&#+]/g;
 
 export interface DecoCdnOptions {
   /** The CDN host. Default "assets.decocms.com"; "decoims.com", "deco-assets.edgedeco.com" also serve it. */
@@ -101,7 +110,28 @@ function stripScheme(domain: string): string {
   return domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 }
 
-/** The Deco image CDN (`https://<domain>/image?fit=&width=…&src=`). */
+/**
+ * The `src` an already-resized Deco CDN URL (`https://<cdn>/image?…&src=…`)
+ * was made from, as the CDN reads it (query-decoded); null for any other URL.
+ */
+function decoImageSource(src: string, hosts: Set<string>): string | null {
+  if (!/^https?:\/\//i.test(src) || !/\/image\?/i.test(src)) return null;
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return null;
+  }
+  if (!hosts.has(url.hostname) || url.pathname !== "/image") return null;
+  const inner = url.searchParams.get("src");
+  return inner ? inner : null;
+}
+
+/**
+ * The Deco image CDN (`https://<domain>/image?fit=&width=…&src=`). An
+ * already-resized Deco CDN URL (any of its hosts' `/image?…&src=`) is
+ * re-resized from its `src`.
+ */
 export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
   const domain = stripScheme(o.domain ?? "assets.decocms.com");
   const legacy = (o.legacyHosts ?? (CLOUDFLARE_DECO_CDNS.has(domain) ? ["decoims.com"] : []))
@@ -115,6 +145,7 @@ export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
   ];
   const sources = o.sources ?? "deco";
   const layout = o.layout ?? "src-last";
+  const imageHosts = new Set([...DECO_IMAGE_HOSTS, domain, ...legacy]);
 
   return {
     name: "deco",
@@ -122,9 +153,20 @@ export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
     match(src) {
       if (typeof sources === "function") return sources(src);
       if (sources === "all") return src.length > 0 && !src.startsWith("data:");
-      return decoPrefixes.some((p) => src.startsWith(p));
+      return (
+        decoPrefixes.some((p) => src.startsWith(p)) || decoImageSource(src, imageHosts) !== null
+      );
     },
     format(src, r) {
+      // An already-resized Deco CDN URL is re-resized from the src it was made
+      // from (nested ones too); before, `src=` got the CDN URL's own path
+      // ("image") and the CDN answered 404.
+      let unwrapped = false;
+      for (let inner = decoImageSource(src, imageHosts), i = 0; inner !== null && i < 8; i++) {
+        src = inner;
+        unwrapped = true;
+        inner = decoImageSource(src, imageHosts);
+      }
       let source =
         o.stripAssetHosts === "leading"
           ? src.replace(LEADING_ASSET_HOST, "")
@@ -133,6 +175,7 @@ export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
       for (const host of [...legacy, domain]) {
         if (source.startsWith(`https://${host}/`)) source = source.slice(host.length + 9);
       }
+      if (unwrapped) source = source.replace(QUERY_UNSAFE, encodeURIComponent);
       const quality = typeof r.quality === "string" ? r.quality : o.quality;
       const params = new URLSearchParams();
       params.set("fit", r.fit ?? o.fit ?? "cover");
