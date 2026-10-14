@@ -25,14 +25,26 @@ async function previews(
   policy: PreviewPolicy & { cms?: ReturnType<typeof testCMS> },
   host: string,
 ): Promise<boolean> {
-  const { cms = testCMS(), ...rest } = policy;
+  const { cms = testCMS(snapshot()), ...rest } = policy;
   return (await allowedDraft(cms, link(host), { site: "acme", ...rest })) === POINTER;
 }
 
 describe("the draft host allowlist (v7's)", () => {
-  it("with no preview hosts in the CMS block, every host previews (blocks' default, unchanged)", async () => {
+  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, not blocks' every host)", async () => {
+    expect((await testCMS(snapshot()).settings()).preview.hosts).toEqual(["*"]); // blocks' own default stays
     for (const host of ["store.example.com", "www.store.example.com", "localhost:3000"]) {
+      expect(await previews({}, host), host).toBe(false);
+    }
+    for (const host of ["acme.deco.site", "acme.deco-cx.workers.dev"]) {
       expect(await previews({}, host), host).toBe(true);
+    }
+    expect(await previews({ previewHosts: ["localhost:3000"] }, "localhost:3000")).toBe(true);
+  });
+
+  it('a CMS block that declares "*" previews on every host', async () => {
+    const cms = testCMS(snapshot({ previewHosts: ["*"] }));
+    for (const host of ["store.example.com", "localhost:3000", "acme.deco.site"]) {
+      expect(await previews({ cms }, host), host).toBe(true);
     }
   });
 
@@ -104,7 +116,11 @@ describe("the draft host allowlist (v7's)", () => {
 describe("isDraftPreviewEnabled (v7's): whether a page may read the request at all", () => {
   it("off only for the kill switch, or with no host anywhere", async () => {
     const none = testCMS(snapshot({ previewHosts: [] }));
-    expect(await isDraftPreviewEnabled(testCMS(), {})).toBe(true); // the CMS block: every host
+    const undeclared = testCMS(snapshot());
+    expect(await isDraftPreviewEnabled(undeclared, {})).toBe(false); // v7: no list, no site, no previews
+    expect(await isDraftPreviewEnabled(undeclared, { site: "acme" })).toBe(true);
+    expect(await isDraftPreviewEnabled(testCMS(snapshot({ previewHosts: ["*"] })), {})).toBe(true);
+    expect(await isDraftPreviewEnabled(testCMS(), {})).toBe(true); // declares shop.example.com
     expect(await isDraftPreviewEnabled(none, {})).toBe(false);
     expect(await isDraftPreviewEnabled(none, { site: "acme" })).toBe(true);
     expect(await isDraftPreviewEnabled(none, { previewHosts: ["localhost:3000"] })).toBe(true);
@@ -145,7 +161,7 @@ describe("reading the request", () => {
   });
 
   it("the draft cookie is the one cms.draftCookie writes", async () => {
-    const cms = testCMS();
+    const cms = testCMS(snapshot({ previewHosts: ["*"] }));
     const set = await cms.draftCookie(link("s.example.com"));
     expect(draftCookie(encodeURIComponent(POINTER))).toBe(set);
     const off = await cms.draftCookie(new Request("https://s.example.com/?__draft=off"));

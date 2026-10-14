@@ -51,7 +51,7 @@ function firstParam(searchParams: SearchParams | undefined, key: string): string
  * without reading the request, so a static page stays static.
  */
 export async function bindDraft(
-  cms: Pick<CMS, "draftPointer" | "settings">,
+  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
   options: BindDraftOptions = {},
 ): Promise<boolean> {
   const { searchParams, ...policy } = options;
