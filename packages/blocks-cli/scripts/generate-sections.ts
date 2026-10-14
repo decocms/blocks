@@ -13,6 +13,8 @@
  *   - export const clientOnly = true  → registerSection with clientOnly
  *   - export const seo = true         → registerSeoSections
  *   - export function LoadingFallback → registerSection with loadingFallback
+ *     (`export { LoadingFallback } from "./x"` is followed: the generated file imports it from
+ *     `./x`, so the section module itself stays out of the eager client bundle)
  *
  * Emits sections.gen.ts with metadata + sync imports for sections marked sync=true.
  *
@@ -88,6 +90,25 @@ function extractFallbackProps(content: string): string[] | null {
   if (!match) return null;
   const props = [...match[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
   return props.length > 0 ? props : null;
+}
+
+// `export { LoadingFallback } from "./x"` / `export { Foo as LoadingFallback } from "./x"` /
+// `export { default as LoadingFallback } from "./x"`. When a section re-exports its fallback from
+// a small sibling module, the generated file imports it from THERE. Importing it from the section
+// module would put the whole section (and everything it imports) in the eager client bundle,
+// because the bundler can't split one module per export.
+const FALLBACK_REEXPORT_FROM_RE = /export\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+
+function extractFallbackSource(content: string): { spec: string; name: string } | null {
+  for (const m of content.matchAll(FALLBACK_REEXPORT_FROM_RE)) {
+    for (const part of m[1].split(",")) {
+      const spec = part.trim().match(/^(?:(\w+)\s+as\s+)?(\w+)$/);
+      if (spec && spec[2] === "LoadingFallback") {
+        return { spec: m[2], name: spec[1] ?? "LoadingFallback" };
+      }
+    }
+  }
+  return null;
 }
 
 function hasLoadingFallbackExport(content: string): boolean {
@@ -178,14 +199,31 @@ if (!fs.existsSync(sectionsDir)) {
 }
 
 const sectionFiles = walkDir(sectionsDir);
-const entries: Array<{ key: string; meta: SectionMeta; filePath: string }> = [];
+const entries: Array<{
+  key: string;
+  meta: SectionMeta;
+  filePath: string;
+  /** Where to import LoadingFallback from when the section re-exports it (see extractFallbackSource). */
+  fallbackSource?: { spec: string; name: string };
+}> = [];
 
 for (const filePath of sectionFiles) {
   const content = fs.readFileSync(filePath, "utf-8");
   const meta = extractMeta(content);
   if (!meta) continue;
   const key = fileToSectionKey(filePath, sectionsDir);
-  entries.push({ key, meta, filePath });
+  const fb = meta.hasLoadingFallback ? extractFallbackSource(content) : null;
+  // Relative specifiers are relative to the section file: re-anchor them to the generated file.
+  // Aliases / bare specifiers resolve the same from anywhere.
+  const fallbackSource = fb
+    ? {
+        name: fb.name,
+        spec: fb.spec.startsWith(".")
+          ? relativeImportPath(outFile, path.resolve(path.dirname(filePath), fb.spec))
+          : fb.spec,
+      }
+    : undefined;
+  entries.push({ key, meta, filePath, fallbackSource });
 }
 
 const syncEntries = entries.filter((e) => e.meta.sync);
@@ -221,8 +259,9 @@ for (let i = 0; i < syncEntries.length; i++) {
 const nonSyncFallbacks = fallbackEntries.filter((e) => !e.meta.sync);
 for (let i = 0; i < nonSyncFallbacks.length; i++) {
   const e = nonSyncFallbacks[i];
-  const importPath = relativeImportPath(outFile, e.filePath);
-  lines.push(`import { LoadingFallback as _fb${i} } from "${importPath}";`);
+  const importPath = e.fallbackSource?.spec ?? relativeImportPath(outFile, e.filePath);
+  const imported = e.fallbackSource?.name ?? "LoadingFallback";
+  lines.push(`import { ${imported} as _fb${i} } from "${importPath}";`);
 }
 
 // renderJson projection-function imports — sections whose renderJson is a

@@ -464,3 +464,90 @@ describe("generate-sections output hygiene (non-registry)", () => {
     expect(generated.endsWith("\n\n")).toBe(false);
   }, 30_000);
 });
+
+describe("generate-sections LoadingFallback import source", () => {
+  let tmpDir: string;
+  let sectionsDir: string;
+  let outFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "generate-sections-fallback-"));
+    sectionsDir = path.join(tmpDir, "sections");
+    outFile = path.join(tmpDir, "out", "sections.gen.ts");
+    fs.mkdirSync(sectionsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const generate = () => {
+    const { code, stderr } = runGenerator(["--sections-dir", sectionsDir, "--out-file", outFile]);
+    expect(code, stderr).toBe(0);
+    return fs.readFileSync(outFile, "utf-8");
+  };
+
+  it("imports an inline LoadingFallback from the section module (unchanged behavior)", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      "export const LoadingFallback = () => null;\nexport default function Hero() { return null; }\n",
+    );
+    const generated = generate();
+    expect(generated).toContain('import { LoadingFallback as _fb0 } from "../sections/Hero";');
+  });
+
+  it("imports a re-exported LoadingFallback from its own module, re-anchored to the generated file, so the section stays out of the eager graph", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      [
+        'export { LoadingFallback } from "../fallbacks/Hero";',
+        "export default function Hero() { return null; }",
+        "",
+      ].join("\n"),
+    );
+    const generated = generate();
+    // sections/ and out/ are siblings under tmpDir, so ../fallbacks resolves the same from both.
+    expect(generated).toContain('import { LoadingFallback as _fb0 } from "../fallbacks/Hero";');
+    expect(generated).not.toContain('from "../sections/Hero"');
+    expect(generated).toMatch(/"site\/sections\/Hero\.tsx": _fb0,/);
+    expect(generated).toMatch(/"site\/sections\/Hero\.tsx": \{ hasLoadingFallback: true \}/);
+  });
+
+  it("re-anchors a relative specifier that is relative to the section file, not the generated file", () => {
+    fs.mkdirSync(path.join(sectionsDir, "Home"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sectionsDir, "Home", "Hero.tsx"),
+      'export { LoadingFallback } from "./HeroFallback";\nexport default function Hero() { return null; }\n',
+    );
+    const generated = generate();
+    expect(generated).toContain('import { LoadingFallback as _fb0 } from "../sections/Home/HeroFallback";');
+  });
+
+  it("follows `X as LoadingFallback` and `default as LoadingFallback`, and keeps alias specifiers verbatim", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "A.tsx"),
+      'export { HeroSkeleton as LoadingFallback } from "~/fallbacks/A";\nexport default function A() { return null; }\n',
+    );
+    fs.writeFileSync(
+      path.join(sectionsDir, "B.tsx"),
+      'export { default as LoadingFallback } from "~/fallbacks/B";\nexport default function B() { return null; }\n',
+    );
+    const generated = generate();
+    expect(generated).toContain('import { HeroSkeleton as _fb0 } from "~/fallbacks/A";');
+    expect(generated).toContain('import { default as _fb1 } from "~/fallbacks/B";');
+  });
+
+  it("ignores re-exports of other names and falls back to the section module", () => {
+    fs.writeFileSync(
+      path.join(sectionsDir, "Hero.tsx"),
+      [
+        'export { Other } from "../other";',
+        "export const LoadingFallback = () => null;",
+        "export default function Hero() { return null; }",
+        "",
+      ].join("\n"),
+    );
+    const generated = generate();
+    expect(generated).toContain('import { LoadingFallback as _fb0 } from "../sections/Hero";');
+  });
+});
