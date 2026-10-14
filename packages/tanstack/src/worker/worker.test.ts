@@ -106,12 +106,12 @@ describe("always on: security headers and Studio framing", () => {
       csp: {
         enforce: ["default-src 'self'", "object-src 'none'"],
         reportOnly: "script-src 'self'; img-src https:",
-        frameAncestors: ["https://*.emarsys.net"],
+        frameAncestors: ["https://*.editor.example.com"],
       },
     });
     const res = await get("/");
     expect(res.headers.get("content-security-policy")).toBe(
-      "default-src 'self'; object-src 'none'; frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio https://*.emarsys.net",
+      "default-src 'self'; object-src 'none'; frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio https://*.editor.example.com",
     );
     expect(res.headers.get("content-security-policy-report-only")).toBe(
       "script-src 'self'; img-src https:",
