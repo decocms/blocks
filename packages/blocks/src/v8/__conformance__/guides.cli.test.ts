@@ -577,7 +577,10 @@ describe("tanstack-start guides", () => {
     expect(vite).toContain(
       'cloudflare({ viteEnvironment: { name: "ssr" } }), tanstackStart(), react()',
     );
-    expect(vite).not.toMatch(/@decocms\//);
+    // The one deco piece is the dev-only content reload plugin ("Edit in the site editor").
+    expect(vite).toContain('import { decoContent } from "@decocms/blocks/vite";');
+    expect(vite).toContain("decoContent()");
+    expect(vite.match(/@decocms\/[\w/-]+/g)).toEqual(["@decocms/blocks/vite"]);
     const wrangler = fs.readFileSync(path.join(ex, "wrangler.jsonc"), "utf8");
     expect(wrangler).toContain('"main": "@tanstack/react-start/server-entry"');
     expect(wrangler).toContain('"nodejs_compat", "no_handle_cross_request_promise_resolution"');

@@ -53,6 +53,16 @@
 			"source": "./src/v8/secrets.ts",
 			"default": "./dist/v8/secrets.js"
 		},
+		"./vite": {
+			"types": "./dist/v8/vite/index.d.ts",
+			"source": "./src/v8/vite/index.ts",
+			"default": "./dist/v8/vite/index.js"
+		},
+		"./vite/hot": {
+			"types": "./dist/v8/vite/hot.d.ts",
+			"source": "./src/v8/vite/hot.ts",
+			"default": "./dist/v8/vite/hot.js"
+		},
 		"./protocol": {
 			"types": "./dist/protocol/index.d.ts",
 			"source": "./src/protocol/index.ts",
@@ -98,14 +108,21 @@
 	},
 	"peerDependencies": {
 		"react": "^19.0.0",
-		"typescript": "^5.0.0"
+		"typescript": "^5.0.0",
+		"vite": ">=6.0.0"
+	},
+	"peerDependenciesMeta": {
+		"vite": {
+			"optional": true
+		}
 	},
 	"devDependencies": {
 		"@opentelemetry/api": "^1.9.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"esbuild": "^0.27.3",
-		"react-dom": "^19.0.0"
+		"react-dom": "^19.0.0",
+		"vite": "^8.0.1"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org",
