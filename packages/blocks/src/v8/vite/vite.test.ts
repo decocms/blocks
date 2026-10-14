@@ -1,13 +1,21 @@
 // @vitest-environment node
 /**
  * `decoContent()` (`@decocms/blocks/vite`) and `adoptContent`: in `vite dev`,
- * a saved block reaches the CMS without re-running the module that created
- * it, and open pages reload only after that.
+ * the module that imports the content module accepts its updates, a saved
+ * block reaches the CMS without re-running any module, and open pages reload
+ * only after that.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adoptContent, createCMS, instanceOf, resetForTests } from "../cms";
 import type { Snapshot } from "../types";
-import { CONTENT_UPDATED_EVENT, contentModuleFooter, decoContent, isContentModule } from "./index";
+import {
+  acceptedSpecifiers,
+  CONTENT_UPDATED_EVENT,
+  decoContent,
+  importerFooter,
+  isContentModule,
+  staticImports,
+} from "./index";
 
 beforeEach(() => resetForTests());
 afterEach(() => {
@@ -69,12 +77,9 @@ describe("decoContent", () => {
     code: string,
     id: string,
     options?: { ssr?: boolean },
-  ) => { code: string; map: null } | null;
+  ) => Promise<{ code: string; map: null } | null>;
   const plugin = decoContent();
   const transform = plugin.transform as unknown as Transform;
-  const server = { environment: { config: { consumer: "server" } } };
-  const client = { environment: { config: { consumer: "client" } } };
-  const source = "const content = {};\nexport default content;\n";
 
   it("runs only in vite dev", () => {
     expect(plugin.apply).toBe("serve");
@@ -101,30 +106,97 @@ describe("decoContent", () => {
     expect(isContentModule("/site/node_modules/x/.deco/blocks.gen.ts")).toBe(false);
   });
 
-  it("appends the footer to the content module in a server environment only", () => {
-    const id = "/site/.deco/blocks.gen.ts";
-    expect(transform.call(server, source, id)).toEqual({
-      code: source + contentModuleFooter(),
-      map: null,
-    });
-    expect(transform.call(client, source, id)).toBeNull();
-    expect(transform.call(server, source, "/site/src/cms.ts")).toBeNull();
-    // Without the Environment API (no this.environment), the ssr flag decides.
-    expect(transform.call({}, source, id, { ssr: true })?.code).toBe(
-      source + contentModuleFooter(),
-    );
-    expect(transform.call({}, source, id, { ssr: false })).toBeNull();
+  it("reads static imports and re-exports, not dynamic imports", () => {
+    const code = [
+      'import content from "../.deco/blocks.gen";',
+      "import { a,\n  b } from './x.ts';",
+      'import * as all from "~/y";',
+      'import "./side-effect";',
+      'export { c } from "./z";',
+      'const later = import("./dynamic");',
+      "const meta = import.meta.env;",
+    ].join("\n");
+    expect(staticImports(code)).toEqual([
+      "../.deco/blocks.gen",
+      "./x.ts",
+      "~/y",
+      "./side-effect",
+      "./z",
+    ]);
   });
 
-  it("the footer accepts its own update, adopts the new module, then sends the event", () => {
-    const footer = contentModuleFooter();
+  it("reads the dependencies a module accepts by hand", () => {
+    expect(acceptedSpecifiers('import.meta.hot.accept("../.deco/blocks.gen", (n) => n);')).toEqual([
+      "../.deco/blocks.gen",
+    ]);
+    expect(acceptedSpecifiers("hot.accept(['./a', \"./b\"], cb)")).toEqual(["./a", "./b"]);
+    expect(acceptedSpecifiers("import.meta.hot.accept((next) => next)")).toEqual([]);
+  });
+
+  describe("transform", () => {
+    const gen = "/site/.deco/blocks.gen.ts";
+    // A resolver like Vite's: relative, aliased and extensionless forms of the content module.
+    const resolve = vi.fn(async (specifier: string) => {
+      if (/(^|\/)\.deco\/blocks\.gen(\.ts)?$/.test(specifier) || specifier === "@content") {
+        return { id: gen, external: false };
+      }
+      if (specifier === "missing") return null;
+      return { id: `/site/src/${specifier.replace(/^\W+/, "")}.ts`, external: false };
+    });
+    const ctx = (consumer?: string) => ({
+      environment: consumer ? { config: { consumer } } : undefined,
+      resolve,
+    });
+    const site =
+      'import { createCMS } from "@decocms/blocks";\nimport content from "../.deco/blocks.gen";\n';
+
+    it("makes an importer of the content module accept its updates, in a server environment", async () => {
+      expect(await transform.call(ctx("server"), site, "/site/src/cms.ts")).toEqual({
+        code: site + importerFooter("../.deco/blocks.gen"),
+        map: null,
+      });
+      for (const specifier of ["~/.deco/blocks.gen", "../.deco/blocks.gen.ts", "@content"]) {
+        const code = `import content from ${JSON.stringify(specifier)};\n`;
+        expect((await transform.call(ctx("server"), code, "/site/src/cms.ts"))?.code).toBe(
+          code + importerFooter(specifier),
+        );
+      }
+      // Without the Environment API (no this.environment), the ssr flag decides.
+      expect((await transform.call(ctx(), site, "/site/src/cms.ts", { ssr: true }))?.code).toBe(
+        site + importerFooter("../.deco/blocks.gen"),
+      );
+      expect(await transform.call(ctx(), site, "/site/src/cms.ts", { ssr: false })).toBeNull();
+    });
+
+    it("leaves the client, the content module itself, dependencies and other modules alone", async () => {
+      expect(await transform.call(ctx("client"), site, "/site/src/cms.ts")).toBeNull();
+      expect(await transform.call(ctx("server"), "export default {};\n", gen)).toBeNull();
+      expect(await transform.call(ctx("server"), site, "/site/node_modules/x/cms.js")).toBeNull();
+      expect(await transform.call(ctx("server"), site, "/site/src/style.css")).toBeNull();
+      const other = 'import { x } from "./x";\nimport y from "missing";\n';
+      expect(await transform.call(ctx("server"), other, "/site/src/a.ts")).toBeNull();
+    });
+
+    it("leaves a module that accepts the content module's updates by hand as it is", async () => {
+      const legacy = `${site}if (import.meta.hot) {\n  import.meta.hot.accept("../.deco/blocks.gen", () => {});\n}\n`;
+      expect(await transform.call(ctx("server"), legacy, "/site/src/cms.ts")).toBeNull();
+      // Accepting something else doesn't count.
+      const unrelated = `${site}import.meta.hot?.accept("./x", () => {});\n`;
+      expect((await transform.call(ctx("server"), unrelated, "/site/src/cms.ts"))?.code).toBe(
+        unrelated + importerFooter("../.deco/blocks.gen"),
+      );
+    });
+  });
+
+  it("the footer accepts the import's update, adopts the new module, then sends the event", () => {
+    const footer = importerFooter("../.deco/blocks.gen");
     expect(footer).toContain('from "@decocms/blocks/vite/hot"');
-    expect(footer).toContain("import.meta.hot.accept((next) =>");
+    expect(footer).toContain('import.meta.hot.accept("../.deco/blocks.gen", (next) =>');
     const adopt = footer.indexOf("__decoAdoptContent(next.default)");
     const send = footer.indexOf(`import.meta.hot?.send(${JSON.stringify(CONTENT_UPDATED_EVENT)})`);
     expect(adopt).toBeGreaterThan(0);
     expect(send).toBeGreaterThan(adopt);
-    // Appended: the generated lines keep their positions.
+    // Appended: the module's lines keep their positions.
     expect(footer.startsWith("\n")).toBe(true);
   });
 

@@ -1,10 +1,12 @@
 // @vitest-environment node
 /**
- * `decoContent()` in a real `vite dev` server with an SSR environment: a
- * rewritten `.deco/blocks.gen.ts` goes into the CMS the site created, the
- * module that created it doesn't run again (not even an old `cms.ts` accept
- * callback), and open pages get `full-reload` only once the new content is
- * what a request reads.
+ * `decoContent()` in a real `vite dev` server with an SSR environment that,
+ * like TanStack Start, imports its server entry again on every request: a
+ * rewritten `.deco/blocks.gen.ts` goes into the CMS the site created, neither
+ * the module that created it nor anything above it runs again, and open pages
+ * get `full-reload` once per save, only once the new content is what a
+ * request reads. A site that still accepts the content module by hand keeps
+ * its own code.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -13,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { createServer, type RunnableDevEnvironment, type ViteDevServer } from "vite";
 import { afterEach, expect, it } from "vitest";
 import { resetForTests } from "../cms";
+import type { CMS } from "../types";
 import { decoContent } from "./index";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,18 +31,33 @@ const content = {
 export default content;
 `;
 
-// A site's src/cms.ts, still carrying the template code decoContent() replaces:
-// its accept callback must not run once the content module accepts itself.
+type Counters = { cms: number; entry: number; legacyAccepts: number };
+const counters = () => (globalThis as { __decoTest?: Counters }).__decoTest;
+
+// A site's src/cms.ts: creates the CMS over the content module, imported with
+// an alias and no extension.
 const cmsModule = `import { createCMS } from "@decocms/blocks";
-import content from "./.deco/blocks.gen";
-const counters = (globalThis.__decoTest ??= { runs: 0, legacyAccepts: 0 });
-counters.runs++;
+import content from "~/.deco/blocks.gen";
+const counters = (globalThis.__decoTest ??= { cms: 0, entry: 0, legacyAccepts: 0 });
+counters.cms++;
 export const cms = createCMS({ blocks: { seo: (props) => props }, content });
+`;
+
+// The same file as sites carried it before decoContent(): its own accept.
+const legacyCmsModule = `${cmsModule}
 if (import.meta.hot) {
-  import.meta.hot.accept("./.deco/blocks.gen", () => {
+  import.meta.hot.accept("~/.deco/blocks.gen", (next) => {
     counters.legacyAccepts++;
+    if (next) createCMS({ blocks: { seo: (props) => props }, content: next.default });
   });
 }
+`;
+
+// The server entry (TanStack Start's router entry, routeTree.gen, …) above it.
+const entryModule = `import { cms } from "./cms";
+const counters = globalThis.__decoTest;
+counters.entry++;
+export { cms };
 `;
 
 let server: ViteDevServer | undefined;
@@ -54,13 +72,14 @@ afterEach(async () => {
   resetForTests();
 });
 
-it("adopts the rewritten content module, then sends full-reload to the client", async () => {
+async function start(cms: string) {
   resetForTests();
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "decocms-vite-"));
   fs.mkdirSync(path.join(dir, ".deco"));
   const genFile = path.join(dir, ".deco", "blocks.gen.ts");
   fs.writeFileSync(genFile, contentModule("one"));
-  fs.writeFileSync(path.join(dir, "cms.ts"), cmsModule);
+  fs.writeFileSync(path.join(dir, "cms.ts"), cms);
+  fs.writeFileSync(path.join(dir, "entry.ts"), entryModule);
 
   server = await createServer({
     root: dir,
@@ -73,38 +92,94 @@ it("adopts the rewritten content module, then sends full-reload to the client", 
       alias: [
         { find: /^@decocms\/blocks\/vite\/hot$/, replacement: path.join(src, "v8/vite/hot.ts") },
         { find: /^@decocms\/blocks$/, replacement: path.join(src, "index.ts") },
+        { find: /^~\//, replacement: `${dir}/` },
       ],
     },
     plugins: [decoContent()],
   });
 
   const ssr = server.environments.ssr as RunnableDevEnvironment;
-  type Site = { cms: import("../types").CMS };
-  const site = (await ssr.runner.import(path.join(dir, "cms.ts"))) as Site;
-  expect(await site.cms.forRelease().resolve("S")).toEqual([{ title: "one" }, null]);
+  const entry = path.join(dir, "entry.ts");
+  // One request: the entry imported again, as TanStack Start does in dev.
+  const request = async () => {
+    const site = (await ssr.runner.import(entry)) as { cms: CMS };
+    return site.cms.forRelease().resolve("S");
+  };
 
-  // What a request reads at the moment open pages are told to reload.
-  const reloaded = new Promise<unknown>((resolve) => {
-    const client = server!.environments.client.hot;
-    const send = client.send.bind(client);
-    client.send = ((payload: unknown, ...rest: unknown[]) => {
-      if ((payload as { type?: string })?.type === "full-reload") {
-        resolve(site.cms.forRelease().resolve("S"));
-      }
-      return (send as (...args: unknown[]) => void)(payload, ...rest);
-    }) as typeof client.send;
-  });
+  // What a request reads each time open pages are told to reload.
+  const reloads: unknown[] = [];
+  let onReload: (() => void) | undefined;
+  const client = server.environments.client.hot;
+  const send = client.send.bind(client);
+  client.send = ((payload: unknown, ...rest: unknown[]) => {
+    if ((payload as { type?: string })?.type === "full-reload") {
+      reloads.push(request());
+      onReload?.();
+    }
+    return (send as (...args: unknown[]) => void)(payload, ...rest);
+  }) as typeof client.send;
+  const nextReload = () =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("no full-reload in 15s")), 15_000);
+      onReload = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
 
-  fs.writeFileSync(genFile, contentModule("two"));
-  const atReload = await Promise.race([
-    reloaded,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("no full-reload in 15s")), 15_000),
-    ),
+  return { genFile, request, reloads, nextReload, ssr };
+}
+
+it("adopts each save in the importer: no module re-runs, one full-reload per save", async () => {
+  const { genFile, request, reloads, nextReload, ssr } = await start(cmsModule);
+  expect(await request()).toEqual([{ title: "one" }, null]);
+
+  // The importer, not the content module, accepts the update.
+  const cmsCode = (await ssr.transformRequest(path.join(dir!, "cms.ts")))?.code ?? "";
+  expect(cmsCode.match(/\.hot\.accept\(/g)).toHaveLength(1);
+  const genCode = (await ssr.transformRequest(genFile))?.code ?? "";
+  expect(genCode).not.toContain(".hot.accept(");
+
+  for (const title of ["two", "three", "four"]) {
+    const reloaded = nextReload();
+    fs.writeFileSync(genFile, contentModule(title));
+    await reloaded;
+    // Requests between saves, as an open page makes them.
+    expect(await request()).toEqual([{ title }, null]);
+    expect(await request()).toEqual([{ title }, null]);
+  }
+
+  expect(await Promise.all(reloads)).toEqual([
+    [{ title: "two" }, null],
+    [{ title: "three" }, null],
+    [{ title: "four" }, null],
   ]);
+  // Regression: with the content module accepting itself, every module above it
+  // went stale and ran again on the next request (TanStack Start's 500s).
+  expect(counters()).toEqual({ cms: 1, entry: 1, legacyAccepts: 0 });
+}, 60_000);
 
-  expect(atReload).toEqual([{ title: "two" }, null]);
-  const counters = (globalThis as { __decoTest?: { runs: number; legacyAccepts: number } })
-    .__decoTest;
-  expect(counters).toEqual({ runs: 1, legacyAccepts: 0 });
-}, 30_000);
+it("leaves a module that accepts the content module by hand as it is", async () => {
+  const { genFile, request, nextReload, ssr } = await start(legacyCmsModule);
+  expect(await request()).toEqual([{ title: "one" }, null]);
+
+  const cmsCode = (await ssr.transformRequest(path.join(dir!, "cms.ts")))?.code ?? "";
+  expect(cmsCode.match(/\.hot\.accept\(/g)).toHaveLength(1);
+  expect(cmsCode).not.toContain("decoContent()");
+
+  // Its own callback runs (its own reload plugin reloads pages); the plugin sends nothing.
+  let reloaded = false;
+  nextReload().then(
+    () => (reloaded = true),
+    () => {},
+  );
+  fs.writeFileSync(genFile, contentModule("two"));
+  const deadline = Date.now() + 15_000;
+  while (counters()?.legacyAccepts !== 1 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  expect(await request()).toEqual([{ title: "two" }, null]);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(reloaded).toBe(false);
+  expect(counters()).toEqual({ cms: 1, entry: 1, legacyAccepts: 1 });
+}, 60_000);
