@@ -3,13 +3,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isStudioOrigin, STUDIO_ORIGINS } from "../studio.ts";
 import { buildExitUrl, buildShareUrl, DraftBadge, isFramed } from "./DraftBadge.tsx";
 import { StudioBridge, type StudioBridgeProps } from "./StudioBridge.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const POINTER = "shop.example.com/products/shoe@v1";
+
+/** What a binding passes as `trustedOrigins`: Studio's origins (blocks holds no list of its own). */
+const STUDIO = [
+  "https://studio.decocms.com",
+  "https://studio-stg.decocms.com",
+  "https://decocms.com",
+  "https://*.decocms.com",
+];
 
 describe("DraftBadge links", () => {
   it("share pins the exact draft version and keeps the other parameters", () => {
@@ -182,9 +189,9 @@ describe("StudioBridge", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders one static script; its settings are attributes, with Studio's origins", () => {
+  it("renders one static script; its settings are attributes, with exactly the origins it was given", () => {
     const html = renderToStaticMarkup(
-      <StudioBridge site="shop" nonce="n0" trustedOrigins={["http://localhost:4000"]} />,
+      <StudioBridge site="shop" nonce="n0" trustedOrigins={[...STUDIO, "http://localhost:4000"]} />,
     );
     const host = document.createElement("div");
     host.innerHTML = html;
@@ -194,27 +201,31 @@ describe("StudioBridge", () => {
     expect(script.getAttribute("nonce")).toBe("n0");
     expect(script.hasAttribute("data-shortcut")).toBe(false);
     expect(JSON.parse(script.getAttribute("data-origins") ?? "")).toEqual([
-      ...STUDIO_ORIGINS,
+      ...STUDIO,
       "http://localhost:4000",
     ]);
     // Site values never reach the script body.
-    const other = renderToStaticMarkup(<StudioBridge site="other" />);
+    const other = renderToStaticMarkup(
+      <StudioBridge site="other" trustedOrigins={[...STUDIO, "http://localhost:4000"]} />,
+    );
     expect(other.slice(other.indexOf(">"))).toBe(html.slice(html.indexOf(">")));
   });
 
   it("escapes a site name in the attribute", () => {
-    const html = renderToStaticMarkup(<StudioBridge site={'"><script>x</script>'} />);
+    const html = renderToStaticMarkup(
+      <StudioBridge site={'"><script>x</script>'} trustedOrigins={STUDIO} />,
+    );
     expect(html).not.toContain("<script>x");
   });
 
   it("runs Studio's editor::inject in a frame, the way Studio v8 sends it", () => {
-    unmount = mountBridge({ site: "shop" }, true);
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     post(injectProbe("studio"), "https://studio.decocms.com");
     expect(probe()).toEqual(["studio"]);
   });
 
-  it("answers exactly the origins isStudioOrigin accepts", () => {
-    unmount = mountBridge({ site: "shop" }, true);
+  it("answers exactly the origins Studio's list matches: https, default port, decocms.com or a name under it", () => {
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     const origins = [
       "https://studio.decocms.com",
       "https://studio-stg.decocms.com",
@@ -231,11 +242,22 @@ describe("StudioBridge", () => {
       "",
     ];
     for (const origin of origins) post(injectProbe(origin), origin);
-    expect(probe()).toEqual(origins.filter((o) => isStudioOrigin(o)));
-    expect(probe().length).toBe(4);
+    expect(probe()).toEqual([
+      "https://studio.decocms.com",
+      "https://studio-stg.decocms.com",
+      "https://decocms.com",
+      "https://a.b.decocms.com",
+    ]);
   });
 
-  it("answers trustedOrigins too, exact and wildcard", () => {
+  it("trusts no origin of its own: with an empty list it answers nothing, not even Studio", () => {
+    unmount = mountBridge({ site: "shop", trustedOrigins: [] }, true);
+    post(injectProbe("studio"), "https://studio.decocms.com");
+    post(injectProbe("self"), window.location.origin);
+    expect(probe()).toEqual([]);
+  });
+
+  it("answers any origin it is given, exact and wildcard", () => {
     unmount = mountBridge(
       { site: "shop", trustedOrigins: ["http://localhost:4000", "https://*.studio.test"] },
       true,
@@ -252,20 +274,20 @@ describe("StudioBridge", () => {
   });
 
   it("ignores a Studio-origin message that doesn't come from the parent window", () => {
-    unmount = mountBridge({ site: "shop" }, true);
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     post(injectProbe("self"), "https://studio.decocms.com", window);
     expect(probe()).toEqual([]);
   });
 
   it("does nothing when the page isn't framed", () => {
-    unmount = mountBridge({ site: "shop" }, false);
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
     post(injectProbe("top"), "https://studio.decocms.com", null);
     expect(probe()).toEqual([]);
   });
 
   it("ignores malformed messages and reports a failing script without throwing", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    unmount = mountBridge({ site: "shop" }, true);
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     for (const data of [null, "editor::inject", { type: "editor::inject" }, { type: "other" }]) {
       post(data, "https://studio.decocms.com");
     }
@@ -282,7 +304,7 @@ describe("StudioBridge", () => {
     const section = document.createElement("section");
     section.setAttribute("data-manifest-key", 'site/sections/Hero.tsx"x');
     document.body.appendChild(section);
-    unmount = mountBridge({ site: "shop" }, true);
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     post(
       { type: "scrollToComponent", args: { id: 'site/sections/Hero.tsx"x' } },
       "https://decocms.com",
@@ -293,8 +315,8 @@ describe("StudioBridge", () => {
   });
 
   it("runs once when rendered twice", () => {
-    unmount = mountBridge({ site: "shop" }, true);
-    const second = mountBridge({ site: "shop" }, true);
+    unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
+    const second = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     // The second copy saw the global flag and returned before adding a listener.
     post(injectProbe("once"), "https://studio.decocms.com");
     expect(probe()).toEqual(["once"]);
@@ -310,14 +332,14 @@ describe("StudioBridge", () => {
 
     it("is off by default", () => {
       const open = vi.spyOn(window, "open").mockImplementation(() => null);
-      unmount = mountBridge({ site: "shop" }, false);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
       expect(press({ key: ".", ctrlKey: true }).defaultPrevented).toBe(false);
       expect(open).not.toHaveBeenCalled();
     });
 
     it("Ctrl+. opens the page in Studio's editor chooser, in a new tab", () => {
       const open = vi.spyOn(window, "open").mockImplementation(() => null);
-      unmount = mountBridge({ site: "shop", editShortcut: true }, false);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO, editShortcut: true }, false);
       expect(press({ key: ".", ctrlKey: true }).defaultPrevented).toBe(true);
       const url = new URL(open.mock.calls[0][0] as string);
       expect(url.origin + url.pathname).toBe("https://studio.decocms.com/choose-editor");
@@ -332,7 +354,7 @@ describe("StudioBridge", () => {
 
     it("leaves typing in a field alone", () => {
       const open = vi.spyOn(window, "open").mockImplementation(() => null);
-      unmount = mountBridge({ site: "shop", editShortcut: true }, false);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO, editShortcut: true }, false);
       const input = document.createElement("input");
       document.body.appendChild(input);
       expect(press({ key: ".", ctrlKey: true }, input).defaultPrevented).toBe(false);
@@ -342,7 +364,7 @@ describe("StudioBridge", () => {
 
     it("is never active inside Studio's frame", () => {
       const open = vi.spyOn(window, "open").mockImplementation(() => null);
-      unmount = mountBridge({ site: "shop", editShortcut: true }, true);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO, editShortcut: true }, true);
       expect(press({ key: ".", ctrlKey: true }).defaultPrevented).toBe(false);
       expect(open).not.toHaveBeenCalled();
     });
