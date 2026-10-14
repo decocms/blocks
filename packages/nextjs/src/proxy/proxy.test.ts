@@ -42,12 +42,19 @@ describe("decideDraft", () => {
   });
 
   it("no draft signal never asks the CMS", async () => {
-    const cms = { draftPointer: vi.fn(async () => POINTER) };
+    const real = testCMS();
+    const cms = {
+      draftPointer: vi.fn(async () => POINTER),
+      settings: vi.fn(() => real.settings()),
+      forRelease: vi.fn(() => real.forRelease()),
+    };
     expect(await decideDraft(cms, new NextRequest("https://shop.example.com/shoes?q="))).toEqual({
       pointer: null,
       setCookie: null,
     });
     expect(cms.draftPointer).not.toHaveBeenCalled();
+    expect(cms.settings).not.toHaveBeenCalled();
+    expect(cms.forRelease).not.toHaveBeenCalled();
   });
 
   it("?__draft=off ends the preview on any host, kill switch included", async () => {

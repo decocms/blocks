@@ -39,8 +39,8 @@ export {
   requestLike,
 } from "../drafts.ts";
 
-/** What the proxy needs from the CMS: the preview-host check of the `CMS` block. */
-export type CMSHandle = Pick<CMS, "draftPointer">;
+/** What the proxy needs from the CMS: the site's declared preview hosts and their check. */
+export type CMSHandle = Pick<CMS, "draftPointer" | "settings" | "forRelease">;
 
 /** What the proxy does with a request's draft state. */
 export interface DraftDecision {
