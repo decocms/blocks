@@ -10,7 +10,40 @@ const G = globalThis as unknown as {
   __deco_meta_etag?: string | null;
   __deco_meta_loader?: (() => Promise<MetaResponse>) | null;
   __deco_meta_loading?: Promise<MetaResponse | null> | null;
+  __deco_meta_asset?: MetaAssetRef | null;
+  __deco_meta_asset_fetcher?: MetaAssetFetcher | null;
 };
+
+/**
+ * What the server bundle carries instead of the schema when the binding builds
+ * with `metaAsset` (see `decoVitePlugin`): where the schema was published as a
+ * static asset, and its precomputed ETag. The asset already holds the exact
+ * `{...schema, etag}` body, so it is streamed through without being parsed.
+ */
+interface MetaAssetRef {
+  path: string;
+  etag: string;
+}
+
+/** Fetches a static asset by path; null when there is no way to reach it. */
+type MetaAssetFetcher = (path: string) => Promise<Response | null> | Response | null;
+
+/**
+ * Inject how to read the schema asset. Same dependency-injection shape as the
+ * KV getter in decofile.ts: static assets are a binding concern, and this
+ * package must not import one. `@decocms/tanstack` registers the `ASSETS`
+ * binding; a binding that never publishes the asset never needs to call this.
+ */
+export function setMetaAssetFetcher(fetcher: MetaAssetFetcher | null) {
+  G.__deco_meta_asset_fetcher = fetcher;
+}
+
+function asMetaAssetRef(data: unknown): MetaAssetRef | null {
+  const ref = (data as { __decoMetaAsset?: Partial<MetaAssetRef> } | null)?.__decoMetaAsset;
+  return typeof ref?.path === "string" && typeof ref.etag === "string"
+    ? { path: ref.path, etag: ref.etag }
+    : null;
+}
 
 function getMetaData(): MetaResponse | null {
   return G.__deco_meta_data ?? null;
@@ -71,12 +104,18 @@ export function setMetaLoader(loader: () => Promise<MetaResponse>) {
 async function ensureMetaData(): Promise<MetaResponse | null> {
   const existing = getMetaData();
   if (existing) return existing;
+  if (G.__deco_meta_asset) return null;
 
   const loader = G.__deco_meta_loader;
   if (!loader) return null;
 
   G.__deco_meta_loading ??= loader()
     .then((data) => {
+      const asset = asMetaAssetRef(data);
+      if (asset) {
+        G.__deco_meta_asset = asset;
+        return null;
+      }
       const composed = composeMeta(data);
       setMetaDataInternal(composed);
       setCachedEtag(null);
@@ -118,8 +157,45 @@ function getEtag(): string {
   return etag;
 }
 
+/**
+ * Serve the schema from its static asset. Nothing here reads the body: the
+ * `ReadableStream` goes straight into the `Response`, so the schema never
+ * becomes resident in the isolate — which is the whole point of `metaAsset`.
+ */
+async function serveMetaAsset(request: Request, asset: MetaAssetRef): Promise<Response> {
+  if (request.headers.get("if-none-match") === asset.etag) {
+    return new Response(null, { status: 304, headers: { ETag: asset.etag } });
+  }
+
+  let res: Response | null = null;
+  try {
+    res = (await G.__deco_meta_asset_fetcher?.(asset.path)) ?? null;
+  } catch (err) {
+    console.warn("[deco] admin meta schema asset fetch failed:", err);
+  }
+  if (!res?.ok || !res.body) {
+    return new Response(
+      JSON.stringify({
+        error: "Schema asset unavailable",
+        detail: `could not read ${asset.path} — is the ASSETS binding configured?`,
+      }),
+      { status: 503, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      ETag: asset.etag,
+      "Cache-Control": "must-revalidate",
+    },
+  });
+}
+
 export async function handleMeta(request: Request): Promise<Response> {
   const metaData = await ensureMetaData();
+  if (G.__deco_meta_asset) return serveMetaAsset(request, G.__deco_meta_asset);
   if (!metaData) {
     return new Response(JSON.stringify({ error: "Schema not initialized" }), {
       status: 503,

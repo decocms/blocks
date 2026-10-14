@@ -41,7 +41,8 @@
  * ```
  */
 import { exec, execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -89,6 +90,39 @@ function resolveBuildHash() {
 const META_GEN_PREFIX = "\0deco-meta:";
 const META_GEN_SUFFIX = ".deco-meta.js";
 const metaGenSsrId = (file) => META_GEN_PREFIX + file + META_GEN_SUFFIX;
+
+/**
+ * Turn the raw `meta.gen.json` into the static asset `/live/_meta` serves when
+ * `metaAsset` is on: the exact bytes the admin receives today
+ * (`{...schema, etag}`), plus the ETag the server bundle keeps.
+ *
+ * Only a pre-composed schema qualifies (`framework` set — what generate-schema
+ * writes). A raw one still needs `composeMeta` at runtime, so serving its bytes
+ * verbatim would change what the admin sees; return null and the caller keeps
+ * the in-bundle path.
+ *
+ * The ETag is merged textually rather than via parse+stringify so the asset is
+ * byte-for-byte the file plus one field.
+ *
+ * @param {string} raw
+ * @returns {{ fileName: string, etag: string, payload: string } | null}
+ */
+export function buildMetaAsset(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !parsed.framework) {
+    return null;
+  }
+  const hash = createHash("sha256").update(raw).digest("hex").slice(0, 16);
+  const etag = `"meta-${hash}"`;
+  const trimmed = raw.trimEnd();
+  const payload = `${trimmed.slice(0, -1)},"etag":${JSON.stringify(etag)}}`;
+  return { fileName: `_deco/meta-${hash}.json`, etag, payload };
+}
 
 // Bare-specifier stubs resolved by ID before Vite touches them.
 /** @type {Record<string, string>} */
@@ -220,9 +254,28 @@ function isSeededDeployPipeline() {
  *   it. `true` forces the stub, `false` disables it. A stubbed bundle also
  *   needs `DECO_FAST_DEPLOY=1` and a `DECO_KV` binding at runtime — without
  *   them `ensureBlocksHydrated` fails every request rather than serve `{}`.
+ * @param {boolean} [opts.metaAsset=false] Serve the admin schema (`meta.gen`)
+ *   as a static asset instead of carrying it in the SERVER bundle.
+ *
+ *   The schema is only read by `GET /live/_meta`, yet in the bundle it costs
+ *   roughly four times its size in every isolate: V8 keeps the module source
+ *   and materialises the `JSON.parse` string literal separately, both two-byte
+ *   as soon as the text holds one character above U+00FF. Measured on a
+ *   6 MB schema: 27.9 MB of a 54 MB cold heap.
+ *
+ *   With this on, a production build writes the schema to
+ *   `<client outDir>/_deco/meta-<hash>.json` and the server module becomes a
+ *   tiny `{ __decoMetaAsset: { path, etag } }` marker; `handleMeta` answers
+ *   `If-None-Match` from the ETag and streams the body from the `ASSETS`
+ *   binding. The asset ships in the same upload as the code, so there is no
+ *   seed step and no window where code and schema disagree.
+ *
+ *   Requires an `ASSETS` binding (`"assets": { "binding": "ASSETS", ... }` in
+ *   wrangler.jsonc). Without it `/live/_meta` answers 503 — only the admin is
+ *   affected, the site keeps serving. Dev (`vite dev`) is unchanged.
  * @returns {import("vite").PluginOption}
  */
-export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
+export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) {
   // Resolved once: the pipeline's answer cannot change mid-build.
   const stubBlocks = fastDeploy === "auto" ? isSeededDeployPipeline() : fastDeploy === true;
   // Set from the `config` hook (which Vite always runs before `load`). The
@@ -231,6 +284,12 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
   // the `.json` sibling that the stub bypasses — stubbing there blanks the
   // local site.
   let isBuild = false;
+  // `metaAsset`: the schema asset captured while loading meta.gen on the
+  // server, and where the client build writes its output.
+  /** @type {{ fileName: string, etag: string, payload: string } | null} */
+  let metaAssetFile = null;
+  /** @type {string | null} */
+  let clientOutDir = null;
 
   /** @type {import("vite").Plugin} */
   const plugin = {
@@ -331,6 +390,18 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
         // Virtual id → Vite won't watch the file on its own.
         this.addWatchFile?.(file);
         const raw = readFileSync(file, "utf-8");
+        if (metaAsset && isBuild) {
+          const asset = buildMetaAsset(raw);
+          if (asset) {
+            metaAssetFile = asset;
+            const ref = { __decoMetaAsset: { path: `/${asset.fileName}`, etag: asset.etag } };
+            return `export default ${JSON.stringify(ref)};`;
+          }
+          this.warn?.(
+            `metaAsset: ${file} is not a pre-composed schema (no \`framework\` field) — ` +
+              "keeping it in the server bundle. Regenerate it with generate-schema.",
+          );
+        }
         return `export default JSON.parse(${JSON.stringify(raw)});`;
       }
 
@@ -996,7 +1067,29 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
       }
     },
 
+    configResolved(config) {
+      const outDir = config.environments?.client?.build?.outDir;
+      clientOutDir = outDir ? path.resolve(config.root, outDir) : null;
+    },
+
+    writeBundle() {
+      // The server build runs after the client one, so the schema captured in
+      // `load` is written straight into the client output — the directory
+      // wrangler uploads as static assets. (`generateBundle` below covers the
+      // opposite order.)
+      if (!metaAssetFile || this.environment?.name === "client") return;
+      if (!clientOutDir) {
+        this.error("metaAsset: no client build outDir to write the admin schema to");
+      }
+      const out = path.join(clientOutDir, metaAssetFile.fileName);
+      mkdirSync(path.dirname(out), { recursive: true });
+      writeFileSync(out, metaAssetFile.payload);
+    },
+
     generateBundle(_, bundle) {
+      if (metaAssetFile && this.environment?.name === "client") {
+        this.emitFile({ type: "asset", fileName: metaAssetFile.fileName, source: metaAssetFile.payload });
+      }
       // Build a mapping from section key to chunk filename.
       // Sites use this to emit <link rel="modulepreload"> for eager sections.
       const map = {};

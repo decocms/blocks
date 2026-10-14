@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decoVitePlugin, generateSchemaArgs } from "./plugin.js";
+import { buildMetaAsset, decoVitePlugin, generateSchemaArgs } from "./plugin.js";
 
 /**
  * The Vite plugin's `resolveId` / `load` hooks are pure functions over their
@@ -234,5 +234,87 @@ describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-pars
     expect(p.resolveId.call({}, "../.deco/meta.gen.json", importer, { ssr: false })).toBe(
       "\0stub:meta-gen",
     );
+  });
+});
+
+describe("decoVitePlugin({ metaAsset }) — admin schema as a static asset", () => {
+  // The schema costs ~4x its size per isolate when bundled (source + JSON.parse
+  // literal, two-byte). With metaAsset the server bundle carries only a marker
+  // and the bytes ship as a client asset, served through the ASSETS binding.
+  const COMPOSED = '{"major":1,"framework":"tanstack","schema":{"definitions":{}}}\n';
+  let dir;
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "deco-meta-asset-"));
+    mkdirSync(path.join(dir, ".deco"));
+    mkdirSync(path.join(dir, "src"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function buildPlugin(opts) {
+    const result = decoVitePlugin(opts);
+    const p = Array.isArray(result) ? result[0] : result;
+    p.config({}, { command: "build" });
+    p.configResolved({ root: dir, environments: { client: { build: { outDir: "dist/client" } } } });
+    return p;
+  }
+
+  function loadMeta(p, contents, ctx = {}) {
+    writeFileSync(path.join(dir, ".deco", "meta.gen.json"), contents);
+    const id = p.resolveId.call({}, "../.deco/meta.gen.json", path.join(dir, "src", "setup.ts"), {
+      ssr: true,
+    });
+    return p.load.call(ctx, id, { ssr: true });
+  }
+
+  it("replaces the server module with a tiny marker and writes the asset to the client outDir", () => {
+    const p = buildPlugin({ metaAsset: true });
+    const code = loadMeta(p, COMPOSED);
+    expect(code).not.toContain("JSON.parse");
+    const ref = JSON.parse(code.replace(/^export default /, "").replace(/;$/, "")).__decoMetaAsset;
+    expect(ref.path).toMatch(/^\/_deco\/meta-[0-9a-f]{16}\.json$/);
+
+    p.writeBundle.call({ environment: { name: "ssr" } });
+    const written = JSON.parse(readFileSync(path.join(dir, "dist/client", ref.path), "utf8"));
+    // Same wire format handleMeta always served: the schema plus its ETag.
+    expect(written).toEqual({ ...JSON.parse(COMPOSED), etag: ref.etag });
+  });
+
+  it("emits the asset from the client build too, for the reverse build order", () => {
+    const p = buildPlugin({ metaAsset: true });
+    loadMeta(p, COMPOSED);
+    const emitted = [];
+    p.generateBundle.call(
+      { environment: { name: "client" }, emitFile: (f) => emitted.push(f) },
+      {},
+      {},
+    );
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].fileName).toMatch(/^_deco\/meta-[0-9a-f]{16}\.json$/);
+  });
+
+  it("keeps a raw (not pre-composed) schema in the bundle, with a warning", () => {
+    const p = buildPlugin({ metaAsset: true });
+    const warn = vi.fn();
+    const code = loadMeta(p, '{"major":1,"schema":{}}', { warn });
+    expect(code).toContain("JSON.parse(");
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("is off by default, and off in dev", () => {
+    expect(loadMeta(buildPlugin(), COMPOSED)).toContain("JSON.parse(");
+    const dev = buildPlugin({ metaAsset: true });
+    dev.config({}, { command: "serve" });
+    expect(loadMeta(dev, COMPOSED)).toContain("JSON.parse(");
+  });
+
+  it("buildMetaAsset merges the etag textually and rejects non-objects", () => {
+    const asset = buildMetaAsset(COMPOSED);
+    expect(JSON.parse(asset.payload).etag).toBe(asset.etag);
+    expect(buildMetaAsset("[1]")).toBeNull();
+    expect(buildMetaAsset("not json")).toBeNull();
   });
 });
