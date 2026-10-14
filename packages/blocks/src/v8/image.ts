@@ -129,8 +129,9 @@ function decoImageSource(src: string, hosts: Set<string>): string | null {
 
 /**
  * The Deco image CDN (`https://<domain>/image?fit=&width=…&src=`). An
- * already-resized Deco CDN URL (any of its hosts' `/image?…&src=`) is
- * re-resized from its `src`.
+ * already-resized Deco CDN URL (any of its hosts' `/image?…&src=`) that this
+ * provider resizes (see `sources`) is re-resized from its `src`; before, it
+ * became `src=image` or `src=<cdn>/image`, which the CDN cannot serve.
  */
 export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
   const domain = stripScheme(o.domain ?? "assets.decocms.com");
@@ -153,9 +154,10 @@ export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
     match(src) {
       if (typeof sources === "function") return sources(src);
       if (sources === "all") return src.length > 0 && !src.startsWith("data:");
-      return (
-        decoPrefixes.some((p) => src.startsWith(p)) || decoImageSource(src, imageHosts) !== null
-      );
+      // Only the sources resized before fix 2: a Deco CDN URL this provider
+      // did not match (another CDN host, http, an uppercase host) still passes
+      // through unchanged, as it was served fine.
+      return decoPrefixes.some((p) => src.startsWith(p));
     },
     format(src, r) {
       // An already-resized Deco CDN URL is re-resized from the src it was made
