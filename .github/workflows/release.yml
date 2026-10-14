@@ -46,10 +46,11 @@ on:
   push:
     # 7.x is the maintenance line of the v7 packages since v8 took main.
     # It releases all 17 lockstep @decocms/* packages under the same
-    # blocks-v*.*.* tags, within 7.x (.releaserc.json). @decocms/blocks and
-    # the apps v8 also ships (algolia, magento, resend, shopify, vtex, wake)
-    # publish on the `latest-7` dist-tag, because `latest` is 8.x; the
-    # v7-only packages (tanstack, nextjs, blocks-admin, blocks-cli, eitri,
+    # blocks-v*.*.* tags, within 7.x (.releaserc.json). @decocms/blocks,
+    # the tanstack and nextjs bindings and the apps v8 also ships (algolia,
+    # magento, resend, shopify, vtex, wake) publish on the `latest-7`
+    # dist-tag, because their `latest` is 8.x (the bindings' from 8.3.0); the
+    # v7-only packages (blocks-admin, blocks-cli, eitri,
     # apps-commerce/-blog/-website/-salesforce/-nuvemshop) keep `latest`.
     # npm refuses a dist-tag that parses as a semver range, so it can't be
     # `7.x` or `v7`.
