@@ -95,6 +95,6 @@ const imageUrl = createImageUrl({
 export default createDecoImageLoader(imageUrl, { fallback: nextImageOptimizer });
 ```
 
-The loader knows no commerce platform: the site lists its platform's helpers (`@decocms/apps-vtex/image`, `@decocms/apps-shopify/image`) before the Deco CDN, and the first provider that takes a source makes its URL. Any other source goes to `fallback` (`nextImageOptimizer` uses Next's own `/_next/image`), or comes back unchanged. With the providers above, a Next storefront's current loader URLs come out byte for byte (`tests/nextjs-image-loader.golden.test.ts` in the repository).
+The loader knows no commerce platform: the site lists its platform's helpers (`@decocms/apps-vtex/image`, `@decocms/apps-shopify/image`) before the Deco CDN, and the first provider that takes a source makes its URL. Any other source goes to `fallback` (`nextImageOptimizer` uses Next's own `/_next/image`), or comes back unchanged. With the providers above, a Next storefront's current loader URLs come out byte for byte (`tests/nextjs-image-loader.golden.test.ts` in the repository), except an already-resized Deco CDN URL in content: it is now re-resized from its `src` instead of becoming `src=image`.
 
 `examples/nextjs-binding-smoke` in the repository is a complete app, and its `bun run smoke` checks the whole flow on `next start`.
