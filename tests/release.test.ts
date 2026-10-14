@@ -99,6 +99,94 @@ describe("release: dependency ranges", () => {
   });
 });
 
+type Leaf = { types?: string; source?: string; default?: string; sharedTypes?: true };
+/**
+ * Each export target object, through the conditional branches (`node`,
+ * `workerd`, `default`). A branch without its own `types` takes the one its
+ * parent declares for all of them (`@decocms/tanstack/scope`), listed first.
+ */
+const leaves = (value: unknown, types?: string): Leaf[] => {
+  if (typeof value !== "object" || value === null) return [];
+  const target = value as Leaf;
+  if (typeof target.default === "string") {
+    return [
+      target.types === undefined && types !== undefined
+        ? { types, ...target, sharedTypes: true }
+        : target,
+    ];
+  }
+  return Object.entries(value)
+    .filter(([key]) => key !== "types")
+    .flatMap(([, branch]) => leaves(branch, target.types ?? types));
+};
+const exportsOf = (dir: string): [string, Leaf][] =>
+  Object.entries((readManifest(dir) as Manifest & { exports: object }).exports).flatMap(
+    ([subpath, target]) => leaves(target).map((leaf): [string, Leaf] => [subpath, leaf]),
+  );
+
+/** The paths `npm pack` would put in the package's tarball (no build: `--ignore-scripts`). */
+function packedFiles(dir: string): Set<string> {
+  const r = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+    cwd: join(repo, "packages", dir),
+    encoding: "utf8",
+  });
+  expect(r.status, r.stderr).toBe(0);
+  const out = JSON.parse(r.stdout);
+  // npm 10 prints an array, npm 11+ an object keyed by the package name.
+  const entry = Array.isArray(out) ? out[0] : Object.values(out)[0];
+  return new Set((entry as { files: { path: string }[] }).files.map((f) => f.path));
+}
+
+// Every subpath of every published package, including the platform helpers
+// the clients ship next to their root (`@decocms/apps-vtex/image`,
+// `@decocms/apps-shopify/image`): CI imports each built target with plain
+// Node (ci.yml), and these check what npm would ship for it.
+describe("release: what each tarball ships", () => {
+  it.each(
+    published,
+  )("%s: every export is types + source + default, or plain JS shipped from src", (dir) => {
+    const subpaths = exportsOf(dir);
+    expect(subpaths.length).toBeGreaterThan(0);
+    for (const [subpath, leaf] of subpaths) {
+      const where = `${dir} ${subpath}`;
+      if (leaf.source === undefined) {
+        // `@decocms/nextjs/config`: CommonJS that next.config.js requires as is.
+        expect(Object.keys(leaf), where).toEqual(["types", "default"]);
+        expect(leaf.types, where).toMatch(/^\.\/src\/.+\.d\.c?ts$/);
+        expect(leaf.default, where).toMatch(/^\.\/src\/.+\.c?js$/);
+        continue;
+      }
+      expect(
+        Object.keys(leaf).filter((k) => k !== "sharedTypes"),
+        where,
+      ).toEqual(["types", "source", "default"]);
+      const base = leaf.source.replace(/^\.\/src\//, "").replace(/\.tsx?$/, "");
+      expect(leaf.source, where).toMatch(/^\.\/src\/.+\.tsx?$/);
+      if (leaf.sharedTypes) expect(leaf.types, where).toMatch(/^\.\/dist\/.+\.d\.ts$/);
+      else expect(leaf.types, where).toBe(`./dist/${base}.d.ts`);
+      expect(leaf.default, where).toBe(`./dist/${base}.js`);
+    }
+  });
+
+  it.each(published)("%s: the tarball holds every export's files and no test or fixture", (dir) => {
+    const files = packedFiles(dir);
+    const missing = exportsOf(dir).flatMap(([, leaf]) =>
+      [leaf.types, leaf.source, leaf.default]
+        .filter((path): path is string => path !== undefined)
+        .map((path) => path.replace(/^\.\//, ""))
+        .filter((path) => !files.has(path)),
+    );
+    // dist/ comes from `bun run build` (`bun install` runs it); release runs it before publishing.
+    expect(missing, "missing from the tarball (is dist/ built?)").toEqual([]);
+    expect(
+      [...files].filter((path) =>
+        /(\.test\.tsx?$|(^|\/)__(tests|fixtures|conformance)__\/)/.test(path),
+      ),
+    ).toEqual([]);
+    expect(files.has("package.json")).toBe(true);
+  }, 30_000);
+});
+
 describe("scripts/sync-versions.mjs", () => {
   const dirs: string[] = [];
   afterEach(() => {
