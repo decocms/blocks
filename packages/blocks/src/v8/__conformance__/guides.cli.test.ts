@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { ensureGitWorkTree, gitInit } from "../../protocol/__tests__/git";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE = path.resolve(HERE, "../../..");
@@ -260,7 +261,7 @@ const _b: Blocks = blocks;
     "qs-06/tr-16: deco serve prints a site editor link with no token; saves write .deco/blocks",
     async () => {
       const p = quickstart();
-      fs.mkdirSync(path.join(p.root, ".git"));
+      gitInit(p.root);
       expect(p.deco("schema").code).toBe(0);
       const first = await serve(p, ["--port", "0"]);
       expect(first.out).toContain(
@@ -342,6 +343,8 @@ async function serve(
   p: Project,
   args: string[],
 ): Promise<{ endpoint: string; out: string; child: ChildProcess }> {
+  // deco serve runs only inside the site's git repository.
+  ensureGitWorkTree(p.root);
   const child = spawn(process.execPath, [BIN, "serve", ...args], {
     cwd: p.root,
     env: { ...process.env, NO_COLOR: "1" },
@@ -365,7 +368,7 @@ describe("serve flags", () => {
     "nx-26/ts-12: the canvas defaults to Vite's port; --preview points it elsewhere",
     async () => {
       const p = project();
-      fs.mkdirSync(path.join(p.root, ".git"));
+      gitInit(p.root);
       p.write(".deco/schema.gen.json", {});
       const def = await serveWith(p, ["--port", "0"]);
       expect(def).toMatch(/Preview\s+http:\/\/localhost:5173/);
@@ -379,7 +382,7 @@ describe("serve flags", () => {
     "tr-16: any origin is answered, and local-network preflights too",
     async () => {
       const p = project();
-      fs.mkdirSync(path.join(p.root, ".git"));
+      gitInit(p.root);
       p.write(".deco/schema.gen.json", {});
       const s = await serve(p, ["--port", "0"]);
       const reply = await fetch(s.endpoint, {
@@ -870,10 +873,10 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
   });
 
   it(
-    "dd-07: the protocol has four methods and polls every 2 s locally",
+    "dd-07: the protocol has seven methods and polls every 2 s locally",
     async () => {
       const p = quickstart();
-      fs.mkdirSync(path.join(p.root, ".git"));
+      gitInit(p.root);
       expect(p.deco("schema").code).toBe(0);
       const s = await serve(p, ["--port", "0"]);
       const reply = await fetch(s.endpoint, {
@@ -883,6 +886,12 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
       });
       const body = await reply.json();
       expect(body.result.pollIntervalMs).toBe(2000);
+      const changes = await fetch(s.endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "changes.list" }),
+      });
+      expect((await changes.json()).result.base.resolvedRef).toBe("main");
     },
     T,
   );

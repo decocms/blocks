@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { generateSecretsKeyPair } from "../../protocol/__tests__/fixtures";
+import { gitInit } from "../../protocol/__tests__/git";
 import { encryptToCiphertext } from "../../protocol/ciphertext";
 import { createFixture, type Fixture, recorder } from "../cli/__tests__/fixture";
 import { runCli } from "../cli/run";
@@ -406,8 +407,8 @@ describe("deco serve", () => {
   it("builtin-13: serves the committed .deco/secrets.pub to the site editor", async () => {
     const { publicKeyPem } = await generateSecretsKeyPair(2048);
     const site = createFixture({ ".deco/secrets.pub": publicKeyPem });
-    fs.mkdirSync(path.join(site.root, ".git"));
     site.write(".deco/schema.gen.json", meta);
+    gitInit(site.root);
     const server = await startServer({
       cwd: site.root,
       port: 0,

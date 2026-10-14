@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { gitInit } from "../../protocol/__tests__/git";
 import { createFixture, type Fixture, recorder, STORE_FILES } from "./__tests__/fixture";
 import { parseFlags, runCli, USAGE } from "./run";
 
@@ -167,6 +168,7 @@ describe("runCli", () => {
 
   it("deco serve runs until stopped", async () => {
     fixture = createFixture();
+    gitInit(fixture.root);
     let stop!: () => void;
     const until = new Promise<void>((resolve) => {
       stop = resolve;

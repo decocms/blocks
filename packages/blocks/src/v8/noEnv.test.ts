@@ -13,7 +13,14 @@ import { describe, expect, it } from "vitest";
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_READ =
   /\bprocess\b\s*\??\.\s*env\b|\{\s*env\s*\}\s*=\s*(globalThis\s*\??\.\s*)?process\b|Bun\s*\??\.\s*env\b|Deno\s*\??\.\s*env\b|import\.meta\.env|\.env\s*\[|\.env\s*\?\./;
-const ALLOWED: { file: string; line: string }[] = [];
+const ALLOWED: { file: string; line: string }[] = [
+  // deco serve's git child process inherits the environment (PATH, HOME), minus
+  // the GIT_* variables that would point it at another repository. Nothing is read.
+  {
+    file: "protocol/storage/fs/git.ts",
+    line: "const env: NodeJS.ProcessEnv = { ...process.env };",
+  },
+];
 
 function sources(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

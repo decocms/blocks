@@ -5,6 +5,7 @@ import { ContentProtocolError, invalidBlock, notFound, unavailable } from "../er
 import { blockNameFromFile } from "../keys.ts";
 import {
   type ContentStorage,
+  type StorageChanges,
   type StorageDescription,
   StorageInvalidFileError,
   StorageNotFoundError,
@@ -17,6 +18,8 @@ const MiB = 1024 * 1024;
 
 /** `blocks.apply`'s own guards: names (set plus delete) in one call. Internal, not advertised. */
 export const MAX_OPS_PER_APPLY = 500;
+/** `changes.get`'s own guard: names in one call (two sides of up to 1 MiB each). Internal, not advertised. */
+export const MAX_NAMES_PER_GET = 20;
 /** Bytes of one stored entry. */
 export const MAX_BLOCK_BYTES = 1 * MiB;
 /** Bytes of one HTTP request body, uncompressed. */
@@ -50,6 +53,12 @@ export class Core {
   readonly cache: BodyCache;
   /** The last parsed schema, by version: the secret guard reads it on every write. */
   parsedSchema: { version: string; meta: DecoMeta } | null = null;
+  /**
+   * The last `storage.changes()` answer, by changes revision (base plus
+   * content): a poll on unchanged content and base doesn't ask the storage
+   * again, which for `deco serve` means no git call beyond reading `HEAD`.
+   */
+  changesMemo: { revision: string; changes: StorageChanges } | null = null;
 
   constructor(
     readonly storage: ContentStorage,

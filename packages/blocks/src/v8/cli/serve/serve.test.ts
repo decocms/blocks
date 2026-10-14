@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { git, gitCommitAll, gitInit } from "../../../protocol/__tests__/git";
 import { defineConformanceSuite } from "../../../protocol/conformance";
 import { gitBlobHash } from "../../../protocol/storage/fs/hash";
 import {
@@ -13,7 +14,8 @@ import {
   STORE_FILES,
   sealSecret,
 } from "../__tests__/fixture";
-import { decoPaths } from "../root";
+import { CliError, decoPaths } from "../root";
+import { runCli } from "../run";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { DEFAULT_PREVIEW_URL, type RunningServer, startServer } from "./server";
 
@@ -44,8 +46,9 @@ async function start(
   files: Record<string, string | object> = {},
 ) {
   fixture = createFixture(files);
-  fs.mkdirSync(path.join(fixture.root, ".git"));
   fixture.write(".deco/schema.gen.json", meta);
+  // deco serve runs inside the site's git repository; HEAD is the base.
+  gitInit(fixture.root);
   out = recorder();
   server = await startServer({
     cwd: fixture.root,
@@ -128,6 +131,9 @@ describe("starting", () => {
     expect(text).toContain("Root                 .   (.deco/schema.gen.json, 0 blocks)");
     expect(text).toContain("Assets               public/assets   (PUT /assets/<name>)");
     expect(text).toContain("Preview              http://localhost:3001");
+    expect(text).toContain(
+      `Changes              compared with main (${git(fixture.root, "rev-parse", "--short=7", "HEAD")})`,
+    );
     expect(server!.siteEditorUrl).toBe(
       `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(server!.endpoint)}`,
     );
@@ -282,8 +288,8 @@ describe("the content protocol", () => {
 
   it("reports the app root relative to the repository root", async () => {
     fixture = createFixture();
-    fs.mkdirSync(path.join(fixture.root, ".git"));
     fixture.write("apps/storefront/.deco/schema.gen.json", meta);
+    gitInit(fixture.root);
     out = recorder();
     server = await startServer({
       cwd: fixture.root,
@@ -328,6 +334,71 @@ describe("the content protocol", () => {
     await start({ readOnly: true });
     expect((await rpc("describe")).result).toMatchObject({ readOnly: true, assets: null });
     expect(out.text()).toContain("read-only: uploads are off");
+  });
+});
+
+describe("the git repository", () => {
+  const notInRepo =
+    /deco serve runs inside your site's git repository, and .* isn't in one\. Run it in the folder where you cloned the site, or run git init there first, then start deco serve again\./;
+
+  it("refuses to start outside a git repository, saying what to run", async () => {
+    fixture = createFixture();
+    const error = await startServer({ cwd: fixture.root, port: 0, reporter: recorder() }).catch(
+      (e) => e,
+    );
+    expect(error).toBeInstanceOf(CliError);
+    expect(error.message).toMatch(notInRepo);
+  });
+
+  it("deco serve exits 1 with that message", async () => {
+    fixture = createFixture();
+    const log = recorder();
+    expect(await runCli(["serve", "--port", "0"], { cwd: fixture.root, reporter: log })).toBe(1);
+    expect(log.text()).toMatch(notInRepo);
+  });
+
+  it("refuses to start without git installed", async () => {
+    fixture = createFixture();
+    gitInit(fixture.root);
+    const error = await startServer({
+      cwd: fixture.root,
+      port: 0,
+      reporter: recorder(),
+      git: path.join(fixture.root, "no-such-git"),
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(CliError);
+    expect(error.message).toBe(
+      "deco serve needs git, and it isn't installed here. Install git (https://git-scm.com/downloads), then run deco serve again inside your site's git repository.",
+    );
+  });
+
+  it("lists changes against HEAD; a discard restores HEAD bytes, logs it and regenerates the content module", async () => {
+    await start({}, { ".deco/blocks/HomePage.json": hero });
+    expect((await rpc("changes.list")).result.changes).toEqual({});
+    await rpc("blocks.apply", { set: { HomePage: { ...hero, title: "Winter" }, New: hero } });
+    const { changes } = (await rpc("changes.list")).result;
+    expect(Object.keys(changes).sort()).toEqual(["HomePage", "New"]);
+    expect(changes.New).toMatchObject({ kind: "set", baseVersion: null });
+    expect(
+      (await rpc("changes.get", { names: ["HomePage"] })).result.entries.HomePage,
+    ).toMatchObject({ kind: "set", before: hero, after: { ...hero, title: "Winter" } });
+    const discarded = (await rpc("changes.discard", { names: ["HomePage", "New"] })).result;
+    expect(discarded.versions).toEqual({
+      HomePage: gitBlobHash(`${JSON.stringify(hero, null, 2)}\n`),
+      New: null,
+    });
+    expect(git(fixture.root, "status", "--porcelain", "--", ".deco/blocks")).toBe("");
+    expect(out.text()).toContain("discarded changes to 2 blocks: HomePage, New");
+    expect(fixture.read(".deco/blocks.gen.ts")).not.toContain('"New":');
+    expect((await rpc("changes.list")).result.changes).toEqual({});
+  });
+
+  it("follows commits made outside: committed edits are no longer changes", async () => {
+    await start({}, { ".deco/blocks/HomePage.json": hero });
+    await rpc("blocks.apply", { set: { HomePage: { ...hero, title: "Winter" } } });
+    expect(Object.keys((await rpc("changes.list")).result.changes)).toEqual(["HomePage"]);
+    gitCommitAll(fixture.root);
+    expect((await rpc("changes.list")).result.changes).toEqual({});
   });
 });
 
@@ -387,7 +458,12 @@ describe("the content protocol's conformance suite, against deco serve", () => {
   let publicKeyPem: string;
   beforeAll(async () => {
     ({ publicKeyPem } = await sealSecret("x"));
-    site = createFixture({ ".deco/schema.gen.json": meta, ".deco/secrets.pub": publicKeyPem });
+    site = createFixture({
+      ".deco/schema.gen.json": meta,
+      ".deco/secrets.pub": publicKeyPem,
+      ".deco/blocks/pages-Committed.json": { path: "/committed", title: "In HEAD" },
+    });
+    gitInit(site.root);
     const options = { cwd: site.root, port: 0, reporter: recorder() };
     running = await startServer(options);
     readOnly = await startServer({ ...options, readOnly: true });
@@ -403,6 +479,7 @@ describe("the content protocol's conformance suite, against deco serve", () => {
     assetsEndpoint: server().endpoint.replace(/\/rpc$/, "/assets/"),
     secretField: { blockType: "hero", field: "apiKey" },
     secretsPublicKey: publicKeyPem,
+    baseEntry: { name: "pages-Committed" },
   });
   defineConformanceSuite(
     { describe, it },

@@ -1,12 +1,23 @@
 /**
  * The content protocol's method types: JSON-RPC 2.0 over one HTTP endpoint,
- * four methods (`describe`, `schema.get`, `blocks.list`, `blocks.apply`).
+ * seven methods (`describe`, `schema.get`, `blocks.list`, `blocks.apply`,
+ * `changes.list`, `changes.get`, `changes.discard`).
  */
 
 export const PROTOCOL_NAME = "deco-content";
 
-/** Minors only add; a client refuses an unknown major. */
-export const PROTOCOL_VERSION = { major: 1, minor: 0 } as const;
+/**
+ * Minors only add. A client refuses another major, and a server older than
+ * `REQUIRED_PROTOCOL_MINOR` (1.1 added `changes.*`; 1.0 is `@decocms/blocks`
+ * 8.1.x and older).
+ */
+export const PROTOCOL_VERSION = { major: 1, minor: 1 } as const;
+
+/**
+ * The oldest minor this package's client talks to. Bump it only when the
+ * client needs a newer method.
+ */
+export const REQUIRED_PROTOCOL_MINOR = 1;
 
 export const SCHEMA_FORMAT = "deco-meta@1";
 
@@ -123,12 +134,100 @@ export interface BlocksApplyResult {
   versions: Record<string, string | null>;
 }
 
-/** The four methods, by wire name. */
+/**
+ * What a source's content is compared against. A source's content is its
+ * base plus its changes: `deco serve`'s base is the local git `HEAD`, the
+ * site editor's hosted drafts compare with the published branch.
+ */
+export interface ChangesBase {
+  /** An opaque revision of the base, compared only for equality (`deco serve`: the `HEAD` commit). */
+  revision: string;
+  /** The branch the base was read from; `null` when there's none (a detached `HEAD`). */
+  resolvedRef: string | null;
+}
+
+/** One entry that differs from the base. */
+export interface Change {
+  /** `set`: the entry exists and differs from the base, or is new. `delete`: it's in the base and gone now. */
+  kind: "set" | "delete";
+  /** The entry's current version, as `blocks.list` reports it (usable in `ifMatch`); `null` for a `delete`. */
+  version: string | null;
+  /**
+   * The entry's version in the base; `null` when the base doesn't have it (a
+   * new entry). Opaque: don't compare it with `version`; an entry is changed
+   * because it's listed.
+   */
+  baseVersion: string | null;
+}
+
+export type ChangesListParams = ReadParams;
+
+export type ChangesListResult =
+  | { notModified: true; revision: string; base: ChangesBase }
+  | {
+      notModified: false;
+      /**
+       * The changes' own revision, for `ifNoneMatch`: it moves when the
+       * content or the base moves. Not comparable with `blocks.list`'s.
+       */
+      revision: string;
+      base: ChangesBase;
+      /** Every entry that differs from the base, by name; an unchanged entry is absent. */
+      changes: Record<string, Change>;
+    };
+
+export interface ChangesGetParams {
+  /** The entries to read both sides of (at most 20). */
+  names: string[];
+}
+
+/** Both sides of one entry. */
+export interface ChangeDetail {
+  /** `null`: the entry doesn't differ from the base, and `before` is `after`. */
+  kind: "set" | "delete" | null;
+  /** The entry in the base; `null` when the base doesn't have it, or it can't be read (see `diagnostics`). */
+  before: Record<string, unknown> | null;
+  /** The entry now; `null` when it's deleted, or it can't be read (see `diagnostics`). */
+  after: Record<string, unknown> | null;
+  version: string | null;
+  /** For an unchanged entry, equal to `version`. */
+  baseVersion: string | null;
+}
+
+/** A side `changes.get` couldn't read: as in `blocks.list`, plus which side. */
+export type ChangeDiagnostic = Diagnostic & { side: "before" | "after" };
+
+export interface ChangesGetResult {
+  base: ChangesBase;
+  /** Every requested name that exists in the base or now; any other name is absent. */
+  entries: Record<string, ChangeDetail>;
+  diagnostics: ChangeDiagnostic[];
+}
+
+export interface ChangesDiscardParams {
+  /** Entries to drop back to the base. A name without a change is a no-op. */
+  names: string[];
+  /** A version the entry must have now; `null` = must not exist. As in `blocks.apply`. */
+  ifMatch?: Record<string, string | null>;
+}
+
+/**
+ * As `blocks.apply`'s result: `revision` is the content's (`blocks.list`'s)
+ * revision after the discard, and `versions` every named entry's version
+ * after it (`null`: not in the base), plus `null` for any other spelling the
+ * discard deleted.
+ */
+export type ChangesDiscardResult = BlocksApplyResult;
+
+/** The seven methods, by wire name. */
 export interface Methods {
   describe: { params: Record<string, never> | undefined; result: DescribeResult };
   "schema.get": { params: SchemaGetParams | undefined; result: SchemaGetResult };
   "blocks.list": { params: BlocksListParams | undefined; result: BlocksListResult };
   "blocks.apply": { params: BlocksApplyParams; result: BlocksApplyResult };
+  "changes.list": { params: ChangesListParams | undefined; result: ChangesListResult };
+  "changes.get": { params: ChangesGetParams; result: ChangesGetResult };
+  "changes.discard": { params: ChangesDiscardParams; result: ChangesDiscardResult };
 }
 
 export type MethodName = keyof Methods;
@@ -138,6 +237,9 @@ export const METHOD_NAMES: readonly MethodName[] = [
   "schema.get",
   "blocks.list",
   "blocks.apply",
+  "changes.list",
+  "changes.get",
+  "changes.discard",
 ];
 
 /** A JSON-RPC request id. The protocol requires one on every request. */

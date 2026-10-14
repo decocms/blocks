@@ -2,7 +2,9 @@
  * The storage interface a content-protocol backend implements.
  *
  * A storage is deliberately small: a snapshot of file names and versions,
- * reading file bodies, reading the schema, and one atomic commit attempt.
+ * reading file bodies, reading the schema, one atomic commit attempt, and its
+ * base (what `changes.*` compares the content with: the files that differ
+ * from it, and reading base bodies).
  * The protocol core (`createContentHandler`) owns everything else: the
  * JSON-RPC layer, validation, the file-name rule, the secret guard, limits and
  * retries. Storages deal in *files* inside `<root>/.deco/blocks`; entry names
@@ -84,6 +86,41 @@ export interface CommitAttempt {
    * commit time differs, checked atomically with `expected`.
    */
   expectedSchemaVersion?: string | null;
+  /**
+   * The base revision (`StorageBase.revision`) the core computed the write
+   * from, when the write depends on it (`changes.discard` restores base
+   * bytes). When set, a storage MUST reject the attempt as stale if its base
+   * revision at commit time differs, checked atomically with `expected`.
+   */
+  expectedBase?: string;
+  /** Why the core commits, for logs: `apply` (default) or `discard`. */
+  reason?: "apply" | "discard";
+}
+
+/** What a storage's content is compared against (`changes.*`). */
+export interface StorageBase {
+  /** An opaque revision of the base, compared only for equality (a commit sha). */
+  revision: string;
+  /** The branch the base was read from; `null` when there's none. */
+  resolvedRef: string | null;
+}
+
+/** The files of a snapshot that differ from the base. */
+export interface StorageChanges {
+  /**
+   * Saved-block file names that differ from the base: in the snapshot and not
+   * in the base, in the base and not in the snapshot, or in both with
+   * different content. A file whose content equals the base's (the storage
+   * decides equality, such as honouring git's eol conversion) MUST NOT be
+   * listed, so a file a discard just restored is never listed again.
+   */
+  files: string[];
+  /**
+   * The base's files, with their versions in the base: at least every file
+   * whose spelling group (`spellingKey`) a file in `files` belongs to; more
+   * is fine.
+   */
+  baseFiles: StorageFile[];
 }
 
 export type CommitResult =
@@ -115,6 +152,19 @@ export interface ContentStorage {
   readSecretsPublicKey(): Promise<string | null>;
   /** One all-or-nothing commit attempt; durable when it resolves. */
   commit(attempt: CommitAttempt): Promise<CommitResult>;
+  /**
+   * The current base, cheaply: the core calls it on every `changes.list`
+   * poll. Throws `StorageUnavailableError` when the base can't be read now.
+   */
+  base(): Promise<StorageBase>;
+  /** The files of `snapshot` that differ from `base`, and the base files they touch. */
+  changes(base: StorageBase, snapshot: StorageSnapshot): Promise<StorageChanges>;
+  /**
+   * Reads base file bodies, as a checkout would write them (a leading BOM
+   * kept: a discard writes the text back as is), each with its version in the
+   * base. A file the base doesn't have is left out.
+   */
+  readBaseFiles(base: StorageBase, files: string[]): Promise<Record<string, StoredFileBody>>;
   /** Stores an uploaded file, never overwriting one; returns the stored file name. */
   putAsset?(name: string, body: Uint8Array): Promise<{ name: string }>;
 }

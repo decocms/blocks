@@ -16,6 +16,10 @@
  * - CORS is answered for any `Origin` (reflected, with `Vary: Origin`), and
  *   so are Chrome's Private/Local Network Access preflights.
  * - Every save regenerates `.deco/blocks.gen.ts`.
+ * - It runs only inside the site's git repository: the content's base (what
+ *   the site editor's change list compares with, and what a discard
+ *   restores) is the local git `HEAD`. Outside a git work tree, or without
+ *   git installed, it refuses to start and says what to run.
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -26,6 +30,7 @@ import { ErrorCode } from "../../../protocol/errors.ts";
 import { blockNameFromFile } from "../../../protocol/keys.ts";
 import { createAssetHandler } from "../../../protocol/server/assets.ts";
 import { createContentHandler } from "../../../protocol/server/index.ts";
+import { checkGitWorkTree, UNBORN_REVISION } from "../../../protocol/storage/fs/git.ts";
 import { createFsStorage } from "../../../protocol/storage/fs/index.ts";
 import type { ContentStorage } from "../../../protocol/storage.ts";
 import { readSavedBlocks, writeContent } from "../content.ts";
@@ -52,6 +57,8 @@ export interface ServeOptions {
   assets?: string;
   readOnly?: boolean;
   reporter?: Reporter;
+  /** The git binary (default `git`, from `PATH`); tests point it elsewhere. */
+  git?: string;
 }
 
 export interface RunningServer {
@@ -100,6 +107,28 @@ function previewUrl(input: string): string {
   return url.pathname === "/" && !url.search && !url.hash ? url.origin : url.href;
 }
 
+/**
+ * Refuses to serve a folder that isn't inside a git work tree: every source
+ * of the protocol has a base, and `deco serve`'s is the local `HEAD`.
+ */
+async function requireGitWorkTree(root: string, git: string | undefined): Promise<void> {
+  const check = await checkGitWorkTree(root, { git });
+  if (check.status === "ok") return;
+  if (check.status === "missing") {
+    throw new CliError(
+      "deco serve needs git, and it isn't installed here. Install git (https://git-scm.com/downloads), " +
+        "then run deco serve again inside your site's git repository.",
+    );
+  }
+  if (check.status === "not-a-repository") {
+    throw new CliError(
+      `deco serve runs inside your site's git repository, and ${root} isn't in one. ` +
+        "Run it in the folder where you cloned the site, or run git init there first, then start deco serve again.",
+    );
+  }
+  throw new CliError(`deco serve couldn't use the git repository at ${root}: ${check.message}`);
+}
+
 /** Start the server; resolves once it listens. */
 export async function startServer(options: ServeOptions = {}): Promise<RunningServer> {
   const reporter = options.reporter ?? consoleReporter;
@@ -113,15 +142,23 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
     throw new CliError(`--port must be a port number, got ${requestedPort}`);
   }
 
-  const fsStorage = createFsStorage({ root: paths.root, readOnly, assetsDir: options.assets });
+  await requireGitWorkTree(paths.root, options.git);
+
+  const fsStorage = createFsStorage({
+    root: paths.root,
+    readOnly,
+    assetsDir: options.assets,
+    git: options.git,
+  });
   const storage: ContentStorage = {
     ...fsStorage,
     async commit(attempt) {
       const result = await fsStorage.commit(attempt);
       if (result.status !== "committed") return result;
       const names = [...Object.keys(attempt.put), ...attempt.delete].map(blockNameFromFile);
+      const blocks = `${names.length} block${names.length === 1 ? "" : "s"}: ${names.join(", ")}`;
       reporter.info(
-        `saved ${names.length} block${names.length === 1 ? "" : "s"}: ${names.join(", ")}`,
+        attempt.reason === "discard" ? `discarded changes to ${blocks}` : `saved ${blocks}`,
       );
       // Every save changes the content, so the content module's revision
       // changes too (a revision is never reused for different content). An
@@ -210,6 +247,7 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       : "no schema yet: run deco schema for typed forms";
   const count = Object.keys(readSavedBlocks(paths.blocks).blocks).length;
   const description = await storage.describe();
+  const base = await storage.base().catch(() => null);
   const label = (name: string) => name.padEnd(21);
   reporter.info(`${label("Deco server")}${endpoint}`);
   reporter.info(`${label("Root")}${description.root}   (${schemaFile}, ${count} blocks)`);
@@ -219,6 +257,12 @@ export async function startServer(options: ServeOptions = {}): Promise<RunningSe
       : `${label("Assets")}read-only: uploads are off`,
   );
   reporter.info(`${label("Preview")}${preview}`);
+  if (base) {
+    const commit = base.revision === UNBORN_REVISION ? "no commits yet" : base.revision.slice(0, 7);
+    reporter.info(
+      `${label("Changes")}compared with ${base.resolvedRef ?? "detached HEAD"} (${commit})`,
+    );
+  }
   reporter.info(`${label("Site editor")}${siteEditorUrl}`);
 
   return {

@@ -3,8 +3,10 @@
  * client and file-name rule. Browser-safe.
  *
  * The protocol is how the site editor reads and writes saved blocks without
- * running a site's code: JSON-RPC 2.0 over one HTTP endpoint with four
- * methods — `describe`, `schema.get`, `blocks.list` and `blocks.apply`.
+ * running a site's code: JSON-RPC 2.0 over one HTTP endpoint with seven
+ * methods — `describe`, `schema.get`, `blocks.list`, `blocks.apply`, and
+ * `changes.list`, `changes.get` and `changes.discard` (protocol 1.1: what
+ * differs from the base, both sides of an entry, and dropping a change).
  *
  * Subpaths:
  * - `@decocms/blocks/protocol/keys` — the file-name rule (also re-exported here)

@@ -1,7 +1,7 @@
 /**
  * `createAssetHandler(storage)`: uploads beside the content protocol.
  *
- * Uploads aren't one of the four methods. The site editor sends each file to
+ * Uploads aren't one of the protocol's methods. The site editor sends each file to
  * `PUT /assets/<name>`; on that path the
  * file's own image, video, font or PDF content type is accepted instead of
  * JSON, and the name's extension must match it (`banner.html` sent as

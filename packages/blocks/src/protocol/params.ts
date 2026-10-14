@@ -1,5 +1,5 @@
 /**
- * Parameter validation for the four methods. `params` is always an object;
+ * Parameter validation for the seven methods. `params` is always an object;
  * unknown parameters are rejected, so a guard the server doesn't understand
  * never turns into an unguarded write.
  *
@@ -8,7 +8,13 @@
  */
 import { z } from "zod";
 import { invalidParams } from "./errors.ts";
-import type { BlocksApplyParams, MethodName, ReadParams } from "./types.ts";
+import type {
+  BlocksApplyParams,
+  ChangesDiscardParams,
+  ChangesGetParams,
+  MethodName,
+  ReadParams,
+} from "./types.ts";
 
 const opaque = z.string().min(1).max(1024);
 
@@ -23,11 +29,23 @@ const applyParams = z.strictObject({
   ifMatch: z.record(z.string(), opaque.nullable()).optional(),
 });
 
+const namesParams = z.strictObject({
+  names: z.array(z.string()),
+});
+
+const discardParams = z.strictObject({
+  names: z.array(z.string()),
+  ifMatch: z.record(z.string(), opaque.nullable()).optional(),
+});
+
 const schemas: Record<MethodName, z.ZodType> = {
   describe: z.strictObject({}),
   "schema.get": readParams,
   "blocks.list": readParams,
   "blocks.apply": applyParams,
+  "changes.list": readParams,
+  "changes.get": namesParams,
+  "changes.discard": discardParams,
 };
 
 function describeIssues(error: z.ZodError): string {
@@ -49,8 +67,13 @@ function describeIssues(error: z.ZodError): string {
  * Throws Invalid params (-32602) when it doesn't fit.
  */
 export function validateParams(method: "describe", params: unknown): Record<string, never>;
-export function validateParams(method: "schema.get" | "blocks.list", params: unknown): ReadParams;
+export function validateParams(
+  method: "schema.get" | "blocks.list" | "changes.list",
+  params: unknown,
+): ReadParams;
 export function validateParams(method: "blocks.apply", params: unknown): BlocksApplyParams;
+export function validateParams(method: "changes.get", params: unknown): ChangesGetParams;
+export function validateParams(method: "changes.discard", params: unknown): ChangesDiscardParams;
 export function validateParams(method: MethodName, params: unknown): unknown;
 export function validateParams(method: MethodName, params: unknown): unknown {
   const value = params === undefined ? {} : params;

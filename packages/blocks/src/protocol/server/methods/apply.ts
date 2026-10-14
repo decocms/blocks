@@ -1,5 +1,6 @@
 /**
- * `blocks.apply`, the protocol's only write:
+ * `blocks.apply`, the protocol's write that takes new values (the other
+ * write, `changes.discard`, only restores the base: see ./changes.ts):
  *
  * 1. All or nothing: every name in `set` and `delete` lands in one storage
  *    commit, or none does.
@@ -105,9 +106,9 @@ function validateStatic(apply: NormalizedApply, meta: DecoMeta | null) {
 }
 
 /** The existing entries, by spelling key: two spellings of one name are one entry. */
-type EntriesBySpelling = Map<string, { name: string; entry: LoadedEntry }>;
+export type EntriesBySpelling = Map<string, { name: string; entry: LoadedEntry }>;
 
-function entriesBySpelling(content: LoadedContent): EntriesBySpelling {
+export function entriesBySpelling(content: LoadedContent): EntriesBySpelling {
   const out: EntriesBySpelling = new Map();
   for (const [name, entry] of content.entries) {
     out.set(fullyDecodeFileName(entry.file).name, { name, entry });
@@ -185,7 +186,10 @@ function plan(
 }
 
 /** A guard compares against the entry under any spelling: `null` means no spelling exists. */
-function checkIfMatch(bySpelling: EntriesBySpelling, apply: NormalizedApply) {
+export function checkIfMatch(
+  bySpelling: EntriesBySpelling,
+  apply: Pick<NormalizedApply, "ifMatch">,
+) {
   const mismatches: Record<string, VersionMismatch> = {};
   let failed = false;
   for (const [name, expected] of apply.ifMatch) {
