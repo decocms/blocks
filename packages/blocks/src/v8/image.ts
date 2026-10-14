@@ -177,7 +177,10 @@ export function createImageUrl(o: { providers: ImageProvider[] }): ImageUrl {
 }
 
 export interface SrcSetOptions {
-  /** Base width for `factors`. */
+  /**
+   * Base width for `factors`. Left out, each candidate is `NaN` wide, as v7's
+   * `getSrcSet` wrote it for an `Image` or `Source` without a width.
+   */
   width?: number;
   /** Candidate widths; when given, `width` and `factors` are not used. */
   widths?: number[];
@@ -191,22 +194,21 @@ export interface SrcSetOptions {
   quality?: Quality;
 }
 
-/** `"<url> <w>w, ..."`, or undefined for an empty src or no candidates. */
+/** `"<url> <w>w, ..."`, or undefined for an empty src or no candidates (`widths: []`). */
 export function srcSet(url: ImageUrl, src: string, o: SrcSetOptions): string | undefined {
   if (typeof src !== "string" || src.length === 0) return undefined;
   const sizes: { w: number; h?: number }[] = o.widths
     ? o.widths.map((w) => ({ w, h: o.ratio ? Math.round(w * o.ratio) : undefined }))
-    : o.width === undefined
-      ? []
-      : (o.factors ?? [1, 2]).map((f) => {
-          const w = Math.trunc(f * (o.width as number));
-          const h = o.height
-            ? Math.trunc(f * o.height)
-            : o.ratio
-              ? Math.round(w * o.ratio)
-              : undefined;
-          return { w, h };
-        });
+    : // No width: v7's NaN candidates (`width=NaN … NaNw`), kept byte for byte.
+      (o.factors ?? [1, 2]).map((f) => {
+        const w = Math.trunc(f * (o.width as number));
+        const h = o.height
+          ? Math.trunc(f * o.height)
+          : o.ratio
+            ? Math.round(w * o.ratio)
+            : undefined;
+        return { w, h };
+      });
   const entries: string[] = [];
   for (const { w, h } of sizes) {
     const href = url(src, { width: w, height: h, fit: o.fit, quality: o.quality });
