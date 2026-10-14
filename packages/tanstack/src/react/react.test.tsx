@@ -46,6 +46,17 @@ describe("DecoDocument", () => {
     expect(html).not.toContain("__DECO_CSEG");
   });
 
+  it("the Studio bridge answers Studio's origins, the package's own list", async () => {
+    const html = await render({});
+    const attr = html.match(/data-origins="([^"]*)"/)?.[1];
+    expect(attr && JSON.parse(attr.replaceAll("&quot;", '"'))).toEqual([
+      "https://studio.decocms.com",
+      "https://studio-stg.decocms.com",
+      "https://decocms.com",
+      "https://*.decocms.com",
+    ]);
+  });
+
   it("publishes the request's CDN segment token and draft", async () => {
     const html = await render({ csegToken: "a1b2c3d4", draft: "studio.decocms.com/x@1" });
     expect(html).toContain(

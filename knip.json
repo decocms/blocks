@@ -16,7 +16,12 @@
       "ignoreDependencies": [
         "@decocms/blocks",
         "@decocms/apps-algolia",
-        "@decocms/apps-vtex"
+        "@decocms/apps-shopify",
+        "@decocms/apps-vtex",
+        "@decocms/nextjs",
+        "@decocms/tanstack",
+        "react",
+        "react-dom"
       ]
     },
     "packages/*": {

@@ -11,13 +11,14 @@ What `scripts/imports.ts` does with each v7 `@decocms/*` import in the site's `s
 | `createDecoRouter`, `decoParseSearch`, `decoStringifySearch` (`@decocms/tanstack`) | the same names from `@decocms/tanstack/router` |
 | `NavigationProgress`, `StableOutlet` (`@decocms/tanstack`) | the same names from `@decocms/tanstack/react` |
 | `decoServerFnFetch` (`@decocms/tanstack/sdk/serverFnFetch`) | `@decocms/tanstack/start` |
-| `Image`, `Picture`, `Source` and their props types (`@decocms/blocks/hooks`), on a TanStack site | `@decocms/tanstack/react`, same props and markup; the report asks for an `ImageUrlProvider` when the site registered a CDN domain or quality |
+| `Image`, `Picture`, `Source` and their props types (`@decocms/blocks/hooks`), on a TanStack site | `@decocms/tanstack/react`, same props and markup; the report asks for an `ImageUrlProvider` with the platform's helper (`@decocms/apps-vtex/image`, `@decocms/apps-shopify/image`), since the binding knows no platform |
+| `DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`, `draftResponseHeaders`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS`, `isStudioOrigin` (`@decocms/blocks`, a prerelease) | the site's binding root: `@decocms/tanstack` or `@decocms/nextjs` (reported when the site has neither) |
 
 An import that mixes moved and other names is split; the rest is reported.
 
 ## Left alone (already the v8 API)
 
-`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, `DRAFT_PARAM`, `DRAFT_COOKIE`, `draftResponseHeaders`, `STUDIO_ORIGINS`, …), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`, `/image`, `/vite`, `/preview` (`DraftBadge`, `StudioBridge`); every subpath of `@decocms/tanstack` 8 (`/worker`, `/server`, `/start`, `/router`, `/react`, `/scope`, and `/vite`'s `decoTanstack`), and of `@decocms/nextjs` 8 (`/proxy`, `/server`, `/image-loader`, `/config`'s `withDeco`, the root's `StudioBridge` and `DraftBadge`).
+`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, …), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`, `/image` (platform-neutral: `createImageUrl`, `decoCdn`, `srcSet`, `parseSrcSet`, `preloadLink`), `/vite`, `/preview` (`DraftBadge`, `StudioBridge`); the platforms' image helpers, `@decocms/apps-vtex/image` and `@decocms/apps-shopify/image`; the root of `@decocms/tanstack` 8 (the draft names and Studio's origins) and every subpath (`/worker`, `/server`, `/start`, `/router`, `/react`, `/scope`, and `/vite`'s `decoTanstack`), and of `@decocms/nextjs` 8 (`/proxy`, `/server`, `/image-loader`, `/config`'s `withDeco`, the root's `StudioBridge`, `DraftBadge`, draft names and Studio's origins).
 
 ## Reported, with where the replacement lives (first match wins)
 
@@ -52,7 +53,7 @@ An import that mixes moved and other names is split; the rest is reported.
 | `@decocms/nextjs/routeHandlers`, `DECO_REWRITES` | delete: no `/deco/*` handlers in v8 |
 | `LiveControls` (`@decocms/blocks/hooks`) | `StudioBridge`: `DecoDocument` mounts it; a Next.js layout renders it from `@decocms/nextjs` |
 | `DraftPreviewBadge` (`@decocms/blocks/preview`, `@decocms/nextjs`) | `DraftBadge` from `@decocms/blocks/preview` |
-| `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl` with `decoCdn({ domain, quality, proxyOtherHosts: true })` from `@decocms/blocks/image`, `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
+| `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] })`: `createImageUrl`, `decoCdn` from `@decocms/blocks/image`, `vtexCatalog` from `@decocms/apps-vtex/image`, `shopifyCdn` from `@decocms/apps-shopify/image`; `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
 | `Image`, `Picture` on a Next.js site | next/image with `createDecoImageLoader` from `@decocms/nextjs/image-loader` |
 | other v7 names under `@decocms/tanstack`, `@decocms/nextjs` | the v8 binding has no such name; see the rows above and `reference/framework-code.md` |
 | anything else under `@decocms/*` | no v8 equivalent (several have a site-code replacement: the next table) |

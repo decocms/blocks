@@ -16,13 +16,14 @@
  * 2. `studioOrigins` (default on): Studio's origins in `allowedDevOrigins`,
  *    so `next dev` serves Studio's local mode its dev assets.
  *
- * The names repeat `@decocms/blocks`' (`DRAFT_PARAM`, `DRAFT_COOKIE`,
- * `draftResponseHeaders`, `STUDIO_ORIGINS`): a CommonJS file can't load that
- * ES module everywhere `next.config` runs. `config.test.ts` holds them equal.
+ * The names repeat the package's (`DRAFT_PARAM`, `DRAFT_COOKIE`,
+ * `draftResponseHeaders` in `src/draft.ts`, `STUDIO_ORIGINS` in
+ * `src/studio.ts`): a CommonJS file can't load an ES module everywhere
+ * `next.config` runs. `config.test.ts` holds them equal.
  */
 "use strict";
 
-/** `draftResponseHeaders(pointer)` of `@decocms/blocks`, as `next.config` header entries. */
+/** `draftResponseHeaders(pointer)` (`src/draft.ts`), as `next.config` header entries. */
 const DRAFT_NO_STORE_HEADERS = [
   { key: "Cache-Control", value: "no-store, private" },
   { key: "Vary", value: "Cookie" },

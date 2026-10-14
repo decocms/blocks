@@ -29,6 +29,14 @@ Options, each for a value a site needs to change: `csp`, `segment`, `cacheProfil
 
 A draft link (`?__draft=`) previews where v7 allowed it: on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. A site that declares no hosts previews only on those two, not on every host. `previewHosts: [...]` replaces the declared list with exact hosts (`["localhost:5173"]` for local development), as v7's `DECO_ALLOWED_PREVIEW_HOSTS` did; `previewHosts: "none"` turns previews off on every host. The worker passes the accepted draft to the app in the `x-deco-draft` request header: read it with `contentClient(cms)` from `@decocms/tanstack/server`.
 
+### Names and Studio's origins
+
+The root export holds what the worker, `/server` and `DecoDocument` share, for a site's own code: the draft names (`DRAFT_PARAM` `__draft`, `DRAFT_COOKIE` `__deco_draft`, `DRAFT_HEADER` `x-deco-draft`), `draftResponseHeaders(pointer)` (`no-store, private`, `Vary: Cookie`, `noindex`), and Studio's origins: `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` (what the worker's `frame-ancestors` starts from) and `isStudioOrigin`. `DecoDocument` passes `STUDIO_ORIGINS` to the Studio bridge.
+
+```ts
+import { DRAFT_HEADER, STUDIO_ORIGINS } from "@decocms/tanstack";
+```
+
 ## The app
 
 ```ts
@@ -49,9 +57,12 @@ export const Route = createRootRoute({ component: () => <DecoDocument site="my-s
 ## Images
 
 ```tsx
-// src/imageUrl.ts: the site's image URLs (@decocms/blocks/image)
+// src/imageUrl.ts: the site's image URLs (@decocms/blocks/image plus its platform's helpers)
+import { createImageUrl, decoCdn } from "@decocms/blocks/image";
+import { vtexCatalog } from "@decocms/apps-vtex/image"; // a VTEX store
+import { shopifyCdn } from "@decocms/apps-shopify/image"; // a Shopify store
 export const imageUrl = createImageUrl({
-  providers: [vtexCatalog({ size: "exact" }), shopify(), decoCdn({ quality: "high", proxyOtherHosts: true })],
+  providers: [vtexCatalog(), shopifyCdn(), decoCdn({ quality: "high", sources: "all" })],
 });
 
 // src/router.tsx: around every page
@@ -61,6 +72,6 @@ createDecoRouter({ routeTree, Wrap: ({ children }) => <ImageUrlProvider value={i
 <Image src={src} width={400} height={300} preload={isLcp} />
 ```
 
-`Image`, `Picture` and `Source` from `/react` take v7's props and render v7's markup, so a migrated call site only changes its import. Without an `ImageUrlProvider` they use v7's defaults (VTEX and Shopify resized by their hosts, everything else through `assets.decocms.com`).
+`Image`, `Picture` and `Source` from `/react` take v7's props and render v7's markup, so a migrated call site only changes its import. This package knows no commerce platform: v7's components resized VTEX catalog and Shopify images on those platforms' hosts, and a site keeps those URLs by listing the platform's helper before `decoCdn` as above (v7's URLs, byte for byte). Without an `ImageUrlProvider` every source goes through `assets.decocms.com` (`DECO_IMAGE_URL`).
 
 `examples/tanstack-worker-smoke` in the repository is a complete app.

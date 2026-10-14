@@ -11,8 +11,10 @@
  * - names a v8 binding exports with v7's props and behaviour move to it
  *   (`MOVES`): `createDecoRouter` to `@decocms/tanstack/router`,
  *   `NavigationProgress` and, on a TanStack site, `Image`/`Picture`/`Source`
- *   to `@decocms/tanstack/react`, and so on. An import declaration that mixes
- *   moved and other names is split.
+ *   to `@decocms/tanstack/react`, and so on; a name whose home depends on the
+ *   binding (the draft names and Studio's origins: `@decocms/tanstack` or
+ *   `@decocms/nextjs`, never `@decocms/blocks`) moves to the site's. An import
+ *   declaration that mixes moved and other names is split.
  *
  * Every other v7 import is reported with where its replacement lives, name by
  * name where the bindings replace them (`NAME_HINTS`); none is shimmed.
@@ -38,14 +40,9 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "CMSError",
     "CMSSettings",
     "createCMS",
-    "DRAFT_COOKIE",
-    "DRAFT_HEADER",
-    "DRAFT_PARAM",
     "DraftPointer",
-    "draftResponseHeaders",
     "EffectiveSettings",
     "formatDraftPointer",
-    "isStudioOrigin",
     "Lazy",
     "ListOptions",
     "Loader",
@@ -62,8 +59,6 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Secret",
     "Seo",
     "Snapshot",
-    "STUDIO_FRAME_ANCESTORS",
-    "STUDIO_ORIGINS",
     "Telemetry",
     "TelemetryConfig",
     "Variant",
@@ -72,7 +67,27 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/blocks/analytics": "*",
   "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",
-  "@decocms/blocks/image": "*",
+  // Platform-neutral image URLs only; a platform's URLs are its client's /image.
+  "@decocms/blocks/image": new Set([
+    "createImageUrl",
+    "decoCdn",
+    "DecoCdnOptions",
+    "Fit",
+    "ImageProvider",
+    "ImageUrl",
+    "parseSrcSet",
+    "PreloadLink",
+    "PreloadOptions",
+    "preloadLink",
+    "Quality",
+    "QualityTier",
+    "ResizeOptions",
+    "SrcSetOptions",
+    "srcSet",
+  ]),
+  // The platforms' image URL helpers (pure functions, for createImageUrl). v7 had no such subpath.
+  "@decocms/apps-vtex/image": "*",
+  "@decocms/apps-shopify/image": "*",
   "@decocms/blocks/vite": "*",
   // v7 had a /preview too, with other names (DraftPreviewBadge).
   "@decocms/blocks/preview": new Set([
@@ -82,6 +97,16 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "StudioBridgeProps",
   ]),
   // The v8 bindings. Subpaths v7 never had are whole; the rest list v8's names.
+  // The draft names and Studio's origins live in each binding's root, not in @decocms/blocks.
+  "@decocms/tanstack": new Set([
+    "DRAFT_COOKIE",
+    "DRAFT_HEADER",
+    "DRAFT_PARAM",
+    "draftResponseHeaders",
+    "isStudioOrigin",
+    "STUDIO_FRAME_ANCESTORS",
+    "STUDIO_ORIGINS",
+  ]),
   "@decocms/tanstack/worker": "*",
   "@decocms/tanstack/server": "*",
   "@decocms/tanstack/start": "*",
@@ -99,8 +124,15 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/nextjs/image-loader": "*",
   // v7's DraftPreviewIndicator kept its name but now shows what bindDraft bound: reported.
   "@decocms/nextjs": new Set([
+    "DRAFT_COOKIE",
+    "DRAFT_HEADER",
+    "DRAFT_PARAM",
     "DraftBadge",
     "DraftPreviewIndicatorProps",
+    "draftResponseHeaders",
+    "isStudioOrigin",
+    "STUDIO_FRAME_ANCESTORS",
+    "STUDIO_ORIGINS",
     "StudioBridge",
     "StudioBridgeProps",
   ]),
@@ -122,12 +154,32 @@ const IMAGE_COMPONENTS = [
   "SourceProps",
 ];
 
+/** The draft names and Studio's origins: each binding's root exports them, `@decocms/blocks` doesn't. */
+export const BINDING_NAMES = [
+  "DRAFT_COOKIE",
+  "DRAFT_HEADER",
+  "DRAFT_PARAM",
+  "draftResponseHeaders",
+  "isStudioOrigin",
+  "STUDIO_FRAME_ANCESTORS",
+  "STUDIO_ORIGINS",
+];
+
+/** A move's target: one entry point, or one per binding. */
+type MoveTarget = string | Partial<Record<Framework, string>>;
+
 /**
  * v7 names a v8 binding exports with the same props and behaviour, by v7
  * specifier: the codemod points the import at the binding. `only` limits a
- * move to sites on that binding.
+ * move to sites on that binding; a per-binding target moves a name only on a
+ * site with one of those bindings.
  */
-export const MOVES: Record<string, { only?: Framework; names: Record<string, string> }> = {
+export const MOVES: Record<string, { only?: Framework; names: Record<string, MoveTarget> }> = {
+  "@decocms/blocks": {
+    names: Object.fromEntries(
+      BINDING_NAMES.map((n) => [n, { tanstack: "@decocms/tanstack", nextjs: "@decocms/nextjs" }]),
+    ),
+  },
   "@decocms/tanstack": {
     names: {
       createDecoRouter: "@decocms/tanstack/router",
@@ -145,6 +197,13 @@ export const MOVES: Record<string, { only?: Framework; names: Record<string, str
     names: Object.fromEntries(IMAGE_COMPONENTS.map((n) => [n, "@decocms/tanstack/react"])),
   },
 };
+
+/**
+ * v7's image URLs as v8 code: the platform helpers (their client packages'
+ * /image) before the Deco CDN, from `@decocms/blocks/image`.
+ */
+const V7_IMAGE_URL =
+  'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] }) (createImageUrl and decoCdn from @decocms/blocks/image, vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image)';
 
 /** The hints for names the bindings replace, by v7 specifier: checked before `HINTS`. */
 const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
@@ -223,7 +282,7 @@ const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
   {
     specifier: /^@decocms\/blocks\/hooks$/,
     names: IMAGE_COMPONENTS,
-    hint: "on Next.js, next/image with createDecoImageLoader from @decocms/nextjs/image-loader; elsewhere, URLs from createImageUrl, srcSet and preloadLink in @decocms/blocks/image",
+    hint: "on Next.js, next/image with createDecoImageLoader from @decocms/nextjs/image-loader; elsewhere, URLs from createImageUrl, srcSet and preloadLink in @decocms/blocks/image, with the platform's helper listed first (vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image)",
   },
   {
     specifier: /^@decocms\/blocks\/hooks$/,
@@ -238,7 +297,7 @@ const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
       "ImageQuality",
       "FitOptions",
     ],
-    hint: 'createImageUrl({ providers: [vtexCatalog({ size: "exact" }), shopify(), decoCdn({ domain, quality, proxyOtherHosts: true })] }) from @decocms/blocks/image gives v7\'s URLs with the domain and quality the site registered; url(src, { width, height, fit }) and srcSet(url, src, …) replace getOptimizedMediaUrl and getSrcSet; on TanStack, pass it to ImageUrlProvider from @decocms/tanstack/react',
+    hint: `${V7_IMAGE_URL} gives v7's URLs with the domain and quality the site registered (leave out the helper of a platform the site doesn't use); url(src, { width, height, fit }) and srcSet(url, src, …) replace getOptimizedMediaUrl and getSrcSet; on TanStack, pass it to ImageUrlProvider from @decocms/tanstack/react`,
   },
   {
     specifier: /^@decocms\/blocks\/hooks$/,
@@ -361,6 +420,8 @@ const DEFAULT_HINT = "no v8 equivalent";
 const DRAFT_HELPERS = new Set(["draftPointer", "draftCookie"]);
 const DRAFT_HINT =
   "draftPointer and draftCookie are the async cms.draftPointer and cms.draftCookie now: pass cms.draftPointer the request, or { url, headers } (/next/api-reference#draft-pointers); on TanStack Start and Next.js the binding decides the draft (contentClient from @decocms/tanstack/server, bindDraft from @decocms/nextjs/server)";
+const BINDING_NAMES_HINT =
+  "the draft names and Studio's origins come from the site's binding, not @decocms/blocks: @decocms/tanstack on TanStack Start, @decocms/nextjs on Next.js";
 
 const SOURCE = /\.(tsx?|mts|cts)$/;
 
@@ -436,6 +497,10 @@ function hintsFor(specifier: string, names: string[]): Map<string, string[]> {
   for (const name of names) {
     if (specifier === "@decocms/blocks" && DRAFT_HELPERS.has(name)) {
       add(DRAFT_HINT, name);
+      continue;
+    }
+    if (specifier === "@decocms/blocks" && BINDING_NAMES.includes(name)) {
+      add(BINDING_NAMES_HINT, name);
       continue;
     }
     const byName = NAME_HINTS.find((h) => h.specifier.test(specifier) && h.names.includes(name));
@@ -562,7 +627,8 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
         const byTarget = new Map<string, ts.ImportSpecifier[]>();
         const rest: ts.ImportSpecifier[] = [];
         for (const el of bindings.elements) {
-          const target = move.names[(el.propertyName ?? el.name).text];
+          const to = move.names[(el.propertyName ?? el.name).text];
+          const target = typeof to === "string" ? to : framework && to?.[framework];
           if (target) byTarget.set(target, [...(byTarget.get(target) ?? []), el]);
           else rest.push(el);
         }
@@ -630,8 +696,7 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
     report.manual.push({
       step: "imports",
       subject: "Image, Picture, Source",
-      message:
-        "they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, v7's defaults without one: if the site called registerImageCdnDomain or registerImageQuality, wrap every page in <ImageUrlProvider value={createImageUrl({ providers: [vtexCatalog({ size: \"exact\" }), shopify(), decoCdn({ domain, quality, proxyOtherHosts: true })] })}> (@decocms/blocks/image) through createDecoRouter's Wrap option, so every URL stays v7's",
+      message: `they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, and @decocms/tanstack knows no commerce platform: without a provider every source goes through the Deco image CDN, where v7 resized VTEX catalog and Shopify images on their own hosts. Wrap every page in <ImageUrlProvider value={imageUrl}> through createDecoRouter's Wrap option, with imageUrl = ${V7_IMAGE_URL}, so every URL stays v7's (domain and quality as the site registered them with registerImageCdnDomain/registerImageQuality, else leave them out)`,
     });
   }
   for (const [key, { names, files }] of [...reported].sort(([a], [b]) => (a < b ? -1 : 1))) {

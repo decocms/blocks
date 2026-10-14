@@ -10,6 +10,7 @@ export {
   StableOutlet,
 } from "./DecoDocument.tsx";
 export {
+  DECO_IMAGE_URL,
   Image,
   type ImageProps,
   ImageUrlProvider,
@@ -18,5 +19,4 @@ export {
   Source,
   type SourceProps,
   useImageUrl,
-  V7_IMAGE_URL,
 } from "./Image.tsx";

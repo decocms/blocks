@@ -66,7 +66,7 @@ The full text of each step: [`reference/manual-steps.md`](reference/manual-steps
 
 1. **Dependencies**: `@decocms/blocks@^8.3`, the v8 binding at the same version (`@decocms/tanstack` or `@decocms/nextjs`) and the v8 `@decocms/apps-<platform>` client; remove the other v7 packages and codegen once nothing imports them.
 2. **Render pages with `createCMS` on the binding** (`/next/tanstack-start-descriptors`, `/next/nextjs`); delete the v7 setup files, admin routes, `/deco/*` handlers and v7 CI jobs.
-3. **Worker, drafts, Studio bridge and images from the binding; the rest is site code** ([`reference/framework-code.md`](reference/framework-code.md)).
+3. **Worker, drafts, Studio and images from the binding (platform image URLs: `@decocms/apps-*/image`); the rest is site code** ([`reference/framework-code.md`](reference/framework-code.md)).
 4. **Replace `/deco/invoke`** with one server function per loader or action the browser called ([`reference/server-functions.md`](reference/server-functions.md)).
 5. **Fix the content `deco check` rejects** ([`reference/content.md`](reference/content.md)).
 6. **Telemetry, analytics and previews** ([`reference/telemetry.md`](reference/telemetry.md)).
@@ -84,7 +84,7 @@ Then the rest of [`reference/verify.md`](reference/verify.md): `"blocksMajor": 8
 
 - Add compat shims that re-create v7 APIs (`useCart` from a package, `invoke`, `RequestContext`). What v7's packages did and the bindings don't is site code now; copy it in and own it.
 - Copy v7's worker entry, draft middleware, Studio bridge, preview badge or `Image` into the site: `@decocms/tanstack` and `@decocms/nextjs` ship them. A site-local `invoke` object with v7's paths, or a `runInvoke("site/loaders/…")` dispatcher, is the same shim.
-- Strip `"use client"` from components that need hooks, events or browser APIs to make them render.
+- Strip `"use client"` from hook, event or browser-API components to render them.
 - Rename saved type names. Content stores them; keep the v7 name as an alias (`/next/renames-and-migrations#rename-a-type-with-an-alias`).
 - Hand-edit the script's output in the same commit as the run.
 

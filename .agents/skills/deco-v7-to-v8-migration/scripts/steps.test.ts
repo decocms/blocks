@@ -7,7 +7,7 @@ import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
-import { MOVES, rewriteImports, V8_API } from "./imports";
+import { BINDING_NAMES, MOVES, rewriteImports, V8_API } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
 import { reencryptSecrets } from "./secrets";
@@ -308,15 +308,36 @@ describe("imports", () => {
     ]);
   });
 
-  it("points prerelease draft helpers at the CMS methods; DRAFT_COOKIE is an export again", () => {
+  it("points prerelease draft helpers at the CMS methods, and the draft names at the binding", () => {
     site({
       "src/a.ts": 'import { createCMS, draftPointer, DRAFT_COOKIE } from "@decocms/blocks";\n',
     });
     const report = createReport();
     rewriteImports(root, report, new Map());
-    expect(report.manual).toHaveLength(1);
-    expect(report.manual[0]?.subject).toBe("@decocms/blocks {draftPointer}");
+    expect(report.manual.map((n) => n.subject)).toEqual([
+      "@decocms/blocks {draftPointer}",
+      "@decocms/blocks {DRAFT_COOKIE}",
+    ]);
     expect(report.manual[0]?.message).toContain("cms.draftPointer");
+    // No binding in package.json: reported, since the home depends on the binding.
+    expect(report.manual[1]?.message).toContain("@decocms/tanstack on TanStack Start");
+  });
+
+  it.each([
+    ["@decocms/tanstack", "@decocms/tanstack"],
+    ["@decocms/nextjs", "@decocms/nextjs"],
+  ])("on a %s site, moves the draft names and Studio's origins from @decocms/blocks to %s", (binding, target) => {
+    site({
+      "package.json": { name: "site", dependencies: { [binding]: "7.0.0" } },
+      "src/a.ts":
+        'import { createCMS, DRAFT_COOKIE, STUDIO_ORIGINS, isStudioOrigin } from "@decocms/blocks";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    expect(fs.readFileSync(path.join(root, "src/a.ts"), "utf8")).toBe(
+      `import { DRAFT_COOKIE, STUDIO_ORIGINS, isStudioOrigin } from "${target}";\nimport { createCMS } from "@decocms/blocks";\n`,
+    );
+    expect(report.manual).toEqual([]);
   });
 
   it("reports v7 binding imports name by name, with the v8 binding's replacement", () => {
@@ -341,6 +362,10 @@ describe("imports", () => {
     expect(note("@decocms/tanstack {kvLoader}")).toContain("createCMS({ site, token })");
     expect(note("@decocms/blocks/hooks {LiveControls}")).toContain("StudioBridge");
     expect(note("@decocms/blocks/hooks {registerImageQuality}")).toContain("ImageUrlProvider");
+    // Platform image URLs come from the platforms' client packages, never @decocms/blocks/image.
+    expect(note("@decocms/blocks/hooks {registerImageQuality}")).toContain(
+      "vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image",
+    );
     expect(note("@decocms/nextjs/routeHandlers")).toContain("delete them");
   });
 
@@ -440,9 +465,14 @@ describe("the codemod's lists of the v8 bindings' and subpaths' exports", () => 
       expect(text, `${specifier} ${name}`).toMatch(new RegExp(`\\b${name}\\b`));
   });
 
-  it("every name a binding's root or /preview exports at runtime is listed, or reported on purpose", async () => {
+  it("every name a binding's root, /preview or /image exports at runtime is listed, or reported on purpose", async () => {
     const REPORTED = new Set(["DraftPreviewIndicator"]);
-    for (const specifier of ["@decocms/nextjs", "@decocms/blocks/preview"]) {
+    for (const specifier of [
+      "@decocms/tanstack",
+      "@decocms/nextjs",
+      "@decocms/blocks/preview",
+      "@decocms/blocks/image",
+    ]) {
       const api = V8_API[specifier] as Set<string>;
       const runtime = Object.keys(await import(specifier));
       expect(
@@ -454,13 +484,35 @@ describe("the codemod's lists of the v8 bindings' and subpaths' exports", () => 
 
   it("every move points at a v8 entry that exports the name", () => {
     for (const { names } of Object.values(MOVES)) {
-      for (const [name, target] of Object.entries(names)) {
-        expect(V8_API[target], target).toBe("*");
-        expect(fs.readFileSync(entry(target), "utf8"), `${target} ${name}`).toMatch(
-          new RegExp(`\\b${name}\\b`),
-        );
+      for (const [name, to] of Object.entries(names)) {
+        for (const target of typeof to === "string" ? [to] : Object.values(to)) {
+          const api = V8_API[target];
+          expect(api === "*" || api?.has(name), `${target} ${name}`).toBe(true);
+          expect(fs.readFileSync(entry(target), "utf8"), `${target} ${name}`).toMatch(
+            new RegExp(`\\b${name}\\b`),
+          );
+        }
       }
     }
+  });
+
+  it("@decocms/blocks exports none of the names that moved to the bindings", async () => {
+    const runtime = Object.keys(await import("@decocms/blocks"));
+    expect(runtime.filter((n) => BINDING_NAMES.includes(n))).toEqual([]);
+    expect(
+      [...(V8_API["@decocms/blocks"] as Set<string>)].filter((n) => BINDING_NAMES.includes(n)),
+    ).toEqual([]);
+  });
+
+  it("@decocms/blocks/image names no commerce platform; the platforms' helpers are their clients' /image", () => {
+    const names = [...(V8_API["@decocms/blocks/image"] as Set<string>)];
+    expect(names.filter((n) => /vtex|shopify/i.test(n))).toEqual([]);
+    expect(fs.readFileSync(entry("@decocms/apps-vtex/image"), "utf8")).toMatch(
+      /export function vtexCatalog\b/,
+    );
+    expect(fs.readFileSync(entry("@decocms/apps-shopify/image"), "utf8")).toMatch(
+      /export function shopifyCdn\b/,
+    );
   });
 });
 

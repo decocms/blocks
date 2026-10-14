@@ -8,12 +8,14 @@
  *   keeps its height while the next page loads;
  * - the CDN segment token and the draft this request renders, for
  *   `decoServerFnFetch` and the draft badge;
- * - `StudioBridge` (inert unless Studio frames the page) and `DraftBadge`
+ * - `StudioBridge` (inert unless Studio frames the page; it answers Studio's
+ *   origins, `STUDIO_ORIGINS`) and `DraftBadge`
  *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`.
  */
 import { DraftBadge, StudioBridge } from "@decocms/blocks/preview";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { STUDIO_ORIGINS } from "../studio.ts";
 import { pageValues, publishScript } from "./pageValues.ts";
 import { DATA_EVENT_OBSERVER, eventsBootstrap, PROGRESS_CSS } from "./scripts.ts";
 
@@ -132,7 +134,12 @@ export function DecoDocument({
           <StableOutlet />
         </Outer>
         {children}
-        <StudioBridge site={site} editShortcut={editShortcut} nonce={nonce} />
+        <StudioBridge
+          site={site}
+          trustedOrigins={STUDIO_ORIGINS}
+          editShortcut={editShortcut}
+          nonce={nonce}
+        />
         <DraftBadge pointer={values.draft ?? null} />
         <ScriptOnce>{DATA_EVENT_OBSERVER}</ScriptOnce>
         <Scripts />

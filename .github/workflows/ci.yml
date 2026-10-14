@@ -51,6 +51,13 @@ jobs:
           done
           node packages/blocks/bin/deco.js --help > /dev/null
 
+      # tests/release.test.ts: lockstep versions, the peer ranges, and what
+      # npm would pack for each package (every export's files, including
+      # the clients' helper subpaths such as @decocms/apps-vtex/image, and
+      # no test or fixture), against the dist/ built above.
+      - name: Release checks
+        run: bun x vitest run tests/release.test.ts
+
   # @decocms/tanstack's smoke app, built and run on workerd (`vite preview`
   # runs the Worker in Miniflare): the worker's header matrix (edge cache,
   # drafts, Studio framing, CMS redirects, __cseg) against a real TanStack

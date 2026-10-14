@@ -127,3 +127,30 @@ describe("module graphs", () => {
     expect(output).not.toMatch(/AsyncLocalStorage/);
   });
 });
+
+describe("dependencies", () => {
+  it("no @decocms/tanstack and no @decocms/apps-*: the site wires a platform's image helpers in itself", () => {
+    const all = {
+      ...pkg.peerDependencies,
+      ...pkg.devDependencies,
+      ...(pkg as { dependencies?: Record<string, string> }).dependencies,
+    };
+    expect(
+      Object.keys(all).filter(
+        (name) => name === "@decocms/tanstack" || name.startsWith("@decocms/apps-"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("no source file imports @decocms/tanstack or an @decocms/apps-* package", () => {
+    const files = execFileSync("git", ["ls-files", "src"], { cwd: packageDir, encoding: "utf-8" })
+      .split("\n")
+      .filter((f) => /\.(c?ts|tsx|cjs)$/.test(f));
+    const offenders = files.filter((f) =>
+      /from\s+["']@decocms\/(tanstack|apps-[^"']*)["']|require\(["']@decocms\/(tanstack|apps-)/.test(
+        readFileSync(join(packageDir, f), "utf-8"),
+      ),
+    );
+    expect(offenders).toEqual([]);
+  });
+});

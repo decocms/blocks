@@ -5,7 +5,7 @@
  * `X-Frame-Options`: `frame-ancestors` supersedes it and, unlike `SAMEORIGIN`,
  * can allow Studio's origin.
  */
-import { STUDIO_FRAME_ANCESTORS } from "@decocms/blocks";
+import { STUDIO_FRAME_ANCESTORS } from "../studio.ts";
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "X-Content-Type-Options": "nosniff",

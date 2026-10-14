@@ -62,6 +62,13 @@ try {
   check("a published page is not noindex", !page.res.headers.has("x-robots-tag"));
   check("the layout mounts the Studio bridge", page.body.includes('data-site="binding-smoke"'));
   check(
+    "the bridge answers Studio's origins (the package's STUDIO_ORIGINS)",
+    page.body.includes(
+      'data-origins="[&quot;https://studio.decocms.com&quot;,&quot;https://studio-stg.decocms.com&quot;,&quot;https://decocms.com&quot;,&quot;https://*.decocms.com&quot;]"',
+    ),
+    page.body.match(/data-origins="[^"]*"/)?.[0],
+  );
+  check(
     "next/image goes through the Deco image loader",
     page.body.includes("https://assets.decocms.com/image?fit=contain&amp;width=640&amp;src=binding-smoke/summer-shirt.jpg"),
     page.body.match(/srcSet="[^"]*"/)?.[0],

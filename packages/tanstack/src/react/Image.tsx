@@ -7,22 +7,23 @@
  * `registerImageCdnDomain` / `registerImageQuality`: wrap the app in
  * `<ImageUrlProvider value={imageUrl}>` with the site's own `createImageUrl`.
  *
- * Without a provider the URLs are v7's defaults: VTEX catalog and Shopify
- * images resized by their own hosts, everything else through the Deco image
- * CDN (`assets.decocms.com`, the CDN's default quality).
+ * This package knows no commerce platform. v7's components resized VTEX
+ * catalog and Shopify images on those platforms' hosts; a site that shows
+ * them lists the platform's helper first in its own `createImageUrl`
+ * (`vtexCatalog()` from `@decocms/apps-vtex/image`, `shopifyCdn()` from
+ * `@decocms/apps-shopify/image`), then `decoCdn({ sources: "all" })`, and
+ * gets v7's URLs byte for byte. Without a provider every source goes through
+ * the Deco image CDN (`assets.decocms.com`, the CDN's default quality):
+ * {@link DECO_IMAGE_URL}.
  *
- * Differences from v7, on purpose: no "Missing height" warning on every
- * render, and an already-resized Deco CDN URL is resized from its source
- * (v7 produced `src=image`, which answers 404).
+ * Difference from v7, on purpose: no "Missing height" warning on every render.
  */
 import {
   createImageUrl,
   decoCdn,
   type Fit,
   type ImageUrl,
-  shopify,
   srcSet as srcSetOf,
-  vtexCatalog,
 } from "@decocms/blocks/image";
 import {
   type ComponentPropsWithoutRef,
@@ -35,9 +36,12 @@ import {
   useMemo,
 } from "react";
 
-/** v7's image URLs: VTEX and Shopify natively, every other source through the Deco CDN. */
-export const V7_IMAGE_URL: ImageUrl = createImageUrl({
-  providers: [vtexCatalog({ size: "exact" }), shopify(), decoCdn({ proxyOtherHosts: true })],
+/**
+ * The URLs without an `ImageUrlProvider`: every source through the Deco image
+ * CDN, as v7 sent every source that wasn't a VTEX catalog or Shopify image.
+ */
+export const DECO_IMAGE_URL: ImageUrl = createImageUrl({
+  providers: [decoCdn({ sources: "all" })],
 });
 
 interface Contexts {
@@ -50,7 +54,7 @@ interface Contexts {
 const KEY = Symbol.for("decocms.tanstack.imageContexts");
 const holder = globalThis as unknown as Record<symbol, Contexts | undefined>;
 const contexts: Contexts = holder[KEY] ?? {
-  imageUrl: createContext<ImageUrl>(V7_IMAGE_URL),
+  imageUrl: createContext<ImageUrl>(DECO_IMAGE_URL),
   preload: createContext({ preload: false }),
 };
 holder[KEY] = contexts;
@@ -60,7 +64,7 @@ export function ImageUrlProvider({ value, children }: { value: ImageUrl; childre
   return <contexts.imageUrl.Provider value={value}>{children}</contexts.imageUrl.Provider>;
 }
 
-/** The `ImageUrl` the nearest `ImageUrlProvider` gives (v7's defaults without one). */
+/** The `ImageUrl` the nearest `ImageUrlProvider` gives ({@link DECO_IMAGE_URL} without one). */
 export function useImageUrl(): ImageUrl {
   return useContext(contexts.imageUrl);
 }
