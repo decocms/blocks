@@ -6,7 +6,7 @@ import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
 import { type DecoMeta, generateSchema, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
-import { stableFileId, toBase64 } from "./typeToSchema";
+import { stableFileId, titleCase, toBase64 } from "./typeToSchema";
 
 const b64 = toBase64;
 const ref = (key: string) => ({ $ref: `#/definitions/${b64(key)}` });
@@ -423,6 +423,34 @@ export const badge = (): Badge => ({ label: "" });`,
     } finally {
       fixture.remove();
     }
+  }, 30_000);
+});
+
+describe("default field titles", () => {
+  // The v7 site editor split a prop name at capitals; this generator only
+  // uppercased the first letter, so a migrated site's camelCase fields read
+  // "MarginTop" instead of "Margin Top".
+  it.each([
+    ["marginTop", "Margin Top"],
+    ["hideUnavailableItems", "Hide Unavailable Items"],
+    ["title", "Title"],
+    ["CTA", "CTA"],
+    ["titleCTA", "Title CTA"],
+    ["taxID", "Tax ID"],
+    ["RangePriceProps", "Range Price Props"],
+  ])("%s → %s", (name, title) => {
+    expect(titleCase(name)).toBe(title);
+  });
+
+  it("titles a field without @title, keeps an explicit one", async () => {
+    const definitions = await barDefinitions(`export interface Props {
+  marginTop?: number;
+  /** @title Custom */
+  noFlex?: boolean;
+}`);
+    const p = definitions[`${b64("bar")}@Props`].properties;
+    expect(p.marginTop.title).toBe("Margin Top");
+    expect(p.noFlex.title).toBe("Custom");
   }, 30_000);
 });
 
