@@ -158,14 +158,16 @@ function normalizeIPv6Host(authority: string): string | null {
 /**
  * The draft pointer a request carries: `?__draft=` from the URL first, then
  * the `__deco_draft` cookie. `null` when neither is present, or when the URL
- * says `?__draft=off`. The value is returned as is; `cms.forDraft` validates it.
+ * says `?__draft=off`. A value that doesn't parse is ignored, as if it were
+ * absent: a stray `?__draft=junk` link or a mangled cookie gets the release,
+ * never an error from `cms.forDraft`.
  */
 export function readDraftPointer(request: RequestLike): string | null {
   const param = draftParam(request);
   if (param === DRAFT_OFF) return null;
-  if (param) return param;
+  if (param && parseDraftPointer(param) !== null) return param;
   const cookie = readCookie(request.headers.get("cookie"), DRAFT_COOKIE);
-  return cookie && cookie !== DRAFT_OFF ? cookie : null;
+  return cookie && parseDraftPointer(cookie) !== null ? cookie : null;
 }
 
 /**

@@ -342,8 +342,9 @@ export interface CMS {
   settings(): Promise<EffectiveSettings>;
   /**
    * The request's draft pointer: `?__draft=` first, then the `__deco_draft`
-   * cookie. `null` when neither is present, for `?__draft=off`, and on a host
-   * outside `settings().preview.hosts`, where the request gets the release.
+   * cookie. `null` when neither is present, for `?__draft=off`, on a host
+   * outside `settings().preview.hosts`, and for a value that doesn't parse
+   * (ignored, as if absent): in each case the request gets the release.
    */
   draftPointer(request: RequestLike): Promise<string | null>;
   /**
