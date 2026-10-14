@@ -203,7 +203,7 @@ export const MOVES: Record<string, { only?: Framework; names: Record<string, Mov
  * /image) before the Deco CDN, from `@decocms/blocks/image`.
  */
 const V7_IMAGE_URL =
-  'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] }) (createImageUrl and decoCdn from @decocms/blocks/image, vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image)';
+  'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] }) (createImageUrl and decoCdn from @decocms/blocks/image, vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image; keep both, and a Nuvemshop store adds its own provider before decoCdn: reference/framework-code.md)';
 
 /** The hints for names the bindings replace, by v7 specifier: checked before `HINTS`. */
 const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [

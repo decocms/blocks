@@ -17,7 +17,7 @@
 import { readFileSync } from "node:fs";
 import { shopifyCdn } from "@decocms/apps-shopify/image";
 import { vtexCatalog } from "@decocms/apps-vtex/image";
-import { createImageUrl, decoCdn, type ImageUrl } from "@decocms/blocks/image";
+import { createImageUrl, decoCdn, type ImageProvider, type ImageUrl } from "@decocms/blocks/image";
 import { Image, ImageUrlProvider, Picture, Source } from "@decocms/tanstack/react";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -25,19 +25,45 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 interface Case {
   config: "default" | "decoims-high";
-  kind: "Image" | "Picture";
+  kind: "Image" | "Picture" | "PictureNoWidth";
   src: string;
   props: Record<string, unknown>;
   html: string;
 }
 
-const cases: Case[] = readFileSync(
-  new URL("./__fixtures__/tanstack-v7-image-markup.jsonl", import.meta.url),
-  "utf-8",
-)
-  .split("\n")
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
+const fixture = (name: string): Case[] =>
+  readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), "utf-8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+
+const cases = fixture("tanstack-v7-image-markup.jsonl");
+/**
+ * Rendered by the same v7 components (7.x `hooks/Image.tsx`, `hooks/Picture.tsx`):
+ * `Image`s and `Source`s without a width (v7 wrote `width=NaN … NaNw`
+ * candidates) and Nuvemshop product images (v7 picked one of the CDN's fixed
+ * sizes by a filename suffix).
+ */
+const extra = fixture("tanstack-v7-image-markup-nowidth-nuvemshop.jsonl");
+
+/**
+ * A Nuvemshop store's own provider, as `reference/framework-code.md` in the
+ * migration skill gives it: no `@decocms/apps-*` package covers Nuvemshop, so
+ * the site keeps v7's rule in its `src/imageUrl.ts`.
+ */
+const NUVEMSHOP_IMAGE =
+  /^(https:\/\/[a-z0-9-]+\.mitiendanube\.com\/stores\/.+\/products\/.+)-\d+-\d+\.(\w+)$/;
+const NUVEMSHOP_SIZES = [50, 100, 240, 320, 480, 640];
+const nuvemshop: ImageProvider = {
+  name: "nuvemshop",
+  match: (src) => NUVEMSHOP_IMAGE.test(src),
+  format(src, { width }) {
+    const m = src.match(NUVEMSHOP_IMAGE);
+    if (!m) return null;
+    const size = NUVEMSHOP_SIZES.find((s) => s >= width);
+    return `${m[1]}-${size ? `${size}-0` : "1024-1024"}.${m[2]}`;
+  },
+};
 
 /** A site's `src/imageUrl.ts`, for each v7 configuration. */
 const SITE: Record<Case["config"], ImageUrl> = {
@@ -56,6 +82,20 @@ const SITE: Record<Case["config"], ImageUrl> = {
 function tree(c: Case): ReactElement {
   if (c.kind === "Image") return createElement(Image, { src: c.src, ...c.props } as never);
   const { src } = c;
+  if (c.kind === "PictureNoWidth") {
+    const nuvem = src.includes("mitiendanube");
+    return createElement(
+      Picture,
+      { preload: c.props.preload as boolean, className: "block" } as never,
+      createElement(Source, { media: "(max-width: 767px)", src, height: 280 } as never),
+      createElement(Source, {
+        media: "(min-width: 768px)",
+        src,
+        width: nuvem ? 1280 : undefined,
+      } as never),
+      createElement(Image, { src, alt: "x" } as never),
+    );
+  }
   return createElement(
     Picture,
     { preload: c.props.preload as boolean, className: "block" } as never,
@@ -97,6 +137,26 @@ describe("v7's markup, byte for byte", () => {
   it("with the site's ImageUrlProvider (VTEX and Shopify helpers, then the Deco CDN)", () => {
     expect(
       diffs(cases, (c, el) => createElement(ImageUrlProvider, { value: SITE[c.config] }, el)),
+    ).toEqual([]);
+  });
+
+  it("without a width, and Nuvemshop images with the store's own provider (90 cases)", () => {
+    expect(extra).toHaveLength(90);
+    const site: Record<Case["config"], ImageUrl> = {
+      default: createImageUrl({
+        providers: [vtexCatalog(), shopifyCdn(), nuvemshop, decoCdn({ sources: "all" })],
+      }),
+      "decoims-high": createImageUrl({
+        providers: [
+          vtexCatalog(),
+          shopifyCdn(),
+          nuvemshop,
+          decoCdn({ domain: "decoims.com", quality: "high", sources: "all" }),
+        ],
+      }),
+    };
+    expect(
+      diffs(extra, (c, el) => createElement(ImageUrlProvider, { value: site[c.config] }, el)),
     ).toEqual([]);
   });
 
