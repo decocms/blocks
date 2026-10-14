@@ -93,7 +93,11 @@ export interface CommitAttempt {
    * revision at commit time differs, checked atomically with `expected`.
    */
   expectedBase?: string;
-  /** Why the core commits, for logs: `apply` (default) or `discard`. */
+  /**
+   * Why the core commits: `apply` (default) or `discard`. For logs, and a
+   * storage with a staging area (the fs storage's git index) also unstages
+   * the files a `discard` writes or deletes, in the same commit.
+   */
   reason?: "apply" | "discard";
 }
 

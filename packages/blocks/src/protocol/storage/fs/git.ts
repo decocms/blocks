@@ -1,9 +1,12 @@
 /**
  * The filesystem storage's base: the git `HEAD` of the repository the app
- * root is in. Read-only: it runs `git` (no new dependency, no shell, argv
- * arrays only) and never writes git state — no index writes, no commits, no
- * `git restore`. A discard writes the files themselves, through the storage's
- * own commit.
+ * root is in. It runs `git` (no new dependency, no shell, argv arrays only)
+ * and writes git state in one place only: a discard brings the index entries
+ * of exactly the paths it restores (plus both sides of a staged rename that
+ * involves one of them) back to `HEAD` (`unstage`), so a block staged with
+ * `git add`, `git mv` or `git rm` isn't committed later. Never commits, never
+ * touches another path's staging. A discard writes the files themselves,
+ * through the storage's own commit.
  *
  * Changes are the working tree against `HEAD` (the index is never
  * consulted), with git's own idea of equal: a file whose bytes differ only by
@@ -42,6 +45,11 @@ export interface GitOptions {
   git?: string;
 }
 
+interface RunOptions extends GitOptions {
+  /** Bytes written to git's stdin. */
+  input?: string;
+}
+
 /** A git call that failed: `missing` when the binary isn't there. */
 export class GitError extends Error {
   constructor(
@@ -70,10 +78,10 @@ function gitEnv(): NodeJS.ProcessEnv {
 }
 
 /** Runs git and resolves with its stdout bytes; rejects with a `GitError`. */
-export function runGit(cwd: string, args: string[], options: GitOptions = {}): Promise<Buffer> {
+export function runGit(cwd: string, args: string[], options: RunOptions = {}): Promise<Buffer> {
   const git = options.git ?? "git";
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       git,
       args,
       {
@@ -96,6 +104,11 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
         reject(new GitError(line.trim(), "failed", exitCode, text));
       },
     );
+    if (options.input !== undefined) {
+      // A git that exits early closes its stdin; the exit callback reports it.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(options.input);
+    }
   });
 }
 
@@ -144,6 +157,14 @@ export interface GitBase {
   differing(base: StorageBase, current: StorageFile[]): Promise<string[]>;
   /** Base bodies as a checkout writes them (smudge and eol filters applied). */
   readBase(base: StorageBase, files: string[]): Promise<Map<string, Buffer>>;
+  /**
+   * Brings the index entries of these saved-block files (names inside
+   * `.deco/blocks`), plus both sides of any staged rename that involves one
+   * of them, back to `HEAD`: a path `HEAD` has gets `HEAD`'s entry, any other
+   * path leaves the index (an unborn `HEAD` has none). The working tree is
+   * left alone. Resolves with an undo that puts the previous entries back.
+   */
+  unstage(files: string[]): Promise<() => Promise<void>>;
 }
 
 /**
@@ -303,5 +324,101 @@ export function createGitBase(root: string, options: GitOptions = {}): GitBase {
     }
   }
 
-  return { base, baseFiles, differing, readBase };
+  let topLevel: Promise<{ top: string; prefix: string }> | undefined;
+
+  /** The work tree's top folder, and the app root's path inside it (`apps/web/` or ``). */
+  function where() {
+    topLevel ??= git(["rev-parse", "--show-toplevel", "--show-prefix"]).then((out) => {
+      const [top = "", repoPrefix = ""] = out.toString("utf8").split("\n");
+      return { top: top.trim(), prefix: repoPrefix.trim() };
+    });
+    topLevel.catch(() => {
+      topLevel = undefined;
+    });
+    return topLevel;
+  }
+
+  /** Runs `args -- <paths>` in chunks, so an argv stays far below any OS limit. */
+  async function forPaths(top: string, args: string[], paths: string[]): Promise<Buffer[]> {
+    const outs: Buffer[] = [];
+    for (let i = 0; i < paths.length; i += HASH_CHUNK) {
+      outs.push(await git([...args, "--", ...paths.slice(i, i + HASH_CHUNK)], top));
+    }
+    return outs;
+  }
+
+  /** Both sides of every rename staged against `HEAD`, as repo-relative paths. */
+  async function stagedRenames(top: string): Promise<[string, string][]> {
+    const out = await git(
+      ["diff-index", "--cached", "-z", "--name-status", "-M", "--no-ext-diff", "HEAD"],
+      top,
+    );
+    const fields = out.toString("utf8").split("\0");
+    const renames: [string, string][] = [];
+    for (let i = 0; i < fields.length; ) {
+      const status = fields[i++]!;
+      if (status === "") continue;
+      if (status.startsWith("R") || status.startsWith("C")) {
+        const from = fields[i++]!;
+        const to = fields[i++]!;
+        if (status.startsWith("R")) renames.push([from, to]);
+      } else i++;
+    }
+    return renames;
+  }
+
+  async function unstage(files: string[]): Promise<() => Promise<void>> {
+    try {
+      const noop = async () => {};
+      if (files.length === 0) return noop;
+      for (const file of files) {
+        if (!isBlockFileName(file)) throw new Error(`not a saved-block file: ${file}`);
+      }
+      const { top, prefix: appPrefix } = await where();
+      const paths = new Set(files.map((file) => `${appPrefix}.deco/blocks/${file}`));
+      const born = (await base()).revision !== UNBORN_REVISION;
+      if (born) {
+        for (const [from, to] of await stagedRenames(top)) {
+          if (paths.has(from) || paths.has(to)) {
+            paths.add(from);
+            paths.add(to);
+          }
+        }
+      }
+      const all = [...paths].sort();
+      // The entries as they are now, every stage, for the undo.
+      const before = (await forPaths(top, ["ls-files", "-s", "-z", "--full-name"], all))
+        .map((b) => b.toString("utf8"))
+        .join("");
+      const inHead = new Set<string>();
+      if (born) {
+        const listed = await forPaths(
+          top,
+          ["ls-tree", "-z", "--name-only", "--full-name", "HEAD"],
+          all,
+        );
+        for (const out of listed) {
+          for (const path of out.toString("utf8").split("\0")) if (path) inHead.add(path);
+        }
+      }
+      const tracked = all.filter((path) => inHead.has(path));
+      const untracked = all.filter((path) => !inHead.has(path));
+      if (tracked.length > 0) await forPaths(top, ["reset", "-q", "HEAD"], tracked);
+      if (untracked.length > 0) {
+        // `-f`: a staged new file edited again matches neither HEAD nor the disk.
+        await forPaths(top, ["rm", "--cached", "-f", "--quiet", "--ignore-unmatch"], untracked);
+      }
+      return async () => {
+        // Drop whatever entry each path has now, then put the old ones back.
+        await forPaths(top, ["update-index", "--force-remove"], all);
+        if (before) {
+          await runGit(top, ["update-index", "-z", "--index-info"], { ...options, input: before });
+        }
+      };
+    } catch (error) {
+      unavailable(error);
+    }
+  }
+
+  return { base, baseFiles, differing, readBase, unstage };
 }

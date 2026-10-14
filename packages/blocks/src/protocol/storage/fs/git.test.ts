@@ -141,6 +141,7 @@ describe("the base is HEAD", () => {
     expect((await createFsStorage({ root }).describe()).root).toBe("apps/web");
     await write("a.json", b);
     await write("x.json", b);
+    git(repo, "add", "-A");
     expect(Object.keys(await changed(client)).sort()).toEqual(["a", "x"]);
     await client.changesDiscard({ names: ["a", "x"] });
     expect(await changed(client)).toEqual({});
@@ -184,6 +185,137 @@ describe("the base is HEAD", () => {
       else process.env.GIT_DIR = saved;
       await rm(other, { recursive: true, force: true });
     }
+  });
+});
+
+describe("a discard unstages what it restores", () => {
+  /** `git status --porcelain` for these paths (repo-relative), or all with none. */
+  const status = (...paths: string[]) =>
+    git(repo, "status", "--porcelain", "--untracked-files=all", "--", ...paths);
+  const block = (name: string) => `.deco/blocks/${name}.json`;
+
+  it("a staged modification: the index is back to HEAD", async () => {
+    const { client, write } = await app({ "a.json": a });
+    await write("a.json", b);
+    git(repo, "add", block("a"));
+    expect(status(block("a"))).toBe("M  .deco/blocks/a.json");
+    await client.changesDiscard({ names: ["a"] });
+    expect(status(block("a"))).toBe("");
+    expect(status()).toBe("");
+  });
+
+  it("a partially staged file (staged, then edited again): both are dropped", async () => {
+    const { client, write, read } = await app({ "a.json": a });
+    await write("a.json", b);
+    git(repo, "add", block("a"));
+    await write("a.json", serializeBlock({ title: "A3" }));
+    expect(status(block("a"))).toBe("MM .deco/blocks/a.json");
+    await client.changesDiscard({ names: ["a"] });
+    expect(status(block("a"))).toBe("");
+    expect((await read("a.json")).toString("utf8")).toBe(a);
+  });
+
+  it("a staged new file: out of the index and off the disk", async () => {
+    const { client, write, root } = await app({ "a.json": a });
+    await write("n.json", b);
+    git(repo, "add", block("n"));
+    expect(status(block("n"))).toBe("A  .deco/blocks/n.json");
+    await client.changesDiscard({ names: ["n"] });
+    expect(status(block("n"))).toBe("");
+    expect(git(repo, "ls-files", "--", block("n"))).toBe("");
+    await expect(readFile(join(root, ".deco", "blocks", "n.json"))).rejects.toThrow();
+  });
+
+  it("a staged new file edited again: out of the index too", async () => {
+    const { client, write } = await app({ "a.json": a });
+    await write("n.json", b);
+    git(repo, "add", block("n"));
+    await write("n.json", a);
+    expect(status(block("n"))).toBe("AM .deco/blocks/n.json");
+    await client.changesDiscard({ names: ["n"] });
+    expect(status()).toBe("");
+  });
+
+  it("a staged deletion (`git rm`): restored in the index and on disk", async () => {
+    // Another block keeps the folder: `git rm` of a last file removes it.
+    const { client, read } = await app({ "a.json": a, "c.json": b });
+    git(repo, "rm", "-q", block("a"));
+    expect(status(block("a"))).toBe("D  .deco/blocks/a.json");
+    await client.changesDiscard({ names: ["a"] });
+    expect(status(block("a"))).toBe("");
+    expect((await read("a.json")).toString("utf8")).toBe(a);
+  });
+
+  it("a `git mv` rename: discarding either side unstages both sides", async () => {
+    const { client, read } = await app({ "a.json": a });
+    git(repo, "mv", block("a"), block("r"));
+    expect(status()).toBe("R  .deco/blocks/a.json -> .deco/blocks/r.json");
+    // Discard the new side only: the old side's staged deletion goes too.
+    await client.changesDiscard({ names: ["r"] });
+    expect(status(block("r"))).toBe("");
+    // a.json is back in the index; on disk it is still missing (not discarded).
+    expect(git(repo, "ls-files", "--", block("a"))).toBe(block("a"));
+    expect(git(repo, "diff", "--cached", "--name-only")).toBe("");
+    expect(git(repo, "diff", "--name-only")).toBe(block("a"));
+    await client.changesDiscard({ names: ["a"] });
+    expect(status()).toBe("");
+    expect((await read("a.json")).toString("utf8")).toBe(a);
+  });
+
+  it("a `git mv` rename discarded by its old side, and both sides at once", async () => {
+    const { client } = await app({ "a.json": a, "c.json": b });
+    git(repo, "mv", block("a"), block("r"));
+    await client.changesDiscard({ names: ["a"] });
+    expect(status(block("a"))).toBe("");
+    // The new side is no longer staged: just an untracked file, still a change.
+    expect(status(block("r"))).toBe("?? .deco/blocks/r.json");
+    git(repo, "mv", block("c"), block("s"));
+    await client.changesDiscard({ names: ["c", "s", "r"] });
+    expect(status()).toBe("");
+  });
+
+  it("leaves every other path's staging alone", async () => {
+    const { client, write, root } = await app({ "a.json": a, "b.json": b });
+    await writeFile(join(root, "README.md"), "hello\n");
+    await write("a.json", b);
+    await write("b.json", a);
+    git(repo, "add", "-A");
+    await client.changesDiscard({ names: ["a"] });
+    expect(status()).toBe("M  .deco/blocks/b.json\nA  README.md");
+  });
+
+  it("works in a repository with no commits yet: everything discarded leaves the index", async () => {
+    await mkdir(join(repo, ".deco", "blocks"), { recursive: true });
+    await writeFile(join(repo, ".deco", "blocks", "a.json"), a);
+    await writeFile(join(repo, ".deco", "blocks", "b.json"), b);
+    await writeFile(join(repo, "README.md"), "hello\n");
+    gitInit(repo, { commit: false });
+    git(repo, "add", "-A");
+    await writeFile(join(repo, ".deco", "blocks", "a.json"), serializeBlock({ title: "A2" }));
+    const client = createContentClient({
+      endpoint: "http://local/rpc",
+      fetch: createContentHandler(createFsStorage({ root: repo })),
+    });
+    await client.changesDiscard({ names: ["a"] });
+    expect(status(block("a"))).toBe("");
+    expect(status()).toBe("A  .deco/blocks/b.json\nA  README.md");
+  });
+
+  it("puts the index back when the file write fails", async () => {
+    const { storage, write, root } = await app({ "a.json": a });
+    await write("a.json", b);
+    git(repo, "add", block("a"));
+    // A folder where a file would be renamed into place fails the write.
+    await mkdir(join(root, ".deco", "blocks", "x.json"));
+    const result = storage.commit({
+      base: await storage.snapshot(),
+      put: { "a.json": a, "x.json": a },
+      delete: [],
+      expected: {},
+      reason: "discard",
+    });
+    await expect(result).rejects.toThrow();
+    expect(status(block("a"))).toBe("M  .deco/blocks/a.json");
   });
 });
 

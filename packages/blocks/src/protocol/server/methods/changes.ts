@@ -13,6 +13,10 @@
  *   doesn't have, in one commit guarded like `blocks.apply` (optional
  *   `ifMatch`, Conflict, retries), plus the base revision (`expectedBase`),
  *   so a base that moves meanwhile is re-read rather than half-restored.
+ *   The commit says `reason: "discard"`: a storage with a staging area (the
+ *   fs storage's git index) also brings those files' staged entries back to
+ *   the base, so a discarded block that was `git add`ed (or `git mv`ed or
+ *   `git rm`ed) isn't left staged for a later commit.
  */
 import { sha256Hex } from "../../canonical.ts";
 import {
