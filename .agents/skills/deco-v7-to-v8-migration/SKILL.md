@@ -65,7 +65,7 @@ The script prints **Done** and **Left to do**, grouped by step. Every "Left to d
 The full text of each step: [`reference/manual-steps.md`](reference/manual-steps.md).
 
 1. **Dependencies**: `@decocms/blocks@^8.1` plus the v8 `@decocms/apps-<platform>` client; remove the v7 packages and codegen once nothing imports them.
-2. **Render pages with `createCMS`** (`/next/tanstack-start-descriptors`, `/next/nextjs`); delete the v7 setup files, admin routes and `/deco/*` handlers.
+2. **Render pages with `createCMS`** (`/next/tanstack-start-descriptors`, `/next/nextjs`); delete the v7 setup files, admin routes, `/deco/*` handlers and v7 CI jobs.
 3. **Move framework code into the site** ([`reference/framework-code.md`](reference/framework-code.md)).
 4. **Replace `/deco/invoke`** with one server function per loader or action the browser called ([`reference/server-functions.md`](reference/server-functions.md)).
 5. **Fix the content `deco check` rejects** ([`reference/content.md`](reference/content.md)).
