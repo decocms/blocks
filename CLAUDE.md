@@ -78,6 +78,7 @@ Each export is built from the source file below (`dist/<same path>.js`, see abov
 | `@decocms/blocks/analytics` | `src/v8/analytics.ts` — `AnalyticsScript`, `track` |
 | `@decocms/blocks/fetch` | `src/v8/fetch.ts` — `createInstrumentedFetch` |
 | `@decocms/blocks/image` | `src/v8/image.ts` — image URL format/parse (`decoCdn`, `vtexCatalog`, `vtexFileManager`, `shopify`, `createImageUrl`), `srcSet`, `parseSrcSet`, `preloadLink`. Pure functions, no React, no module state: a site builds one `ImageUrl`; the bindings render it |
+| `@decocms/blocks/preview` | `src/v8/preview/index.ts` — `DraftBadge` (the "Preview mode" badge: a `"use client"` component, renders nothing without a pointer or inside a frame) and `StudioBridge` (a hook-free inline `<script>`: runs Studio's `editor::inject` only when framed and only for `STUDIO_ORIGINS`). No framework code; `@decocms/tanstack` mounts both, a Next.js layout renders them |
 | `@decocms/blocks/secrets` | `src/v8/secrets.ts` |
 | `@decocms/blocks/cli` | `src/v8/cli/index.ts` — the `deco` CLI (`schema`, `content`, `check`, `serve`), also the bin (`bin/deco.js`, which runs the compiled `dist/v8/cli/main.js` under Node or Bun). CLI-only: the runtime never imports it (`run.test.ts`), so it and the TypeScript compiler never reach an app bundle |
 | `@decocms/blocks/protocol` (+ `/keys`, `/server`, `/storage/fs`, `/conformance`) | `src/protocol/**` — the content protocol the site editor uses; browser-safe except `storage/fs` (conditional export: `node` → real, `default` → a stub that throws) |
