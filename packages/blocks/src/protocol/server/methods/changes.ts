@@ -128,7 +128,8 @@ async function readBaseBodies(
   for (const file of toRead) {
     const read = bodies[file.file];
     if (read === undefined) continue; // The base moved: the caller notices.
-    out.set(file.file, parseBody(read.text, MAX_BLOCK_BYTES));
+    // Parsed like a current body, which is read without its BOM.
+    out.set(file.file, parseBody(read.text.replace(/^\uFEFF/, ""), MAX_BLOCK_BYTES));
   }
   return out;
 }

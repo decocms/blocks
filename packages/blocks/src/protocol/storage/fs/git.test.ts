@@ -122,6 +122,20 @@ describe("the base is HEAD", () => {
     expect(git(repo, "status", "--porcelain")).toBe("");
   });
 
+  it("keeps a base file's BOM: a discard restores its exact bytes, and both sides still parse", async () => {
+    const bom = `﻿${a}`;
+    const { client, write, read } = await app({ "a.json": bom });
+    expect(await changed(client)).toEqual({});
+    await write("a.json", serializeBlock({ title: "A2" }));
+    const detail = await client.changesGet({ names: ["a"] });
+    expect(detail.entries.a?.before).toEqual({ title: "A" });
+    expect(detail.diagnostics).toEqual([]);
+    await client.changesDiscard({ names: ["a"] });
+    expect((await read("a.json")).toString("utf8")).toBe(bom);
+    expect(await changed(client)).toEqual({});
+    expect(git(repo, "status", "--porcelain")).toBe("");
+  });
+
   it("works for an app in a monorepo folder", async () => {
     const { client, write, root } = await app({ "a.json": a }, "apps/web");
     expect((await createFsStorage({ root }).describe()).root).toBe("apps/web");

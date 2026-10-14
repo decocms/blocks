@@ -330,9 +330,12 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
       for (const file of files) assertBlockFile(file);
       const versions = new Map((await gitBase.baseFiles(base)).map((f) => [f.file, f.version]));
       const bodies = await gitBase.readBase(base, files);
+      // Exactly as a checkout writes them, a leading BOM included: a discard
+      // writes this text back, and anything else would still differ from HEAD.
+      const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
       const out: Record<string, StoredFileBody> = Object.create(null);
       for (const [file, bytes] of bodies) {
-        out[file] = { text: new TextDecoder().decode(bytes), version: versions.get(file)! };
+        out[file] = { text: decoder.decode(bytes), version: versions.get(file)! };
       }
       return out;
     },

@@ -160,8 +160,9 @@ export interface ContentStorage {
   /** The files of `snapshot` that differ from `base`, and the base files they touch. */
   changes(base: StorageBase, snapshot: StorageSnapshot): Promise<StorageChanges>;
   /**
-   * Reads base file bodies, as a checkout would write them, each with its
-   * version in the base. A file the base doesn't have is left out.
+   * Reads base file bodies, as a checkout would write them (a leading BOM
+   * kept: a discard writes the text back as is), each with its version in the
+   * base. A file the base doesn't have is left out.
    */
   readBaseFiles(base: StorageBase, files: string[]): Promise<Record<string, StoredFileBody>>;
   /** Stores an uploaded file, never overwriting one; returns the stored file name. */
