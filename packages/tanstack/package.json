@@ -20,6 +20,11 @@
 		"!src/**/testing.ts"
 	],
 	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"source": "./src/index.ts",
+			"default": "./dist/index.js"
+		},
 		"./worker": {
 			"types": "./dist/worker/index.d.ts",
 			"source": "./src/worker/index.ts",

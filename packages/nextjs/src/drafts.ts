@@ -24,13 +24,8 @@
  *
  * No React, no Next.js and no module state: the proxy and the pages share it.
  */
-import {
-  type CMS,
-  DRAFT_COOKIE,
-  DRAFT_PARAM,
-  parseDraftPointer,
-  type RequestLike,
-} from "@decocms/blocks";
+import { type CMS, parseDraftPointer, type RequestLike } from "@decocms/blocks";
+import { DRAFT_COOKIE, DRAFT_PARAM } from "./draft.ts";
 
 export interface PreviewPolicy {
   /** The site's name: `<site>.deco.site` and `<site>.deco-cx.workers.dev` may preview. */

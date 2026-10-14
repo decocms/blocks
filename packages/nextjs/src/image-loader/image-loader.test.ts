@@ -1,61 +1,30 @@
 // @vitest-environment node
 /**
- * The loader against the next/image golden URLs of `@decocms/blocks/image`
- * (each Next storefront's current loader, byte for byte): the URL a site's
- * `loaderFile` returns must not change when it moves to this package.
+ * The loader over an `ImageUrl` from `@decocms/blocks/image`. It knows no
+ * commerce platform: a site adds its platform's helpers
+ * (`@decocms/apps-vtex/image`, ...) to the `ImageUrl` it passes. The next/image
+ * golden URLs, run through that composition, are checked in
+ * `tests/nextjs-image-loader.golden.test.ts` (this package depends on no
+ * `@decocms/apps-*`).
  */
-import { readFileSync } from "node:fs";
-import {
-  createImageUrl,
-  decoCdn,
-  type ResizeOptions,
-  vtexCatalog,
-  vtexFileManager,
-} from "@decocms/blocks/image";
+import { createImageUrl, decoCdn } from "@decocms/blocks/image";
 import { describe, expect, it } from "vitest";
 import { createDecoImageLoader, nextImageOptimizer } from "./index.ts";
 
-interface Case {
-  config: string;
-  call: string;
-  src: string;
-  opts?: ResizeOptions;
-  expected: unknown;
-}
-
-const golden: Case[] = readFileSync(
-  new URL("../../../blocks/src/v8/__fixtures__/image-golden.jsonl", import.meta.url),
-  "utf-8",
-)
-  .split("\n")
-  .filter(Boolean)
-  .map((line) => JSON.parse(line))
-  .filter(
-    (c: Case) => (c.config === "next-thumbor" || c.config === "next-query") && c.call === "url",
-  );
-
-/** The next/image storefronts' ImageUrl (as in `@decocms/blocks`' golden test). */
+/** The Deco CDN as the next/image storefronts call it. */
 const imageUrl = createImageUrl({
-  providers: [
-    vtexCatalog({ size: "auto", format: "webp", quality: 8, anyHost: true }),
-    vtexFileManager({ via: "thumbor", quality: 8 }),
-    decoCdn({ quality: "high", layout: "quality-last" }),
-  ],
+  providers: [decoCdn({ quality: "high", fit: "contain", layout: "quality-last" })],
 });
 
 describe("createDecoImageLoader", () => {
-  it("reproduces the storefronts' loader URLs byte for byte", () => {
-    expect(golden.length).toBeGreaterThan(100);
+  it("a source the ImageUrl resizes: its URL, with the width and quality next/image passes", () => {
+    const src = "https://assets.decocache.com/acme/1a2b/hero.jpg";
     const loader = createDecoImageLoader(imageUrl);
-    const diffs = golden
-      .map((c) => ({
-        src: c.src,
-        opts: c.opts,
-        expected: c.expected,
-        got: loader({ src: c.src, width: c.opts!.width, quality: c.opts!.quality }),
-      }))
-      .filter((d) => d.got !== d.expected);
-    expect(diffs).toEqual([]);
+    expect(loader({ src, width: 640, quality: 75 })).toBe(
+      imageUrl(src, { width: 640, quality: 75 }),
+    );
+    expect(loader({ src, width: 640 })).toBe(imageUrl(src, { width: 640 }));
+    expect(loader({ src, width: 640 })).not.toBe(src);
   });
 
   it("an unknown source: unchanged, or the fallback's URL", () => {

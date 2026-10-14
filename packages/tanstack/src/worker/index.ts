@@ -17,14 +17,9 @@
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  */
-import {
-  type CMS,
-  DRAFT_HEADER,
-  draftResponseHeaders,
-  matchRoute,
-  type Redirect,
-} from "@decocms/blocks";
+import { type CMS, matchRoute, type Redirect } from "@decocms/blocks";
 import { runInScope } from "@decocms/tanstack/scope";
+import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import { CSEG_PARAM, DEGRADED_HEADER, PAGE_STATUS_HEADER } from "../shared.ts";
 import {
   type CacheProfileName,

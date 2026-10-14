@@ -2,9 +2,8 @@
  * Draft pointers (see /next/api-reference#draft-pointers): the string
  * `<host[:port]><path[?query]>@<version>` that names a draft, and what
  * `cms.draftPointer` and `cms.draftCookie` read and write to carry one from a
- * `?__draft=` link into a cookie, and the names and headers the framework
- * bindings share. The host check against the preview hosts is the CMS's:
- * these read the request only.
+ * `?__draft=` link into a cookie. The host check against the preview hosts is
+ * the CMS's: these read the request only.
  *
  * The query's reserved `__variant` parameters are the variants a preview
  * forces (`<block>@<path>=<index>`, URL-encoded, one per multivariate); the
@@ -12,45 +11,12 @@
  */
 import type { DraftPointer, ForcedVariant, RequestLike } from "./types.ts";
 
-/**
- * The query parameter a draft link carries (`?__draft=<pointer>`, or `off` to
- * end a preview). Read the pointer with `cms.draftPointer(request)`, which
- * checks the request's host against the preview hosts; reading the parameter
- * directly would skip that check.
- */
+/** The draft cookie's name. Not exported from the package: reading it directly would skip the host check. */
+const DRAFT_COOKIE = "__deco_draft";
+
+/** The draft link's query parameter. Shared with `./preview` (the badge's links); not exported from the package. */
 export const DRAFT_PARAM = "__draft";
-
-/**
- * The cookie that keeps a preview going after the first draft link
- * (`cms.draftCookie(request)` writes it). Like {@link DRAFT_PARAM}, read it
- * through `cms.draftPointer(request)`, never directly.
- */
-export const DRAFT_COOKIE = "__deco_draft";
-
-/**
- * The request header a framework binding sets on a request it forwards after
- * `cms.draftPointer` accepted the draft (a Next.js proxy to its pages, for
- * one): the pointer, already checked. A binding removes any copy of it that
- * arrives from outside, so a client can't send one itself.
- */
-export const DRAFT_HEADER = "x-deco-draft";
-
 const DRAFT_OFF = "off";
-
-/**
- * The response headers of a page rendered from a draft: never stored by a
- * browser or a CDN (`Cache-Control: no-store, private`, `Vary: Cookie`) and
- * never indexed (`X-Robots-Tag: noindex, nofollow`). `{}` when `pointer` is
- * `null`, so a binding can apply the result of `cms.draftPointer` as is.
- */
-export function draftResponseHeaders(pointer: string | null | undefined): Record<string, string> {
-  if (!pointer) return {};
-  return {
-    "Cache-Control": "no-store, private",
-    Vary: "Cookie",
-    "X-Robots-Tag": "noindex, nofollow",
-  };
-}
 
 /** Lowercase DNS name; a single label (`localhost`) is allowed. */
 const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;

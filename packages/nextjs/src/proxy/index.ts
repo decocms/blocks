@@ -19,8 +19,9 @@
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
  * routes).
  */
-import { type CMS, DRAFT_HEADER, draftResponseHeaders } from "@decocms/blocks";
+import type { CMS } from "@decocms/blocks";
 import { type NextRequest, NextResponse } from "next/server.js";
+import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import {
   allowedDraft,
   draftCookie,

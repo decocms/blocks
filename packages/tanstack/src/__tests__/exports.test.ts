@@ -6,7 +6,7 @@
  *   export. Workers builds turn `browser` on too (`workerd, worker, browser`),
  *   so `workerd` and `node` must come before `browser`, or a production worker
  *   would get the no-op stub with no build error.
- * - The browser-safe subpaths (`/react`, `/start`, `/router`) bundle for a
+ * - The browser-safe entries (the root, `/react`, `/start`, `/router`) bundle for a
  *   browser with no Node built-in, no `AsyncLocalStorage` and no CMS.
  */
 import { execFileSync } from "node:child_process";
@@ -97,6 +97,7 @@ function bundle(
 
 describe("browser bundles", () => {
   it.each([
+    "index.ts",
     "react/index.ts",
     "start/index.ts",
     "router/index.ts",
@@ -121,5 +122,16 @@ describe("browser bundles", () => {
     expect(inputs.some((i) => i.endsWith("scope/server.ts"))).toBe(true);
     expect(inputs.some((i) => i.endsWith("scope/browser.ts"))).toBe(false);
     expect(output).toContain("AsyncLocalStorage");
+  });
+});
+
+describe("dependencies", () => {
+  it("no @decocms/apps-* package: a site wires a platform's helpers (its image URLs) in itself", () => {
+    const all = {
+      ...pkg.peerDependencies,
+      ...pkg.devDependencies,
+      ...(pkg as { dependencies?: Record<string, string> }).dependencies,
+    };
+    expect(Object.keys(all).filter((name) => name.startsWith("@decocms/apps-"))).toEqual([]);
   });
 });

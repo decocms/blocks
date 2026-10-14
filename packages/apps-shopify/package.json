@@ -12,7 +12,8 @@
     "dist",
     "src",
     "!src/**/*.test.ts",
-    "!src/**/__tests__"
+    "!src/**/__tests__",
+    "!src/**/__fixtures__"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,6 +22,11 @@
       "types": "./dist/index.d.ts",
       "source": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./image": {
+      "types": "./dist/image.d.ts",
+      "source": "./src/image.ts",
+      "default": "./dist/image.js"
     }
   },
   "scripts": {
