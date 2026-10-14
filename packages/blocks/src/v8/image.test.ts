@@ -5,9 +5,11 @@
  * `getOptimizedMediaUrl` / `getSrcSet` copies and two next/image loaders),
  * over the platform-neutral sources (Deco asset hosts, other hosts, paths,
  * data: URIs, ""). Each config below is the `decoCdn` a site uses, and must
- * reproduce its URLs byte for byte: no case changes. The commerce platforms'
- * cases live with their providers (`@decocms/apps-vtex/image`,
- * `@decocms/apps-shopify/image`).
+ * reproduce its URLs byte for byte. The only changed cases are the ones the
+ * product owner approved (2026-10-14, "fix 2": an already-resized Deco CDN URL
+ * is re-resized from its src): each carries `before` (today's URL) and
+ * `reason`. The commerce platforms' cases live with their providers
+ * (`@decocms/apps-vtex/image`, `@decocms/apps-shopify/image`).
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -27,7 +29,16 @@ interface Case {
   src: string;
   opts?: ResizeOptions & { widths?: number[]; factors?: number[] };
   expected: string | boolean | null;
+  /** Approved changes only: today's URL, and why it changes. */
+  before?: string | boolean | null;
+  reason?: string;
 }
+
+/** The sources whose URLs fix 2 changes: already-resized Deco CDN URLs. */
+const FIX2_SOURCES = new Set([
+  "https://decoims.com/image?fit=cover&width=375&src=a-storefront/2026/07/hero.jpg",
+  "https://assets.decocms.com/image?fit=contain&width=828&src=a-storefront%2Fabc%2Fhero.jpg&quality=high",
+]);
 
 const cases: Case[] = readFileSync(
   new URL("./__fixtures__/image-golden.jsonl", import.meta.url),
@@ -62,9 +73,20 @@ function run(c: Case): string | boolean | null {
 }
 
 describe("golden URLs: each storefront's current helpers, byte for byte", () => {
-  it("covers every config, and no case is a changed URL", () => {
+  it("covers every config, and the only changed URLs are fix 2's approved ones", () => {
     expect(new Set(cases.map((c) => c.config))).toEqual(new Set(Object.keys(CONFIGS)));
-    expect(cases.filter((c) => "before" in c)).toEqual([]);
+    const changed = cases.filter((c) => "before" in c);
+    // Every case of an already-resized Deco CDN source that is not an
+    // isOptimizable check changes (it was a broken src=), and nothing else does.
+    expect(changed).toEqual(
+      cases.filter((c) => FIX2_SOURCES.has(c.src) && c.call !== "isOptimizable"),
+    );
+    expect(changed).toHaveLength(160);
+    for (const c of changed) {
+      expect(c.reason).toMatch(/^fix 2 \(PO 2026-10-14\)/);
+      expect(c.before).not.toEqual(c.expected);
+      expect(String(c.before)).toMatch(/src=(image|https:\/\/assets\.decocms\.com\/image)(&| |$)/);
+    }
   });
 
   for (const config of Object.keys(CONFIGS)) {
@@ -131,6 +153,100 @@ describe("decoCdn", () => {
     expect(azion("https://decoims.com/a/b.png", { width: 10, fit: "cover" })).toBe(
       "https://deco-assets.edgedeco.com/image?fit=cover&width=10&src=https://decoims.com/a/b.png",
     );
+  });
+
+  describe("an already-resized Deco CDN URL is re-resized from its src (fix 2)", () => {
+    const cdn = createImageUrl({ providers: [decoCdn()] });
+    const want = "https://assets.decocms.com/image?fit=cover&width=320&src=s/abc/hero.jpg";
+
+    it("for every Deco CDN image endpoint, http or https, any host case", () => {
+      for (const host of [
+        "https://assets.decocms.com",
+        "https://decoims.com",
+        "https://deco-assets.edgedeco.com",
+        "https://deco-assets.decoazn.com",
+        "http://assets.decocms.com",
+        "HTTPS://DECOIMS.COM",
+      ]) {
+        const resized = `${host}/image?fit=contain&width=1440&height=480&quality=high&src=s/abc/hero.jpg`;
+        expect(cdn.isOptimizable(resized)).toBe(true);
+        expect(cdn(resized, { width: 320 })).toBe(want);
+      }
+    });
+
+    it("decodes an encoded src, whatever its position in the query", () => {
+      expect(
+        cdn("https://assets.decocms.com/image?src=s%2Fabc%2Fhero.jpg&fit=contain&width=828", {
+          width: 320,
+        }),
+      ).toBe(want);
+      expect(
+        cdn(
+          "https://decoims.com/image?fit=cover&width=375&src=https%3A%2F%2Fassets.decocache.com%2Fs%2Fabc%2Fhero.jpg",
+          { width: 320 },
+        ),
+      ).toBe(want);
+      expect(
+        cdn("https://assets.decocms.com/image?width=10&src=https://images.example.com/a.jpg", {
+          width: 320,
+        }),
+      ).toBe(
+        "https://assets.decocms.com/image?fit=cover&width=320&src=https://images.example.com/a.jpg",
+      );
+    });
+
+    it("unwraps nested CDN URLs", () => {
+      const inner = "https://decoims.com/image?fit=cover&width=375&src=s/abc/hero.jpg";
+      const outer = `https://assets.decocms.com/image?width=828&src=${encodeURIComponent(inner)}`;
+      expect(cdn(outer, { width: 320 })).toBe(want);
+    });
+
+    it("re-escapes what the query cannot carry raw", () => {
+      expect(
+        cdn("https://assets.decocms.com/image?width=10&src=s%2Fa%26b%2Bc%25d.jpg", { width: 320 }),
+      ).toBe("https://assets.decocms.com/image?fit=cover&width=320&src=s/a%26b%2Bc%25d.jpg");
+    });
+
+    it("is idempotent: resizing a result again gives the same valid URL", () => {
+      const layouts = [
+        cdn,
+        createImageUrl({ providers: [decoCdn({ domain: "decoims.com", sources: "all" })] }),
+        createImageUrl({
+          providers: [decoCdn({ quality: "high", fit: "contain", layout: "quality-last" })],
+        }),
+      ];
+      for (const u of layouts) {
+        for (const src of [
+          asset,
+          "https://assets.decocache.com/s/abc/promoção verão.jpg",
+          "https://assets.decocms.com/image?width=10&src=s%2Fa%26b%2Bc.jpg",
+        ]) {
+          const once = u(src, { width: 640, height: 320 });
+          expect(once).not.toMatch(/src=(image|https:\/\/[^&]*\/image)(&|$)/);
+          expect(u(once, { width: 640, height: 320 })).toBe(once);
+          expect(new URL(once).searchParams.get("src")).toBe(
+            new URL(u(once, { width: 640, height: 320 })).searchParams.get("src"),
+          );
+        }
+      }
+    });
+
+    it("leaves other URLs alone: a non-CDN /image path, an /image URL with no src, other hosts", () => {
+      expect(cdn("https://images.example.com/image?src=s/a.jpg", { width: 10 })).toBe(
+        "https://images.example.com/image?src=s/a.jpg",
+      );
+      expect(cdn.isOptimizable("https://images.example.com/image?src=s/a.jpg")).toBe(false);
+      const all = createImageUrl({ providers: [decoCdn({ sources: "all" })] });
+      expect(all("https://images.example.com/image?src=s/a.jpg", { width: 10 })).toBe(
+        "https://assets.decocms.com/image?fit=cover&width=10&src=https://images.example.com/image",
+      );
+      expect(all("https://assets.decocms.com/image?width=10", { width: 10 })).toBe(
+        "https://assets.decocms.com/image?fit=cover&width=10&src=image",
+      );
+      expect(all("https://assets.decocms.com/images/s/a.jpg?src=x", { width: 10 })).toBe(
+        "https://assets.decocms.com/image?fit=cover&width=10&src=images/s/a.jpg",
+      );
+    });
   });
 
   it("ignores numeric qualities and takes a per-call tier", () => {
