@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { type Framework, siteFramework } from "./framework";
+import { type Framework, siteBlocksVersion, siteFramework } from "./framework";
 import type { Report } from "./report";
 import { relativeSpecifier, resolvePackageFile } from "./vendor";
 
@@ -198,12 +198,48 @@ export const MOVES: Record<string, { only?: Framework; names: Record<string, Mov
   },
 };
 
+const IMAGE_HELPERS =
+  "createImageUrl and decoCdn from @decocms/blocks/image, vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image; keep both helpers whatever the site's platform, since v7 resized VTEX and Shopify images on every site";
+
 /**
- * v7's image URLs as v8 code: the platform helpers (their client packages'
- * /image) before the Deco CDN, from `@decocms/blocks/image`.
+ * v7's image URLs as v8 code, for the `@decocms/blocks` 7.x version the site
+ * ran: the platform helpers (their client packages' /image) before the Deco
+ * CDN, with the `decoCdn` options that reproduce that release's `Image`
+ * (checked against each release's `hooks/Image.tsx`):
+ * - before 7.71.0: decoims.com was the default domain, every Deco asset host
+ *   was stripped wherever it was, and no legacy host was stripped;
+ * - 7.71.0 to 7.71.3: assets.decocms.com became the default, the rest alike;
+ * - 7.71.4: only a leading asset host is stripped, and decoims.com on any CDN;
+ * - 7.71.5 on: decoims.com only on the Cloudflare CDNs (decoCdn's default);
+ * - 7.77.1 on: Nuvemshop product images got the CDN's fixed sizes too, which
+ *   no @decocms/apps-* package covers: such a store lists its own provider.
  */
-const V7_IMAGE_URL =
-  'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] }) (createImageUrl and decoCdn from @decocms/blocks/image, vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image; keep both, and a Nuvemshop store adds its own provider before decoCdn: reference/framework-code.md)';
+export function v7ImageUrl(version: string | undefined): string {
+  const [major, minor, patch] = (version ?? "").split(".").map(Number);
+  const at = (m: number, p: number) => major === 7 && (minor > m || (minor === m && patch >= p));
+  const nuvemshop =
+    "; a store with Nuvemshop images lists its own provider before decoCdn (reference/framework-code.md)";
+  const providers = (deco: string) =>
+    `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ ${deco} })] })`;
+  const registered =
+    "domain and quality as the site registered them with registerImageCdnDomain/registerImageQuality, else leave them out";
+  if (major !== 7 || Number.isNaN(minor)) {
+    return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading"')} (${IMAGE_HELPERS}; ${registered}; that is the latest 7.x, and reference/framework-code.md lists the decoCdn options for older 7.x releases${nuvemshop})`;
+  }
+  if (!at(71, 0)) {
+    return `${providers('domain, quality, sources: "all", legacyHosts: []')} (${IMAGE_HELPERS}; domain as the site registered it with registerImageCdnDomain, else "decoims.com", the default before 7.71.0; quality as registered with registerImageQuality, else leave it out)`;
+  }
+  if (!at(71, 4)) {
+    return `${providers('domain, quality, sources: "all", legacyHosts: []')} (${IMAGE_HELPERS}; ${registered})`;
+  }
+  if (!at(71, 5)) {
+    return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading", legacyHosts: ["decoims.com"]')} (${IMAGE_HELPERS}; ${registered})`;
+  }
+  return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading"')} (${IMAGE_HELPERS}; ${registered}${at(77, 1) ? nuvemshop : ""})`;
+}
+
+/** Stands for `v7ImageUrl(<the site's version>)` in a hint, replaced when reported. */
+const V7_IMAGE_URL = "\u0001v7-image-url\u0001";
 
 /** The hints for names the bindings replace, by v7 specifier: checked before `HINTS`. */
 const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
@@ -297,7 +333,7 @@ const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
       "ImageQuality",
       "FitOptions",
     ],
-    hint: `${V7_IMAGE_URL} gives v7's URLs with the domain and quality the site registered (leave out the helper of a platform the site doesn't use); url(src, { width, height, fit }) and srcSet(url, src, …) replace getOptimizedMediaUrl and getSrcSet; on TanStack, pass it to ImageUrlProvider from @decocms/tanstack/react`,
+    hint: `${V7_IMAGE_URL} gives v7's URLs; url(src, { width, height, fit }) and srcSet(url, src, …) replace getOptimizedMediaUrl and getSrcSet; on TanStack, pass it to ImageUrlProvider from @decocms/tanstack/react`,
   },
   {
     specifier: /^@decocms\/blocks\/hooks$/,
@@ -550,6 +586,7 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
   const reported = new Map<string, { names: Set<string>; files: Set<string> }>();
   let rewrittenFiles = 0;
   const framework = siteFramework(root);
+  const imageUrl = v7ImageUrl(siteBlocksVersion(root));
   /** Names moved to a binding, by target, for the report. */
   const moved = new Map<string, Set<string>>();
 
@@ -696,10 +733,13 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
     report.manual.push({
       step: "imports",
       subject: "Image, Picture, Source",
-      message: `they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, and @decocms/tanstack knows no commerce platform: without a provider every source goes through the Deco image CDN, where v7 resized VTEX catalog and Shopify images on their own hosts. Wrap every page in <ImageUrlProvider value={imageUrl}> through createDecoRouter's Wrap option, with imageUrl = ${V7_IMAGE_URL}, so every URL stays v7's (domain and quality as the site registered them with registerImageCdnDomain/registerImageQuality, else leave them out)`,
+      message: `they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, and @decocms/tanstack knows no commerce platform: without a provider every source goes through the Deco image CDN, where v7 resized VTEX catalog and Shopify images on their own hosts. Wrap every page in <ImageUrlProvider value={imageUrl}> through createDecoRouter's Wrap option, with imageUrl = ${imageUrl}, so every URL stays v7's`,
     });
   }
-  for (const [key, { names, files }] of [...reported].sort(([a], [b]) => (a < b ? -1 : 1))) {
+  const resolved = [...reported].map(
+    ([key, entry]) => [key.replaceAll(V7_IMAGE_URL, imageUrl), entry] as const,
+  );
+  for (const [key, { names, files }] of resolved.sort(([a], [b]) => (a < b ? -1 : 1))) {
     const [specifier, hint] = key.split("\0");
     const list = [...files];
     const where = `${list.slice(0, 3).join(", ")}${list.length > 3 ? `, +${list.length - 3} more` : ""}`;

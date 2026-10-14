@@ -53,7 +53,7 @@ An import that mixes moved and other names is split; the rest is reported.
 | `@decocms/nextjs/routeHandlers`, `DECO_REWRITES` | delete: no `/deco/*` handlers in v8 |
 | `LiveControls` (`@decocms/blocks/hooks`) | `StudioBridge`: `DecoDocument` mounts it; a Next.js layout renders it from `@decocms/nextjs` |
 | `DraftPreviewBadge` (`@decocms/blocks/preview`, `@decocms/nextjs`) | `DraftBadge` from `@decocms/blocks/preview` |
-| `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] })`: `createImageUrl`, `decoCdn` from `@decocms/blocks/image`, `vtexCatalog` from `@decocms/apps-vtex/image`, `shopifyCdn` from `@decocms/apps-shopify/image`; `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
+| `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all", ...byRelease })] })` (`byRelease` by the site's 7.x release: `framework-code.md`): `createImageUrl`, `decoCdn` from `@decocms/blocks/image`, `vtexCatalog` from `@decocms/apps-vtex/image`, `shopifyCdn` from `@decocms/apps-shopify/image`; `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
 | `Image`, `Picture` on a Next.js site | next/image with `createDecoImageLoader` from `@decocms/nextjs/image-loader` |
 | other v7 names under `@decocms/tanstack`, `@decocms/nextjs` | the v8 binding has no such name; see the rows above and `reference/framework-code.md` |
 | anything else under `@decocms/*` | no v8 equivalent (several have a site-code replacement: the next table) |

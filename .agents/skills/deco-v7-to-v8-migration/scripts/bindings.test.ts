@@ -37,9 +37,12 @@ function sourcePaths(): Record<string, string[]> {
   return paths;
 }
 
-/** v7's image URLs, as the report spells them (domain and quality left out: the site registered none). */
+/**
+ * v7's image URLs for the fixture site's 7.64.3, as the report spells them:
+ * no domain registered, so 7.x's default before 7.71.0, decoims.com; no quality.
+ */
 const IMAGE_URL =
-  'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ sources: "all" })] })';
+  'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain: "decoims.com", sources: "all", legacyHosts: [] })] })';
 
 let root: string;
 let report: Report;
@@ -173,8 +176,9 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     const image = report.manual.find((n) => n.subject === "Image, Picture, Source")?.message;
     expect(image).toContain("ImageUrlProvider");
     expect(image).toContain(
-      'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all" })] })',
+      'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all", legacyHosts: [] })] })',
     );
+    expect(image).toContain('else "decoims.com", the default before 7.71.0');
     expect(image).toContain("vtexCatalog from @decocms/apps-vtex/image");
     expect(image).toContain("shopifyCdn from @decocms/apps-shopify/image");
     expect(read("src/draft.ts")).toContain(

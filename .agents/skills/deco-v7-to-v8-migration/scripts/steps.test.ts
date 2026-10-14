@@ -7,7 +7,8 @@ import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
-import { BINDING_NAMES, MOVES, rewriteImports, V8_API } from "./imports";
+import { siteBlocksVersion } from "./framework";
+import { BINDING_NAMES, MOVES, rewriteImports, V8_API, v7ImageUrl } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
 import { reencryptSecrets } from "./secrets";
@@ -814,5 +815,56 @@ export function Root() {
     const subjects = report.manual.map((n) => n.subject);
     expect(subjects).toContain("OneDollarStats collectorAddress");
     expect(subjects).toContain("src/c.tsx");
+  });
+});
+
+describe("v7's image URLs by 7.x release", () => {
+  const deco = (v: string | undefined) => /decoCdn\(\{ ([^}]*) \}\)/.exec(v7ImageUrl(v))?.[1];
+
+  it("gives the decoCdn options that reproduce each release's Image", () => {
+    expect(deco("7.64.3")).toBe('domain, quality, sources: "all", legacyHosts: []');
+    expect(v7ImageUrl("7.64.3")).toContain('else "decoims.com", the default before 7.71.0');
+    expect(deco("7.71.0")).toBe('domain, quality, sources: "all", legacyHosts: []');
+    expect(deco("7.71.3")).toBe('domain, quality, sources: "all", legacyHosts: []');
+    expect(deco("7.71.4")).toBe(
+      'domain, quality, sources: "all", stripAssetHosts: "leading", legacyHosts: ["decoims.com"]',
+    );
+    expect(deco("7.71.5")).toBe('domain, quality, sources: "all", stripAssetHosts: "leading"');
+    expect(deco("7.80.0")).toBe('domain, quality, sources: "all", stripAssetHosts: "leading"');
+    expect(v7ImageUrl("7.77.0")).not.toContain("Nuvemshop");
+    expect(v7ImageUrl("7.77.1")).toContain("Nuvemshop");
+    expect(v7ImageUrl(undefined)).toContain(
+      "reference/framework-code.md lists the decoCdn options",
+    );
+    for (const v of ["7.2.0", "7.77.1", undefined]) {
+      expect(v7ImageUrl(v)).toContain(
+        "createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn(",
+      );
+    }
+  });
+
+  it("reads the site's 7.x version: installed copy first, else the package.json range", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-version-"));
+    try {
+      expect(siteBlocksVersion(root)).toBeUndefined();
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@decocms/blocks": "^7.71.2" } }),
+      );
+      expect(siteBlocksVersion(root)).toBe("7.71.2");
+      fs.mkdirSync(path.join(root, "node_modules", "@decocms", "blocks"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "node_modules", "@decocms", "blocks", "package.json"),
+        JSON.stringify({ version: "7.77.4" }),
+      );
+      expect(siteBlocksVersion(root)).toBe("7.77.4");
+      fs.writeFileSync(
+        path.join(root, "node_modules", "@decocms", "blocks", "package.json"),
+        JSON.stringify({ version: "8.3.0" }),
+      );
+      expect(siteBlocksVersion(root)).toBe("7.71.2");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
