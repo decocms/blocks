@@ -141,11 +141,16 @@
         "@types/react-dom": "^19.0.0",
         "esbuild": "^0.27.3",
         "react-dom": "^19.0.0",
+        "vite": "^8.0.1",
       },
       "peerDependencies": {
         "react": "^19.0.0",
         "typescript": "^5.0.0",
+        "vite": ">=6.0.0",
       },
+      "optionalPeers": [
+        "vite",
+      ],
     },
   },
   "packages": {

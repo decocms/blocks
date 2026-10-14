@@ -352,6 +352,42 @@ export function createCMS(config: CMSConfig): CMS {
   return instance.handle(config.blocks);
 }
 
+/**
+ * Hands a new content module to every CMS created for its `.deco` folder, as
+ * a later `createCMS` call with the same content would, but without the
+ * site's config: each instance keeps its own options (`site`, `dev`, …).
+ * Returns how many instances took it; none when no CMS has been created for
+ * that folder yet (the first `createCMS` call then reads the new module) or
+ * when the module has no `root` to match on.
+ *
+ * The dev server's content reload (`@decocms/blocks/vite`) calls it when
+ * Vite swaps `.deco/blocks.gen.ts`, so the module that created the CMS never
+ * runs again.
+ */
+export function adoptContent(content: Snapshot): number {
+  if (!isSnapshot(content)) return 0;
+  const identity = contentIdentity(content);
+  if (!identity.startsWith("module:")) return 0;
+  const own = INSTANCE_PREFIX + identity;
+  const store = globalThis as unknown as Record<symbol, unknown>;
+  let adopted = 0;
+  for (const symbol of Object.getOwnPropertySymbols(globalThis)) {
+    const key = Symbol.keyFor(symbol);
+    if (key === undefined || (key !== own && !key.startsWith(`${own}|site:`))) continue;
+    const instance = store[symbol] as Partial<CMSInstance> | undefined;
+    if (
+      !(instance instanceof Object) ||
+      typeof instance.adopt !== "function" ||
+      !isPlainObject(instance.config)
+    ) {
+      continue;
+    }
+    instance.adopt({ ...instance.config, content } as CMSConfig);
+    adopted++;
+  }
+  return adopted;
+}
+
 /** Clears every stored CMS instance, so a test starts clean. */
 export function resetForTests(): void {
   clearGlobals(INSTANCE_PREFIX);
