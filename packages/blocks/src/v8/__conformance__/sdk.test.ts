@@ -126,11 +126,18 @@ function exportedNames(source: string, from: string): string[] {
 
 const DOCUMENTED_ROOT_VALUES = [
   "createCMS",
+  "DRAFT_COOKIE",
+  "DRAFT_HEADER",
+  "DRAFT_PARAM",
+  "draftResponseHeaders",
   "formatDraftPointer",
+  "isStudioOrigin",
   "matchRoute",
   "parseDraftPointer",
   "remoteLoader",
   "resetForTests",
+  "STUDIO_FRAME_ANCESTORS",
+  "STUDIO_ORIGINS",
 ].sort();
 const DOCUMENTED_ROOT_TYPES = [
   "Block",
@@ -832,10 +839,15 @@ if (pointer) console.log(\`previewing \${pointer.version} from \${pointer.host}\
     expect(await draftCookie(new Request("https://s/x?__draft=not-a-pointer"))).toBeNull();
   });
 
-  it("AR-37 the helpers are CMS methods; the package root has no free draftPointer, draftCookie or DRAFT_COOKIE", () => {
-    for (const name of ["draftPointer", "draftCookie", "DRAFT_COOKIE"]) {
+  it("AR-37 the helpers are CMS methods; the package root has no free draftPointer or draftCookie, only the names", () => {
+    for (const name of ["draftPointer", "draftCookie"]) {
       expect(Object.keys(root)).not.toContain(name);
     }
+    expect([root.DRAFT_PARAM, root.DRAFT_COOKIE, root.DRAFT_HEADER]).toEqual([
+      "__draft",
+      DRAFT_COOKIE,
+      "x-deco-draft",
+    ]);
     const cms = helpers();
     expect(typeof cms.draftPointer).toBe("function");
     expect(typeof cms.draftCookie).toBe("function");

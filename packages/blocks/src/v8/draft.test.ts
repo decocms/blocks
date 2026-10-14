@@ -2,7 +2,14 @@
 /** Draft pointers (api-reference#draft-pointers, hosted-drafts.mdx). */
 import { describe, expect, it } from "vitest";
 import { createCMS } from "./cms";
-import { formatDraftPointer, parseDraftPointer } from "./draft";
+import {
+  DRAFT_COOKIE as DRAFT_COOKIE_NAME,
+  DRAFT_HEADER,
+  DRAFT_PARAM,
+  draftResponseHeaders,
+  formatDraftPointer,
+  parseDraftPointer,
+} from "./draft";
 import type { RequestLike } from "./types";
 
 /** The helpers as a site calls them: methods of a CMS with no settings, so every host may preview. */
@@ -359,5 +366,54 @@ describe("draftCookie", () => {
       await draftCookie(request("https://store.example.com/?__draft=https://evil.example/x@1")),
     ).toBeNull();
     expect(await draftCookie(request("https://store.example.com/?__draft=garbage"))).toBeNull();
+  });
+});
+
+describe("the draft names", () => {
+  it("pins the values every binding shares", () => {
+    expect(DRAFT_PARAM).toBe("__draft");
+    expect(DRAFT_COOKIE_NAME).toBe(DRAFT_COOKIE);
+    expect(DRAFT_HEADER).toBe("x-deco-draft");
+  });
+
+  it("draftPointer reads the parameter and the cookie by these names", async () => {
+    const url = `https://s.example/?${DRAFT_PARAM}=${encodeURIComponent(POINTER)}`;
+    expect(await draftPointer(new Request(url))).toBe(POINTER);
+    const cookie = `${DRAFT_COOKIE_NAME}=${encodeURIComponent(POINTER)}`;
+    expect(await draftPointer(new Request("https://s.example/", { headers: { cookie } }))).toBe(
+      POINTER,
+    );
+    expect(await draftCookie(new Request(url))).toMatch(new RegExp(`^${DRAFT_COOKIE_NAME}=`));
+  });
+});
+
+describe("draftResponseHeaders", () => {
+  it("a draft page is never stored and never indexed", () => {
+    expect(draftResponseHeaders(POINTER)).toEqual({
+      "Cache-Control": "no-store, private",
+      Vary: "Cookie",
+      "X-Robots-Tag": "noindex, nofollow",
+    });
+  });
+
+  it("nothing for a request without a draft, so the result of draftPointer applies as is", () => {
+    expect(draftResponseHeaders(null)).toEqual({});
+    expect(draftResponseHeaders(undefined)).toEqual({});
+    expect(draftResponseHeaders("")).toEqual({});
+  });
+
+  it("each call returns its own object", () => {
+    const a = draftResponseHeaders(POINTER);
+    a.Vary = "Accept";
+    expect(draftResponseHeaders(POINTER).Vary).toBe("Cookie");
+  });
+
+  it("applies to a Response's headers", async () => {
+    const pointer = await draftPointer(
+      new Request(`https://s.example/?__draft=${encodeURIComponent(POINTER)}`),
+    );
+    const response = new Response("x", { headers: draftResponseHeaders(pointer) });
+    expect(response.headers.get("cache-control")).toBe("no-store, private");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 });
