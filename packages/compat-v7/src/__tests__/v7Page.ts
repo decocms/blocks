@@ -177,6 +177,52 @@ export function v7Page(
   }
 }
 
+/**
+ * v7 serving a page whose rules are one multivariate's variants: its
+ * resolver's loop (cms/resolve.ts, "Multivariate flags": the first variant
+ * whose `evaluateVariantRule` is true wins, later rules never run), then
+ * `persistFlags`. `winner` is the index of the chosen variant, -1 for none.
+ */
+export function v7Multivariate(
+  page: RandomPage,
+  request: Request,
+  pageUrl: string,
+  before: string[],
+  seed: number,
+): { winner: number; setCookies: string[] } {
+  if (!v7Source("cms/resolve.ts").includes(MULTIVARIATE_LOOP)) {
+    throw new Error("v7's multivariate loop moved in cms/resolve.ts");
+  }
+  savedBlocks = page.blocks;
+  v7Response = new Headers();
+  for (const c of before) v7Response.append("set-cookie", c);
+  const ctx = {
+    userAgent: request.headers.get("user-agent") ?? "",
+    url: pageUrl,
+    path: new URL(pageUrl).pathname,
+    cookies: h3.parse(request.headers.get("cookie") ?? ""),
+    request,
+    flags: [] as StoredFlag[],
+  };
+  const spy = seededMath(seed);
+  try {
+    const winner = page.rules.findIndex((rule) => resolve.evaluateVariantRule(rule, ctx));
+    persistFlags(ctx);
+    return { winner, setCookies: v7Response.getSetCookie() };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/** The loop `v7Multivariate` reproduces, as cms/resolve.ts has it. */
+const MULTIVARIATE_LOOP = `    for (const variant of variants) {
+      const rule = variant.rule as Record<string, unknown> | undefined;
+      if (evaluateVariantRule(rule, rctx.matcherCtx)) {
+        return internalResolve(variant.value, childCtx);
+      }
+    }
+    return undefined;`;
+
 /** Ours: the block map's random, the saved block's name as `cohort`. */
 export function ourDecisions(page: RandomPage, input: () => MatcherInput, seed: number): boolean[] {
   const spy = seededMath(seed);

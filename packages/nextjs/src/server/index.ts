@@ -26,7 +26,6 @@ import { DRAFT_HEADER, DRAFT_PARAM } from "../draft.ts";
 import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 
-export { isNextDev } from "../dev.ts";
 export { type PreviewPolicy, requestLike } from "../drafts.ts";
 export { activeDraftPointer };
 

@@ -30,7 +30,12 @@ import {
   compatCommerceSpecifier,
 } from "./compat";
 import { type Framework, siteBlocksVersion, siteFramework } from "./framework";
-import { copyDecoCdnOptions, findImageCopies, type ImageCopy } from "./imageCopy";
+import {
+  copyDecoCdnOptions,
+  findImageCopies,
+  type ImageCopy,
+  leadingStripChanges,
+} from "./imageCopy";
 import { imageModule, writeImageUrl } from "./imageModule";
 import type { Report } from "./report";
 import { relativeSpecifier, resolvePackageFile } from "./vendor";
@@ -233,6 +238,8 @@ const IMAGE_HELPERS =
  *   was stripped wherever it was, and no legacy host was stripped;
  * - 7.71.0 to 7.71.3: assets.decocms.com became the default, the rest alike;
  * - 7.71.4: only a leading asset host is stripped, and decoims.com on any CDN;
+ *   decoCdn's default since 8.3 ("leading"), which the PO approved for the
+ *   older releases too (2026-10-15): `rewriteImports` reports the URLs it changes;
  * - 7.71.5 on: decoims.com only on the Cloudflare CDNs (decoCdn's default);
  * - 7.77.1 on: Nuvemshop product images got the CDN's fixed sizes too, which
  *   no @decocms/apps-* package covers: such a store lists its own provider.
@@ -247,7 +254,7 @@ export function v7ImageUrl(version: string | undefined): string {
   const registered =
     "domain and quality as the site registered them with registerImageCdnDomain/registerImageQuality, else leave them out";
   if (major !== 7 || Number.isNaN(minor)) {
-    return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading"')} (${IMAGE_HELPERS}; ${registered}; that is the latest 7.x, and reference/framework-code.md lists the decoCdn options for older 7.x releases${nuvemshop})`;
+    return `${providers('domain, quality, sources: "all"')} (${IMAGE_HELPERS}; ${registered}; that is the latest 7.x, and reference/framework-code.md lists the decoCdn options for older 7.x releases${nuvemshop})`;
   }
   if (!at(71, 0)) {
     return `${providers('domain, quality, sources: "all", legacyHosts: []')} (${IMAGE_HELPERS}; domain as the site registered it with registerImageCdnDomain, else "decoims.com", the default before 7.71.0; quality as registered with registerImageQuality, else leave it out)`;
@@ -256,9 +263,16 @@ export function v7ImageUrl(version: string | undefined): string {
     return `${providers('domain, quality, sources: "all", legacyHosts: []')} (${IMAGE_HELPERS}; ${registered})`;
   }
   if (!at(71, 5)) {
-    return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading", legacyHosts: ["decoims.com"]')} (${IMAGE_HELPERS}; ${registered})`;
+    return `${providers('domain, quality, sources: "all", legacyHosts: ["decoims.com"]')} (${IMAGE_HELPERS}; ${registered})`;
   }
-  return `${providers('domain, quality, sources: "all", stripAssetHosts: "leading"')} (${IMAGE_HELPERS}; ${registered}${at(77, 1) ? nuvemshop : ""})`;
+  return `${providers('domain, quality, sources: "all"')} (${IMAGE_HELPERS}; ${registered}${at(77, 1) ? nuvemshop : ""})`;
+}
+
+/** Whether the `@decocms/blocks` 7.x release's `Image` stripped the asset hosts anywhere (before 7.71.4). */
+export function v7StripsAnywhere(version: string | undefined): boolean {
+  const [major, minor, patch] = (version ?? "").split(".").map(Number);
+  if (major !== 7 || Number.isNaN(minor)) return false;
+  return minor < 71 || (minor === 71 && !(patch >= 4));
 }
 
 /**
@@ -462,6 +476,10 @@ const HINTS: [RegExp, string][] = [
     "createDecoWorker applies the CMS redirects before any route",
   ],
   [
+    /^@decocms\/blocks\/sdk\/abTesting$/,
+    "withABTesting is abTestingRoutes({ worker: () => worker, ...the same options }) from @decocms/compat-v7/tanstack/worker, a handler run first in createDecoWorker's routes (not a wrapper around the worker): same KV entry, buckets, cookie and fallback proxy (reference/framework-code.md)",
+  ],
+  [
     /^@decocms\/tanstack\/vite$/,
     "decoTanstack({ buildHash }) from @decocms/tanstack/vite; it includes decoContent() from @decocms/blocks/vite",
   ],
@@ -630,6 +648,41 @@ interface Edit {
   text: string;
 }
 
+/** How many changed URLs the report spells out; the rest are counted. */
+const LISTED_URLS = 10;
+
+/**
+ * A site whose v7 image code stripped the Deco asset hosts anywhere in a
+ * source now gets decoCdn's "leading" (approved, PO 2026-10-15): the report
+ * counts the URLs in the content and code whose image URL changes.
+ */
+function reportLeadingStrip(root: string, report: Report, copy: string | undefined): void {
+  const changes = leadingStripChanges(root);
+  const by = copy
+    ? `its copy of v7's image helper (${copy})`
+    : "its 7.x release's Image (before 7.71.4)";
+  const rule = `v7 stripped the Deco asset hosts (assets.decocache.com, the S3 bucket) anywhere in an image source, by ${by}; decoCdn strips only a leading one, an approved difference (PO 2026-10-15), so a source that merely contains an asset URL keeps it`;
+  if (changes.length === 0) {
+    report.done.push({
+      step: "imports",
+      subject: "image URLs",
+      message: `${rule}. No URL in .deco/blocks or src/ changes`,
+    });
+    return;
+  }
+  const files = new Set(changes.map((c) => c.file));
+  const listed = changes
+    .slice(0, LISTED_URLS)
+    .map((c) => `${c.url} (${c.file})`)
+    .join(", ");
+  const more = changes.length > LISTED_URLS ? `, +${changes.length - LISTED_URLS} more` : "";
+  report.manual.push({
+    step: "imports",
+    subject: "image URLs",
+    message: `${rule}. ${changes.length} URL${changes.length === 1 ? "" : "s"} in ${files.size} file${files.size === 1 ? "" : "s"} change${changes.length === 1 ? "s" : ""}: ${listed}${more}. List them as the approved difference in the PR; nothing to change`,
+  });
+}
+
 /**
  * Rewrite and report the `@decocms/*` imports of every source file in `src/`.
  * `vendored` maps an installed source file to its copy in the site.
@@ -644,6 +697,10 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
     .find((url) => url !== undefined);
   const version = siteBlocksVersion(root);
   const imageUrl = fromCopy ?? v7ImageUrl(version);
+  const readCopy = images.copies.find((copy) => copy.rules !== null);
+  const stripsAnywhere = readCopy
+    ? readCopy.rules?.stripAssetHosts === "anywhere"
+    : v7StripsAnywhere(version);
   /** Names moved to a binding, by target, for the report. */
   const moved = new Map<string, Set<string>>();
   /** Whether the site uses v7's image components or URL helpers. */
@@ -835,6 +892,7 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
         : "a copy of v7's image helper (getOptimizedMediaUrl) whose URL rules the script can't read (it was edited): compare its URLs with createImageUrl's before replacing it, and pick the decoCdn options that reproduce them (reference/framework-code.md)",
     });
   }
+  if (stripsAnywhere) reportLeadingStrip(root, report, readCopy?.file);
   const resolved = [...reported].map(
     ([key, entry]) => [key.replaceAll(V7_IMAGE_URL, imageUrl), entry] as const,
   );

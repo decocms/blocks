@@ -872,12 +872,12 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
     T,
   );
 
-  it("dd-06: four commands; schema and content take --watch; every command takes --root", () => {
+  it("dd-06: four commands; schema and content take --watch, schema also --check; every command takes --root", () => {
     const p = project();
     const help = p.deco("--help").out;
     const commands = [...help.matchAll(/^ {2}(\w+) {2,}/gm)].map((m) => m[1]);
     expect(commands.sort()).toEqual(["check", "content", "schema", "serve"]);
-    expect(help).toMatch(/deco schema\s+\[--root <dir>\] \[--watch\]/);
+    expect(help).toMatch(/deco schema\s+\[--root <dir>\] \[--watch \| --check\]/);
     expect(help).toMatch(/deco content\s+\[--root <dir>\] \[--watch\]/);
     expect(help).toMatch(/deco check\s+\[--root <dir>\]/);
     expect(help).toMatch(/deco serve\s+\[--root <dir>\]/);

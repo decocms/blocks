@@ -15,7 +15,8 @@
  *    content calls, and the view registry `src/views.ts`;
  * 4. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
- * 5. scripts: `deco schema && deco content` before dev and build.
+ * 5. scripts: `deco schema && deco content` before dev and build, and
+ *    `deco schema --check` in the site's CI after the install step.
  *
  * It changes files in place, so run it on a clean working tree and review the
  * diff. What it can't do is returned in the report.
@@ -24,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
+import { addSchemaCheck } from "./ciSchemaCheck";
 import { listSources, rewriteDeviceReads } from "./compat";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
@@ -125,5 +127,6 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   rewriteDeviceReads(root, report);
   rewriteImports(root, report, vendored);
   addScripts(root, report);
+  addSchemaCheck(root, report);
   return report;
 }

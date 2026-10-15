@@ -43,6 +43,7 @@ export const COMPAT_V7_ENTRIES = [
   "@decocms/compat-v7/commerce/utils/stateByZip",
   "@decocms/compat-v7/tanstack",
   "@decocms/compat-v7/tanstack/server",
+  "@decocms/compat-v7/tanstack/worker",
   "@decocms/compat-v7/nextjs",
   "@decocms/compat-v7/nextjs/server",
   "@decocms/compat-v7/nextjs/proxy",

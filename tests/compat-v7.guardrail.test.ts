@@ -107,6 +107,7 @@ describe("@decocms/compat-v7", () => {
       "./nextjs/server",
       "./tanstack",
       "./tanstack/server",
+      "./tanstack/worker",
     ]);
   });
 

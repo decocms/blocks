@@ -106,7 +106,9 @@ export function copyDecoCdnOptions(
   if (quality === null) parts.push("quality");
   else if (quality) parts.push(`quality: "${quality}"`);
   parts.push('sources: "all"');
-  if (rules.stripAssetHosts === "leading") parts.push('stripAssetHosts: "leading"');
+  // stripAssetHosts is left at decoCdn's default, "leading", for every copy: a
+  // copy that stripped the asset hosts anywhere moves to "leading" too
+  // (approved, PO 2026-10-15), and `leadingStripChanges` counts the URLs that changes.
   // decoCdn's default: decoims.com on the Cloudflare CDNs (but not the CDN's own host).
   if (domain !== null) {
     const host = stripScheme(domain);
@@ -196,4 +198,79 @@ export function findImageCopies(root: string): {
       quality: registeredValue(parsed, "registerImageQuality"),
     },
   };
+}
+
+const DECO_CACHE_URL = "https://assets.decocache.com/";
+const DECO_S3_URL = "https://deco-sites-assets.s3.sa-east-1.amazonaws.com/";
+const LEADING_ASSET_HOST =
+  /^https:\/\/(?:assets\.decocache\.com|deco-sites-assets\.s3\.sa-east-1\.amazonaws\.com)\//;
+const URL_IN_TEXT = /https?:\/\/[^\s"'`<>()\\]+/g;
+
+/**
+ * Whether decoCdn's `stripAssetHosts: "leading"` (its default) gives `src` a
+ * different source than v7's strip-anywhere did (`.replace(DECO_CACHE_URL, "")`,
+ * then the S3 bucket): true for a URL that merely contains an asset URL,
+ * such as `https://other.host/https://assets.decocache.com/…`.
+ */
+export function changedByLeadingStrip(src: string): boolean {
+  // Both drop the query afterwards, as decoCdn does.
+  const anywhere = src.replace(DECO_CACHE_URL, "").replace(DECO_S3_URL, "").split("?")[0];
+  return anywhere !== src.replace(LEADING_ASSET_HOST, "").split("?")[0];
+}
+
+export interface LeadingStripChange {
+  /** Path from the site root. */
+  file: string;
+  url: string;
+}
+
+function stringsOf(value: unknown, out: string[]): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) stringsOf(v, out);
+  else if (value && typeof value === "object")
+    for (const v of Object.values(value)) stringsOf(v, out);
+  return out;
+}
+
+/**
+ * The URLs in the saved content (`.deco/blocks`) and in `src/` whose image
+ * source changes when the asset hosts are stripped only at the start, for a
+ * site whose v7 image code stripped them anywhere. One entry per URL and file.
+ */
+export function leadingStripChanges(root: string): LeadingStripChange[] {
+  const found: LeadingStripChange[] = [];
+  const seen = new Set<string>();
+  const add = (file: string, texts: string[]) => {
+    const rel = path.relative(root, file).split(path.sep).join("/");
+    for (const text of texts) {
+      if (!text.includes(DECO_CACHE_URL) && !text.includes(DECO_S3_URL)) continue;
+      for (const [url] of text.matchAll(URL_IN_TEXT)) {
+        const key = `${rel}\0${url}`;
+        if (seen.has(key) || !changedByLeadingStrip(url)) continue;
+        seen.add(key);
+        found.push({ file: rel, url });
+      }
+    }
+  };
+  const blocks = path.join(root, ".deco", "blocks");
+  if (fs.existsSync(blocks)) {
+    const files = fs
+      .readdirSync(blocks, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && d.name.endsWith(".json"))
+      .map((d) => path.join(d.parentPath, d.name))
+      .sort();
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+      add(file, stringsOf(parsed, []));
+    }
+  }
+  for (const file of listSources(path.join(root, "src")))
+    add(file, [fs.readFileSync(file, "utf8")]);
+  return found;
 }
