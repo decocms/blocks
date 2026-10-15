@@ -27,7 +27,11 @@
 
 import type { MatcherContext, ResolvedSection } from "@decocms/blocks/cms";
 import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
-import { createCacheStore, getCacheStorageContext } from "@decocms/blocks/sdk/cacheStorage";
+import {
+  cacheBackground,
+  createCacheStore,
+  getCacheStorageContext,
+} from "@decocms/blocks/sdk/cacheStorage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,6 +87,33 @@ const cacheTtlMs = DEFAULT_CACHE_TTL_MS;
 const cache = createCacheStore<CacheEntry>("site-globals");
 const inflight = new Map<string, Promise<CacheEntry>>();
 
+/**
+ * Join another request's flight bounded by THIS request's timer. On Workers
+ * the owner request's I/O and timers are cancelled when its client
+ * disconnects; the shared Promise then never settles and every later request
+ * for the same path would hang for the life of the isolate (524 at 100s).
+ * Same contract as `joinInflight` in @decocms/blocks/sdk/inflightTimeout,
+ * which the package does not export.
+ */
+const JOIN_TIMEOUT_MS = 10_000;
+function joinWithin<T>(shared: Promise<T>, onStall: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      Promise.resolve().then(onStall).then(resolve, reject);
+    }, JOIN_TIMEOUT_MS);
+    shared.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 onChange(() => {
   cache.clear();
   inflight.clear();
@@ -133,7 +164,12 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
     : cache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached;
   const inflightEntry = inflight.get(cacheKey);
-  if (inflightEntry) return inflightEntry;
+  if (inflightEntry) {
+    return joinWithin(inflightEntry, () => {
+      if (inflight.get(cacheKey) === inflightEntry) inflight.delete(cacheKey);
+      return resolveSiteGlobals(matcherCtx);
+    });
+  }
 
   const site = readSiteBlock();
   if (!site) {
@@ -171,6 +207,8 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
     }
   })();
 
+  // Keep the shared work alive past its owner request so joiners get it.
+  cacheBackground(p);
   inflight.set(cacheKey, p);
   return p;
 }

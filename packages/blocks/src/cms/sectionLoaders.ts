@@ -13,7 +13,40 @@ import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { getCacheProfile } from "../sdk/cacheHeaders";
 import { cacheBackground, createCacheStore, getCacheStorageContext } from "../sdk/cacheStorage";
 import { detectDevice } from "../sdk/detectDevice";
-import { withInflightTimeout } from "../sdk/inflightTimeout";
+import { joinInflight, withInflightTimeout } from "../sdk/inflightTimeout";
+
+/**
+ * A slot whose owner request was cancelled never settles: its I/O and its
+ * `withInflightTimeout` timer die with that request. Joiners are bounded by
+ * their own timer (`joinInflight`), the owner's work is kept alive with
+ * `waitUntil` (`cacheBackground`), and the slot is released by identity so a
+ * late `finally` never evicts a newer flight. Same pair `cachedLoader` uses.
+ */
+function joinSlot<T>(
+  map: Map<string, Promise<T>>,
+  key: string,
+  shared: Promise<T>,
+  rerun: () => Promise<T>,
+): Promise<T> {
+  return joinInflight(shared, () => {
+    if (map.get(key) === shared) map.delete(key);
+    return rerun();
+  });
+}
+
+function publishSlot<T>(
+  map: Map<string, Promise<T>>,
+  key: string,
+  promise: Promise<T>,
+): Promise<T> {
+  const tracked: Promise<T> = promise.finally(() => {
+    if (map.get(key) === tracked) map.delete(key);
+  });
+  cacheBackground(tracked);
+  map.set(key, tracked);
+  return tracked;
+}
+
 import { withTracing } from "../sdk/observability";
 import type { ResolvedSection } from "./resolve";
 import { buildSectionLoaderContext, type SectionLoaderContext } from "./sectionLoaderContext";
@@ -145,14 +178,15 @@ async function runCacheableSectionLoader(
     sectionCacheKey(section.component, section.props as Record<string, unknown>),
   );
 
+  const rerun = () => runCacheableSectionLoader(section, loader, request, config);
   const existing = sectionLoaderInflight.get(key);
-  if (existing) return existing;
+  if (existing) return joinSlot(sectionLoaderInflight, key, existing, rerun);
 
   const entry = getCacheStorageContext()?.storage
     ? await sectionLoaderCache.read(key)
     : sectionLoaderCache.get(key);
   const pending = sectionLoaderInflight.get(key);
-  if (pending) return pending;
+  if (pending) return joinSlot(sectionLoaderInflight, key, pending, rerun);
   const now = Date.now();
   const isStale = entry ? now - entry.createdAt > config.maxAge : true;
 
@@ -202,10 +236,9 @@ async function runCacheableSectionLoader(
       return enriched;
     })(),
     `sectionLoader ${key}`,
-  ).finally(() => sectionLoaderInflight.delete(key));
+  );
 
-  sectionLoaderInflight.set(key, promise);
-  return promise;
+  return publishSlot(sectionLoaderInflight, key, promise);
 }
 
 /**
@@ -386,7 +419,11 @@ async function resolveLayoutSection(
   if (cached) return Promise.resolve(withIndex(cached));
 
   const existing = layoutInflight.get(key);
-  if (existing) return existing.then(withIndex);
+  if (existing) {
+    return joinSlot(layoutInflight, key, existing, () =>
+      resolveLayoutSection(section, loader, request),
+    ).then(withIndex);
+  }
 
   const promise = withInflightTimeout(
     (async () => {
@@ -397,11 +434,9 @@ async function resolveLayoutSection(
       return withIndex(enriched);
     })(),
     `layoutSection ${key}`,
-  ).finally(() => layoutInflight.delete(key));
+  );
 
-  layoutInflight.set(key, promise);
-
-  return promise;
+  return publishSlot(layoutInflight, key, promise);
 }
 
 /**

@@ -204,3 +204,40 @@ describe("createFetchCache — shared storage scope", () => {
     expect(await acrossDeploy(undefined)).toEqual({ body: { ok: true }, calls: 2 });
   });
 });
+
+// Workers cancels a request's I/O AND timers when its client disconnects. A
+// flight whose owner was cancelled never settles, so its own backstop timer
+// never fires either — every caller that joined it used to hang for the life
+// of the isolate (CPU ~0, wall 100s → 524). Simulated here: the owner's fetch
+// never resolves and its timers are swallowed while it arms them.
+describe("fetchCache — cancelled owner", () => {
+  it("a joiner recovers on its own timer instead of hanging on the dead slot", async () => {
+    const fc = createFetchCache({
+      provider: "cancelled-owner",
+      maxEntries: 10,
+      freshTtlMs: { success: 60_000, notFound: 0, serverError: 0 },
+      staleIfErrorMs: 0,
+      inflightBackstopMs: 100,
+    });
+    let calls = 0;
+    const doFetch = () =>
+      ++calls === 1
+        ? new Promise<Response>(() => {})
+        : Promise.resolve(Response.json({ ok: true }));
+
+    const realSetTimeout = globalThis.setTimeout;
+    (globalThis as { setTimeout: unknown }).setTimeout = () => 0;
+    try {
+      void fc.fetchWithCache("k", doFetch);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+
+    const res = await Promise.race([
+      fc.fetchWithCache("k", doFetch),
+      new Promise((r) => setTimeout(() => r("HUNG"), 2_000)),
+    ]);
+    expect(res).toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+});
