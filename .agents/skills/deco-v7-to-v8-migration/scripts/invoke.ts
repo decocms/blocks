@@ -233,6 +233,7 @@ export function vtexInvokeMapKeysUsed(root: string): string[] {
   for (const { calls } of findInvokeCalls(root)) {
     for (const { key } of calls) {
       if (
+        key !== undefined &&
         /^vtex\/(loaders|actions)\//.test(key) &&
         !locateAppModule(root, key) &&
         vtexInvokeMapKey(root, key)
