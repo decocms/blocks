@@ -258,18 +258,18 @@ const manual = (step: string) =>
   report.manual.filter((n) => n.step === step).map((n) => `${n.subject}: ${n.message}`);
 
 describe("migrate", () => {
-  it("writes a block map with a short name and an alias under each v7 name", () => {
+  it("writes a block map under the v7 names only, so the site editor lists each block once", () => {
     const map = read(".deco/index.ts");
     // A descriptor's component is the section's v7 type name: v7's section loaders and the
     // view registry are keyed on it.
     expect(map).toContain(
       'const hero = section<typeof import("../src/sections/Hero")>("site/sections/Hero.tsx");',
     );
-    expect(map).toContain('"hero": hero,\n  "site/sections/Hero.tsx": hero,');
+    expect(map).toContain('\n  "site/sections/Hero.tsx": hero,');
+    expect(map).not.toContain('"hero":');
     expect(map).toContain('import acmeItemList from "../src/vendor/acme/loaders/ItemList";');
-    expect(map).toContain(
-      '"acme-item-list": acmeItemList,\n  "acme/loaders/ItemList.ts": acmeItemList,',
-    );
+    expect(map).toContain('\n  "acme/loaders/ItemList.ts": acmeItemList,');
+    expect(map).not.toContain('"acme-item-list":');
     // Built-ins and the runtime's legacy names need no entry.
     expect(map).not.toContain("website/pages/Page.tsx");
     expect(map).not.toContain("website/loaders/secret.ts");
