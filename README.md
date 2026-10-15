@@ -57,7 +57,7 @@ All packages are versioned and released in lockstep, starting at 8.3.0 for the b
 | [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`), secrets (`/secrets`) and the `vite dev` content reload plugin (`/vite`). |
 | [`@decocms/tanstack`](./packages/tanstack) | TanStack Start on Cloudflare Workers, deployed the Deco way: the edge worker (`/worker`), the root document (`/react`), the router (`/router`), the server-function fetch (`/start`), server helpers (`/server`) and the Vite plugin (`/vite`). |
 | [`@decocms/nextjs`](./packages/nextjs) | Any Next.js App Router app: draft previews in the proxy (`/proxy`) and the pages (`/server`), the preview badge and the Studio bridge (root), `withDeco()` for `next.config` (`/config`) and a next/image loader (`/image-loader`). |
-| [`@decocms/compat-v7`](./packages/compat-v7) | v7's pure helpers with v7's output, for sites moved from v7: section types and widget aliases (`/types`), device detection (`/device`), inline scripts (`/script`) and `clx`. No v7 runtime. |
+| [`@decocms/compat-v7`](./packages/compat-v7) | v7's pure helpers with v7's output, for sites moved from v7: section types and widget aliases (`/types`), device detection (`/device`), inline scripts (`/script`), `clx` and v7's matchers, with the sticky random (`/matchers`). No v7 runtime. |
 | [`@decocms/apps-vtex`](./packages/apps-vtex) | Thin VTEX client. |
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Thin Shopify Storefront API client. |
 | [`@decocms/apps-wake`](./packages/apps-wake) | Thin Wake Commerce client, with storefront operations on `/storefront`. |

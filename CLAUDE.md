@@ -123,11 +123,12 @@ v7's pure helpers, for sites moved from v7: each one gives v7's output (latest 7
 
 | Import path | File |
 |---|---|
-| `@decocms/compat-v7` | `src/index.ts` — everything below |
+| `@decocms/compat-v7` | `src/index.ts` — everything below except the matchers |
 | `@decocms/compat-v7/types` (+ `/types/widgets`) | `src/types/index.ts`, `src/types/widgets.ts` — `SectionProps` (the loader's awaited return, PO's call; v7 gave a sync loader's type itself), `Resolved`, `LoadingFallbackProps`, `Flag` and v7's widget aliases (`ImageWidget`, `RichText`, `Color`, `Secret`, …; `deco schema` reads them by name, `tests/compat-v7.schema.test.ts`). Types only; no `AppContext`/`FnContext` |
 | `@decocms/compat-v7/device` | `src/device.ts` — `detectDevice`, `isMobileUA`, `Device`, v7's `MOBILE_RE`/`TABLET_RE`. `@decocms/tanstack`'s worker keeps its own copy: no package depends on compat-v7 |
 | `@decocms/compat-v7/script` | `src/script.ts` — `useScript`, `useScriptAsDataURI`, `inlineScript`: v7's bytes, without v7's `NODE_ENV` warning |
 | `@decocms/compat-v7/clx` | `src/clx.ts` — `clx` (named and default) |
+| `@decocms/compat-v7/matchers` | `src/matchers/index.ts` — v7's `device`, `cookie`, `host`, `pathname`, `queryString`, `location`, `multi` and the sticky `random` (latest 7.x: `deco_segment` cookie, cohort = the saved block's name, carried in `cohort`), each `(props, request)`; `environment` throws (it read env). `random`/`decideRandom` record decisions on the request's `flags`; `segmentSetCookie` gives the `Set-Cookie`, which the framework subpaths send. Fuzz-pinned to v7's cms/resolve.ts, matchers/builtins.ts and the TanStack route's `persistFlags`, run unchanged by `src/__tests__/loadV7.ts` |
 
 ### Key boundaries
 
