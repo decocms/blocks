@@ -15,6 +15,7 @@ export {
   type DraftPreviewBadgeProps,
 } from "./DraftPreviewBadge";
 export { DraftPreviewIndicator } from "./DraftPreviewIndicator";
+export { useExperiment, type ExperimentResult } from "@decocms/blocks/hooks";
 export {
   DRAFT_COOKIE,
   DRAFT_COOKIE_OPTIONS,

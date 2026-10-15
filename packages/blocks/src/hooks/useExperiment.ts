@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getExperimentConfig } from "./experimentManifest";
 
 /**
  * Base hook for the `window.__ab` API installed by the A/B testing SDK
@@ -39,22 +40,34 @@ export type ExperimentResult = {
 };
 
 export function useExperiment(test: string): ExperimentResult {
-  // Always mount at `null`/`ready: false`, even though the blocking SDK tag
-  // may have already resolved the assignment synchronously by the time this
-  // runs (e.g. a forced `?__ab=test:arm` QA link needs no manifest fetch).
-  // Reading `window.__ab.variant(test)` in the initializer instead makes the
-  // FIRST CLIENT RENDER disagree with the server-rendered (always-null) HTML
-  // — a hydration mismatch. React logs it and, seeing a mismatch, does not
-  // patch the affected attributes on that commit. Since nothing schedules a
-  // later render once state and the (already-current) `ready()` value agree,
-  // the wrong (server) styling stays on screen forever, silently. Starting
-  // `null` here guarantees the `ready()` callback below is the one and only
-  // place state moves away from it, producing a real update, not a
-  // hydration diff.
+  // Known-inactive per the build-time manifest (`.deco/TestesAB.json`, see
+  // `./experimentManifest.ts`): the test is absent or explicitly not
+  // `active`. That manifest is the same bundled JSON on the server and the
+  // client, so this check yields the same answer in both places — safe to
+  // use directly in the initial state below, unlike `window.__ab` (see next
+  // comment).
+  const isKnownInactive = !getExperimentConfig(test)?.active;
+
+  // Always mount at `null`/`ready: isKnownInactive`, even though the
+  // blocking SDK tag may have already resolved the assignment synchronously
+  // by the time this runs (e.g. a forced `?__ab=test:arm` QA link needs no
+  // manifest fetch). Reading `window.__ab.variant(test)` in the initializer
+  // instead makes the FIRST CLIENT RENDER disagree with the server-rendered
+  // (always-null) HTML — a hydration mismatch. React logs it and, seeing a
+  // mismatch, does not patch the affected attributes on that commit. Since
+  // nothing schedules a later render once state and the (already-current)
+  // `ready()` value agree, the wrong (server) styling stays on screen
+  // forever, silently. Starting `null` here guarantees the `ready()`
+  // callback below is the one and only place state moves away from it for a
+  // known-ACTIVE test, producing a real update, not a hydration diff. A
+  // known-inactive test skips `window.__ab` altogether and is `ready` from
+  // the first render — nothing to resolve on either side.
   const [variant, setVariant] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(isKnownInactive);
 
   useEffect(() => {
+    if (isKnownInactive) return;
+
     const api = (window as Win).__ab;
     if (!api?.ready) {
       // No SDK on the page at all — don't wait forever for a callback that
@@ -66,7 +79,7 @@ export function useExperiment(test: string): ExperimentResult {
       setVariant(resolvedApi.variant(test));
       setReady(true);
     });
-  }, [test]);
+  }, [test, isKnownInactive]);
 
   return { ready, variant, isTreatment: variant !== null && variant !== "control" };
 }
