@@ -186,6 +186,14 @@ beforeAll(async () => {
   write(root, ".deco/blocks/Telemetry.json", { __resolveType: "telemetry", errorSampleRate: 0.01 });
   write(root, ".deco/meta.gen.json", { v7: true });
   write(root, ".deco/sections.gen.ts", "export {};\n");
+  // The site's repository and its pull-request CI, which gets `deco schema --check`.
+  fs.mkdirSync(path.join(root, ".git"));
+  write(root, "bun.lock", "");
+  write(
+    root,
+    ".github/workflows/ci.yml",
+    "on: pull_request\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: bun install\n      - run: bun run build\n",
+  );
 
   report = await migrate({ root });
 });
@@ -261,6 +269,15 @@ describe("migrate", () => {
       predev: "deco schema && deco content",
       prebuild: "deco schema && deco content && deco check",
     });
+  });
+
+  it("adds deco schema --check to the site's pull-request CI, after the install (PO 2026-10-15)", () => {
+    expect(read(".github/workflows/ci.yml")).toContain(
+      "      - run: bun install\n      - name: Check that .deco/schema.gen.json is up to date\n        run: bunx deco schema --check\n      - run: bun run build\n",
+    );
+    expect(report.done.find((n) => n.subject === "CI")?.message).toContain(
+      ".github/workflows/ci.yml",
+    );
   });
 
   it("re-encrypts the v7 secret with the site's public key", () => {
