@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repo.
 
 ## Project Overview
 
-This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo for the framework layer of [deco.cx](https://deco.cx) sites. This line (`main`) is the **next major (v8)**: one core package, `@decocms/blocks`, the framework bindings `@decocms/tanstack` (TanStack Start on Cloudflare Workers, deployed the Deco way) and `@decocms/nextjs` (any Next.js App Router app), plus thin upstream clients, `@decocms/apps-*`. The spec is the docs site's `/next/*` pages; when the code and the docs disagree, the docs win.
+This is **blocks** (repo `decocms/blocks`): a Bun workspace monorepo for the framework layer of [deco.cx](https://deco.cx) sites. This line (`main`) is the **next major (v8)**: one core package, `@decocms/blocks`, the framework bindings `@decocms/tanstack` (TanStack Start on Cloudflare Workers, deployed the Deco way) and `@decocms/nextjs` (any Next.js App Router app), plus thin upstream clients, `@decocms/apps-*`, and `@decocms/compat-v7` (v7's pure helpers, with v7's output, for migrated sites). The spec is the docs site's `/next/*` pages; when the code and the docs disagree, the docs win.
 
 **v7 lives on the `7.x` branch.** v7's `@decocms/tanstack` and `@decocms/nextjs` (7.x), `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce`, `@decocms/apps-blog`, `@decocms/apps-website` and v7's `@decocms/blocks` modules (`/cms`, `/sdk/*`, `/hooks`, `/setup`, …) are maintained and released there, not here. Don't reintroduce them on this line.
 
@@ -41,6 +41,8 @@ packages/
 │                               DecoDocument, the router, decoTanstack(); depends only on @decocms/blocks
 ├── nextjs/                     @decocms/nextjs — any Next.js App Router app: draft proxy and pages helpers,
 │                               DraftPreviewIndicator, withDeco(), the image loader; depends only on @decocms/blocks
+├── compat-v7/                  @decocms/compat-v7 — v7's pure helpers on v8, pinned to v7's output (types,
+│                               device detection, inline scripts, clx); peer @decocms/blocks; no v7 runtime
 ├── apps-vtex/                  @decocms/apps-vtex                 ┐
 ├── apps-shopify/               @decocms/apps-shopify              │
 ├── apps-wake/                  @decocms/apps-wake                 │ thin upstream clients built on
@@ -58,7 +60,7 @@ docs/runbooks/                  alert runbooks; the provisioned alerts' runbook_
 
 v7-only design docs, plans and skills live on the `7.x` branch. The docs for users are the docs site (`/next/*`), not this repo.
 
-The release allowlist in `.releaserc.json` is `blocks`, `tanstack`, `nextjs` and the seven `apps-*`; nothing else is published from this line. They release in lockstep: every release publishes all ten at one version, even a package with no change (`tests/release.test.ts` holds the allowlist equal to `packages/`).
+The release allowlist in `.releaserc.json` is `blocks`, `tanstack`, `nextjs`, `compat-v7` and the seven `apps-*`; nothing else is published from this line. They release in lockstep: every release publishes all eleven at one version, even a package with no change (`tests/release.test.ts` holds the allowlist equal to `packages/`).
 
 ### How packages build (per-file `tsc`, no bundler)
 
@@ -115,13 +117,25 @@ Small helpers for any Next.js App Router app, with no hosting assumptions (no CD
 | `@decocms/nextjs/config` | `src/config/index.cjs` (+ `index.d.cts`), plain CommonJS shipped from `src` — `withDeco(nextConfig, { draftHeaders, studioOrigins })`: v7's draft header rules first, `STUDIO_ORIGINS` in `allowedDevOrigins`; no rewrites, no image rules. It repeats the package's names (`src/draft.ts`, `src/studio.ts`), held equal by `config.test.ts` |
 | `@decocms/nextjs/image-loader` | `src/image-loader/index.ts` — `createDecoImageLoader(imageUrl, { fallback })`, `nextImageOptimizer`. Platform-neutral: the site composes its platform's helpers (`@decocms/apps-vtex/image`, …) into the `ImageUrl`; the package depends on no `@decocms/apps-*`. `tests/nextjs-image-loader.golden.test.ts` runs the next/image golden URLs of blocks and apps-vtex through that composition (no changed case but the PO-approved fix-2 ones, marked `before`/`reason` in the fixture) |
 
+### `@decocms/compat-v7` exports
+
+v7's pure helpers, for sites moved from v7: each one gives v7's output (latest 7.x), pinned by golden and fuzz tests against v7's own code, kept verbatim in `src/__fixtures__/v7/` with pinned hashes (`fixtures.test.ts`; refresh with `git show origin/7.x:packages/blocks/src/<path>`). No v7 runtime: no `ctx`, no invoke, no request scope, no cached loaders. No environment reads. Framework-neutral at the root and these subpaths; anything that needs a framework goes under `/tanstack` or `/nextjs`, which take the binding as an optional peer and never import each other. `tests/compat-v7.guardrail.test.ts` holds those rules and that no other package depends on it.
+
+| Import path | File |
+|---|---|
+| `@decocms/compat-v7` | `src/index.ts` — everything below |
+| `@decocms/compat-v7/types` (+ `/types/widgets`) | `src/types/index.ts`, `src/types/widgets.ts` — `SectionProps` (the loader's awaited return, PO's call; v7 gave a sync loader's type itself), `Resolved`, `LoadingFallbackProps`, `Flag` and v7's widget aliases (`ImageWidget`, `RichText`, `Color`, `Secret`, …; `deco schema` reads them by name, `tests/compat-v7.schema.test.ts`). Types only; no `AppContext`/`FnContext` |
+| `@decocms/compat-v7/device` | `src/device.ts` — `detectDevice`, `isMobileUA`, `Device`, v7's `MOBILE_RE`/`TABLET_RE`. `@decocms/tanstack`'s worker keeps its own copy: no package depends on compat-v7 |
+| `@decocms/compat-v7/script` | `src/script.ts` — `useScript`, `useScriptAsDataURI`, `inlineScript`: v7's bytes, without v7's `NODE_ENV` warning |
+| `@decocms/compat-v7/clx` | `src/clx.ts` — `clx` (named and default) |
+
 ### Key boundaries
 
 - **The runtime never imports the protocol or the CLI.** `src/v8` modules import only each other (no Node built-ins, no React at runtime except `/analytics`); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. The CLI may import the protocol.
 - **Clients depend only on `@decocms/blocks`**, with no peers and no framework binding. A client takes settings as arguments (no env reads), never caches, has no hooks, converters or `"use client"` code: those belong in the site's platform template (`tests/upstream-clients.conformance.test.ts`).
 - **Platform helpers live in the platform's package, not in blocks.** Besides its client, an `apps-*` package may export pure helper subpaths that compose with `@decocms/blocks` (`@decocms/apps-vtex/image` and `@decocms/apps-shopify/image`: image URL providers for `createImageUrl`). Pure: no network, no React, no env reads, no runtime imports (`tests/upstream-helpers.guardrail.test.ts`, which also bundles each for a browser and workerd). The product owner's call: `@decocms/blocks` holds framework code only, nothing that knows VTEX, Shopify or another commerce platform. Bindings never depend on an `apps-*` package: sites wire the helper in.
 - **Cross-package imports are package imports**: type-checks resolve them to `.ts` source through the `source` condition; the build resolves them to the dependency's built `dist/*.d.ts`, which is why `bun run build` builds blocks before the clients. No `tsconfig.json` `references` anywhere: adding them back reintroduces a TS6305 build-ordering bug.
-- **No compat layers.** If a site needs something a package should export, add the export; don't let sites (or this repo) re-create v7 APIs as shims.
+- **No compat layers, one exception.** If a site needs something a package should export, add the export; don't let sites (or this repo) re-create v7 APIs as shims. The product owner approved `@decocms/compat-v7` (2026-10-14) as the one home for v7's *pure* helpers (types, device detection, scripts, `clx`, request-explicit matchers, the `(props, req)` section-loader runner, commerce types and helpers): each pinned to v7's output, none of v7's runtime (no `ctx`, invoke dispatcher, `cachedLoader` or request scope). Nothing else may re-create v7 APIs: not sites, not `@decocms/blocks`, the bindings or the clients, and none of them depends on compat-v7.
 
 ## v8 core — `packages/blocks/src/v8/`
 
@@ -152,9 +166,9 @@ Everything else has another home — refer to it by skill **name**, never by pat
 
 ## Important constraints
 
-1. **No compat layers** in a package or a migrated site (see Key boundaries).
+1. **No compat layers** in a package or a migrated site, except `@decocms/compat-v7`'s pure v7 helpers (no v7 runtime; see Key boundaries).
 2. **One instance per process**: anything that must be a singleton lives on `globalThis` under a `Symbol.for` key; packages never bundle each other.
 3. **Base64**: `toBase64()` in `src/v8/cli/schema/typeToSchema.ts` must produce padded output matching `btoa()`; the site editor uses `btoa()` for schema definition refs.
-4. **Dependency direction**: runtime ← CLI/protocol; `apps-*`, `@decocms/tanstack` and `@decocms/nextjs` → `@decocms/blocks` only (the bindings never import each other, and blocks imports neither). Enforced by tests (`guides.cli.test.ts` in-11, `sdk.test.ts`) and review.
+4. **Dependency direction**: runtime ← CLI/protocol; `apps-*`, `@decocms/tanstack` and `@decocms/nextjs` → `@decocms/blocks` only (the bindings never import each other, and blocks imports neither); `@decocms/compat-v7` → `@decocms/blocks`, plus a binding only in its `/tanstack` or `/nextjs` subpath, and nothing depends on it. Enforced by tests (`guides.cli.test.ts` in-11, `sdk.test.ts`) and review.
 5. **Upstream observability**: a new client MUST build on `createInstrumentedFetch` and be listed in the guardrail test.
 6. **Tests that guard production bugs** (e.g. `dualInstance.test.ts`): if one fails, fix the code, not the assertion.
