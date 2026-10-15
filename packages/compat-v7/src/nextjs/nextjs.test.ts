@@ -72,8 +72,9 @@ afterEach(() => {
 function runScript(element: ReactElement | null): string | null {
   if (element === null) return null;
   expect(isValidElement(element)).toBe(true);
-  const html = (element.props as { dangerouslySetInnerHTML: { __html: string } })
-    .dangerouslySetInnerHTML.__html;
+  const markup = renderToStaticMarkup(element);
+  const html = /^<script[^>]*>([\s\S]*)<\/script>$/.exec(markup)?.[1];
+  if (html === undefined) throw new Error(`not one script: ${markup}`);
   const jar: string[] = [];
   const document = {
     set cookie(value: string) {
