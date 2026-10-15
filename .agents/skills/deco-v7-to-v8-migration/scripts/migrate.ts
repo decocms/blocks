@@ -11,7 +11,8 @@
  * 3. block map: `.deco/index.ts` with aliases under the v7 names, after
  *    vendoring the app loaders and actions the content calls;
  * 4. imports: the codemod over `src/`;
- * 5. scripts: `deco schema && deco content` before dev and build.
+ * 5. scripts: `deco schema && deco content` before dev and build, and
+ *    `deco schema --check` in the site's CI after the install step.
  *
  * It changes files in place, so run it on a clean working tree and review the
  * diff. What it can't do is returned in the report.
@@ -20,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
+import { addSchemaCheck } from "./ciSchemaCheck";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
 import { siteFramework, V8_RANGE } from "./framework";
@@ -92,5 +94,6 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   const { vendored } = writeBlockMap(root, report);
   rewriteImports(root, report, vendored);
   addScripts(root, report);
+  addSchemaCheck(root, report);
   return report;
 }

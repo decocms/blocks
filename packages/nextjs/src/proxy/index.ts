@@ -32,7 +32,6 @@ import {
   requestLike,
 } from "../drafts.ts";
 
-export { isNextDev } from "../dev.ts";
 export {
   inferredPreviewHosts,
   type PreviewPolicy,
