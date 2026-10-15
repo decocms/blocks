@@ -176,7 +176,7 @@ import { DeviceProvider } from "@decocms/compat-v7/nextjs";
 
 - A server component sees the request's headers but not its URL, and the proxy may rewrite the path a page renders under. The proxy forwards the URL the visitor asked for on `x-deco-page-url` (replacing any copy from outside), and `matcherContext()` matches it; pass a URL to `matcherContext(url)` instead when the page knows it.
 - The decisions are kept per request with React's `cache`.
-- A server component can't set a cookie, and the proxy runs before the page decides. So `SegmentCookie` renders a one-line script that sets the same cookie v7's TanStack route sent (`deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`), or nothing when the visitor's cookie already says the same. Render it after the content resolved. A page that reads the request is dynamic, so Next never shares it between visitors. v7's Next.js binding never wrote this cookie: there, random drew again on every request.
+- A server component can't set a cookie, and the proxy runs before the page decides. So `SegmentCookie` renders a one-line script that sets the same cookie v7's TanStack route sent (`deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`), or nothing when the visitor's cookie already says the same. After a client-side navigation React renders the page itself and runs no script it renders, so an effect sets the same cookie then. Render it after the content resolved. A page that reads the request is dynamic, so Next never shares it between visitors; keep a CDN in front from caching it too. v7's Next.js binding never wrote this cookie: there, random drew again on every request.
 
 The device context is the same module for both frameworks: one `DeviceContext`.
 
