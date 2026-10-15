@@ -6,9 +6,14 @@
  * over the platform-neutral sources (Deco asset hosts, other hosts, paths,
  * data: URIs, ""). Each config below is the `decoCdn` a site uses, and must
  * reproduce its URLs byte for byte. The only changed cases are the ones the
- * product owner approved (2026-10-14, "fix 2": an already-resized Deco CDN URL
- * is re-resized from its src): each carries `before` (today's URL) and
- * `reason`. The commerce platforms' cases live with their providers
+ * product owner approved, each with `before` (today's URL) and `reason`:
+ * - "fix 2" (2026-10-14): an already-resized Deco CDN URL is re-resized from
+ *   its src;
+ * - `stripAssetHosts: "leading"` as the default (2026-10-15): on the two
+ *   configs that keep the default, a source that only contains an asset URL
+ *   (`https://images.example.com/https://assets.decocache.com/…`) keeps it,
+ *   where those sites' vendored copies cut it out.
+ * The commerce platforms' cases live with their providers
  * (`@decocms/apps-vtex/image`, `@decocms/apps-shopify/image`).
  */
 import { readFileSync } from "node:fs";
@@ -48,6 +53,12 @@ const cases: Case[] = readFileSync(
   .filter(Boolean)
   .map((line) => JSON.parse(line));
 
+/** The source whose URLs the "leading" default changes: an asset URL not at the start. */
+const LEADING_SOURCE =
+  "https://images.example.com/https://assets.decocache.com/a-storefront/abc/x.png";
+/** The configs that keep decoCdn's default `stripAssetHosts` with sources "all". */
+const LEADING_CONFIGS = new Set(["tanstack-decoims-high", "tanstack-default"]);
+
 /** The next/image loaders: Deco CDN at "high", contain, quality last. */
 const nextLoader = createImageUrl({
   providers: [decoCdn({ quality: "high", fit: "contain", layout: "quality-last" })],
@@ -75,7 +86,7 @@ function run(c: Case): string | boolean | null {
 describe("golden URLs: each storefront's current helpers, byte for byte", () => {
   it("covers every config, and the only changed URLs are fix 2's approved ones", () => {
     expect(new Set(cases.map((c) => c.config))).toEqual(new Set(Object.keys(CONFIGS)));
-    const changed = cases.filter((c) => "before" in c);
+    const changed = cases.filter((c) => "before" in c && c.reason?.startsWith("fix 2"));
     // Every case of an already-resized Deco CDN source that is not an
     // isOptimizable check changes (it was a broken src=), and nothing else does.
     expect(changed).toEqual(
@@ -86,6 +97,39 @@ describe("golden URLs: each storefront's current helpers, byte for byte", () => 
       expect(c.reason).toMatch(/^fix 2 \(PO 2026-10-14\)/);
       expect(c.before).not.toEqual(c.expected);
       expect(String(c.before)).toMatch(/src=(image|https:\/\/assets\.decocms\.com\/image)(&| |$)/);
+    }
+  });
+
+  it('and the "leading" default\'s approved ones: an asset URL inside another source stays', () => {
+    const changed = cases.filter((c) => "before" in c && !c.reason?.startsWith("fix 2"));
+    expect(changed).toEqual(
+      cases.filter(
+        (c) =>
+          c.src === LEADING_SOURCE && LEADING_CONFIGS.has(c.config) && c.call !== "isOptimizable",
+      ),
+    );
+    expect(changed).toHaveLength(32);
+    for (const c of changed) {
+      expect(c.reason).toMatch(/^stripAssetHosts "leading" \(PO 2026-10-15\)/);
+      expect(String(c.before)).not.toContain("assets.decocache.com");
+      expect(String(c.expected)).toContain(`src=${LEADING_SOURCE}`);
+      // The old URL is what "anywhere" still writes, for a site that opts back in.
+      const anywhere = createImageUrl({
+        providers: [
+          decoCdn({
+            sources: "all",
+            stripAssetHosts: "anywhere",
+            ...(c.config === "tanstack-decoims-high"
+              ? { domain: "decoims.com", quality: "high" as const }
+              : {}),
+          }),
+        ],
+      });
+      expect(
+        c.call === "srcSet"
+          ? srcSet(anywhere, c.src, c.opts ?? {})
+          : anywhere(c.src, c.opts as ResizeOptions),
+      ).toBe(c.before);
     }
   });
 
@@ -136,14 +180,25 @@ describe("decoCdn", () => {
     expect(some.isOptimizable(other)).toBe(false);
   });
 
-  it("strips the asset hosts anywhere by default (v7), or only leading ones", () => {
+  it('strips only a leading asset host by default (v7 7.71.4+), or any with "anywhere"', () => {
     const nested = "https://images.example.com/https://assets.decocache.com/a.png";
-    const all = createImageUrl({ providers: [decoCdn({ sources: "all" })] });
-    const leading = createImageUrl({
-      providers: [decoCdn({ sources: "all", stripAssetHosts: "leading" })],
+    const s3 =
+      "https://images.example.com/https://deco-sites-assets.s3.sa-east-1.amazonaws.com/a.png";
+    const byDefault = createImageUrl({ providers: [decoCdn({ sources: "all" })] });
+    const anywhere = createImageUrl({
+      providers: [decoCdn({ sources: "all", stripAssetHosts: "anywhere" })],
     });
-    expect(all(nested, { width: 10 })).toContain("&src=https://images.example.com/a.png");
-    expect(leading(nested, { width: 10 })).toContain(`&src=${nested}`);
+    expect(byDefault(nested, { width: 10 })).toContain(`&src=${nested}`);
+    expect(byDefault(s3, { width: 10 })).toContain(`&src=${s3}`);
+    expect(anywhere(nested, { width: 10 })).toContain("&src=https://images.example.com/a.png");
+    expect(anywhere(s3, { width: 10 })).toContain("&src=https://images.example.com/a.png");
+    // A leading asset host goes either way.
+    for (const url of [byDefault, anywhere]) {
+      expect(url("https://assets.decocache.com/s/a.png", { width: 10 })).toContain("&src=s/a.png");
+      expect(
+        url("https://deco-sites-assets.s3.sa-east-1.amazonaws.com/s/a.png", { width: 10 }),
+      ).toContain("&src=s/a.png");
+    }
   });
 
   it("keeps decoims.com URLs whole on an Azion CDN", () => {

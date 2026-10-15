@@ -14,8 +14,8 @@ type FlagKind = "string" | "boolean";
 
 const COMMANDS: Record<string, { usage: string; flags: Record<string, FlagKind> }> = {
   schema: {
-    usage: "deco schema  [--root <dir>] [--watch]",
-    flags: { root: "string", watch: "boolean" },
+    usage: "deco schema  [--root <dir>] [--watch | --check]",
+    flags: { root: "string", watch: "boolean", check: "boolean" },
   },
   content: {
     usage: "deco content [--root <dir>] [--watch]",
@@ -40,6 +40,7 @@ export const USAGE = `Usage: deco <command> [flags]
 
 Commands:
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
+            (--check: write nothing, fail when the file is out of date; for CI)
   content   turn .deco/blocks into the content module, .deco/blocks.gen.ts
   check     check that every saved block fits the schema (writes nothing)
   serve     serve .deco to the site editor on this machine, at http://localhost:4545/rpc;
@@ -165,7 +166,10 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
     const base = { root, cwd: options.cwd, reporter };
     switch (command) {
       case "schema": {
-        if (!flags.watch) return await schema(base);
+        if (flags.watch && flags.check) {
+          throw new CliError(`--watch and --check can't be combined\n${COMMANDS.schema.usage}`);
+        }
+        if (!flags.watch) return await schema({ ...base, check: flags.check === true });
         const paths = decoPaths(findDecoRoot(base));
         // Monorepo packages the block map imports live outside the root:
         // watch the files the last run read there, too.

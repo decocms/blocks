@@ -199,7 +199,7 @@ describe("StudioBridge", () => {
     expect(host.children).toHaveLength(1);
     expect(script.getAttribute("data-site")).toBe("shop");
     expect(script.getAttribute("nonce")).toBe("n0");
-    expect(script.hasAttribute("data-shortcut")).toBe(false);
+    expect(script.hasAttribute("data-shortcut")).toBe(true);
     expect(JSON.parse(script.getAttribute("data-origins") ?? "")).toEqual([
       ...STUDIO,
       "http://localhost:4000",
@@ -330,11 +330,23 @@ describe("StudioBridge", () => {
       return e;
     }
 
-    it("is off by default", () => {
+    it("is on by default", () => {
       const open = vi.spyOn(window, "open").mockImplementation(() => null);
       unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
+      expect(press({ key: ".", ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+    });
+
+    it("an explicit false turns it off", () => {
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO, editShortcut: false }, false);
       expect(press({ key: ".", ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(press({ key: "E", ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(false);
       expect(open).not.toHaveBeenCalled();
+      const html = renderToStaticMarkup(
+        <StudioBridge site="shop" trustedOrigins={STUDIO} editShortcut={false} />,
+      );
+      expect(html.slice(0, html.indexOf(">"))).not.toContain("data-shortcut");
     });
 
     it("Ctrl+. opens the page in Studio's editor chooser, in a new tab", () => {
