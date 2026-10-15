@@ -61,6 +61,7 @@ describe("@decocms/compat-v7", () => {
         "./script",
         "./clx",
         "./matchers",
+        "./sections",
       ]),
     );
   });
