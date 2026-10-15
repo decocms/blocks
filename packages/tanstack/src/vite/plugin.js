@@ -389,9 +389,15 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         const file = id.slice(META_GEN_PREFIX.length, -META_GEN_SUFFIX.length);
         // Virtual id → Vite won't watch the file on its own.
         this.addWatchFile?.(file);
-        const raw = readFileSync(file, "utf-8");
+        // Re-serialize compactly: generate-schema writes it indented, and every
+        // byte of that whitespace is paid twice in the isolate (module source +
+        // the string literal), at two-byte width since the schema has accented
+        // text. On a real site: 7.3 MB chunk / +15 MB heap, vs 3.3 MB compact.
+        // The static asset uses the compact form too, so `/live/_meta` serves
+        // the same bytes either way.
+        const compact = JSON.stringify(JSON.parse(readFileSync(file, "utf-8")));
         if (metaAsset && isBuild) {
-          const asset = buildMetaAsset(raw);
+          const asset = buildMetaAsset(compact);
           if (asset) {
             metaAssetFile = asset;
             const ref = { __decoMetaAsset: { path: `/${asset.fileName}`, etag: asset.etag } };
@@ -402,7 +408,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
               "keeping it in the server bundle. Regenerate it with generate-schema.",
           );
         }
-        return `export default JSON.parse(${JSON.stringify(raw)});`;
+        return `export default JSON.parse(${JSON.stringify(compact)});`;
       }
 
       // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
@@ -1088,7 +1094,11 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
 
     generateBundle(_, bundle) {
       if (metaAssetFile && this.environment?.name === "client") {
-        this.emitFile({ type: "asset", fileName: metaAssetFile.fileName, source: metaAssetFile.payload });
+        this.emitFile({
+          type: "asset",
+          fileName: metaAssetFile.fileName,
+          source: metaAssetFile.payload,
+        });
       }
       // Build a mapping from section key to chunk filename.
       // Sites use this to emit <link rel="modulepreload"> for eager sections.
