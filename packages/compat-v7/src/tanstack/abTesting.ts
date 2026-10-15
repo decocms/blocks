@@ -339,23 +339,6 @@ export async function proxyToFallback(
 const INNER_HEADER = "x-deco-ab-inner";
 
 /**
- * `Link` values `createDecoWorker` appends to every HTML response it sends
- * (`preload.styles`, `preload.fonts`). The inner call's response already has
- * them and the outer call adds them again, so they come off the inner one.
- */
-const WORKER_PRELOAD = /^<[^>]*>; rel=preload; as=(?:style|font; crossorigin)$/;
-
-function withoutWorkerPreloads(response: Response): Response {
-  const link = response.headers.get("link");
-  if (!link) return response;
-  const kept = link.split(/,\s*(?=<)/).filter((value) => !WORKER_PRELOAD.test(value.trim()));
-  const out = new Response(response.body, response);
-  if (kept.length) out.headers.set("link", kept.join(", "));
-  else out.headers.delete("link");
-  return out;
-}
-
-/**
  * v7's `withABTesting` as a `createDecoWorker` `routes` handler. Without the
  * KV binding, without a config for the hostname, or when `shouldBypassAB`
  * says so, it returns `null` and the worker serves the request. Otherwise
@@ -417,7 +400,9 @@ export function abTestingRoutes<Env = unknown>(
         const headers = new Headers(request.headers);
         headers.set(INNER_HEADER, innerToken);
         const response = await worker().fetch(new Request(request, { headers }), env, ctx);
-        return tag(withoutWorkerPreloads(response), bucket);
+        // The worker put its `preload` hints on the page it rendered; it adds
+        // none to a `routes` response, so the outer call doesn't repeat them.
+        return tag(response, bucket);
       } catch (err) {
         if (!circuitBreaker) throw err;
         console.error("[A/B] Worker error, circuit breaker → fallback:", err);
