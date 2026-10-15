@@ -83,7 +83,7 @@ export interface DecoDocumentProps {
   readyDelay?: number;
   /** The element around the page: `"main"` (default), or `"div"` when the page renders its own `<main>`. */
   outlet?: "main" | "div";
-  /** The "." shortcut that opens the page in Studio (off by default). */
+  /** The "." shortcut that opens the page in Studio (on by default; `false` turns it off). */
   editShortcut?: boolean;
   /** The CSP nonce for the inline scripts, when the site enforces one. */
   nonce?: string;
@@ -98,7 +98,7 @@ export function DecoDocument({
   account = "",
   readyDelay = 500,
   outlet = "main",
-  editShortcut = false,
+  editShortcut,
   nonce,
   children,
 }: DecoDocumentProps) {
