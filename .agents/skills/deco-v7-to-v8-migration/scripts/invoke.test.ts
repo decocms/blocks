@@ -5,6 +5,7 @@
  * bindings.test.ts runs them together on whole fixtures and type-checks the
  * result.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +19,7 @@ import { createReport } from "./report";
 import { scopeQueryClient, v7RouteOptions, writeScaffold } from "./scaffold";
 import { rewriteLoaderContextIn, rewritePartialImports, writeStubs } from "./stubs";
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 let root: string;
 afterEach(() => root && fs.rmSync(root, { recursive: true, force: true }));
 
@@ -346,6 +348,30 @@ describe("VTEX invoke-map keys (--vtex-invoke)", () => {
       report.manual.find((n) => n.subject.startsWith("vtex/actions/checkout/addItemsToCart"))
         ?.message,
     ).toContain("route handler");
+  });
+
+  it("v8: an unmapped key's stub fails loudly when called, naming the key", async () => {
+    site({});
+    writeStubs(root, ["unportedVtexInvoke", "unportedInvoke"], createReport());
+    const js = ts.transpileModule(read("src/migration-stubs.ts"), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    fs.writeFileSync(path.join(root, "stubs.run.mjs"), js);
+    const stubs = await import(pathToFileURL(path.join(root, "stubs.run.mjs")).href);
+    await expect(
+      stubs.unportedVtexInvoke("vtex/actions/address/deleteAddress", { id: "a" }),
+    ).rejects.toThrow(/VTEX invoke vtex\/actions\/address\/deleteAddress isn't ported/);
+    await expect(stubs.unportedInvoke("site/loaders/missing.ts")).rejects.toThrow(
+      /invoke\(site\/loaders\/missing\.ts\) has no v8 equivalent/,
+    );
+  });
+
+  it("the command line takes --vtex-invoke keep or v8 and refuses anything else", () => {
+    const run = spawnSync("bun", [path.join(HERE, "main.ts"), "--vtex-invoke", "v7"], {
+      encoding: "utf8",
+    });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('--vtex-invoke takes keep or v8, not "v7"');
   });
 });
 
