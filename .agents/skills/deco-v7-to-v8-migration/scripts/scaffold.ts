@@ -19,6 +19,14 @@
  * - Next.js: the catch-all page `src/app/[[...slug]]/page.tsx` (or v7's own
  *   catch-all), which binds the draft, opens the page and renders it.
  *
+ * Each section renders in v7's wrapper, `<section id data-manifest-key>` around
+ * an error boundary (`src/section-error-boundary.tsx`), and the TanStack routes
+ * keep v7's `cmsRouteConfig` behaviour: the options the site passed it (site
+ * name, default title, ignored search params, pending times), every other
+ * search param reaching the loader, its route cache times and its head (title,
+ * description, robots, Open Graph, Twitter Card, canonical, JSON-LD). The
+ * router's module-scope QueryClient moves into `getRouter`, one per request.
+ *
  * A file that exists is kept and reported, except v7's own page routes
  * (`cmsRouteConfig`, `createDecoPage`, …), which are replaced, and v7's admin
  * routes (`/deco/invoke`, `/deco/meta`, `/deco/render`), which are deleted:
@@ -26,6 +34,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import { listSources } from "./compat";
 import { type Framework, siteFramework } from "./framework";
 import type { Report } from "./report";
@@ -45,7 +54,26 @@ interface Wiring {
   matchPage: boolean;
   random: boolean;
   device: boolean;
+  /** The block map exports v7's PageSeo shape (else open-page.server.ts declares it). */
+  pageSeo: boolean;
+  /** The saved site block's SEO defaults, which v7 applied to every page. */
+  siteSeo: Record<string, string>;
 }
+
+/** The options a v7 page route passed `cmsRouteConfig` / `cmsHomeRouteConfig`, as literals. */
+interface RouteOptions {
+  siteName?: string;
+  defaultTitle?: string;
+  defaultDescription?: string;
+  ignoreSearchParams?: string[];
+  pendingMs?: number;
+  pendingMinMs?: number;
+  /** The query reaches the loader (v7's catch-all always; a home route only when the site added it). */
+  search: boolean;
+}
+
+/** v7's `routeCacheDefaults` gcTime: the catch-all used the "product" profile, the home "static". */
+const GC_TIME = { "/$": "300_000", "/": "1_800_000" } as const;
 
 const HEADER = (what: string) => [
   "/**",
@@ -124,6 +152,7 @@ function openPageTanstack(w: Wiring): string {
     "type BlockDescriptor",
     ...(w.loadSections ? ["loadSections"] : []),
     ...(w.matchPage ? ["matchPage"] : []),
+    ...(w.pageSeo ? ["type PageSeo"] : []),
   ];
   const compat = [
     ...(w.random ? ["commitSegmentCookie"] : []),
@@ -151,7 +180,8 @@ function openPageTanstack(w: Wiring): string {
     "  seo?: unknown;",
     "}",
     "",
-    ...SEO_FIELDS,
+    ...(w.pageSeo ? [] : [...PAGE_SEO_TYPE, ""]),
+    ...seoFieldsSource(w.siteSeo, w.framework),
     "",
     "/**",
     " * Opens the page at `href` (a path on this site, with its query) for `request`. Every read uses the",
@@ -212,41 +242,217 @@ const PAGE_FUNCTIONS = [
   "",
 ].join("\n");
 
-/** Shared by both frameworks' views: the head and the sections. */
+/** v7's id for a section's wrapper: its type name with dashes for slashes, minus `.tsx` and `site-sections-`. */
+const SECTION_ID = [
+  "/** v7's id for a section's wrapper: its type name with dashes for slashes, minus .tsx and site-sections-. */",
+  "function sectionId(component: string): string {",
+  '  return component.replace(/\\//g, "-").replace(/\\.tsx$/, "").replace(/^site-sections-/, "");',
+  "}",
+];
+
+/**
+ * v7's per-section error boundary (@decocms/blocks/hooks' SectionErrorBoundary, 7.x), verbatim: a
+ * client component, so Next.js can render it around server-rendered sections.
+ */
+const SECTION_ERROR_BOUNDARY = [
+  '"use client";',
+  ...HEADER(
+    "v7's per-section error boundary (SectionErrorBoundary from @decocms/blocks 7.x), as v7 wrapped every\nsection in it: a section that throws while rendering leaves an empty, hidden placeholder instead of\nbreaking the page; in development it shows the error.",
+  ),
+  'import { Component, type ErrorInfo, type ReactNode } from "react";',
+  "",
+  "// Node's process, where the runtime has one (v7 read NODE_ENV from it); typed here so the site needs no Node types.",
+  "declare const process: { env: Record<string, string | undefined> } | undefined;",
+  "",
+  "interface ErrorBoundaryProps {",
+  "  sectionKey: string;",
+  "  fallback?: ReactNode;",
+  "  children: ReactNode;",
+  "}",
+  "",
+  "interface ErrorBoundaryState {",
+  "  error: Error | null;",
+  "}",
+  "",
+  "/**",
+  " * Per-section error boundary that prevents a single broken section",
+  " * from crashing the entire page.",
+  " *",
+  " * In development, shows the error message + stack trace.",
+  " * In production, renders a silent empty placeholder.",
+  " */",
+  "export class SectionErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {",
+  "  constructor(props: ErrorBoundaryProps) {",
+  "    super(props);",
+  "    this.state = { error: null };",
+  "  }",
+  "",
+  "  static getDerivedStateFromError(error: Error): ErrorBoundaryState {",
+  "    return { error };",
+  "  }",
+  "",
+  "  componentDidCatch(error: Error, info: ErrorInfo) {",
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
+  '    console.error(`[CMS] Section "${this.props.sectionKey}" crashed:`, error, info.componentStack);',
+  "  }",
+  "",
+  "  render() {",
+  "    if (this.state.error) {",
+  "      if (this.props.fallback) return this.props.fallback;",
+  "      return (",
+  "        <DefaultSectionErrorFallback error={this.state.error} sectionKey={this.props.sectionKey} />",
+  "      );",
+  "    }",
+  "    return this.props.children;",
+  "  }",
+  "}",
+  "",
+  "function DefaultSectionErrorFallback({ error, sectionKey }: { error: Error; sectionKey: string }) {",
+  '  const isDev = typeof process !== "undefined" && process.env.NODE_ENV === "development";',
+  "",
+  "  if (!isDev) {",
+  '    return <div data-section-error={sectionKey} className="hidden" />;',
+  "  }",
+  "",
+  "  return (",
+  "    <div",
+  "      data-section-error={sectionKey}",
+  "      style={{",
+  '        padding: "16px",',
+  '        margin: "8px 0",',
+  '        border: "2px solid #ef4444",',
+  '        borderRadius: "8px",',
+  '        background: "#fef2f2",',
+  '        fontFamily: "monospace",',
+  '        fontSize: "13px",',
+  "      }}",
+  "    >",
+  '      <div style={{ fontWeight: "bold", color: "#dc2626", marginBottom: "8px" }}>',
+  "        Section Error: {sectionKey}",
+  "      </div>",
+  '      <div style={{ color: "#991b1b" }}>{error.message}</div>',
+  "      {error.stack && (",
+  "        <pre",
+  "          style={{",
+  '            marginTop: "8px",',
+  '            fontSize: "11px",',
+  '            color: "#6b7280",',
+  '            whiteSpace: "pre-wrap",',
+  '            overflow: "auto",',
+  '            maxHeight: "200px",',
+  "          }}",
+  "        >",
+  "          {error.stack}",
+  "        </pre>",
+  "      )}",
+  "    </div>",
+  "  );",
+  "}",
+  "",
+].join("\n");
+
+/** The page's head as v7's cmsRouteConfig built it (buildHead). */
+const PAGE_HEAD = [
+  "/** The site's titles, as v7's route passed them to cmsRouteConfig. */",
+  "export interface SiteTitles {",
+  "  siteName: string;",
+  "  defaultTitle: string;",
+  "  defaultDescription?: string;",
+  "}",
+  "",
+  "/**",
+  " * v7's head (cmsRouteConfig's buildHead): title, description, robots, Open Graph, Twitter Card,",
+  " * canonical and JSON-LD.",
+  " */",
+  "export function pageHead(page: PageData | undefined, site: SiteTitles) {",
+  "  const seo = page?.seo;",
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
+  "  const title = seo?.title ? seo.title : page?.name ? `${page.name} | ${site.siteName}` : site.defaultTitle;",
+  "  const description = seo?.description || site.defaultDescription;",
+  "  const image = seo?.image;",
+  "  const canonical = seo?.canonical;",
+  "  const meta: Record<string, string>[] = [{ title }];",
+  '  if (description) meta.push({ name: "description", content: description });',
+  "  meta.push({",
+  '    name: "robots",',
+  "    content: seo?.noIndexing",
+  '      ? "noindex, nofollow"',
+  '      : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",',
+  "  });",
+  '  meta.push({ property: "og:title", content: title });',
+  '  if (description) meta.push({ property: "og:description", content: description });',
+  '  if (image) meta.push({ property: "og:image", content: image });',
+  '  meta.push({ property: "og:type", content: seo?.type || "website" });',
+  '  if (canonical) meta.push({ property: "og:url", content: canonical });',
+  '  meta.push({ name: "twitter:card", content: image ? "summary_large_image" : "summary" });',
+  '  meta.push({ name: "twitter:title", content: title });',
+  '  if (description) meta.push({ name: "twitter:description", content: description });',
+  '  if (image) meta.push({ name: "twitter:image", content: image });',
+  '  const links = canonical ? [{ rel: "canonical", href: canonical }] : [];',
+  "  const scripts = (seo?.jsonLDs ?? []).map((jsonLD) => ({",
+  '    type: "application/ld+json",',
+  "    children: JSON.stringify(jsonLD),",
+  "  }));",
+  "  return { meta, links, scripts };",
+  "}",
+];
+
 function pageViewTanstack(w: Wiring): string {
   return [
     ...HEADER(
-      "Renders an opened page: each section through the view registry (src/views.ts), by its v7 type\nname, with the page's SEO in the head.",
+      "Renders an opened page as v7 did: each section through the view registry (src/views.ts), by its v7\ntype name, in v7's wrapper (`<section id data-manifest-key>` around an error boundary), and the\npage's head as v7's cmsRouteConfig built it.",
     ),
     ...(w.device
       ? ['import { type Device, DeviceProvider } from "@decocms/compat-v7/tanstack";']
       : []),
-    'import type { BlockDescriptor } from "../.deco";',
+    w.pageSeo
+      ? 'import type { BlockDescriptor, PageSeo } from "../.deco";'
+      : 'import type { BlockDescriptor } from "../.deco";',
+    ...(w.pageSeo ? [] : ['import type { PageSeo } from "./open-page.server";']),
+    'import { SectionErrorBoundary } from "./section-error-boundary";',
     'import { views } from "./views";',
     "",
+    "// Node's process, where the runtime has one; typed here so the site needs no Node types.",
+    "declare const process: { env: Record<string, string | undefined> } | undefined;",
+    "",
+    "/** v7's development check for its route cache times (routeCacheDefaults). */",
+    "export const DEV =",
+    '  typeof process !== "undefined" &&',
+    '  (process.env.DECO_CACHE_DISABLE === "true" || process.env.NODE_ENV === "development");',
+    "",
     "export interface PageData {",
+    "  name?: string;",
     "  sections: BlockDescriptor[];",
-    "  seo: { title?: string; description?: string };",
+    "  seo: PageSeo;",
     ...(w.device ? ["  device: Device;"] : []),
     "}",
     "",
-    "/** The page's title and description, for a route's `head`. */",
-    "export function pageHead(page: PageData | undefined) {",
-    "  const { title, description } = page?.seo ?? {};",
-    "  return {",
-    "    meta: [",
-    "      ...(title ? [{ title }] : []),",
-    '      ...(description ? [{ name: "description", content: description }] : []),',
-    "    ],",
-    "  };",
+    ...PAGE_HEAD,
+    "",
+    ...SECTION_ID,
+    "",
+    "/** One section in v7's wrapper; a type with no view renders nothing, as in v7. */",
+    "function Section({ section }: { section: BlockDescriptor }) {",
+    "  const View = views[section.component]?.default;",
+    "  if (!View) return null;",
+    "  return (",
+    "    <section",
+    "      id={sectionId(section.component)}",
+    "      data-manifest-key={section.component}",
+    '      style={{ animation: "decoFadeIn 0.3s ease-out" }}',
+    "    >",
+    "      <SectionErrorBoundary sectionKey={section.component}>",
+    "        <View {...section.props} />",
+    "      </SectionErrorBoundary>",
+    "    </section>",
+    "  );",
     "}",
     "",
     "export function PageView({ page }: { page: PageData }) {",
-    "  const sections = page.sections.map((section, index) => {",
-    "    const View = views[section.component]?.default;",
+    "  const sections = page.sections.map((section, index) => (",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
-    "    return View ? <View key={`${section.component}-${index}`} {...section.props} /> : null;",
-    "  });",
+    "    <Section key={`${section.component}-${index}`} section={section} />",
+    "  ));",
     w.device
       ? "  return <DeviceProvider value={page.device}>{sections}</DeviceProvider>;"
       : "  return <>{sections}</>;",
@@ -255,29 +461,229 @@ function pageViewTanstack(w: Wiring): string {
   ].join("\n");
 }
 
-const SEO_FIELDS = [
-  "/** v7's SEO block returned its fields, or a section descriptor carrying them. */",
-  "function seoFields(seo: unknown): { title?: string; description?: string } {",
-  '  const fields = seo && typeof seo === "object" && "props" in seo ? (seo as { props: unknown }).props : seo;',
-  '  if (!fields || typeof fields !== "object") return {};',
-  "  const { title, description } = fields as Record<string, unknown>;",
-  "  return {",
-  '    title: typeof title === "string" ? title : undefined,',
-  '    description: typeof description === "string" ? description : undefined,',
-  "  };",
+/** v7's PageSeo, declared here when the block map doesn't export it. */
+const PAGE_SEO_TYPE = [
+  "/** v7's page SEO: what the page's head shows. Every field is optional. */",
+  "export interface PageSeo {",
+  "  title?: string;",
+  "  description?: string;",
+  "  titleTemplate?: string;",
+  "  descriptionTemplate?: string;",
+  "  image?: string;",
+  "  canonical?: string;",
+  "  noIndexing?: boolean;",
+  "  type?: string;",
+  "  // biome-ignore lint/suspicious/noExplicitAny: JSON-LD objects",
+  "  jsonLDs?: Record<string, any>[];",
   "}",
 ];
 
-function routeTanstack(routePath: "/" | "/$", fromRoutes: string): string {
+/** v7's extractSeoFromProps over the page's SEO block, then its title and description templates. */
+/**
+ * v7's Next.js page SEO (createDecoPage's buildSeo): the page's SEO block's fields as they are, without
+ * the site's defaults or templates, which only v7's TanStack route applied.
+ */
+const NEXT_SEO_FIELDS = [
+  "/** The page's SEO as v7's Next.js page read it: the SEO block's fields (or a section descriptor carrying them). */",
+  "function seoFields(seo: unknown): PageSeo {",
+  '  const fields = seo && typeof seo === "object" && "props" in seo ? (seo as { props: unknown }).props : seo;',
+  '  const props = (fields && typeof fields === "object" ? fields : {}) as Record<string, unknown>;',
+  "  const out: PageSeo = {};",
+  "  if (props.title) out.title = props.title as string;",
+  "  if (props.description) out.description = props.description as string;",
+  "  if (props.canonical) out.canonical = props.canonical as string;",
+  "  if (props.image) out.image = props.image as string;",
+  "  if (props.noIndexing !== undefined) out.noIndexing = props.noIndexing as boolean;",
+  "  if (props.type) out.type = props.type as string;",
+  "  if (Array.isArray(props.jsonLDs) && props.jsonLDs.length) out.jsonLDs = props.jsonLDs;",
+  "  return out;",
+  "}",
+];
+
+/** The SEO defaults v7 applied to every page: the `seo` of the saved `Site` (or `site`) block (getSiteSeo). */
+export function siteSeo(root: string): Record<string, string> {
+  for (const name of ["Site", "site"]) {
+    const file = path.join(root, ".deco", "blocks", `${name}.json`);
+    if (!fs.existsSync(file)) continue;
+    let seo: unknown;
+    try {
+      seo = (JSON.parse(fs.readFileSync(file, "utf8")) as { seo?: unknown }).seo;
+    } catch {
+      return {};
+    }
+    if (!seo || typeof seo !== "object") return {};
+    const out: Record<string, string> = {};
+    for (const key of ["title", "description", "image", "titleTemplate", "descriptionTemplate"]) {
+      const value = (seo as Record<string, unknown>)[key];
+      if (typeof value === "string") out[key] = value;
+    }
+    return out;
+  }
+  return {};
+}
+
+/**
+ * v7's page SEO (buildPageSeo): the page's SEO block (extractSeoFromProps), the site's defaults for an
+ * empty title, description and image, then the block's templates, else the site's.
+ */
+function seoFieldsSource(site: Record<string, string>, framework: Framework): string[] {
+  if (framework === "nextjs") return NEXT_SEO_FIELDS;
+  const entries = Object.entries(site);
+  return [
+    "/**",
+    entries.length > 0
+      ? " * The SEO defaults v7 applied to every page: the seo of the saved site block (getSiteSeo). The script"
+      : " * The SEO defaults v7 applied to every page, from the seo of a saved Site block: this site had none. The script",
+    " * read them once; they are code now.",
+    " */",
+    entries.length > 0
+      ? `const SITE_SEO: PageSeo = {\n${entries.map(([k, v]) => `  ${k}: ${JSON.stringify(v)},`).join("\n")}\n};`
+      : "const SITE_SEO: PageSeo = {};",
+    "",
+    '/** v7\'s template rule: blank or "%s" is no template. */',
+    "function template(value: unknown): string | undefined {",
+    '  return typeof value === "string" && value.trim() !== "" && value.trim() !== "%s" ? value : undefined;',
+    "}",
+    "",
+    "/**",
+    " * The page's SEO as v7 built it (buildPageSeo): the page's SEO block's fields (or a section descriptor",
+    " * carrying them), the site's defaults for an empty title, description and image, then the block's",
+    " * title and description templates, else the site's.",
+    " */",
+    "function seoFields(seo: unknown): PageSeo {",
+    '  const fields = seo && typeof seo === "object" && "props" in seo ? (seo as { props: unknown }).props : seo;',
+    '  const props = (fields && typeof fields === "object" ? fields : {}) as Record<string, unknown>;',
+    "  const out: PageSeo = {};",
+    "  if (props.title) out.title = props.title as string;",
+    "  if (props.description) out.description = props.description as string;",
+    "  if (props.canonical) out.canonical = props.canonical as string;",
+    "  if (props.image) out.image = props.image as string;",
+    "  if (props.noIndexing !== undefined) out.noIndexing = props.noIndexing as boolean;",
+    "  if (props.type) out.type = props.type as string;",
+    "  if (Array.isArray(props.jsonLDs) && props.jsonLDs.length) out.jsonLDs = props.jsonLDs;",
+    "  if (!out.title && SITE_SEO.title) out.title = SITE_SEO.title;",
+    "  if (!out.description && SITE_SEO.description) out.description = SITE_SEO.description;",
+    "  if (!out.image && SITE_SEO.image) out.image = SITE_SEO.image;",
+    "  const titleTemplate = template(props.titleTemplate) ?? template(SITE_SEO.titleTemplate);",
+    "  const descriptionTemplate = template(props.descriptionTemplate) ?? template(SITE_SEO.descriptionTemplate);",
+    '  if (titleTemplate && out.title) out.title = titleTemplate.replace("%s", out.title);',
+    "  if (descriptionTemplate && out.description) {",
+    '    out.description = descriptionTemplate.replace("%s", out.description);',
+    "  }",
+    "  return out;",
+    "}",
+  ];
+}
+
+/** Reads the literal options a v7 page route passed cmsRouteConfig or cmsHomeRouteConfig. */
+export function v7RouteOptions(text: string, routePath: "/" | "/$"): RouteOptions {
+  const options: RouteOptions = { search: routePath === "/$" || /\bloaderDeps\b/.test(text) };
+  const sf = ts.createSourceFile(
+    "route.tsx",
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      /^cms(Home)?RouteConfig$/.test(node.expression.text) &&
+      node.arguments[0] &&
+      ts.isObjectLiteralExpression(node.arguments[0])
+    ) {
+      for (const prop of node.arguments[0].properties) {
+        if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+        const name = prop.name.text;
+        const value = prop.initializer;
+        const str = ts.isStringLiteralLike(value) ? value.text : undefined;
+        const num = ts.isNumericLiteral(value) ? Number(value.text.replace(/_/g, "")) : undefined;
+        if (
+          (name === "siteName" || name === "defaultTitle" || name === "defaultDescription") &&
+          str !== undefined
+        ) {
+          options[name] = str;
+        } else if ((name === "pendingMs" || name === "pendingMinMs") && num !== undefined) {
+          options[name] = num;
+        } else if (
+          name === "ignoreSearchParams" &&
+          ts.isArrayLiteralExpression(value) &&
+          value.elements.every(ts.isStringLiteralLike)
+        ) {
+          options.ignoreSearchParams = value.elements.map((e) => (e as ts.StringLiteralLike).text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return options;
+}
+
+/** A number as source, with v7's digit grouping: 60000 → 60_000. */
+function numeral(n: number): string {
+  return Number.isInteger(n) && n >= 10_000
+    ? String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "_")
+    : String(n);
+}
+
+function routeTanstack(routePath: "/" | "/$", fromRoutes: string, o: RouteOptions): string {
+  // v7's defaults: cmsHomeRouteConfig's siteName is its defaultTitle; both titles fall back to the other.
+  const defaultTitle = o.defaultTitle ?? o.siteName ?? "";
+  const siteName = o.siteName ?? defaultTitle;
+  const titles = [
+    `  siteName: ${JSON.stringify(siteName)},`,
+    `  defaultTitle: ${JSON.stringify(defaultTitle)},`,
+    ...(o.defaultDescription !== undefined
+      ? [`  defaultDescription: ${JSON.stringify(o.defaultDescription)},`]
+      : []),
+  ];
+  const ignored = o.ignoreSearchParams ?? ["skuId"];
   return [
     'import { createFileRoute } from "@tanstack/react-router";',
-    `import { PageView, pageHead } from "${fromRoutes}/page-view";`,
+    `import { DEV, PageView, pageHead, type SiteTitles } from "${fromRoutes}/page-view";`,
     `import { loadPage } from "${fromRoutes}/page.functions";`,
     "",
-    "// A CMS page, found by its URL (src/open-page.server.ts). Generated by the deco-v7-to-v8-migration skill.",
+    "// A CMS page, found by its URL (src/open-page.server.ts), with what v7's",
+    `// ${routePath === "/" ? "cmsHomeRouteConfig" : "cmsRouteConfig"} gave the route. Generated by the deco-v7-to-v8-migration skill.`,
+    "",
+    "/** The titles v7's route passed: the head falls back to them. */",
+    "const SITE: SiteTitles = {",
+    ...titles,
+    "};",
+    ...(o.search
+      ? [
+          "",
+          "/** Search params that don't reload the page (v7's ignoreSearchParams): client-side state. */",
+          `const IGNORED_SEARCH_PARAMS = new Set(${JSON.stringify(ignored)});`,
+        ]
+      : []),
+    "",
     `export const Route = createFileRoute("${routePath}")({`,
-    "  loader: ({ location }) => loadPage({ data: { href: location.pathname + location.searchStr } }),",
-    "  head: ({ loaderData }) => pageHead(loaderData),",
+    ...(o.search
+      ? [
+          "  // Every search param reaches the loader (filters, sort, pagination), except the ignored ones.",
+          "  validateSearch: (search: Record<string, unknown>) => search as Record<string, string>,",
+          "  loaderDeps: ({ search }) => {",
+          "    const kept = Object.fromEntries(",
+          "      Object.entries(search ?? {}).filter(([key]) => !IGNORED_SEARCH_PARAMS.has(key)),",
+          "    );",
+          "    return { search: Object.keys(kept).length ? kept : undefined };",
+          "  },",
+          "  loader: ({ location, deps }) => {",
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
+          '    const query = deps.search ? `?${new URLSearchParams(deps.search).toString()}` : "";',
+          "    return loadPage({ data: { href: location.pathname + query } });",
+          "  },",
+        ]
+      : ["  loader: ({ location }) => loadPage({ data: { href: location.pathname } }),"]),
+    `  pendingMs: ${numeral(o.pendingMs ?? 200)},`,
+    `  pendingMinMs: ${numeral(o.pendingMinMs ?? 300)},`,
+    "  // v7's routeCacheDefaults: kept for the session in production, briefly in development.",
+    "  staleTime: DEV ? 5_000 : Number.POSITIVE_INFINITY,",
+    `  gcTime: DEV ? 30_000 : ${GC_TIME[routePath]},`,
+    "  head: ({ loaderData }) => pageHead(loaderData, SITE),",
     "  component: CmsPage,",
     "});",
     "",
@@ -289,7 +695,11 @@ function routeTanstack(routePath: "/" | "/$", fromRoutes: string): string {
 }
 
 function openPageNext(w: Wiring): string {
-  const deco = ["type BlockDescriptor", ...(w.loadSections ? ["loadSections"] : [])];
+  const deco = [
+    "type BlockDescriptor",
+    ...(w.loadSections ? ["loadSections"] : []),
+    ...(w.pageSeo ? ["type PageSeo"] : []),
+  ];
   return [
     ...HEADER(
       "Finds the page for a URL and resolves it the way v7 rendered it: every section, then v7's\nsection loaders (/next/nextjs#4-match-the-url-to-a-page). React's cache shares one result between\ngenerateMetadata and the page.",
@@ -308,6 +718,7 @@ function openPageNext(w: Wiring): string {
     "  seo?: unknown;",
     "}",
     "",
+    ...(w.pageSeo ? [] : [...PAGE_SEO_TYPE, ""]),
     "type SearchParams = Record<string, string | string[] | undefined>;",
     "",
     "/** The page's path and query, from the catch-all's segments and search params. */",
@@ -321,7 +732,7 @@ function openPageNext(w: Wiring): string {
     '  return `/${segments.map(encodeURIComponent).join("/")}${search ? `?${search}` : ""}`;',
     "}",
     "",
-    ...SEO_FIELDS,
+    ...seoFieldsSource(w.siteSeo, w.framework),
     "",
     "/** Opens the page at `href` (a path on this site, with its query). */",
     "export const openPage = cache(async (href: string) => {",
@@ -353,6 +764,7 @@ function pageNext(w: Wiring, file: string, root: string, param: string): string 
     'import type { Metadata } from "next";',
     `import { cms } from "${from("cms.ts")}";`,
     `import { hrefFor, openPage } from "${from("open-page.server.ts")}";`,
+    `import { SectionErrorBoundary } from "${from("section-error-boundary.tsx")}";`,
     `import { views } from "${from("views.ts")}";`,
     "",
     "type Props = {",
@@ -366,17 +778,33 @@ function pageNext(w: Wiring, file: string, root: string, param: string): string 
     `  return openPage(hrefFor((await params).${param}, query));`,
     "}",
     "",
+    "/** v7's page metadata: title, description, canonical and robots. */",
     "export async function generateMetadata(props: Props): Promise<Metadata> {",
-    "  const { title, description } = (await pageFor(props)).seo;",
-    "  return { title, description };",
+    "  const seo = (await pageFor(props)).seo;",
+    "  return {",
+    "    title: seo.title,",
+    "    description: seo.description,",
+    "    alternates: seo.canonical ? { canonical: seo.canonical } : undefined,",
+    "    robots: seo.noIndexing ? { index: false, follow: false } : undefined,",
+    "  };",
     "}",
+    "",
+    ...SECTION_ID,
     "",
     "export default async function Page(props: Props) {",
     "  const page = await pageFor(props);",
+    "  // Each section in v7's wrapper, `<section id data-manifest-key>` around an error boundary.",
     "  const sections = page.sections.map((section, index) => {",
     "    const View = views[section.component]?.default;",
+    "    if (!View) return null;",
+    "    return (",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
-    "    return View ? <View key={`${section.component}-${index}`} {...section.props} /> : null;",
+    "      <section key={`${section.component}-${index}`} id={sectionId(section.component)} data-manifest-key={section.component}>",
+    "        <SectionErrorBoundary sectionKey={section.component}>",
+    "          <View {...section.props} />",
+    "        </SectionErrorBoundary>",
+    "      </section>",
+    "    );",
     "  });",
     "  return (",
     "    <>",
@@ -424,6 +852,83 @@ function findCatchAll(dir: string): { file: string; param: string } | undefined 
   return undefined;
 }
 
+/**
+ * Moves a router's module-scope `new QueryClient(…)` into `getRouter`. The server creates a router per
+ * request, so a client at module scope is shared by every visitor (one visitor's cart or user in
+ * another's render); in the browser `getRouter` runs once, so it still keeps one client
+ * (reference/caching-and-privacy.md).
+ */
+export function scopeQueryClient(root: string, report: Report): void {
+  const file = ["router.tsx", "router.ts"]
+    .map((f) => path.join(root, "src", f))
+    .find(fs.existsSync);
+  if (!file) return;
+  const text = fs.readFileSync(file, "utf8");
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let decl: ts.VariableStatement | undefined;
+  let name = "";
+  let getRouter: ts.FunctionDeclaration | undefined;
+  for (const st of sf.statements) {
+    if (ts.isVariableStatement(st) && st.declarationList.declarations.length === 1) {
+      const d = st.declarationList.declarations[0];
+      if (
+        ts.isIdentifier(d.name) &&
+        d.initializer &&
+        ts.isNewExpression(d.initializer) &&
+        ts.isIdentifier(d.initializer.expression) &&
+        d.initializer.expression.text === "QueryClient"
+      ) {
+        decl = st;
+        name = d.name.text;
+      }
+    }
+    if (ts.isFunctionDeclaration(st) && st.name?.text === "getRouter" && st.body) getRouter = st;
+  }
+  if (!decl || !getRouter?.body) return;
+  // Used outside getRouter (exported, or read by another module-scope function): leave it, and say so.
+  const exported = decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+  let usedOutside = false;
+  const scan = (node: ts.Node) => {
+    if (
+      ts.isIdentifier(node) &&
+      node.text === name &&
+      node.parent !== decl!.declarationList.declarations[0]
+    ) {
+      if (node.pos < getRouter!.pos || node.end > getRouter!.end) usedOutside = true;
+    }
+    ts.forEachChild(node, scan);
+  };
+  scan(sf);
+  const rel = path.relative(root, file).split(path.sep).join("/");
+  if (exported || usedOutside) {
+    report.manual.push({
+      step: "scaffold",
+      subject: rel,
+      message: `the QueryClient "${name}" is created once at module scope and shared by every request on the server: create it inside getRouter, one per request (reference/caching-and-privacy.md)`,
+    });
+    return;
+  }
+  const statement = text.slice(decl.getStart(sf), decl.end);
+  const bodyStart = getRouter.body.getStart(sf) + 1;
+  const indented = statement
+    .split("\n")
+    .map((l) => (l ? `  ${l}` : l))
+    .join("\n");
+  const comment =
+    "  // One QueryClient per router: the server creates a router per request, so a visitor's data never\n  // reaches another visitor's render. The browser creates one router, so it keeps one client.\n";
+  const start = decl.getStart(sf);
+  let end = decl.end;
+  while (text[end] === "\n" && text[end + 1] === "\n") end++;
+  if (text[end] === "\n") end++;
+  const out = `${text.slice(0, start)}${text.slice(end, bodyStart)}\n${comment}${indented}${text.slice(bodyStart)}`;
+  fs.writeFileSync(file, out);
+  report.done.push({
+    step: "scaffold",
+    subject: rel,
+    message: `the QueryClient "${name}" is created in getRouter now, one per request on the server, instead of one shared by every visitor`,
+  });
+}
+
 /** Writes the page setup for the site's binding. */
 export function writeScaffold(root: string, report: Report): void {
   const framework = siteFramework(root);
@@ -450,6 +955,8 @@ export function writeScaffold(root: string, report: Report): void {
     matchPage: /export function matchPage\b/.test(map),
     random: /matchers\.random\(/.test(map),
     device,
+    pageSeo: /export interface PageSeo\b/.test(map),
+    siteSeo: siteSeo(root),
   };
 
   const written: string[] = [];
@@ -482,16 +989,20 @@ export function writeScaffold(root: string, report: Report): void {
 
   const src = (f: string) => path.join(root, "src", f);
   write(src("cms.ts"), cmsFile(w));
+  write(src("section-error-boundary.tsx"), SECTION_ERROR_BOUNDARY);
   if (framework === "tanstack") {
     write(src("open-page.server.ts"), openPageTanstack(w));
     write(src("page.functions.ts"), PAGE_FUNCTIONS);
     write(src("page-view.tsx"), pageViewTanstack(w));
     const routes = src("routes");
-    write(path.join(routes, "$.tsx"), routeTanstack("/$", ".."), true);
-    if (fs.existsSync(path.join(routes, "index.tsx"))) {
-      write(path.join(routes, "index.tsx"), routeTanstack("/", ".."), true);
-    }
+    const v7Options = (file: string, routePath: "/" | "/$") =>
+      v7RouteOptions(fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "", routePath);
+    const catchAll = path.join(routes, "$.tsx");
+    write(catchAll, routeTanstack("/$", "..", v7Options(catchAll, "/$")), true);
+    const home = path.join(routes, "index.tsx");
+    if (fs.existsSync(home)) write(home, routeTanstack("/", "..", v7Options(home, "/")), true);
     dropAdmin(routes);
+    scopeQueryClient(root, report);
   } else {
     write(src("open-page.server.ts"), openPageNext(w));
     const dir = appDir(root);
@@ -513,7 +1024,9 @@ export function writeScaffold(root: string, report: Report): void {
       step: "scaffold",
       subject: replaced.join(", "),
       message:
-        "v7's page routes, replaced by the v8 page route: carry over what the site added to them (a not-found component, route options such as ignored search params or pending times, globals rendered around the page) from git",
+        framework === "tanstack"
+          ? "v7's page routes, replaced by the v8 page route with the options they passed cmsRouteConfig (titles, ignored search params, pending times) and cmsRouteConfig's search params, cache times and head: carry over what the site added around them (a not-found or pending component, a head or loader of its own, a wrapper such as a <main> landmark around the sections) from git. v7's default error page (CmsPageErrorFallback) is TanStack's own error component now"
+          : "v7's catch-all page, replaced by the v8 page with v7's metadata and section wrapper: carry over what the site added to it (a not-found page, metadata of its own, a wrapper around the sections) from git",
     });
   }
   if (deleted.length > 0) {

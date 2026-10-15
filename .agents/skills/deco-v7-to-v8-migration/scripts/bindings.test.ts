@@ -446,11 +446,22 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(read("src/page.functions.ts")).toContain(
       ".handler(({ data }) => openPage(data.href, getRequest()));",
     );
-    expect(read("src/page-view.tsx")).toContain("<DeviceProvider value={page.device}>");
-    // v7's catch-all is replaced; its admin route is gone.
+    const view = read("src/page-view.tsx");
+    expect(view).toContain("<DeviceProvider value={page.device}>");
+    // v7's wrapper around each section, and its head.
+    expect(view).toContain("data-manifest-key={section.component}");
+    expect(view).toContain("<SectionErrorBoundary sectionKey={section.component}>");
+    expect(view).toContain('meta.push({ property: "og:title", content: title });');
+    expect(read("src/section-error-boundary.tsx")).toContain(
+      'return <div data-section-error={sectionKey} className="hidden" />;',
+    );
+    // v7's catch-all is replaced, keeping what it passed cmsRouteConfig; its admin route is gone.
     const route = read("src/routes/$.tsx");
-    expect(route).toContain("loadPage({ data: { href: location.pathname + location.searchStr } })");
-    expect(route).not.toContain("cmsRouteConfig");
+    expect(route).toContain("return loadPage({ data: { href: location.pathname + query } });");
+    expect(route).toContain('siteName: "x",');
+    expect(route).toContain('const IGNORED_SEARCH_PARAMS = new Set(["skuId"]);');
+    expect(route).toContain("head: ({ loaderData }) => pageHead(loaderData, SITE),");
+    expect(route).not.toContain("cmsRouteConfig(");
     expect(fs.existsSync(path.join(root, "src/routes/deco/invoke.$.ts"))).toBe(false);
   });
 

@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { writeAppClients } from "./apps";
 import { rewriteInvokes } from "./invoke";
 import { createReport } from "./report";
-import { writeScaffold } from "./scaffold";
+import { scopeQueryClient, v7RouteOptions, writeScaffold } from "./scaffold";
 import { rewriteLoaderContextIn, rewritePartialImports, writeStubs } from "./stubs";
 
 let root: string;
@@ -267,6 +267,114 @@ describe("writeScaffold", () => {
     expect(report.manual.find((n) => n.subject.includes("src/cms.ts"))?.message).toContain("kept");
   });
 
+  it("keeps what v7's routes passed cmsRouteConfig, and its search params, cache times and head", () => {
+    site({
+      "package.json": TANSTACK,
+      ".deco/index.ts": `${MAP}export interface PageSeo { title?: string }\n`,
+      "src/views.ts": "export const views = {};\n",
+      ".deco/blocks/site.json": {
+        __resolveType: "site/apps/site.ts",
+        seo: { title: "Shop", titleTemplate: "%s | Shop", noIndexing: false, jsonLDs: [] },
+      },
+      "src/routes/$.tsx": [
+        'import { cmsRouteConfig } from "@decocms/tanstack";',
+        "const routeConfig = cmsRouteConfig({",
+        '  siteName: "Shop",',
+        '  defaultTitle: "Shop | Home",',
+        '  ignoreSearchParams: ["skuId", "color"],',
+        "  pendingMs: 60_000,",
+        "  pendingMinMs: 0,",
+        "});",
+        "",
+      ].join("\n"),
+      "src/routes/index.tsx": [
+        'import { cmsHomeRouteConfig } from "@decocms/tanstack";',
+        'const baseConfig = cmsHomeRouteConfig({ defaultTitle: "Shop" });',
+        "",
+      ].join("\n"),
+    });
+    writeScaffold(root, createReport());
+    const route = read("src/routes/$.tsx");
+    expect(route).toContain('  siteName: "Shop",\n  defaultTitle: "Shop | Home",');
+    expect(route).toContain('new Set(["skuId","color"])');
+    expect(route).toContain("  pendingMs: 60_000,\n  pendingMinMs: 0,");
+    expect(route).toContain("gcTime: DEV ? 30_000 : 300_000,");
+    // v7's home route took no query unless the site added loaderDeps; its siteName defaulted to the title.
+    const home = read("src/routes/index.tsx");
+    expect(home).toContain(
+      "loader: ({ location }) => loadPage({ data: { href: location.pathname } }),",
+    );
+    expect(home).not.toContain("loaderDeps");
+    expect(home).toContain('  siteName: "Shop",\n  defaultTitle: "Shop",');
+    expect(home).toContain("  pendingMs: 200,\n  pendingMinMs: 300,");
+    expect(home).toContain("gcTime: DEV ? 30_000 : 1_800_000,");
+    expect(read("src/page-view.tsx")).toContain(
+      'import type { BlockDescriptor, PageSeo } from "../.deco";',
+    );
+    // v7 applied the saved site block's SEO to every page: defaults, then the page's template or the site's.
+    const open = read("src/open-page.server.ts");
+    expect(open).toContain(
+      'const SITE_SEO: PageSeo = {\n  title: "Shop",\n  titleTemplate: "%s | Shop",\n};',
+    );
+    expect(open).toContain("template(props.titleTemplate) ?? template(SITE_SEO.titleTemplate)");
+    expect(open).toContain('out.title = titleTemplate.replace("%s", out.title)');
+  });
+
+  it("reads a home route's loaderDeps as v7's query support", () => {
+    expect(
+      v7RouteOptions("cmsHomeRouteConfig({}); const r = { loaderDeps: () => ({}) };", "/").search,
+    ).toBe(true);
+    expect(v7RouteOptions("cmsRouteConfig({ siteName: `S`, pendingMs: x })", "/$")).toEqual({
+      search: true,
+      siteName: "S",
+    });
+  });
+
+  it("moves a module-scope QueryClient into getRouter, and reports one used elsewhere", () => {
+    site({
+      "package.json": TANSTACK,
+      "src/router.tsx": [
+        'import { QueryClient } from "@tanstack/react-query";',
+        "",
+        "const queryClient = new QueryClient({",
+        "  defaultOptions: { queries: { staleTime: 60_000 } },",
+        "});",
+        "",
+        "export function getRouter() {",
+        "  return createRouter({ context: { queryClient } });",
+        "}",
+        "",
+      ].join("\n"),
+    });
+    const report = createReport();
+    scopeQueryClient(root, report);
+    expect(read("src/router.tsx")).toBe(
+      [
+        'import { QueryClient } from "@tanstack/react-query";',
+        "",
+        "export function getRouter() {",
+        "  // One QueryClient per router: the server creates a router per request, so a visitor's data never",
+        "  // reaches another visitor's render. The browser creates one router, so it keeps one client.",
+        "  const queryClient = new QueryClient({",
+        "    defaultOptions: { queries: { staleTime: 60_000 } },",
+        "  });",
+        "  return createRouter({ context: { queryClient } });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    expect(report.done[0]?.message).toContain("one per request");
+
+    fs.writeFileSync(
+      path.join(root, "src/router.tsx"),
+      "export const queryClient = new QueryClient();\nexport function getRouter() { return queryClient; }\n",
+    );
+    const second = createReport();
+    scopeQueryClient(root, second);
+    expect(read("src/router.tsx")).toContain("export const queryClient = new QueryClient();");
+    expect(second.manual[0]?.message).toContain("shared by every request");
+  });
+
   it("finds a Next.js catch-all in a route group and keeps its parameter", () => {
     site({
       "package.json": NEXT,
@@ -279,5 +387,11 @@ describe("writeScaffold", () => {
     expect(page).toContain("params: Promise<{ path?: string[] }>;");
     expect(page).toContain('import { cms } from "../../../src/cms";');
     expect(exists("src/app")).toBe(false);
+    // v7's metadata and section wrapper; the boundary is a client component.
+    expect(page).toContain("alternates: seo.canonical ? { canonical: seo.canonical } : undefined,");
+    expect(page).toContain(
+      'import { SectionErrorBoundary } from "../../../src/section-error-boundary";',
+    );
+    expect(read("src/section-error-boundary.tsx").startsWith('"use client";')).toBe(true);
   });
 });
