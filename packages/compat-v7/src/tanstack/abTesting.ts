@@ -374,9 +374,13 @@ export function abTestingRoutes<Env = unknown>(
     shouldBypassAB,
     preHandler,
   } = options;
-  const innerToken = crypto.randomUUID();
+  // Drawn on the first request, not here: a site builds its routes at module
+  // scope, where Workers refuse random values ("Disallowed operation called
+  // within global scope") and the worker fails to start.
+  let innerToken: string | undefined;
 
   return async (request, env, ctx) => {
+    innerToken ??= crypto.randomUUID();
     // The handler's own call back into the worker: let the worker serve it.
     if (request.headers.get(INNER_HEADER) === innerToken) return null;
 
