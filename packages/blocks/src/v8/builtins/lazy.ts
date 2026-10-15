@@ -1,6 +1,6 @@
 import type { Lazy } from "../types.ts";
 
-/** Marks the built-in `lazy` function, the resolver's one special case. */
+/** Marks the built-in `lazy` function, one of the resolver's two special cases. */
 const LAZY_BLOCK: unique symbol = Symbol.for("decocms.blocks.v8.lazy");
 
 /**
