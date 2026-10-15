@@ -24,10 +24,10 @@
  * `DecofileProvider` pattern from the deco-cx/deco Fresh runtime.
  */
 
-import { DEPLOYMENT_ID_ENV, getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
-import { KVBlockSource } from "../cms/kvBlockSource";
 import type { KVNamespace } from "@decocms/blocks/cms";
+import { DEPLOYMENT_ID_ENV, getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
 import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
+import { KVBlockSource } from "../cms/kvBlockSource";
 
 /** How often (ms) an isolate re-probes its `index:revision:<id>`. */
 export const POLL_INTERVAL_MS = 10_000;
@@ -185,7 +185,7 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
       // blocks; `{}` means the seed wrote nothing.
       const empty = !snapshot || Object.keys(snapshot.blocks).length === 0;
       if (!empty) {
-        setBlocks(snapshot!.blocks);
+        setBlocks(snapshot!.blocks, snapshot!.revision);
         setSpanAttribute("deco.block.source", "kv");
       } else if (!bundleHasNoDecofile()) {
         setSpanAttribute("deco.block.source", "bundled");
@@ -248,7 +248,7 @@ async function pollRevisionOnce(kv: KVNamespace, deploymentId: string): Promise<
 
     const snapshot = await source.loadSnapshot();
     if (snapshot) {
-      setBlocks(snapshot.blocks);
+      setBlocks(snapshot.blocks, snapshot.revision);
       console.info(`[CMS/KV] decofile refreshed → revision ${snapshot.revision}`);
     }
   } catch (e) {
