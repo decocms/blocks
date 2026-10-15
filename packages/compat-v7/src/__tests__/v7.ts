@@ -56,6 +56,7 @@ export const V7_FILES: Record<string, string> = {
   "matchers/builtins.ts": "72e7122c4bc5fb231efe50157906e6ee8fc9b6499488e796876a71b38f7f49fc",
   "matchers/countryNames.ts": "8a9642d2f826fa2776cbf5f8c891feecd0baaeb1edda38de7f3c49790c5fdadb",
   "matchers/override.ts": "0410e149e7bf91bc9babbb5009adafedc0a8c1edbbb3dfd7adaf2cea338d032e",
+  "sdk/abTesting.ts": "fe96e05ba52a14ba79716f75320c5cba6c8d3af2643466d52ec2acfdf40875d7",
   "sdk/clx.ts": "19e5421ac3cca8af19da6c31886fa8f2a8cc2d3e0eb16d397503efca14b0601d",
   "sdk/detectDevice.ts": "d0f46159f4d8afef284aed6046ce9f5513544c94caa78ae6cfd151ca73c22632",
   "sdk/djb2.ts": "61c74290f19bf130949e576e654bb670903f2db470ef53c53e507f4a680a0916",

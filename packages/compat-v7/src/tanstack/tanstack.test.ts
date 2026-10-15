@@ -14,6 +14,8 @@
  * TanStack Start's `getRequest()`, `getResponseHeaders()` and `setResponseHeader()` are replaced by the request
  * and response each case serves.
  */
+
+import { createCMS } from "@decocms/blocks";
 import { createElement, type FunctionComponent, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,14 +25,16 @@ import {
   OTHER_COOKIES,
   ourDecisions,
   randomPage,
+  seededMath,
   segmentValue,
   v7CacheToken,
   v7DetectDevice,
   v7Device,
+  v7Multivariate,
   v7Page,
   v7Runtime,
 } from "../__tests__/v7Page";
-import { SEGMENT_COOKIE } from "../matchers/index.ts";
+import { type RandomProps, random, SEGMENT_COOKIE } from "../matchers/index.ts";
 import { DeviceProvider, useDevice } from "./index.ts";
 import { cohortSegment, commitSegmentCookie, matcherContext, requestDevice } from "./server.ts";
 
@@ -141,6 +145,58 @@ describe("the sticky random's cookie on the page response (latest 7.x)", () => {
     expect(commitSegmentCookie()).toBeNull();
     expect(served.response.headers.getSetCookie()).toEqual(["a=1"]);
   });
+});
+
+describe("the sticky random inside a multivariate (first match, as v7)", () => {
+  it(
+    "@decocms/blocks' multivariate with the compat random: same winner and cookie as v7 over 2,000 seeded pages",
+    FUZZ,
+    async () => {
+      const r = rng(0xf125);
+      const pageUrl = "https://loja.example/promo";
+      let later = 0;
+      for (let i = 0; i < 2_000; i++) {
+        const page = randomPage(r);
+        const request = new Request(pageUrl, {
+          headers: r() < 0.6 ? { cookie: `${SEGMENT_COOKIE}=${segmentValue(r)}` } : {},
+        });
+        const seed = Math.floor(r() * 2 ** 31);
+        const expected = v7Multivariate(page, request, pageUrl, [], seed);
+
+        // The site: the migrator's block map and content (saved randoms carry their name as `cohort`).
+        serve(request);
+        const blocks: Record<string, unknown> = {};
+        for (const [name, saved] of Object.entries(page.blocks)) {
+          blocks[name] = { ...saved, cohort: name };
+        }
+        const cms = createCMS({
+          blocks: {
+            "website/matchers/random.ts": (props: RandomProps) => random(props, matcherContext()),
+          },
+          content: { revision: `mv-${i}`, blocks },
+        });
+        const spy = seededMath(seed);
+        let value: unknown;
+        try {
+          [value] = await cms.forRelease().resolve({
+            __resolveType: "multivariate",
+            variants: page.rules.map((rule, n) => ({
+              rule,
+              value: { __resolveType: "lazy", value: n },
+            })),
+          });
+        } finally {
+          spy.mockRestore();
+        }
+        commitSegmentCookie();
+        expect([i, value ?? -1]).toEqual([i, expected.winner]);
+        expect([i, served.response.headers.getSetCookie()]).toEqual([i, expected.setCookies]);
+        if (expected.winner >= 0 && expected.winner < page.rules.length - 1) later++;
+      }
+      // Pages where rules after the winner were never drawn.
+      expect(later).toBeGreaterThan(300);
+    },
+  );
 });
 
 describe("cohortSegment is v7's worker cache split", () => {

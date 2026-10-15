@@ -2,7 +2,7 @@
   "name": "@decocms/compat-v7",
   "version": "0.0.0",
   "type": "module",
-  "description": "v7's pure helpers (types, device detection, inline scripts, clx, matchers, the section loader runner, apps-commerce's types and helpers) on @decocms/blocks 8, with v7's output and no v7 runtime; v7's device context and sticky A/B cookie for @decocms/tanstack and @decocms/nextjs",
+  "description": "v7's pure helpers (types, device detection, inline scripts, clx, matchers, the section loader runner, apps-commerce's types and helpers) on @decocms/blocks 8, with v7's output and no v7 runtime; v7's device context and sticky A/B cookie for @decocms/tanstack and @decocms/nextjs, and v7's legacy-origin A/B split for createDecoWorker",
   "repository": {
     "type": "git",
     "url": "https://github.com/decocms/blocks.git",
@@ -132,6 +132,11 @@
       "types": "./dist/tanstack/server.d.ts",
       "source": "./src/tanstack/server.ts",
       "default": "./dist/tanstack/server.js"
+    },
+    "./tanstack/worker": {
+      "types": "./dist/tanstack/abTesting.d.ts",
+      "source": "./src/tanstack/abTesting.ts",
+      "default": "./dist/tanstack/abTesting.js"
     },
     "./nextjs": {
       "types": "./dist/nextjs/index.d.ts",
