@@ -75,7 +75,7 @@ import {
   instrumentWorker,
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
-import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
+import { getRuntimeEnv, setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import {
   getRedirectSemantics,
@@ -91,7 +91,7 @@ import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
 import { cleanPathForCacheKey, hasTrackingParams } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
-import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
+import { getRenderShellConfig, setMetaAssetFetcher } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
@@ -1200,6 +1200,18 @@ export function createDecoWorkerEntry(
     ctx: WorkerExecutionContext,
   ): Promise<Response>;
 } {
+  // `/live/_meta` reads the admin schema from the `ASSETS` binding when the
+  // build published it as a static asset (`decoVitePlugin({ metaAsset: true })`).
+  // Registered here so no site has to remember a setup call; inert for builds
+  // that keep the schema in the bundle, since they never ask for the asset.
+  setMetaAssetFetcher((assetPath) => {
+    const assets = getRuntimeEnv()?.ASSETS as
+      | { fetch(req: Request): Promise<Response> }
+      | undefined;
+    // Only the path matters to the binding; the host is a placeholder.
+    return assets ? assets.fetch(new Request(new URL(assetPath, "https://assets.invalid"))) : null;
+  });
+
   const {
     admin,
     detectProfile: customDetect,

@@ -15,7 +15,7 @@ export {
   setInvokeActions,
   setInvokeLoaders,
 } from "./invoke";
-export { setMetaData } from "./meta";
+export { setMetaAssetFetcher, setMetaData } from "./meta";
 export {
   type ActionConfig,
   type LoaderConfig,
