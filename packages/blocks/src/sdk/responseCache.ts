@@ -43,7 +43,7 @@ function decodeFrame(frame: Uint8Array<ArrayBuffer>): Response | undefined {
     new TextDecoder().decode(frame.subarray(4, 4 + headLength)),
   ) as StoredHead;
   if (!Number.isFinite(head.expiresAt) || Date.now() >= head.expiresAt) return undefined;
-  // subarray is a view: the body is handed to Response without another copy.
+  // subarray avoids slicing; Response still copies it once (Fetch spec), so a hit costs one body copy.
   const body = frame.subarray(4 + headLength);
   return new Response(NULL_BODY.includes(head.status) ? null : body, {
     status: head.status,
