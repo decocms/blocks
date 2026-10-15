@@ -507,6 +507,14 @@ describe("abTestingRoutes in createDecoWorker", () => {
     expect(rendered).toEqual([]);
   });
 
+  it("the fallback bucket's page carries none of the new site's preload hints, as in v7", async () => {
+    const { get } = setup({}, config);
+    const res = await get("/p", { cookie: "_deco_bucket=fallback:50" });
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("x-deco-bucket")).toBe("fallback");
+    expect(res.headers.has("link")).toBe(false);
+  });
+
   it("the site's other routes still answer in the worker bucket; bypassed and unconfigured requests go untagged", async () => {
     const bypass = setup({ shouldBypassAB: (_r, url) => url.pathname === "/checkout" }, config);
     const routed = await bypass.get("/site-route", { cookie: "_deco_bucket=worker:50" });

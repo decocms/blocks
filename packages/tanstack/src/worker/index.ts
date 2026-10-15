@@ -98,7 +98,11 @@ export interface DecoWorkerOptions<Env = unknown> {
   safeCookies?: readonly string[];
   /** Turns on `POST /_cache/purge` with `Authorization: Bearer <token>`. */
   purgeToken?: (env: Env) => string | undefined;
-  /** `Link: rel=preload` hints on every HTML response. */
+  /**
+   * `Link: rel=preload` hints on every HTML response the app renders. A
+   * `routes` response carries none: it is another origin's page (a proxied
+   * checkout, an A/B test's other site), and these are this app's assets.
+   */
   preload?: { styles?: readonly string[]; fonts?: readonly string[] };
   /**
    * v7's `DECO_ALLOWED_PREVIEW_HOSTS`: replaces the site's declared preview
@@ -112,6 +116,8 @@ export interface DecoWorkerOptions<Env = unknown> {
    * The escape hatch, after the CMS redirects and before anything else: answer
    * a request yourself (a commerce proxy, a sitemap, an A/B route) or return
    * `null` to let the worker serve it. The request carries the checked draft.
+   * Its response leaves like any other (security headers, `CDN-Cache-Control`)
+   * but without the `preload` hints.
    */
   routes?: (
     request: Request,
@@ -337,6 +343,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   interface Served {
     response: Response;
     profile?: CacheProfileName;
+    /** Answered by the site's `routes`: not this app's page, so no `preload` hints. */
+    routed?: true;
   }
 
   async function handle(
@@ -387,7 +395,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
 
     if (options.routes) {
       const routed = await options.routes(request, env, ctx);
-      if (routed) return { response: routed };
+      if (routed) return { response: routed, routed: true };
     }
 
     if (asset) {
@@ -616,7 +624,9 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
         for (const [k, v] of Object.entries(securityHeaders)) {
           if (!response.headers.has(k)) response.headers.set(k, v);
         }
-        for (const link of preloadLinks) response.headers.append("Link", link);
+        if (!served.routed) {
+          for (const link of preloadLinks) response.headers.append("Link", link);
+        }
       }
 
       if (served.profile && options.onCache) {

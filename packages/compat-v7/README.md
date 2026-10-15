@@ -175,7 +175,7 @@ export default worker;
 
 - Same KV entry (`{ workerName, fallbackOrigin, abTest: { ratio } }` under the request's hostname), the same buckets (`?_deco_bucket=` override, then a `_deco_bucket=<bucket>:<ratio %>` cookie set under the current ratio, then the client IP's hash), the same cookie and `x-deco-bucket` header, circuit breaker, `shouldBypassAB`, `preHandler` and fallback proxy (hostname written back in `Set-Cookie`, `Location` and 2xx text bodies, streamed). Tests run v7's file next to it.
 - v7 wrapped the whole worker. The handler runs where the worker runs its `routes`: after the CMS redirects, `/deco/_liveness` and the cache purge. For the "worker" bucket it calls the worker back (`worker`), so the page gets the bucket cookie and a worker error falls back to the legacy origin, as in v7; that inner call skips the handler and goes on to the site's other routes and the edge cache, which already lets `_deco_bucket` through on a cached page.
-- A response from the legacy origin leaves through the worker like any `routes` response: `CDN-Cache-Control: no-store` when it sets none, the site's security headers when it sets none, and the worker's `preload` hints on HTML.
+- A response from the legacy origin leaves through the worker like any `routes` response: `CDN-Cache-Control: no-store` when it sets none, the site's security headers when it sets none, and none of the worker's `preload` hints (they name the new site's assets; v7 sent none there). The "worker" bucket's page carries them once, from the inner call that rendered it.
 
 ## Next.js (`@decocms/nextjs`)
 
