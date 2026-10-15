@@ -402,9 +402,12 @@ describe("imports", () => {
         "",
       ].join("\n"),
     );
-    // Only what's left is reported; the v8 imports are not.
+    // Only what's left is reported; the v8 imports are not. The image URLs are written
+    // (src/imageUrl.ts, the latest 7.x's with no version known), but no createDecoRouter call
+    // here takes them.
     expect(report.manual.map((n) => n.subject)).toEqual([
-      "Image, Picture, Source",
+      "src/imageUrl.ts",
+      "ImageUrlProvider",
       "@decocms/blocks/hooks {LiveControls}",
       "@decocms/tanstack {DecoRootLayout}",
     ]);
@@ -413,6 +416,7 @@ describe("imports", () => {
       "@decocms/tanstack/react",
       "@decocms/tanstack/router",
       "@decocms/tanstack/start",
+      "src/imageUrl.ts",
     ]);
   });
 

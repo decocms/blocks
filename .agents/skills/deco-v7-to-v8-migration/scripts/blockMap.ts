@@ -21,7 +21,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "@decocms/blocks/cli";
+import { type Framework, siteBlocksVersion, siteFramework } from "./framework";
+import { matcherEntry, V7_MATCHER_HINT, v7Matcher } from "./matchers";
 import type { Report } from "./report";
+import type { SectionLoaderWiring } from "./sectionLoaders";
 import { firstFile, locateAppModule, vendorModule } from "./vendor";
 import { forEachBlock, readContent } from "./walk";
 
@@ -35,6 +38,8 @@ interface Entry {
   legacy: string[];
   short: string;
   ident: string;
+  /** A section's descriptor `component`: its v7 type name, `site/sections/….tsx`. */
+  component: string;
 }
 
 const ANALYTICS_SECTION = /^website\/sections\/Analytics\//;
@@ -57,10 +62,7 @@ const HINTS: [RegExp, string][] = [
     ANALYTICS_SECTION,
     "v7's Analytics section: move its tag IDs into your template's tag-manager block (/next/renames-and-migrations#telemetry-and-analytics)",
   ],
-  [
-    /\/matchers\//,
-    "a v7 matcher with no built-in: register a matcher block under this name (/next/matchers-and-variants#matchers)",
-  ],
+  [/\/matchers\//, V7_MATCHER_HINT],
   [
     /^website\/functions\/requestToParam/,
     "reads the request; take route params from matchRoute's `params` instead (/next/api-reference#matchroute-url-items)",
@@ -126,8 +128,16 @@ interface BlockMapResult {
   vendored: Map<string, string>;
 }
 
-/** Write `.deco/index.ts` from the site's content and sources. Keeps an existing block map. */
-export function writeBlockMap(root: string, report: Report): BlockMapResult {
+/**
+ * Write `.deco/index.ts` from the site's content and sources, and the view
+ * registry `src/views.ts`. Keeps an existing block map. `wiring` says where
+ * the site's v7 section loaders are exported now (./sectionLoaders.ts).
+ */
+export function writeBlockMap(
+  root: string,
+  report: Report,
+  wiring: SectionLoaderWiring = {},
+): BlockMapResult {
   const existing = ["index.ts", "index.tsx"].find((f) =>
     fs.existsSync(path.join(root, ".deco", f)),
   );
@@ -169,7 +179,10 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
     if (!types.has(type) && !types.has(type.replace(/\.tsx$/, ""))) types.add(type);
   }
 
+  const framework = siteFramework(root);
   const byFile = new Map<string, Entry>();
+  /** v7 matchers registered from @decocms/compat-v7/matchers: v7 name → the matcher. */
+  const matchers = new Map<string, string>();
   const vendored = new Map<string, string>();
   const leave = (type: string, hint: string) => {
     const ids = [...(tagIds.get(type) ?? [])];
@@ -222,6 +235,11 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
         message: `copied to ${posix(path.relative(root, file))}${count > 1 ? ` with ${count - 1} more files` : ""}; rewrite it over the platform's upstream client (/next/upstream-clients)`,
       });
     } else {
+      const matcher = v7Matcher(type);
+      if (matcher && matcher !== "environment" && framework) {
+        matchers.set(type, matcher);
+        continue;
+      }
       leave(type, hintFor(type));
       continue;
     }
@@ -236,11 +254,14 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
       entry.legacy.push(type);
       continue;
     }
-    byFile.set(file, { file, kind, legacy: [type], short: "", ident: "" });
-    if (kind === "section" && HAS_LOADER.test(source)) {
+    const component = `site/${posix(path.relative(path.join(root, "src"), file))}`;
+    byFile.set(file, { file, kind, legacy: [type], short: "", ident: "", component });
+    if (kind === "section" && HAS_LOADER.test(source) && !wiring.loaders?.keys?.has(component)) {
       leave(
         type,
-        "the section has a loader: its saved props are the loader's input (as in v7), but nothing runs the loader; move that code into the block function or a server function",
+        wiring.loaders?.keys === null
+          ? "the section has a loader: v7 ran it only when registerSectionLoaders listed it, and the script couldn't read that list's names; check that sectionLoaders lists it as v7's did"
+          : "the section has a loader, which v7 never ran: registerSectionLoaders didn't list it, so v7 rendered its saved props (the loader's input), and so does v8. Keep it that way, or list it in sectionLoaders to run it",
       );
     }
     if (group === "actions") {
@@ -254,7 +275,23 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
   // Short names: the file's name, then its path, then a number; never a
   // built-in, a saved block's name or a v7 name.
   const taken = new Set<string>([...builtIn, ...Object.keys(blocks), ...types]);
-  const idents = new Set<string>(["section", "PropsOf"]);
+  const idents = new Set<string>([
+    "section",
+    "PropsOf",
+    "matchers",
+    "matcherContext",
+    "matcherInput",
+    "matchPage",
+    "pageUrls",
+    "getRequest",
+    "runSectionLoaders",
+    "loadSections",
+    "sectionLoaders",
+    "nonCriticalSections",
+    "views",
+    "SectionView",
+    "ComponentType",
+  ]);
   const entries = [...byFile.values()];
   for (const entry of entries) {
     const type = entry.legacy[0];
@@ -275,40 +312,131 @@ export function writeBlockMap(root: string, report: Report): BlockMapResult {
     entry.ident = ident;
   }
 
-  fs.writeFileSync(path.join(root, ".deco", "index.ts"), renderBlockMap(root, entries));
+  const version = siteBlocksVersion(root);
+  fs.writeFileSync(
+    path.join(root, ".deco", "index.ts"),
+    renderBlockMap(root, entries, { framework, matchers, wiring, version }),
+  );
   const aliases = entries.reduce((n, e) => n + e.legacy.length, 0);
   report.done.push({
     step: "block map",
     subject: ".deco/index.ts",
-    message: `${entries.length} blocks, with ${aliases} aliases under their v7 names`,
+    message: `${entries.length} blocks, with ${aliases} aliases under their v7 names${matchers.size > 0 ? `, and v7's ${[...new Set(matchers.values())].sort().join(", ")} matchers from @decocms/compat-v7/matchers` : ""}`,
   });
-  if (entries.some((e) => e.kind === "section")) {
+  const sections = entries.filter((e) => e.kind === "section");
+  if (sections.length > 0) writeViews(root, sections, report);
+  if (wiring.loaders) {
     report.manual.push({
       step: "block map",
-      subject: ".deco/index.ts",
-      message:
-        "sections return descriptors ({ component, props }): add a view registry that maps each component name to its section (/next/rendering)",
+      subject: "loadSections (.deco/index.ts)",
+      message: `run v7's section loaders as v7 did: after the page resolved, call loadSections(sections, request, pageUrl) on every section of the page, the site's globals included, and render what it returns${framework === "tanstack" ? "; in the page's server function, pass the page's URL (the request is the server-function call on a client-side navigation)" : framework === "nextjs" ? "; on Next.js build the request from next/headers at the page's URL" : ""}. When degraded isn't empty, send X-Deco-Degraded: 1 and don't cache the page, as v7 did`,
     });
   }
+  if (matchers.size > 0) reportMatchers(framework!, new Set(matchers.values()), report);
   return { vendored };
 }
 
-function renderBlockMap(root: string, entries: Entry[]): string {
+/** What the site wires around v7's matchers, by binding. */
+function reportMatchers(framework: Framework, used: Set<string>, report: Report): void {
+  const random = used.has("random");
+  const message =
+    framework === "tanstack"
+      ? `call matchPage(href) from .deco/index.ts in the page's server function before resolving the page${random ? ", then commitSegmentCookie() from @decocms/compat-v7/tanstack/server once its blocks resolved (await them: the cookie is a response header), and give createDecoWorker segment: (request) => ({ ...cohortSegment(request) }), so the sticky A/B groups (latest 7.x) keep their cookie and their own cached page" : ""}`
+      : `forward the page's URL in proxy.ts with pageUrlRequestHeaders from @decocms/compat-v7/nextjs/proxy, so the matchers read the page${random ? ", and render <SegmentCookie /> from @decocms/compat-v7/nextjs/server as the page's last child, so the sticky A/B groups (latest 7.x) keep their cookie" : ""}`;
+  report.manual.push({ step: "block map", subject: "v7 matchers (.deco/index.ts)", message });
+}
+
+/** `src/views.ts`: each section descriptor's component → the module that renders it. */
+function writeViews(root: string, sections: Entry[], report: Report): void {
+  const existing = ["views.ts", "views.tsx"].find((f) => fs.existsSync(path.join(root, "src", f)));
+  if (existing) {
+    report.manual.push({
+      step: "block map",
+      subject: `src/${existing}`,
+      message:
+        "already exists, so it was kept: it must map each section's v7 type name (the descriptor's component) to its module",
+    });
+    return;
+  }
+  const from = (file: string) => {
+    const rel = posix(path.relative(path.join(root, "src"), file)).replace(/\.tsx?$/, "");
+    return rel.startsWith(".") ? rel : `./${rel}`;
+  };
+  const sorted = [...sections].sort((a, b) => (a.component < b.component ? -1 : 1));
+  const lines = [
+    "/**",
+    " * The view registry (/next/rendering): the section each descriptor's `component` names, by its",
+    " * v7 type name. Generated by the deco-v7-to-v8-migration skill with .deco/index.ts. It's your code now.",
+    " */",
+    'import type { ComponentType } from "react";',
+    ...sorted.map((e) => `import * as ${e.ident} from "${from(e.file)}";`),
+    "",
+    "export interface SectionView {",
+    "  default: ComponentType<any>;",
+    "}",
+    "",
+    "export const views: Record<string, SectionView> = {",
+    ...sorted.map((e) => `  ${JSON.stringify(e.component)}: ${e.ident},`),
+    "};",
+    "",
+  ];
+  fs.writeFileSync(path.join(root, "src", "views.ts"), lines.join("\n"));
+  report.done.push({
+    step: "block map",
+    subject: "src/views.ts",
+    message: `the view registry: ${sections.length} sections by their v7 type names; render each descriptor with views[component].default and its props (/next/rendering)`,
+  });
+}
+
+interface RenderOptions {
+  framework: Framework | undefined;
+  /** v7 name → matcher, from @decocms/compat-v7/matchers. */
+  matchers: Map<string, string>;
+  wiring: SectionLoaderWiring;
+  /** The site's 7.x version: the nested-section walk of its section loaders. */
+  version: string | undefined;
+}
+
+/** v7 walked nested sections for their loaders at any depth from 7.77.13, only directly before. */
+function nestedWalk(version: string | undefined): "deep" | "direct" {
+  const [major, minor, patch] = (version ?? "").split(".").map(Number);
+  if (major !== 7 || Number.isNaN(minor)) return "deep";
+  return minor > 77 || (minor === 77 && patch >= 13) ? "deep" : "direct";
+}
+
+function renderBlockMap(root: string, entries: Entry[], options: RenderOptions): string {
+  const { framework, matchers, wiring, version } = options;
   const lines = [
     "// Generated by the deco-v7-to-v8-migration skill from a v7 site. It's your code now: edit it freely.",
     "// Each block has a short name plus an alias under every v7 name saved content stores",
     "// (see /next/renames-and-migrations).",
     'import type { Blocks, Route, Seo } from "@decocms/blocks";',
   ];
+  if (matchers.size > 0) {
+    if (framework === "tanstack")
+      lines.push('import { getRequest } from "@tanstack/react-start/server";');
+    lines.push('import * as matchers from "@decocms/compat-v7/matchers";');
+    lines.push(`import { matcherContext } from "@decocms/compat-v7/${framework}/server";`);
+  }
+  const fileSpecifier = (file: string) => importPath(root, file).replace(/\/index$/, "");
+  if (wiring.loaders) {
+    lines.push('import { runSectionLoaders } from "@decocms/compat-v7/sections";');
+    lines.push(`import { sectionLoaders } from "${fileSpecifier(wiring.loaders.file)}";`);
+    if (wiring.nonCritical) {
+      lines.push(
+        `import { nonCriticalSections } from "${fileSpecifier(wiring.nonCritical.file)}";`,
+      );
+    }
+  }
   for (const e of entries.filter((e) => e.kind === "function")) {
     lines.push(`import ${e.ident} from "${importPath(root, e.file)}";`);
   }
   lines.push(
     "",
-    "/** What a section block returns: the component to render and its props (/next/rendering). */",
+    "/** What a section block returns: the component to render (its v7 type name) and its props (/next/rendering). */",
     "export interface BlockDescriptor {",
     "  component: string;",
-    "  props: unknown;",
+    "  props: Record<string, unknown>;",
     "}",
     "",
     "/** A page with its blocks resolved. */",
@@ -326,18 +454,73 @@ function renderBlockMap(root: string, entries: Entry[]): string {
     "",
     "const section =",
     "  <M>(component: string) =>",
-    "  (props: PropsOf<M>): BlockDescriptor => ({ component, props });",
+    "  (props: PropsOf<M>): BlockDescriptor => ({ component, props: props as Record<string, unknown> });",
     "",
   );
   for (const e of entries.filter((e) => e.kind === "section")) {
     lines.push(
-      `const ${e.ident} = section<typeof import("${importPath(root, e.file)}")>(${JSON.stringify(e.short)});`,
+      `const ${e.ident} = section<typeof import("${importPath(root, e.file)}")>(${JSON.stringify(e.component)});`,
+    );
+  }
+  if (wiring.loaders) {
+    const nested = nestedWalk(version);
+    lines.push(
+      "",
+      "/**",
+      " * v7's section loaders (its registerSectionLoaders map) over a page's sections, as v7 ran them after the",
+      " * page resolved: run it once per page, on every section, globals included. `url` is the page's when the",
+      " * request isn't for the page (a server-function call on a client-side navigation).",
+      nested === "direct"
+        ? ` * Nested sections run theirs only directly in a prop, as v7 ${version} did (7.77.13 walks any depth).`
+        : " * Nested sections run theirs wherever they sit, as the latest 7.x does.",
+      " */",
+      "export function loadSections<S extends BlockDescriptor>(",
+      "  sections: readonly S[],",
+      "  request: Request,",
+      "  url?: string | URL,",
+      ") {",
+      "  return runSectionLoaders(sections, {",
+      "    loaders: sectionLoaders,",
+      "    request,",
+      "    url,",
+      ...(wiring.nonCritical ? ["    nonCritical: nonCriticalSections,"] : []),
+      ...(nested === "direct" ? ['    nested: "direct",'] : []),
+      "  });",
+      "}",
+    );
+  }
+  if (matchers.size > 0 && framework === "tanstack") {
+    lines.push(
+      "",
+      "/** The page each request opens, for v7's matchers (see matchPage). */",
+      "const pageUrls = new WeakMap<Request, string>();",
+      "",
+      "/**",
+      " * Tells v7's matchers which page this request opens: call it in the page's server function before",
+      " * resolving the page. On a client-side navigation the request is the server-function call, and v7",
+      " * matched the page being opened.",
+      " */",
+      "export function matchPage(url: string | URL, request: Request = getRequest()): void {",
+      "  pageUrls.set(request, new URL(String(url), request.url).href);",
+      "}",
+      "",
+      "/** What v7's matchers read: the page's URL, the request's headers and its A/B decisions. */",
+      "const matcherInput = () => {",
+      "  const request = getRequest();",
+      "  return matcherContext(pageUrls.get(request), request);",
+      "};",
     );
   }
   lines.push("", "export default {", "  page: (input: ResolvedPage) => input,");
   for (const e of entries) {
     lines.push(`  ${JSON.stringify(e.short)}: ${e.ident},`);
     for (const legacy of e.legacy) lines.push(`  ${JSON.stringify(legacy)}: ${e.ident},`);
+  }
+  if (matchers.size > 0) {
+    lines.push("  // v7's matchers, with v7's results (@decocms/compat-v7/matchers)");
+    for (const [type, matcher] of [...matchers].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      lines.push(`  ${JSON.stringify(type)}: ${matcherEntry(matcher, framework!)},`);
+    }
   }
   lines.push("} satisfies Blocks;", "");
   return lines.join("\n");

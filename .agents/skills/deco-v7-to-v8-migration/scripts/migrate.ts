@@ -8,9 +8,13 @@
  *    on a random matcher get its name as `experiment`;
  *    then site settings folded into the `CMS` block (`.deco/blocks/CMS.json`);
  * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
- * 3. block map: `.deco/index.ts` with aliases under the v7 names, after
- *    vendoring the app loaders and actions the content calls;
- * 4. imports: the codemod over `src/`;
+ * 3. block map: the site's v7 section-loader registration turned into an
+ *    export, then `.deco/index.ts` with aliases under the v7 names (v7's
+ *    matchers from `@decocms/compat-v7/matchers`, `loadSections` running the
+ *    section loaders), after vendoring the app loaders and actions the
+ *    content calls, and the view registry `src/views.ts`;
+ * 4. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
+ *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
  * 5. scripts: `deco schema && deco content` before dev and build.
  *
  * It changes files in place, so run it on a clean working tree and review the
@@ -20,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
+import { listSources, rewriteDeviceReads } from "./compat";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
 import { siteFramework, V8_RANGE } from "./framework";
@@ -27,6 +32,7 @@ import { rewriteImports } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
 import { reencryptSecrets } from "./secrets";
+import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
 
 interface MigrateOptions {
@@ -69,12 +75,37 @@ function addScripts(root: string, report: Report): void {
     });
   }
   const framework = siteFramework(root);
-  const binding = framework ? `@decocms/${framework}` : undefined;
+  const packages = [`@decocms/blocks ${V8_RANGE}`];
+  if (framework) {
+    packages.push(
+      `@decocms/${framework} ${V8_RANGE} (the v8 binding, released with blocks at one version)`,
+    );
+  }
+  const written = siteImports(root);
+  if (written.has("@decocms/compat-v7")) {
+    packages.push(`@decocms/compat-v7 ${V8_RANGE} (v7's helpers, released with them)`);
+  }
+  for (const client of ["@decocms/apps-vtex", "@decocms/apps-shopify"]) {
+    if (written.has(client)) packages.push(`${client} ${V8_RANGE}`);
+  }
   report.manual.push({
     step: "scripts",
     subject: "package.json",
-    message: `depend on @decocms/blocks ${V8_RANGE}${binding ? ` and ${binding} ${V8_RANGE} (the v8 binding, released with blocks at one version)` : ""}, drop the v7 codegen from build and the @decocms/blocks-admin and @decocms/blocks-cli dependencies once nothing imports them`,
+    message: `depend on ${packages.join(", ")}; drop the v7 codegen from build, and @decocms/apps-commerce, @decocms/blocks-admin and @decocms/blocks-cli once nothing imports them`,
   });
+}
+
+/** The `@decocms/*` packages the site's code and block map import after the migration. */
+function siteImports(root: string): Set<string> {
+  const found = new Set<string>();
+  const files = [...listSources(path.join(root, "src")), path.join(root, ".deco", "index.ts")];
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue;
+    for (const [, name] of fs.readFileSync(file, "utf8").matchAll(/["'](@decocms\/[^/"']+)/g)) {
+      found.add(name);
+    }
+  }
+  return found;
 }
 
 export async function migrate(options: MigrateOptions): Promise<Report> {
@@ -89,7 +120,9 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   copyExperimentIds(root, report);
   foldSiteSettings(root, report);
   await reencryptSecrets(root, report);
-  const { vendored } = writeBlockMap(root, report);
+  const wiring = wireSectionLoaders(root, report);
+  const { vendored } = writeBlockMap(root, report, wiring);
+  rewriteDeviceReads(root, report);
   rewriteImports(root, report, vendored);
   addScripts(root, report);
   return report;
