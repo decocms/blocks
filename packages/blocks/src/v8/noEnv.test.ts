@@ -1,9 +1,9 @@
 // @vitest-environment node
 /**
- * The SDK reads no environment variable: configuration is explicit
- * `createCMS` params (`site`, `token`, `interval`, `telemetry`, `preview`,
- * `dev`). Local development stays off hosted releases through `dev`, which
- * the site passes; the SDK never reads NODE_ENV for it.
+ * The SDK reads one environment variable: `createCMS` defaults `dev` to
+ * `NODE_ENV === "development"` (guarded, so `false` without `process`; an
+ * explicit `dev` overrides it). Everything else is explicit `createCMS`
+ * params (`site`, `token`, `interval`, `telemetry`, `preview`, `dev`).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +19,11 @@ const ALLOWED: { file: string; line: string }[] = [
   {
     file: "protocol/storage/fs/git.ts",
     line: "const env: NodeJS.ProcessEnv = { ...process.env };",
+  },
+  // createCMS's `dev` default, the one exception (see isDevelopment in cms.ts).
+  {
+    file: "v8/cms.ts",
+    line: 'typeof process !== "undefined" && process.env != null && process.env.NODE_ENV === "development"',
   },
 ];
 
@@ -50,7 +55,7 @@ describe("no environment variables", () => {
     }
   });
 
-  it("packages/blocks/src reads none", () => {
+  it("packages/blocks/src reads none but NODE_ENV, once, for createCMS's dev default", () => {
     const hits: string[] = [];
     for (const file of sources(SRC)) {
       const rel = path.relative(SRC, file).split(path.sep).join("/");
