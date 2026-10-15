@@ -826,11 +826,9 @@ describe("v7's image URLs by 7.x release", () => {
     expect(v7ImageUrl("7.64.3")).toContain('else "decoims.com", the default before 7.71.0');
     expect(deco("7.71.0")).toBe('domain, quality, sources: "all", legacyHosts: []');
     expect(deco("7.71.3")).toBe('domain, quality, sources: "all", legacyHosts: []');
-    expect(deco("7.71.4")).toBe(
-      'domain, quality, sources: "all", stripAssetHosts: "leading", legacyHosts: ["decoims.com"]',
-    );
-    expect(deco("7.71.5")).toBe('domain, quality, sources: "all", stripAssetHosts: "leading"');
-    expect(deco("7.80.0")).toBe('domain, quality, sources: "all", stripAssetHosts: "leading"');
+    expect(deco("7.71.4")).toBe('domain, quality, sources: "all", legacyHosts: ["decoims.com"]');
+    expect(deco("7.71.5")).toBe('domain, quality, sources: "all"');
+    expect(deco("7.80.0")).toBe('domain, quality, sources: "all"');
     expect(v7ImageUrl("7.77.0")).not.toContain("Nuvemshop");
     expect(v7ImageUrl("7.77.1")).toContain("Nuvemshop");
     expect(v7ImageUrl(undefined)).toContain(

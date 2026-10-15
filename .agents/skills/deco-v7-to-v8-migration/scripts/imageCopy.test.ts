@@ -12,9 +12,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createImageUrl, decoCdn } from "@decocms/blocks/image";
 import { afterEach, describe, expect, it } from "vitest";
-import { copyDecoCdnOptions, findImageCopies, isImageCopy, readImageCopy } from "./imageCopy";
-import { copyImageUrl, rewriteImports } from "./imports";
+import {
+  changedByLeadingStrip,
+  copyDecoCdnOptions,
+  findImageCopies,
+  isImageCopy,
+  leadingStripChanges,
+  readImageCopy,
+} from "./imageCopy";
+import { copyImageUrl, rewriteImports, v7StripsAnywhere } from "./imports";
 import { createReport } from "./report";
 
 const PLATFORMS = `
@@ -93,8 +101,8 @@ describe("a site's copy of v7's image helper", () => {
   it("gives the options each release's rules need, as the per-release table does", () => {
     expect(options(RELEASES["7.2.0"])).toBe('domain: "decoims.com", sources: "all"');
     expect(options(RELEASES["7.71.0"])).toBe('sources: "all", legacyHosts: []');
-    expect(options(RELEASES["7.71.4"])).toBe('sources: "all", stripAssetHosts: "leading"');
-    expect(options(RELEASES["7.77.1"])).toBe('sources: "all", stripAssetHosts: "leading"');
+    expect(options(RELEASES["7.71.4"])).toBe('sources: "all"');
+    expect(options(RELEASES["7.77.1"])).toBe('sources: "all"');
     expect(readImageCopy(RELEASES["7.77.1"])?.nuvemshop).toBe(true);
     expect(readImageCopy(RELEASES["7.71.4"])?.nuvemshop).toBe(false);
   });
@@ -105,10 +113,10 @@ describe("a site's copy of v7's image helper", () => {
       'domain: "deco-assets.edgedeco.com", sources: "all"',
     );
     expect(options(RELEASES["7.71.4"], azion)).toBe(
-      'domain: "deco-assets.edgedeco.com", sources: "all", stripAssetHosts: "leading", legacyHosts: ["decoims.com"]',
+      'domain: "deco-assets.edgedeco.com", sources: "all", legacyHosts: ["decoims.com"]',
     );
     expect(options(RELEASES["7.77.1"], { domain: "decoims.com", quality: "high" })).toBe(
-      'domain: "decoims.com", quality: "high", sources: "all", stripAssetHosts: "leading"',
+      'domain: "decoims.com", quality: "high", sources: "all"',
     );
     expect(options(RELEASES["7.71.0"], { domain: null, quality: null })).toBe(
       'domain, quality, sources: "all", legacyHosts: []',
@@ -143,7 +151,7 @@ describe("the report for a site with its own copy", () => {
 
   it("reads the options from the copy and the site's register calls, over the release's", () => {
     site({
-      // The release table would say stripAssetHosts: "leading" for 7.77.1.
+      // The release table would give 7.77.1 decoims.com on the Cloudflare CDNs only.
       "package.json": JSON.stringify({
         dependencies: { "@decocms/blocks": "7.77.1", "@decocms/tanstack": "7.77.1" },
       }),
@@ -170,9 +178,7 @@ describe("the report for a site with its own copy", () => {
   it("lists a copy's Nuvemshop provider, and says when it can't read a copy", () => {
     expect(
       copyImageUrl({ file: "src/Image.tsx", rules: readImageCopy(RELEASES["7.77.1"]) }),
-    ).toContain(
-      'providers: [vtexCatalog(), shopifyCdn(), nuvemshop, decoCdn({ sources: "all", stripAssetHosts: "leading" })]',
-    );
+    ).toContain('providers: [vtexCatalog(), shopifyCdn(), nuvemshop, decoCdn({ sources: "all" })]');
     site({
       "package.json": JSON.stringify({ dependencies: { "@decocms/blocks": "7.64.3" } }),
       "src/sdk/image.ts": RELEASES["7.2.0"].replace(/let imageCdnDomain = [^;]+;/, ""),
@@ -194,7 +200,116 @@ describe("the report for a site with its own copy", () => {
     const report = createReport();
     rewriteImports(root as string, report, new Map());
     expect(report.manual.find((n) => n.subject === "Image, Picture, Source")?.message).toContain(
-      'decoCdn({ domain, quality, sources: "all", stripAssetHosts: "leading" })',
+      'decoCdn({ domain, quality, sources: "all" })',
     );
+  });
+});
+
+describe("strip-anywhere sites on decoCdn's leading default (PO 2026-10-15)", () => {
+  let root: string | undefined;
+  afterEach(() => root && fs.rmSync(root, { recursive: true, force: true }));
+
+  function site(files: Record<string, string>): string {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-leading-strip-")));
+    for (const [file, data] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), data);
+    }
+    return root;
+  }
+
+  const NESTED = "https://images.example.com/https://assets.decocache.com/a-store/abc/x.png";
+  const NESTED_S3 =
+    "https://deco-sites-assets.s3.sa-east-1.amazonaws.com/a/https://assets.decocache.com/b.png";
+  const SOURCES = [
+    "https://assets.decocache.com/a-store/abc/x.png",
+    "https://deco-sites-assets.s3.sa-east-1.amazonaws.com/a-store/x.png",
+    "https://assets.decocache.com/a/https://assets.decocache.com/b.png",
+    NESTED,
+    NESTED_S3,
+    "https://cdn.example.com/x.png?v=https://assets.decocache.com/",
+    "https://cdn.example.com/x.png",
+    "/static/x.png",
+  ];
+
+  it("flags exactly the sources whose decoCdn URL changes", () => {
+    const leading = createImageUrl({ providers: [decoCdn({ sources: "all" })] });
+    const anywhere = createImageUrl({
+      providers: [decoCdn({ sources: "all", stripAssetHosts: "anywhere" })],
+    });
+    const changed = SOURCES.filter(
+      (src) => leading(src, { width: 200 }) !== anywhere(src, { width: 200 }),
+    );
+    expect(changed).toEqual([NESTED, NESTED_S3]);
+    expect(SOURCES.filter(changedByLeadingStrip)).toEqual(changed);
+  });
+
+  it("knows which 7.x releases stripped anywhere", () => {
+    expect(["7.2.0", "7.64.3", "7.71.0", "7.71.3"].map(v7StripsAnywhere)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(["7.71.4", "7.71.5", "7.77.1", "8.0.0", undefined].map(v7StripsAnywhere)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(readImageCopy(RELEASES.edited)?.stripAssetHosts).toBe("anywhere");
+  });
+
+  it("counts and lists the URLs in the content and code that change", () => {
+    site({
+      "package.json": JSON.stringify({ dependencies: { "@decocms/blocks": "7.77.1" } }),
+      "src/vendor/blocks/Image.tsx": RELEASES.edited,
+      ".deco/blocks/pages-home.json": JSON.stringify({
+        sections: [
+          { image: NESTED, other: "https://assets.decocache.com/a-store/abc/x.png" },
+          { html: `<img src="${NESTED_S3}">`, again: NESTED },
+        ],
+      }),
+      "src/sections/Hero.tsx": `export const fallback = "${NESTED}";\n`,
+    });
+    expect(leadingStripChanges(root as string)).toEqual([
+      { file: ".deco/blocks/pages-home.json", url: NESTED },
+      { file: ".deco/blocks/pages-home.json", url: NESTED_S3 },
+      { file: "src/sections/Hero.tsx", url: NESTED },
+    ]);
+    const report = createReport();
+    rewriteImports(root as string, report, new Map());
+    const note = report.manual.find((n) => n.subject === "image URLs")?.message ?? "";
+    expect(note).toContain("src/vendor/blocks/Image.tsx");
+    expect(note).toContain("3 URLs in 2 files change");
+    expect(note).toContain(`${NESTED} (src/sections/Hero.tsx)`);
+    expect(note).toContain("PO 2026-10-15");
+    expect(report.done.find((n) => n.subject === "image URLs")).toBeUndefined();
+  });
+
+  it("says so when no URL changes, and says nothing for a site that already stripped only a leading host", () => {
+    site({
+      "package.json": JSON.stringify({ dependencies: { "@decocms/blocks": "7.64.3" } }),
+      ".deco/blocks/pages-home.json": JSON.stringify({
+        image: "https://assets.decocache.com/a/x.png",
+      }),
+    });
+    let report = createReport();
+    rewriteImports(root as string, report, new Map());
+    expect(report.done.find((n) => n.subject === "image URLs")?.message).toContain(
+      "No URL in .deco/blocks or src/ changes",
+    );
+    fs.writeFileSync(
+      path.join(root as string, "package.json"),
+      JSON.stringify({ dependencies: { "@decocms/blocks": "7.71.5" } }),
+    );
+    fs.writeFileSync(
+      path.join(root as string, ".deco/blocks/pages-home.json"),
+      JSON.stringify({ image: NESTED }),
+    );
+    report = createReport();
+    rewriteImports(root as string, report, new Map());
+    expect([...report.done, ...report.manual].some((n) => n.subject === "image URLs")).toBe(false);
   });
 });

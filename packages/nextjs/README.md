@@ -12,13 +12,13 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19.
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/image-loader` | `createDecoImageLoader(imageUrl)`: a next/image loader over an `ImageUrl` from `@decocms/blocks/image`. |
 
-`isNextDev(process.env.NODE_ENV)` (from `/proxy` and `/server`) is the value for `createCMS({ dev })`, so `next dev` never swaps the hosted release in over your local content.
+`createCMS` reads `NODE_ENV` to decide dev mode, so `next dev` never swaps the hosted release in over your local content; nothing needs passing. `createCMS({ dev })` still overrides it when a site needs to.
 
 ## Drafts
 
 ```ts
 // src/cms.config.ts: the options both CMS handles share, and where drafts preview
-export const cmsConfig = { content, dev: isNextDev(process.env.NODE_ENV) };
+export const cmsConfig = { content };
 export const preview = { site: "my-store" };
 
 // src/cms.ts and src/cms.proxy.ts
@@ -62,7 +62,7 @@ import { StudioBridge } from "@decocms/nextjs";
 </body>
 ```
 
-Studio's origins are the package's own (`STUDIO_ORIGINS`), so the bridge takes only the site's name; `editShortcut` (v7's "." shortcut) and `nonce` are optional.
+Studio's origins are the package's own (`STUDIO_ORIGINS`), so the bridge takes only the site's name. v7's "." edit shortcut is on by default (`editShortcut={false}` turns it off), and `nonce` is optional.
 
 ## Names and Studio's origins
 
