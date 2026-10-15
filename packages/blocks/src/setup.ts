@@ -30,6 +30,8 @@ export interface SiteSetupOptions {
 	/**
 	 * Section glob from Vite — pass `import.meta.glob("./sections/**\/*.tsx")`.
 	 * Keys are transformed from `./sections/X.tsx` → `site/sections/X.tsx`.
+	 * Keys not starting with `./` are already CMS keys (e.g. `packageSectionImports`
+	 * from sections.gen.ts, `ui/sections/X.tsx`) and are registered as-is.
 	 */
 	sections: Record<string, () => Promise<any>>;
 
@@ -85,7 +87,7 @@ export function createSiteSetup(options: SiteSetupOptions): void {
 	// 2. Section glob registration — transform Vite paths to CMS keys
 	const sections: Record<string, () => Promise<any>> = {};
 	for (const [path, loader] of Object.entries(options.sections)) {
-		sections[`site/${path.slice(2)}`] = loader;
+		sections[path.startsWith("./") ? `site/${path.slice(2)}` : path] = loader;
 	}
 	registerSections(sections);
 

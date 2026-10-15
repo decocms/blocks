@@ -28,10 +28,15 @@
  *                   Built from every scanned section file, not just the ones
  *                   carrying convention exports. Off by default so existing
  *                   Vite sites regenerating sections.gen.ts in CI see zero diff.
+ *
+ * package.json `"deco": { "sectionPackages": { "<namespace>": "<package>" } }`
+ * also scans `<package>/src/sections/**` as `<namespace>/sections/...` and emits
+ * `packageSectionImports` (lazy imports keyed by CMS key).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
+import { readSectionPackages } from "./lib/installedPackages";
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string): string {
@@ -153,9 +158,9 @@ function walkDir(dir: string, base: string = dir): string[] {
   return results;
 }
 
-function fileToSectionKey(filePath: string, _sectionsDir: string): string {
+function fileToSectionKey(filePath: string, _sectionsDir: string, namespace = "site"): string {
   const rel = path.relative(_sectionsDir, filePath).replace(/\\/g, "/");
-  return `site/sections/${rel}`;
+  return `${namespace}/sections/${rel}`;
 }
 
 function relativeImportPath(from: string, to: string): string {
@@ -166,7 +171,9 @@ function relativeImportPath(from: string, to: string): string {
 
 // ---------------------------------------------------------------------------
 
-if (!fs.existsSync(sectionsDir)) {
+const sectionPackages = readSectionPackages(process.cwd());
+
+if (!fs.existsSync(sectionsDir) && sectionPackages.length === 0) {
   console.warn(`Sections directory not found: ${sectionsDir} — generating empty output.`);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, [
@@ -178,13 +185,19 @@ if (!fs.existsSync(sectionsDir)) {
 }
 
 const sectionFiles = walkDir(sectionsDir);
+// Sections from deco.sectionPackages, keyed `<namespace>/sections/<path>`.
+const packageFiles = sectionPackages.flatMap(({ namespace, sectionsDir: dir }) =>
+  walkDir(dir).map((filePath) => ({ filePath, key: fileToSectionKey(filePath, dir, namespace) })),
+);
 const entries: Array<{ key: string; meta: SectionMeta; filePath: string }> = [];
 
-for (const filePath of sectionFiles) {
+for (const { filePath, key } of [
+  ...sectionFiles.map((filePath) => ({ filePath, key: fileToSectionKey(filePath, sectionsDir) })),
+  ...packageFiles,
+]) {
   const content = fs.readFileSync(filePath, "utf-8");
   const meta = extractMeta(content);
   if (!meta) continue;
-  const key = fileToSectionKey(filePath, sectionsDir);
   entries.push({ key, meta, filePath });
 }
 
@@ -341,6 +354,19 @@ if (EMIT_REGISTRY) {
     const rel = path.relative(sectionsDir, filePath).replace(/\\/g, "/");
     const importPath = relativeImportPath(outFile, filePath);
     lines.push(`  "./sections/${rel}": () => import("${importPath}"),`);
+  }
+  lines.push("};");
+}
+
+// Lazy imports for package sections (deco.sectionPackages), keyed by full CMS
+// key. Always emitted when packages are configured: unlike site sections there
+// is no `import.meta.glob` fallback, so sites spread this into the map they
+// pass to createSiteSetup({ sections }) and applySectionConventions({ sectionGlob }).
+if (sectionPackages.length > 0) {
+  lines.push("");
+  lines.push("export const packageSectionImports: Record<string, () => Promise<any>> = {");
+  for (const { filePath, key } of packageFiles) {
+    lines.push(`  "${key}": () => import("${relativeImportPath(outFile, filePath)}"),`);
   }
   lines.push("};");
 }

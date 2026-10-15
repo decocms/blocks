@@ -47,7 +47,7 @@ import {
   type Type,
 } from "ts-morph";
 import { isExcludedCodegenFile } from "./lib/codegenExclusions";
-import { resolvePackageDirectory } from "./lib/installedPackages";
+import { readSectionPackages, resolvePackageDirectory } from "./lib/installedPackages";
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -1819,7 +1819,8 @@ function generateMeta(): MetaResponse {
   // Second pass: scan sections
   // ---------------------------------------------------------------------------
 
-  if (!fs.existsSync(sectionsDir)) {
+  const sectionPackages = readSectionPackages(root);
+  if (!fs.existsSync(sectionsDir) && sectionPackages.length === 0) {
     console.error(`Sections directory not found: ${sectionsDir}`);
     process.exit(1);
   }
@@ -1830,16 +1831,28 @@ function generateMeta(): MetaResponse {
   // (prop-less) section rather than being silently skipped.
   const sectionExts =
     PLATFORM === "eitri" ? [".tsx", ".ts", ".jsx", ".js"] : DEFAULT_EXTS;
-  const sectionFiles = findTsxFiles(sectionsDir, sectionExts);
+  // Site sections, then sections from deco.sectionPackages keyed
+  // `<namespace>/sections/<path>` (same key generate-sections emits).
+  const sectionFiles = [
+    ...findTsxFiles(sectionsDir, sectionExts).map((filePath) => ({
+      filePath,
+      namespace: SITE_NAMESPACE,
+      blockKey: `${SITE_NAMESPACE}/${path.relative(srcDir, filePath).replaceAll("\\", "/")}`,
+    })),
+    ...sectionPackages.flatMap(({ namespace, sectionsDir: dir }) =>
+      findTsxFiles(dir, sectionExts).map((filePath) => ({
+        filePath,
+        namespace,
+        blockKey: `${namespace}/sections/${path.relative(dir, filePath).replaceAll("\\", "/")}`,
+      })),
+    ),
+  ];
   console.log(`Found ${sectionFiles.length} section files`);
-  for (const filePath of sectionFiles) {
+  for (const { filePath } of sectionFiles) {
     getSourceFile(project, filePath, sourceFileCache);
   }
 
-  for (const filePath of sectionFiles) {
-    const relativePath = path.relative(srcDir, filePath).replaceAll("\\", "/");
-    const blockKey = `${SITE_NAMESPACE}/${relativePath}`;
-
+  for (const { filePath, blockKey, namespace } of sectionFiles) {
     try {
       const sourceFile = getSourceFile(project, filePath, sourceFileCache);
 
@@ -1906,7 +1919,7 @@ function generateMeta(): MetaResponse {
 
       sectionBlocks[blockKey] = {
         $ref: `#/definitions/${sectionDefKey}`,
-        namespace: SITE_NAMESPACE,
+        namespace,
       };
       sectionRootAnyOf.push({
         $ref: `#/definitions/${sectionDefKey}`,

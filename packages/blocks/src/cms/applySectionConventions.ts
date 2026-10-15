@@ -149,6 +149,7 @@ function sectionGlobKey(
   sectionKey: string,
   glob: Record<string, () => Promise<any>>,
 ): string | null {
+  if (glob[sectionKey]) return sectionKey; // already a CMS key (package sections)
   const relative = sectionKey.replace("site/sections/", "./sections/");
   if (glob[relative]) return relative;
   const withDot = sectionKey.replace("site/", "./");
