@@ -82,7 +82,21 @@ interface Case {
 
 function randomCase(r: () => number): Case {
   const cookieName = r() < 0.2 ? "ab" : "_deco_bucket";
-  const ratio = pick(r, [0, 0.3, 0.5, 0.501, 0.995, 1, 1.2, -1, Number.NaN, undefined]);
+  const ratio = pick(r, [
+    0,
+    0.004,
+    0.01,
+    0.3,
+    0.5,
+    0.501,
+    0.99,
+    0.995,
+    1,
+    1.2,
+    -1,
+    Number.NaN,
+    undefined,
+  ]);
   const cookieValue = pick(r, [
     "worker:50",
     "fallback:50",
@@ -327,7 +341,7 @@ describe("abTestingRoutes is v7's withABTesting", () => {
       const r = rng(0x5eed);
       for (let i = 0; i < 5_000; i++) {
         const c = randomCase(r);
-        const ratio = pick(r, [0, 0.2, 0.5, 0.505, 1, Number.NaN, -3, 7]);
+        const ratio = pick(r, [0, 0.004, 0.006, 0.01, 0.2, 0.5, 0.505, 0.99, 1, Number.NaN, -3, 7]);
         const request = new Request(c.url, { headers: c.headers });
         const url = new URL(c.url);
         const name = c.config.cookieName;
