@@ -145,6 +145,25 @@ describe("always on: security headers and Studio framing", () => {
       "</assets/app-123.css>; rel=preload; as=style, </fonts/a.woff2>; rel=preload; as=font; crossorigin",
     );
   });
+
+  it("a routes response gets no preload hints, only the app's pages do", async () => {
+    const { get } = setup({
+      preload: { styles: ["/assets/app-123.css"], fonts: ["/fonts/a.woff2"] },
+      routes: (request) =>
+        new URL(request.url).pathname.startsWith("/legacy")
+          ? new Response("<html>other origin</html>", {
+              headers: {
+                "content-type": "text/html; charset=utf-8",
+                link: "</old.css>; rel=preload; as=style",
+              },
+            })
+          : null,
+    });
+    const proxied = await get("/legacy/page");
+    expect(proxied.headers.get("link")).toBe("</old.css>; rel=preload; as=style");
+    expect(proxied.headers.has("content-security-policy")).toBe(true);
+    expect((await get("/")).headers.get("link")).toContain("/assets/app-123.css");
+  });
 });
 
 describe("the edge cache", () => {
