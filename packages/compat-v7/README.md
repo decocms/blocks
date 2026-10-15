@@ -152,6 +152,31 @@ segment: (request) => ({ ...cohortSegment(request) }),
 - `cohortSegment(request)` is v7's A/B split of the edge cache (`{ abf: <token> }` for a visitor in a test, `{}` otherwise), so each group keeps its own cached page and everyone else shares one.
 - `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
 
+### The A/B split with the legacy origin
+
+v7's `withABTesting` (the KV-driven split between the TanStack site and the site it replaces) is `abTestingRoutes`, a handler for `createDecoWorker`'s `routes`:
+
+```ts
+// src/worker-entry.ts
+import { abTestingRoutes } from "@decocms/compat-v7/tanstack/worker";
+
+const abTesting = abTestingRoutes({
+  worker: () => worker,
+  kvBinding: "SITES_KV",
+  shouldBypassAB: (_request, url) => isCommercePath(url.pathname),
+});
+
+const worker = createDecoWorker({
+  // …
+  routes: async (request, env, ctx) => (await abTesting(request, env, ctx)) ?? siteRoutes(request),
+});
+export default worker;
+```
+
+- Same KV entry (`{ workerName, fallbackOrigin, abTest: { ratio } }` under the request's hostname), the same buckets (`?_deco_bucket=` override, then a `_deco_bucket=<bucket>:<ratio %>` cookie set under the current ratio, then the client IP's hash), the same cookie and `x-deco-bucket` header, circuit breaker, `shouldBypassAB`, `preHandler` and fallback proxy (hostname written back in `Set-Cookie`, `Location` and 2xx text bodies, streamed). Tests run v7's file next to it.
+- v7 wrapped the whole worker. The handler runs where the worker runs its `routes`: after the CMS redirects, `/deco/_liveness` and the cache purge. For the "worker" bucket it calls the worker back (`worker`), so the page gets the bucket cookie and a worker error falls back to the legacy origin, as in v7; that inner call skips the handler and goes on to the site's other routes and the edge cache, which already lets `_deco_bucket` through on a cached page.
+- A response from the legacy origin leaves through the worker like any `routes` response: `CDN-Cache-Control: no-store` when it sets none, the site's security headers when it sets none, and the worker's `preload` hints on HTML.
+
 ## Next.js (`@decocms/nextjs`)
 
 ```ts

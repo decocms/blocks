@@ -116,7 +116,7 @@ export function imageModule(
     ...(rules.vtex ? ['import { vtexCatalog } from "@decocms/apps-vtex/image";'] : []),
     "",
     "/**",
-    ` * The site's image URLs, byte for byte those of ${from}${set.length > 0 ? `, with the site's ${set.join(" and ")}` : ""}:`,
+    ` * The site's image URLs, byte for byte those of ${from}${set.length > 0 ? `, with the site's ${set.join(" and ")}` : ""}${rules.stripAssetHosts === "anywhere" ? ", except that decoCdn strips only a leading Deco asset host where v7 stripped one anywhere (approved, PO 2026-10-15; the migration report lists the URLs it changes)" : ""}:`,
     ...(rules.vtex || rules.shopify
       ? [
           " * VTEX catalog and Shopify images resized on their platforms' own CDNs (v7 did both on every site),",

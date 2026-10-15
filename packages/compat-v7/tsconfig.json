@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*"],
-  "exclude": ["src/__fixtures__/v7/apps-commerce/**", "src/__fixtures__/v7/cms/**", "src/__fixtures__/v7/matchers/**", "src/__fixtures__/v7/sdk/experiments.ts", "src/__fixtures__/v7/sdk/useDevice.ts", "src/__fixtures__/v7/sdk/useDeviceContext.tsx", "src/__fixtures__/v7/tanstack/**", "src/__fixtures__/v7/vendor/**", "src/__fixtures__/v7/v7.77.12/**"]
+  "exclude": ["src/__fixtures__/v7/apps-commerce/**", "src/__fixtures__/v7/cms/**", "src/__fixtures__/v7/matchers/**", "src/__fixtures__/v7/sdk/abTesting.ts", "src/__fixtures__/v7/sdk/experiments.ts", "src/__fixtures__/v7/sdk/useDevice.ts", "src/__fixtures__/v7/sdk/useDeviceContext.tsx", "src/__fixtures__/v7/tanstack/**", "src/__fixtures__/v7/vendor/**", "src/__fixtures__/v7/v7.77.12/**"]
 }

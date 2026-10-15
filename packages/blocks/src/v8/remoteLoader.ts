@@ -25,9 +25,9 @@
  *   a publish still loses to it.
  *   Pointers aren't ordered among themselves, and the fallback's content is
  *   never compared: only the two timestamps are.
- * - With `dev: true` (`createCMS({ dev })`), it never swaps, so local files win.
- *   The SDK reads no environment variable to decide this: the site passes it
- *   (`import.meta.env.DEV`, `process.env.NODE_ENV === "development"`).
+ * - With `dev: true`, it never swaps, so local files win. `createCMS` passes
+ *   its `dev` option, or `NODE_ENV === "development"` when the site omits it;
+ *   this loader reads no environment itself.
  * - A release larger than `MAX_SNAPSHOT_BYTES` is refused while it downloads,
  *   before it's buffered whole (a Worker isolate has 128 MB).
  * - Without `site` it's a plain loader over the fallback.

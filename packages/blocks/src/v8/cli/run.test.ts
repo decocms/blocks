@@ -31,6 +31,7 @@ describe("flags", () => {
   it("takes --color and --no-color on every command, the last one winning", () => {
     expect(parseFlags("check", ["--color"])).toEqual({ color: true });
     expect(parseFlags("schema", ["--no-color", "--watch"])).toEqual({ color: false, watch: true });
+    expect(parseFlags("schema", ["--check"])).toEqual({ check: true });
     expect(parseFlags("serve", ["--no-color", "--color"])).toEqual({ color: true });
     expect(parseFlags("content", [])).toEqual({});
   });
@@ -234,6 +235,106 @@ describe("the bin", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/wrote \.deco\/schema\.gen\.json from index\.ts/);
+  }, 60_000);
+});
+
+describe("deco schema --check", () => {
+  const files = (props: string, extra = "") => ({
+    "src/a.tsx": `export const a = (props: ${props}) => <p>{String(props)}</p>;\n${extra}`,
+    ".deco/index.ts": `import * as m from "../src/a"; export default { ...m };`,
+  });
+  const check = async (args: string[] = []) => {
+    const out = recorder();
+    const code = await runCli(["schema", "--check", ...args], { cwd: fixture.root, reporter: out });
+    return { code, out };
+  };
+
+  it("passes, writing nothing, when the file is what deco schema writes", async () => {
+    fixture = createFixture(files("{ title: string }"));
+    expect(await runCli(["schema"], { cwd: fixture.root, reporter: recorder() })).toBe(0);
+    const file = path.join(fixture.root, ".deco/schema.gen.json");
+    const before = fs.statSync(file).mtimeMs;
+    const { code, out } = await check();
+    expect(code).toBe(0);
+    expect(out.text()).toBe(".deco/schema.gen.json is up to date with index.ts");
+    expect(fs.statSync(file).mtimeMs).toBe(before);
+  }, 60_000);
+
+  it("fails, writing nothing, when the file is missing", async () => {
+    fixture = createFixture(files("{ title: string }"));
+    const { code, out } = await check();
+    expect(code).toBe(1);
+    expect(out.text()).toBe(
+      ".deco/schema.gen.json is missing. Run `deco schema` and commit .deco/schema.gen.json.",
+    );
+    expect(fixture.exists(".deco/schema.gen.json")).toBe(false);
+  }, 60_000);
+
+  it("fails with what changed when the types moved on, and leaves the file as it was", async () => {
+    fixture = createFixture(
+      files("{ title: string }", "export const gone = (p: { x: string }) => <p>{p.x}</p>;"),
+    );
+    expect(await runCli(["schema"], { cwd: fixture.root, reporter: recorder() })).toBe(0);
+    const saved = fixture.read(".deco/schema.gen.json");
+    fixture.write(
+      "src/a.tsx",
+      [
+        "export const a = (props: { headline: string }) => <p>{props.headline}</p>;",
+        "export const b = (p: { y: string }) => <p>{p.y}</p>;",
+      ].join("\n"),
+    );
+    const { code, out } = await check();
+    expect(code).toBe(1);
+    expect(out.lines.map((l) => l.level)).toEqual(["error"]);
+    expect(out.text().split("\n")).toEqual([
+      ".deco/schema.gen.json is out of date: the code's types have changed since it was written.",
+      "  - sections: new in code: b",
+      "  - sections: no longer in code: gone",
+      "  - 2 schema definitions changed (fields or choices)",
+      "Run `deco schema` and commit .deco/schema.gen.json.",
+    ]);
+    expect(fixture.read(".deco/schema.gen.json")).toBe(saved);
+  }, 60_000);
+
+  it("fails on a hand-edited file whose content is the same", async () => {
+    fixture = createFixture(files("{ title: string }"));
+    expect(await runCli(["schema"], { cwd: fixture.root, reporter: recorder() })).toBe(0);
+    const json = JSON.parse(fixture.read(".deco/schema.gen.json"));
+    fixture.write(".deco/schema.gen.json", JSON.stringify(json));
+    const { code, out } = await check();
+    expect(code).toBe(1);
+    expect(out.text()).toContain("  - the content is the same but the formatting differs");
+    fixture.write(".deco/schema.gen.json", "{ not json");
+    expect((await check()).out.text()).toContain("  - the saved file is not valid JSON");
+  }, 60_000);
+
+  it("fails when the schema has errors, with the errors", async () => {
+    fixture = createFixture({ ".deco/index.ts": "export default { a: 1 };" });
+    const { code, out } = await check();
+    expect(code).toBe(1);
+    expect(out.text()).toContain(`"a" isn't a function`);
+    expect(out.text()).toContain(".deco/schema.gen.json can't be checked: fix the errors above");
+  }, 60_000);
+
+  it("can't be combined with --watch", async () => {
+    fixture = createFixture(files("{ title: string }"));
+    const { code, out } = await check(["--watch"]);
+    expect(code).toBe(1);
+    expect(out.text()).toContain("--watch and --check can't be combined");
+  });
+
+  it("exits 1 under plain Node, for CI", () => {
+    fixture = createFixture(STORE_FILES);
+    const bin = path.join(packageRoot, "bin/deco.js");
+    const run = (args: string[]) =>
+      spawnSync(process.execPath, [bin, ...args], { cwd: fixture.root, encoding: "utf8" });
+    const stale = run(["schema", "--check"]);
+    expect(stale.status).toBe(1);
+    expect(stale.stderr).toContain(".deco/schema.gen.json is missing");
+    expect(run(["schema"]).status).toBe(0);
+    const fresh = run(["schema", "--check"]);
+    expect(fresh.stderr).toBe("");
+    expect(fresh.status).toBe(0);
   }, 60_000);
 });
 

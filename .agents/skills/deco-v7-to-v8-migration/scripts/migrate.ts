@@ -21,7 +21,8 @@
  *    binding, replacing v7's page routes;
  * 6. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
- * 7. scripts: `deco schema && deco content` before dev and build.
+ * 7. scripts: `deco schema && deco content` before dev and build, and
+ *    `deco schema --check` in the site's CI after the install step.
  *
  * Before the block map, v7's app blocks (`deco-vtex`, …) become the client
  * code that configures each platform's client (`src/clients/<app>.ts`).
@@ -34,6 +35,7 @@ import path from "node:path";
 import { writeAppClients } from "./apps";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
+import { addSchemaCheck } from "./ciSchemaCheck";
 import { listSources, rewriteDeviceReads } from "./compat";
 import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
@@ -146,5 +148,6 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   writeScaffold(root, report);
   rewriteImports(root, report, vendored);
   addScripts(root, report);
+  addSchemaCheck(root, report);
   return report;
 }

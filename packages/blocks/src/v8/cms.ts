@@ -398,7 +398,18 @@ export function resetForTests(): void {
 /** With `site`, the content is the fallback of hosted releases. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
   if (!config.site) return config.content;
-  return remoteLoader(config.content, { site: config.site, dev: config.dev });
+  return remoteLoader(config.content, { site: config.site, dev: config.dev ?? isDevelopment() });
+}
+
+/**
+ * `NODE_ENV=development`: the SDK's one environment read (an explicit `dev`
+ * overrides it). Guarded, so a Worker or a browser without `process` reads
+ * `false`; spelled `process.env.NODE_ENV` so a bundler's `define` replaces it.
+ */
+function isDevelopment(): boolean {
+  return (
+    typeof process !== "undefined" && process.env != null && process.env.NODE_ENV === "development"
+  );
 }
 
 function validate(config: CMSConfig): void {

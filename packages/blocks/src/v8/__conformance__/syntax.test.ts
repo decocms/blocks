@@ -626,7 +626,7 @@ describe("built-in blocks", () => {
     return { runs, value, blocks };
   };
 
-  it("builtin-03/mv-02/lazy-07: multivariate returns the first true variant; rules all run, only the winner's value runs", async () => {
+  it("builtin-03/mv-02/lazy-07: multivariate returns the first true variant; rules run in order and stop at the first true one, only the winner's value runs", async () => {
     const { runs, value, blocks } = counted();
     const rules: string[] = [];
     const rule = (result: boolean, name: string) => ({ __resolveType: "rule", result, name });
@@ -648,7 +648,7 @@ describe("built-in blocks", () => {
     });
     expect([picked, error]).toEqual(["v2", null]);
     expect(runs).toEqual(["v2"]);
-    expect(rules.sort()).toEqual(["r1", "r2", "r3"]);
+    expect(rules).toEqual(["r1", "r2"]); // r3's matcher never runs (v7 parity)
     const [none] = await client.resolve({
       __resolveType: "multivariate",
       variants: [{ rule: { __resolveType: "never" }, value: value("v4") }],

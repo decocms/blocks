@@ -16,8 +16,10 @@ v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at
   |---|---|
   | before 7.71.0 | `legacyHosts: []`; `domain` defaults to `"decoims.com"` there |
   | 7.71.0 to 7.71.3 | `legacyHosts: []` |
-  | 7.71.4 | `stripAssetHosts: "leading", legacyHosts: ["decoims.com"]` |
-  | 7.71.5 on | `stripAssetHosts: "leading"` (and, from 7.77.1, the Nuvemshop provider below for a store with Nuvemshop images) |
+  | 7.71.4 | `legacyHosts: ["decoims.com"]` |
+  | 7.71.5 on | none (and, from 7.77.1, the Nuvemshop provider below for a store with Nuvemshop images) |
+
+  `stripAssetHosts` stays at its default, `"leading"`, on every row. Before 7.71.4, v7 stripped the asset hosts anywhere in a source; the switch is approved (PO, 2026-10-15) and changes only a source that merely contains an asset URL. The report's "image URLs" line lists those URLs for the PR.
 
   A site that kept its own copy of v7's image helper (a file under `src/` that defines `getOptimizedMediaUrl`) keeps that copy's rules, not its release's: the script reads the options from the copy and from the site's `registerImageCdnDomain`/`registerImageQuality` calls, and reports them on the copy's own line (fuzzed against each release's `Image.tsx` and two storefronts' edited copies). A copy whose rules it can't read is reported for you to compare by hand. One approved change from v7 (PO, 2026-10-14): an already-resized Deco CDN URL in the content (`https://assets.decocms.com/image?…&src=…`, or the `decoims.com`, `deco-assets.edgedeco.com` and `deco-assets.decoazn.com` endpoints) is re-resized from its `src`. v7 wrote `src=image`, which the CDN can't serve. Without a provider every source goes through the Deco CDN, VTEX and Shopify images too. Check a page's image URLs against v7's. v7's Nuvemshop rule, for the site's `src/imageUrl.ts` (`tests/tanstack-image-markup.golden.test.ts` holds it to v7's markup):
 
@@ -34,7 +36,7 @@ v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at
       return `${m[1]}-${size ? `${size}-0` : "1024-1024"}.${m[2]}`;
     },
   };
-  // providers: [vtexCatalog(), shopifyCdn(), nuvemshop, decoCdn({ domain, quality, sources: "all", stripAssetHosts: "leading" })]
+  // providers: [vtexCatalog(), shopifyCdn(), nuvemshop, decoCdn({ domain, quality, sources: "all" })]
   ```
 - **Draft names and Studio's origins**: `DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`, `draftResponseHeaders`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin` come from the root, `@decocms/tanstack` (not from `@decocms/blocks`); the script moves them.
 - **Cache metrics**: v7's `DECO_METRICS` writes have no writer; `onCache` (hit/miss/bypass, page type, duration) is the hook to send them anywhere (`telemetry.md`).
@@ -46,7 +48,7 @@ v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at
 - **next.config**: `withDeco(config)` from `/config` puts v7's draft header rules first and adds Studio's dev origins; it adds no rewrites (v7's `/deco/*` handlers are gone) and no `transpilePackages`.
 - **Image**: `createDecoImageLoader(imageUrl, { fallback: nextImageOptimizer })` from `/image-loader` as the `loaderFile`, over the site's `createImageUrl`. The loader knows no platform: a VTEX store lists `vtexCatalogWebp()` and `vtexFileManager({ via })` from `@decocms/apps-vtex/image` (`via` is the resizer its loader uses today: `"query"` or `"thumbor"`), then `decoCdn({ quality: "high", fit: "contain", layout: "quality-last" })` from `@decocms/blocks/image`. URLs match the site's current loader byte for byte, except the approved re-resizing of an already-resized Deco CDN URL (above). A loader still on `via: "query"` should move to `"thumbor"`: VTEX's `?width=&aspect=true` resizer answers 500 for raster files since 2026-10-07 (PO-approved, a site change).
 - **Draft names and Studio's origins**: from the root, `@decocms/nextjs` (its own copy; never `@decocms/tanstack` or `@decocms/blocks`).
-- **Dev**: `createCMS({ dev: isNextDev(process.env.NODE_ENV) })`.
+- **Dev**: nothing to pass. `createCMS` reads `NODE_ENV`, so `next dev` keeps local content and `next start` serves the hosted release; drop a v7 `isNextDev`/`dev` line (the `dev` option still overrides it when a site needs to).
 
 ## Site code either way
 
@@ -59,5 +61,5 @@ v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at
 - **Identification headers** (`x-powered-by`, the outbound `User-Agent`) are the site's own values; if they change (v7 sent its package version), list it as the site's difference.
 - **Keep v7's platform client, or adopt the v8 one?** Keeping the vendored v7 client (and its cached loaders and fetch cache) keeps every upstream request identical, so recorded upstream fixtures replay. If you keep it, drop the v8 `@decocms/apps-<platform>` dependency nothing imports, and list the move to its client plus the `/next/caching` recipe (`cachedLoader` is gone in v8) as a follow-up.
 - **Error reporting.** v7's `onResolveError` sent every failed section or loader to the site's exception reporting. v8 has no hook: `client.resolve` returns `[value, error]`, and a section loader that throws is caught in its block function. Report both explicitly there (same attributes as before, so dashboards keep working); `console.error` alone only reaches the SDK's sampled log export.
-- **A worker-level A/B split (`withABTesting`, `SITES_KV`).** v8 has no equivalent. If the KV holds no config for the site's hosts, nothing was split: delete the wrapper and the binding. If it does, keep the split as site code around the worker's `fetch`. Either way, list it for the product owner.
+- **A worker-level A/B split (`withABTesting`, `SITES_KV`).** If the KV holds no config for the site's hosts, nothing was split: delete the wrapper and the binding. If it does, on TanStack Start replace the wrapper with `abTestingRoutes` from `@decocms/compat-v7/tanstack/worker` (v7's split as a handler run first in `createDecoWorker`'s `routes`, with `worker: () => worker` so the worker's own bucket still gets its cookie; README of `@decocms/compat-v7`). One difference a site sees: legacy-origin HTML leaves through the worker, so it gets the worker's `preload` hints and security headers, which v7 added only to its own pages.
 - **Not ported to the TanStack worker**: v7's caching of POST server functions by body. A site that relied on it keeps that wrapper or lists it.
