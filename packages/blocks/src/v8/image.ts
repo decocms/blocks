@@ -91,9 +91,11 @@ export interface DecoCdnOptions {
   sources?: "deco" | "all" | ((src: string) => boolean);
   /**
    * How the Deco asset hosts (assets.decocache.com, the S3 bucket) are removed
-   * from the source. "anywhere" (default, v7's `getOptimizedMediaUrl`): the
-   * first occurrence of each, wherever it is. "leading": only a host the
-   * source starts with.
+   * from the source. "leading" (default, v7's `Image` since 7.71.4): only a
+   * host the source starts with. "anywhere" (older v7 `getOptimizedMediaUrl`
+   * copies): the first occurrence of each, wherever it is, so a source that
+   * merely contains an asset URL (`https://other.host/https://assets.decocache.com/…`)
+   * loses that part.
    */
   stripAssetHosts?: "anywhere" | "leading";
   /**
@@ -170,7 +172,7 @@ export function decoCdn(o: DecoCdnOptions = {}): ImageProvider {
         inner = decoImageSource(src, imageHosts);
       }
       let source =
-        o.stripAssetHosts === "leading"
+        (o.stripAssetHosts ?? "leading") === "leading"
           ? src.replace(LEADING_ASSET_HOST, "")
           : src.replace(DECO_CACHE_URL, "").replace(DECO_S3_URL, "");
       source = source.split("?")[0];

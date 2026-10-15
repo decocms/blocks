@@ -173,7 +173,7 @@ describe("lazy blocks", () => {
     });
   });
 
-  it("is the only special case: a key in the block map named lazy is an ordinary function", async () => {
+  it("a key in the block map named lazy is an ordinary function", async () => {
     const mine = vi.fn((props: { value: unknown }) => props.value);
     const [value] = await client({ ...docsBlocks(), lazy: mine }).resolve({
       __resolveType: "lazy",
