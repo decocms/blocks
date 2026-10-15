@@ -384,6 +384,24 @@ class MemoryCache {
   }
 }
 
+describe("abTestingRoutes at a Worker's global scope", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("creating the handler draws no random value and does no I/O (Workers refuse both outside a handler)", () => {
+    const uuid = vi.spyOn(globalThis.crypto, "randomUUID");
+    const random = vi.spyOn(Math, "random");
+    const timeout = vi.spyOn(globalThis, "setTimeout");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    abTestingRoutes({ worker: () => ({ fetch: async () => new Response("") }) });
+    expect(uuid).not.toHaveBeenCalled();
+    expect(random).not.toHaveBeenCalled();
+    expect(timeout).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("abTestingRoutes in createDecoWorker", () => {
   let cache: MemoryCache;
   let n = 0;
