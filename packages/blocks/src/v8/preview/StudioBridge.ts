@@ -35,8 +35,8 @@ export interface StudioBridgeProps {
   trustedOrigins: readonly string[];
   /**
    * v7's editor shortcut: on a page that isn't framed, "." (or Ctrl+Shift+E)
-   * opens it in Studio, and Ctrl or Cmd+"." opens it in a new tab. Off by
-   * default.
+   * opens it in Studio, and Ctrl or Cmd+"." opens it in a new tab. On by
+   * default, as in v7; `false` turns it off.
    */
   editShortcut?: boolean;
   /** The CSP nonce for the inline script, when the site sends one. */
@@ -114,7 +114,7 @@ if(window.self!==window.top){
 export function StudioBridge({
   site,
   trustedOrigins,
-  editShortcut = false,
+  editShortcut = true,
   nonce,
 }: StudioBridgeProps): ReactNode {
   return createElement("script", {
