@@ -72,7 +72,6 @@ describe("DecoDocument", () => {
         bodyClassName: "bg-white",
         account: "acme-vtex",
         outlet: "div",
-        editShortcut: true,
       },
     );
     expect(html).toContain('<html lang="pt-BR"');
@@ -80,6 +79,14 @@ describe("DecoDocument", () => {
     expect(html).toContain('account: "acme-vtex"');
     expect(html).not.toMatch(/<main><div>/);
     expect(html).toContain("data-shortcut");
+  });
+
+  it("turns the edit shortcut off only when told to", async () => {
+    // The bridge's own script mentions the attribute, so look at its tag only.
+    const bridgeTag = (html: string) =>
+      html.match(/<script[^>]*data-deco-studio-bridge[^>]*>/)?.[0] ?? "";
+    expect(bridgeTag(await render({}))).toContain("data-shortcut");
+    expect(bridgeTag(await render({}, { editShortcut: false }))).not.toContain("data-shortcut");
   });
 });
 

@@ -7,8 +7,9 @@
  * in ./builtins/legacy) is a second key for a type, so like a function it wins
  * over a saved block of the same name; a saved block is replaced by
  * `{ ...saved, ...arguments }` and looked up again; anything else is
- * `UNKNOWN_BLOCK`. The built-in `lazy` is
- * the one special case: its `value` is not resolved first.
+ * `UNKNOWN_BLOCK`. Two built-ins are special cases: `lazy`, whose `value` is
+ * not resolved first, and `multivariate`, whose variants' rules resolve in
+ * order and stop at the first `true` one (later rules never run, as in v7).
  *
  * A `Resolver` belongs to one client, so its memo (results per block function
  * and canonical inputs) never outlives a request. Within the request the memo
@@ -19,6 +20,7 @@
 import { RESERVED_NAMES } from "./builtins/index.ts";
 import { isLazyBuiltin } from "./builtins/lazy.ts";
 import { LEGACY_ALIASES, wrapLegacyVariants } from "./builtins/legacy.ts";
+import { isMultivariateBuiltin } from "./builtins/multivariate.ts";
 import { errors, isResolutionError } from "./errors.ts";
 import { canonicalKey, isPlainObject, type JsonObject, own } from "./json.ts";
 import type { BlockFunction, Blocks, Lazy, Snapshot } from "./types.ts";
@@ -240,7 +242,10 @@ export class Resolver {
   ): Promise<unknown> {
     // Inputs are always fresh objects: a function may mutate its props freely.
     const { __resolveType: _type, ...inputs } = node;
-    const resolved = await this.#resolveFields(inputs, path, chain, true);
+    const resolved =
+      isMultivariateBuiltin(fn) && Array.isArray(inputs.variants)
+        ? await this.#resolveFirstMatch(inputs, inputs.variants, path, chain)
+        : await this.#resolveFields(inputs, path, chain, true);
     const start = Date.now();
     try {
       const value = await fn(resolved);
@@ -252,6 +257,38 @@ export class Resolver {
       if (isResolutionError(error)) throw error;
       throw errors.blockFailed(type, path, error);
     }
+  }
+
+  /**
+   * The built-in `multivariate`'s inputs: its other fields as usual, then the
+   * variants one at a time, each rule before the rest of its variant, up to
+   * the first rule that is `true`. Later variants are left out, so their
+   * matchers never run.
+   */
+  async #resolveFirstMatch(
+    inputs: JsonObject,
+    variants: unknown[],
+    path: Path,
+    chain: string[],
+  ): Promise<JsonObject> {
+    const { variants: _variants, ...others } = inputs;
+    const resolved = await this.#resolveFields(others, path, chain, true);
+    const kept: unknown[] = [];
+    for (const [i, variant] of variants.entries()) {
+      const at = [...path, "variants", i];
+      if (!isPlainObject(variant) || typeof variant.__resolveType === "string") {
+        const value = await this.resolve(variant, at, chain, true);
+        if (value === undefined) continue;
+        kept.push(value);
+        if (isPlainObject(value) && value.rule === true) break;
+        continue;
+      }
+      const { rule, ...rest } = variant;
+      const matched = await this.resolve(rule, [...at, "rule"], chain, true);
+      kept.push({ rule: matched, ...(await this.#resolveFields(rest, at, chain, true)) });
+      if (matched === true) break;
+    }
+    return { ...resolved, variants: kept };
   }
 
   #lazy(value: unknown, path: Path, chain: string[], fromContent: boolean): Lazy<unknown> {
