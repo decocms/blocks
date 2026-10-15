@@ -93,7 +93,7 @@ Each export is built from the source file below (`dist/<same path>.js`, see abov
 ## v8 core — `packages/blocks/src/v8/`
 
 - **`createCMS` instances are `globalThis` singletons** under `Symbol.for("decocms.blocks.cms:<content identity>[|site|token-hash]")`, so two copies of the package share one content cache (`dualInstance.test.ts`, the regression test for the bug this repo exists to prevent). Never key on the revision, and never put a raw token in a symbol.
-- **`lazy` is the resolver's only special case**; everything else is an ordinary block function. Values from the snapshot are copied while walked, so callers and block functions can't mutate shared content.
+- **`lazy` and the built-in `multivariate` are the resolver's only special cases** (`lazy`'s value isn't resolved first; `multivariate`'s rules run in order and stop at the first true one, as in v7); everything else is an ordinary block function. Values from the snapshot are copied while walked, so callers and block functions can't mutate shared content.
 - **No framework binding, no request scope.** Platform specifics (a Workers KV `Loader`, a Cache API upstream cache passed as `createInstrumentedFetch`'s `fetch`) are template code shown as docs recipes, not package exports. Block functions read the request through the framework's own storage; don't add `requestScope()`, `Deferred`, `BlockList` or other non-CMS helpers to the core.
 - **Conformance tests** (`src/v8/__conformance__/`) encode the docs' claims, one test per claim. When the docs change, change the test; don't relax an assertion to make code pass.
 

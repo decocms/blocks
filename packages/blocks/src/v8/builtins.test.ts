@@ -160,7 +160,7 @@ describe("multivariate", () => {
     });
   });
 
-  it("only the winning variant runs; every rule runs", async () => {
+  it("only the winning variant runs; rules stop at the first true one", async () => {
     const heroA = vi.fn(() => "A");
     const heroB = vi.fn(() => "B");
     const ruleSpy = vi.fn(() => false);
@@ -174,7 +174,95 @@ describe("multivariate", () => {
     expect(value).toBe("A");
     expect(heroA).toHaveBeenCalledTimes(1);
     expect(heroB).not.toHaveBeenCalled();
-    expect(ruleSpy).toHaveBeenCalledTimes(1);
+    expect(ruleSpy).not.toHaveBeenCalled();
+  });
+
+  it("rules run in order, one at a time: each waits for the one before it", async () => {
+    const calls: string[] = [];
+    const slow = (name: string, result: boolean) => async () => {
+      calls.push(`start ${name}`);
+      await new Promise((r) => setTimeout(r, 2));
+      calls.push(`end ${name}`);
+      return result;
+    };
+    const [value] = await client({
+      first: slow("first", false),
+      second: slow("second", true),
+      third: slow("third", true),
+    }).resolve({
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "first" }, value: lazyValue("1") },
+        { rule: { __resolveType: "second" }, value: lazyValue("2") },
+        { rule: { __resolveType: "third" }, value: lazyValue("3") },
+      ],
+    });
+    expect(value).toBe("2");
+    expect(calls).toEqual(["start first", "end first", "start second", "end second"]);
+  });
+
+  it("a random rule after the winner never draws, so it records nothing (v7 parity)", async () => {
+    const cookies: string[] = [];
+    const random = vi.fn(({ percent }: { percent: number }) => {
+      cookies.push(`deco_segment=${percent}`);
+      return Math.random() * 100 < percent;
+    });
+    const page = {
+      __resolveType: "multivariate",
+      experiment: "hero",
+      variants: [
+        { rule: { __resolveType: "always" }, value: lazyValue("winner") },
+        { rule: { __resolveType: "random", percent: 50 }, value: lazyValue("later") },
+      ],
+    };
+    const [value] = await client({ random }).resolve(page);
+    expect(value).toBe("winner");
+    expect(random).not.toHaveBeenCalled();
+    expect(cookies).toEqual([]);
+  });
+
+  it("legacy multivariate types stop at the first match too", async () => {
+    const later = vi.fn(() => true);
+    const [value] = await client({ later }).resolve({
+      __resolveType: "website/flags/multivariate.ts",
+      variants: [
+        { rule: { __resolveType: "always" }, value: "first" },
+        { rule: { __resolveType: "later" }, value: "second" },
+      ],
+    });
+    expect(value).toBe("first");
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("a multivariate in the block map replaces the built-in and gets every rule resolved", async () => {
+    const later = vi.fn(() => true);
+    const mine = vi.fn(({ variants }: { variants: { rule: boolean }[] }) =>
+      variants.map((v) => v.rule),
+    );
+    const [value] = await client({ later, multivariate: mine }).resolve({
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "always" }, value: lazyValue("first") },
+        { rule: { __resolveType: "later" }, value: lazyValue("second") },
+      ],
+    });
+    expect(value).toEqual([true, true]);
+    expect(later).toHaveBeenCalledTimes(1);
+  });
+
+  it("variants that never match all run their rules, then nothing is returned", async () => {
+    const no1 = vi.fn(() => false);
+    const no2 = vi.fn(() => false);
+    const [value] = await client({ no1, no2 }).resolve({
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "no1" }, value: lazyValue("a") },
+        { rule: { __resolveType: "no2" }, value: lazyValue("b") },
+      ],
+    });
+    expect(value).toBeUndefined();
+    expect(no1).toHaveBeenCalledTimes(1);
+    expect(no2).toHaveBeenCalledTimes(1);
   });
 
   it("the first true rule wins", async () => {
