@@ -2,8 +2,10 @@
  * The block map (spec: renames-and-migrations › Rename a block type). Saved
  * content names v7 types by file path, like `site/sections/Product/Shelf.tsx`;
  * the next major resolves a name only through `.deco/index.ts`. This step
- * writes that file: one entry per type, under a short name, plus an alias
- * under every v7 name the content stores, so the content keeps resolving.
+ * writes that file: one entry per v7 name the content stores (and per section
+ * in `src/sections`), so the content keeps resolving. No short names: the
+ * site editor lists every name, so a block under two would be offered twice
+ * (PO 2026-10-15).
  *
  * - The site's own modules (`site/…`) are registered from `src/`, every
  *   section under `src/sections` included, so editors can still add them.
@@ -34,10 +36,11 @@ interface Entry {
   /** The module that holds the block function (default export). */
   file: string;
   kind: Kind;
-  /** The v7 names content stores for it. */
+  /** The v7 names content stores for it: the names it's registered under. */
   legacy: string[];
-  short: string;
   ident: string;
+  /** Whether the module exports a `loader` (a section's, run by `loadSections`). */
+  loader: boolean;
   /** A section's descriptor `component`: its v7 type name, `site/sections/….tsx`. */
   component: string;
 }
@@ -257,14 +260,17 @@ export function writeBlockMap(
       continue;
     }
     const component = `site/${posix(path.relative(path.join(root, "src"), file))}`;
-    byFile.set(file, { file, kind, legacy: [type], short: "", ident: "", component });
-    if (kind === "section" && HAS_LOADER.test(source) && !wiring.loaders?.keys?.has(component)) {
-      leave(
-        type,
-        wiring.loaders?.keys === null
-          ? "the section has a loader: v7 ran it only when registerSectionLoaders listed it, and the script couldn't read that list's names; check that sectionLoaders lists it as v7's did"
-          : "the section has a loader, which v7 never ran: registerSectionLoaders didn't list it, so v7 rendered its saved props (the loader's input), and so does v8. Keep it that way, or list it in sectionLoaders to run it",
-      );
+    const loader = kind === "section" && HAS_LOADER.test(source);
+    byFile.set(file, { file, kind, legacy: [type], ident: "", component, loader });
+    if (loader && !wiring.loaders?.keys?.has(component)) {
+      report.manual.push({
+        step: "block map",
+        subject: type,
+        message:
+          wiring.loaders?.keys === null
+            ? "its loader now runs (loadSections in .deco/index.ts), unless the site's sectionLoaders lists it, which then runs instead: v7 ran a section's loader only when registerSectionLoaders listed it, and the script couldn't read that list's names. Where v7 didn't list it, v7 rendered its saved props and v8 runs the loader, an approved difference (PO 2026-10-15): list it in the PR"
+            : "its loader now runs (loadSections in .deco/index.ts), which v7 never did: registerSectionLoaders didn't list it, so v7 rendered its saved props (the loader's input). The migration wires every section loader, an approved difference (PO 2026-10-15): list it in the PR",
+      });
     }
     if (group === "actions") {
       leave(
@@ -274,9 +280,8 @@ export function writeBlockMap(
     }
   }
 
-  // Short names: the file's name, then its path, then a number; never a
-  // built-in, a saved block's name or a v7 name.
-  const taken = new Set<string>([...builtIn, ...Object.keys(blocks), ...types]);
+  // Identifiers: the file's name, then its path, then a number.
+  const taken = new Set<string>();
   const idents = new Set<string>([
     "section",
     "PropsOf",
@@ -293,6 +298,7 @@ export function writeBlockMap(
     "views",
     "SectionView",
     "ComponentType",
+    "loaders",
   ]);
   const entries = [...byFile.values()];
   for (const entry of entries) {
@@ -303,14 +309,15 @@ export function writeBlockMap(
       prefix + kebab(segments.at(-1)!),
       prefix + kebab(segments.slice(2).join("-")),
     ];
-    let short = candidates.find((c) => c && !taken.has(c));
-    for (let n = 2; !short; n++)
-      if (!taken.has(`${candidates[1]}-${n}`)) short = `${candidates[1]}-${n}`;
-    taken.add(short);
-    entry.short = short;
-    let ident = camel(short);
-    for (let n = 2; idents.has(ident); n++) ident = `${camel(short)}${n}`;
+    let base = candidates.find((c) => c && !taken.has(c));
+    for (let n = 2; !base; n++)
+      if (!taken.has(`${candidates[1]}-${n}`)) base = `${candidates[1]}-${n}`;
+    taken.add(base);
+    let ident = camel(base);
+    const free = (id: string) => !idents.has(id) && !(entry.loader && idents.has(`${id}Loader`));
+    for (let n = 2; !free(ident); n++) ident = `${camel(base)}${n}`;
     idents.add(ident);
+    if (entry.loader) idents.add(`${ident}Loader`);
     entry.ident = ident;
   }
 
@@ -323,15 +330,15 @@ export function writeBlockMap(
   report.done.push({
     step: "block map",
     subject: ".deco/index.ts",
-    message: `${entries.length} blocks, with ${aliases} aliases under their v7 names${matchers.size > 0 ? `, and v7's ${[...new Set(matchers.values())].sort().join(", ")} matchers from @decocms/compat-v7/matchers` : ""}`,
+    message: `${entries.length} blocks under their ${aliases} v7 names (no short names, so the site editor lists each once)${matchers.size > 0 ? `, and v7's ${[...new Set(matchers.values())].sort().join(", ")} matchers from @decocms/compat-v7/matchers` : ""}`,
   });
   const sections = entries.filter((e) => e.kind === "section");
   if (sections.length > 0) writeViews(root, sections, report);
-  if (wiring.loaders) {
+  if (wiring.loaders || entries.some((e) => e.loader)) {
     report.manual.push({
       step: "block map",
       subject: "loadSections (.deco/index.ts)",
-      message: `run v7's section loaders as v7 did: after the page resolved, call loadSections(sections, request, pageUrl) on every section of the page, the site's globals included, and render what it returns${framework === "tanstack" ? "; in the page's server function, pass the page's URL (the request is the server-function call on a client-side navigation)" : framework === "nextjs" ? "; on Next.js build the request from next/headers at the page's URL" : ""}. When degraded isn't empty, send X-Deco-Degraded: 1 and don't cache the page, as v7 did`,
+      message: `run the section loaders as v7 ran its registered ones: after the page resolved, call loadSections(sections, request, pageUrl) on every section of the page, the site's globals included, and render what it returns${framework === "tanstack" ? "; in the page's server function, pass the page's URL (the request is the server-function call on a client-side navigation)" : framework === "nextjs" ? "; on Next.js build the request from next/headers at the page's URL" : ""}. When degraded isn't empty, send X-Deco-Degraded: 1 and don't cache the page, as v7 did`,
     });
   }
   if (matchers.size > 0) reportMatchers(framework!, new Set(matchers.values()), report);
@@ -410,8 +417,8 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
   const { framework, matchers, wiring, version } = options;
   const lines = [
     "// Generated by the deco-v7-to-v8-migration skill from a v7 site. It's your code now: edit it freely.",
-    "// Each block has a short name plus an alias under every v7 name saved content stores",
-    "// (see /next/renames-and-migrations).",
+    "// Each block is registered under the v7 names saved content stores, and only those, so the site",
+    "// editor lists it once (see /next/renames-and-migrations).",
     'import type { Blocks, Route } from "@decocms/blocks";',
   ];
   if (matchers.size > 0) {
@@ -421,8 +428,18 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
     lines.push(`import { matcherContext } from "@decocms/compat-v7/${framework}/server";`);
   }
   const fileSpecifier = (file: string) => importPath(root, file).replace(/\/index$/, "");
+  // The loaders v7 never ran (all of them when its map's names can't be read: the map wins).
+  const withLoader = entries.filter((e) => e.loader && !wiring.loaders?.keys?.has(e.component));
+  const runsLoaders = wiring.loaders !== undefined || withLoader.length > 0;
+  if (runsLoaders) {
+    lines.push(
+      'import { type RunSectionLoadersOptions, runSectionLoaders } from "@decocms/compat-v7/sections";',
+    );
+  }
+  for (const e of withLoader) {
+    lines.push(`import { loader as ${e.ident}Loader } from "${importPath(root, e.file)}";`);
+  }
   if (wiring.loaders) {
-    lines.push('import { runSectionLoaders } from "@decocms/compat-v7/sections";');
     lines.push(`import { sectionLoaders } from "${fileSpecifier(wiring.loaders.file)}";`);
     if (wiring.nonCritical) {
       lines.push(
@@ -483,12 +500,33 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
       `const ${e.ident} = section<typeof import("${importPath(root, e.file)}")>(${JSON.stringify(e.component)});`,
     );
   }
-  if (wiring.loaders) {
+  if (runsLoaders) {
     const nested = nestedWalk(version);
     lines.push(
+      ...(withLoader.length > 0
+        ? [
+            "",
+            "/** A section module's loader as the runner calls it: (props, request), never a v7 ctx. */",
+            "const own = (",
+            "  loader: (props: any, req: Request, ...rest: any[]) => unknown,",
+            '): RunSectionLoadersOptions["loaders"][string] => loader;',
+          ]
+        : []),
       "",
       "/**",
-      " * v7's section loaders (its registerSectionLoaders map) over a page's sections, as v7 ran them after the",
+      " * The section loaders, by v7 type name. v7 ran only those its registerSectionLoaders map listed; the",
+      ` * migration also runs every other section's own loader (an approved difference, PO 2026-10-15)${wiring.loaders ? "," : "."}`,
+      ...(wiring.loaders
+        ? [" * and the site's sectionLoaders, v7's map, win where they list a section."]
+        : []),
+      " */",
+      'const loaders: RunSectionLoadersOptions["loaders"] = {',
+      ...withLoader.map((e) => `  ${JSON.stringify(e.component)}: own(${e.ident}Loader),`),
+      ...(wiring.loaders ? ["  ...sectionLoaders,"] : []),
+      "};",
+      "",
+      "/**",
+      " * The section loaders over a page's sections, as v7 ran its registered ones after the",
       " * page resolved: run it once per page, on every section, globals included. `url` is the page's when the",
       " * request isn't for the page (a server-function call on a client-side navigation).",
       nested === "direct"
@@ -501,7 +539,7 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
       "  url?: string | URL,",
       ") {",
       "  return runSectionLoaders(sections, {",
-      "    loaders: sectionLoaders,",
+      "    loaders,",
       "    request,",
       "    url,",
       ...(wiring.nonCritical ? ["    nonCritical: nonCriticalSections,"] : []),
@@ -534,7 +572,6 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
   }
   lines.push("", "export default {", "  page: (input: ResolvedPage) => input,");
   for (const e of entries) {
-    lines.push(`  ${JSON.stringify(e.short)}: ${e.ident},`);
     for (const legacy of e.legacy) lines.push(`  ${JSON.stringify(legacy)}: ${e.ident},`);
   }
   if (matchers.size > 0) {

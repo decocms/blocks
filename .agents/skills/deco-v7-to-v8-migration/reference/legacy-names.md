@@ -27,4 +27,4 @@ Saved content stores type names in `__resolveType`. Treat them like database col
 
 ## Everything else
 
-Site types (`site/sections/Product/Shelf.tsx`) and app types (`shopify/loaders/ProductList.ts`) stay as saved: the block map registers each function under its v7 name. If both a short name and the v7 alias are registered, the site editor lists the block twice; register blocks under their v7 names only unless new content needs the short name (storefront-tanstack `57561bd`).
+Site types (`site/sections/Product/Shelf.tsx`) and app types (`shopify/loaders/ProductList.ts`) stay as saved: the block map registers each function under its v7 names only. A block under a short name too would be listed twice in the site editor's pickers, so the script writes no short names (PO 2026-10-15); add one only when new content needs it.

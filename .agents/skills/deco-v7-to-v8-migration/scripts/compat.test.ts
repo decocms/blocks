@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeBlockMap } from "./blockMap";
 import {
@@ -301,15 +302,16 @@ describe("section loaders", () => {
     );
   });
 
-  it("reports a section loader v7 never ran, and not one it ran", () => {
+  it("wires a section loader v7 never ran and lists it, the site's registered one winning", async () => {
     site({
       ".deco/blocks/Home.json": { __resolveType: "site/sections/A.tsx" },
       "src/sections/A.tsx":
-        "export const loader = (p: { a: string }) => p;\nexport default function A() { return null; }\n",
+        "export const loader = (p: { a: string }) => ({ ...p, by: 'module' });\nexport default function A() { return null; }\n",
       "src/sections/B.tsx":
-        "export const loader = (p: { b: string }) => p;\nexport default function B() { return null; }\n",
+        "export const loader = (p: { b: string }) => ({ ...p, by: 'module' });\nexport default function B() { return null; }\n",
+      "src/sections/C.tsx": "export default function C() { return null; }\n",
       "src/setup.ts":
-        'import { registerSectionLoaders } from "@decocms/blocks/cms";\nregisterSectionLoaders({ "site/sections/A.tsx": (p) => p });\n',
+        'import { registerSectionLoaders } from "@decocms/blocks/cms";\nregisterSectionLoaders({ "site/sections/A.tsx": (p: { a: string }) => ({ ...p, by: "registered" }) });\n',
     });
     const report = createReport();
     writeBlockMap(root, report, wireSectionLoaders(root, report));
@@ -318,11 +320,61 @@ describe("section loaders", () => {
       "site/sections/B.tsx",
       "loadSections (.deco/index.ts)",
     ]);
-    expect(notes[0].message).toContain("which v7 never ran");
+    expect(notes[0].message).toContain("which v7 never did");
+    expect(notes[0].message).toContain("approved difference (PO 2026-10-15)");
+    const map = read(".deco/index.ts");
+    expect(map).toContain('import { loader as bLoader } from "../src/sections/B";');
+    expect(map).not.toContain("aLoader");
+    expect(map).toContain('  "site/sections/B.tsx": own(bLoader),\n  ...sectionLoaders,\n};');
     // The latest 7.x by default: nested sections at any depth.
-    expect(read(".deco/index.ts")).not.toContain("nested:");
+    expect(map).not.toContain("nested:");
+    const { loadSections } = await importBlockMap();
+    const run = await loadSections(
+      [
+        { component: "site/sections/A.tsx", props: { a: "1" } },
+        { component: "site/sections/B.tsx", props: { b: "2" } },
+        { component: "site/sections/C.tsx", props: { c: "3" } },
+      ],
+      new Request("https://shop.test/"),
+    );
+    expect(run.sections.map((s: { props: unknown }) => s.props)).toMatchObject([
+      { a: "1", by: "registered" },
+      { b: "2", by: "module" },
+      { c: "3" },
+    ]);
+    expect(run.sections[2].props).toEqual({ c: "3" });
+  });
+
+  it("runs the sections' loaders when the site registered none", async () => {
+    site({
+      ".deco/blocks/Home.json": { __resolveType: "site/sections/B.tsx" },
+      "src/sections/B.tsx":
+        "export const loader = (p: { b: string }) => ({ ...p, by: 'module' });\nexport default function B() { return null; }\n",
+    });
+    const report = createReport();
+    writeBlockMap(root, report, wireSectionLoaders(root, report));
+    const map = read(".deco/index.ts");
+    expect(map).not.toContain("sectionLoaders");
+    expect(report.manual.map((n) => n.subject)).toContain("loadSections (.deco/index.ts)");
+    const { loadSections } = await importBlockMap();
+    const run = await loadSections(
+      [{ component: "site/sections/B.tsx", props: { b: "2" } }],
+      new Request("https://shop.test/"),
+    );
+    expect(run.sections[0].props).toMatchObject({ b: "2", by: "module" });
   });
 });
+
+/** The generated block map, imported with @decocms/compat-v7 linked into the site. */
+async function importBlockMap() {
+  fs.mkdirSync(path.join(root, "node_modules", "@decocms"), { recursive: true });
+  fs.symlinkSync(
+    fileURLToPath(new URL("../../../../packages/compat-v7", import.meta.url)),
+    path.join(root, "node_modules", "@decocms", "compat-v7"),
+    "dir",
+  );
+  return import(pathToFileURL(path.join(root, ".deco/index.ts")).href);
+}
 
 describe("matchers", () => {
   it("names the ported matchers, with or without .ts", () => {

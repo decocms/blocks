@@ -11,7 +11,9 @@
  *
  * and `registerNonCriticalSections([…])` into `export const
  * nonCriticalSections`. The block map then runs them (`loadSections` in
- * `.deco/index.ts`). The mixins (`withDevice`, `compose`, …) move to
+ * `.deco/index.ts`), together with every other section's own `loader`,
+ * which v7 never ran: an approved difference (PO 2026-10-15) the block map
+ * step reports section by section. The mixins (`withDevice`, `compose`, …) move to
  * `@decocms/compat-v7/sections` in the imports step.
  */
 import fs from "node:fs";
