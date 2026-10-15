@@ -4,7 +4,7 @@ v7's pure helpers for sites moved from `@decocms/blocks` 7 to 8. Each one gives 
 
 This is not a v7 runtime. There is no `ctx`, no invoke, no request scope and no cached loaders: v8 has none of them, and this package doesn't bring them back. It reads no environment variables.
 
-Peer: `@decocms/blocks` (same version).
+Peer: `@decocms/blocks` (same version). The framework subpaths also use the site's binding: `/tanstack` takes `@decocms/tanstack` (and its `@tanstack/react-start` and `react`), `/nextjs` takes `@decocms/nextjs` (and its `next` and `react`). Those are optional peers; a site installs only its own.
 
 ## Types
 
@@ -107,4 +107,77 @@ v7's caches (layout sections, cacheable sections) and its registries aren't here
 
 v8 sections are `{ component, props }`. v7's resolver wrote nested sections as `{ Component, props }`; here a nested section has the same shape as a page section, and keeps any other keys it has.
 
-Everything except the matchers and the section runner is also exported from the package root.
+## Commerce types and helpers
+
+```ts
+import type { Product } from "@decocms/compat-v7/commerce/types";
+import { formatPrice } from "@decocms/compat-v7/commerce/sdk/formatPrice";
+import { useOffer } from "@decocms/compat-v7/commerce/sdk/useOffer";
+import { relative } from "@decocms/compat-v7/commerce/sdk/url";
+import { mapProductToAnalyticsItem } from "@decocms/compat-v7/commerce/utils/productToAnalyticsItem";
+```
+
+v7's `@decocms/apps-commerce`, under `/commerce` with its own subpath layout: replace `@decocms/apps-commerce/` with `@decocms/compat-v7/commerce/` in an import and nothing else changes.
+
+- `/commerce/types` (and `/commerce`): the schema.org commerce types (`Product`, `Offer`, `AggregateOffer`, `BreadcrumbList`, `ProductListingPage`, the analytics events, …), with the cart types re-exported. `/commerce/types/cart` has the cart types and section presets alone.
+- `/commerce/sdk/*`: `formatPrice`/`formatPriceRange`, `relative`, `useOffer`/`bestInstallment`, `useVariantPossibilities`, and the analytics mappers (`analytics`).
+- `/commerce/utils/*`: `canonicalFromBreadcrumblist`, `DEFAULT_IMAGE`, `parseRange`/`formatRange`, `mapProductToAnalyticsItem`, and `getStateFromZip` (default export of `stateByZip`).
+
+Each file is v7's, formatting aside, and tests run v7's file next to it. None uses React (`useOffer` and `useVariantPossibilities` are plain functions despite the name). v7's app runtime (`app-types`, `manifest-utils`, `registry`, `resolve`) isn't here: v8 configures a client with arguments.
+
+## TanStack Start (`@decocms/tanstack`)
+
+```ts
+// the block map
+import { random, type RandomProps } from "@decocms/compat-v7/matchers";
+import { matcherContext } from "@decocms/compat-v7/tanstack/server";
+
+"website/matchers/random.ts": (props: RandomProps) => random(props, matcherContext()),
+
+// the page's server function (it gets the page's href)
+const page = await openPage(data.href);  // resolves the page, so the matchers run
+commitSegmentCookie();                   // deco_segment, as v7's page route set it
+return { ...page, device: requestDevice() };
+
+// the page component
+import { DeviceProvider } from "@decocms/compat-v7/tanstack";
+<DeviceProvider value={page.device}>{sections}</DeviceProvider>
+
+// src/worker-entry.ts
+segment: (request) => ({ ...cohortSegment(request) }),
+```
+
+- `matcherContext(pageUrl?)` gives every matcher the request being served (TanStack Start's `getRequest()`), the page's URL and one `flags` array per request. On a client-side navigation the request is the server-function call, so pass the page's URL there, as v7 matched the page being navigated to; without it, that call throws.
+- `commitSegmentCookie()` sets `deco_segment` on the response with the decisions the matchers made, merged over the visitor's cookie: `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`, v7's bytes. Nothing when the cookie already says the same. Call it in the server function, after the page resolved. `createDecoWorker` never stores a response that sets it, as v7's worker didn't: keep `deco_segment` out of `safeCookies`.
+- `cohortSegment(request)` is v7's A/B split of the edge cache (`{ abf: <token> }` for a visitor in a test, `{}` otherwise), so each group keeps its own cached page and everyone else shares one.
+- `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
+
+## Next.js (`@decocms/nextjs`)
+
+```ts
+// proxy.ts: forward the visitor's URL (with the draft headers, if any)
+import { pageUrlRequestHeaders } from "@decocms/compat-v7/nextjs/proxy";
+const headers = pageUrlRequestHeaders(request, draftRequestHeaders(request, decision));
+return applyDraft(NextResponse.next({ request: { headers } }), decision);
+
+// the block map
+import { matcherContext } from "@decocms/compat-v7/nextjs/server";
+"website/matchers/random.ts": async (props: RandomProps) => random(props, await matcherContext()),
+
+// the page (a server component)
+import { SegmentCookie } from "@decocms/compat-v7/nextjs/server";
+const sections = await resolvePage(...);  // the matchers run here
+return <>{sections}<SegmentCookie nonce={nonce} /></>;
+
+// app/layout.tsx
+import { DeviceProvider } from "@decocms/compat-v7/nextjs";
+<DeviceProvider value={await requestDevice()}>{children}</DeviceProvider>
+```
+
+- A server component sees the request's headers but not its URL, and the proxy may rewrite the path a page renders under. The proxy forwards the URL the visitor asked for on `x-deco-page-url` (replacing any copy from outside), and `matcherContext()` matches it; pass a URL to `matcherContext(url)` instead when the page knows it.
+- The decisions are kept per request with React's `cache`.
+- A server component can't set a cookie, and the proxy runs before the page decides. So `SegmentCookie` renders a one-line script that sets the same cookie v7's TanStack route sent (`deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`), or nothing when the visitor's cookie already says the same. Render it after the content resolved. A page that reads the request is dynamic, so Next never shares it between visitors. v7's Next.js binding never wrote this cookie: there, random drew again on every request.
+
+The device context is the same module for both frameworks: one `DeviceContext`.
+
+The package root exports the types, device, script and clx helpers. The matchers, the section runner, `/commerce/*` and the framework subpaths are only at their own subpaths.

@@ -42,7 +42,9 @@ packages/
 ├── nextjs/                     @decocms/nextjs — any Next.js App Router app: draft proxy and pages helpers,
 │                               DraftPreviewIndicator, withDeco(), the image loader; depends only on @decocms/blocks
 ├── compat-v7/                  @decocms/compat-v7 — v7's pure helpers on v8, pinned to v7's output (types,
-│                               device detection, inline scripts, clx); peer @decocms/blocks; no v7 runtime
+│                               device, scripts, clx, matchers, section runner, /commerce/*), plus v7's device
+│                               context and A/B cookie under /tanstack* and /nextjs*; peer @decocms/blocks
+│                               (the bindings: optional peers); no v7 runtime
 ├── apps-vtex/                  @decocms/apps-vtex                 ┐
 ├── apps-shopify/               @decocms/apps-shopify              │
 ├── apps-wake/                  @decocms/apps-wake                 │ thin upstream clients built on
@@ -123,13 +125,19 @@ v7's pure helpers, for sites moved from v7: each one gives v7's output (latest 7
 
 | Import path | File |
 |---|---|
-| `@decocms/compat-v7` | `src/index.ts` — everything below except the matchers and the section runner |
+| `@decocms/compat-v7` | `src/index.ts` — the types, device, script and clx helpers (not the matchers, the section runner, `/commerce` or the framework subpaths) |
 | `@decocms/compat-v7/types` (+ `/types/widgets`) | `src/types/index.ts`, `src/types/widgets.ts` — `SectionProps` (the loader's awaited return, PO's call; v7 gave a sync loader's type itself), `Resolved`, `LoadingFallbackProps`, `Flag` and v7's widget aliases (`ImageWidget`, `RichText`, `Color`, `Secret`, …; `deco schema` reads them by name, `tests/compat-v7.schema.test.ts`). Types only; no `AppContext`/`FnContext` |
 | `@decocms/compat-v7/device` | `src/device.ts` — `detectDevice`, `isMobileUA`, `Device`, v7's `MOBILE_RE`/`TABLET_RE`. `@decocms/tanstack`'s worker keeps its own copy: no package depends on compat-v7 |
 | `@decocms/compat-v7/script` | `src/script.ts` — `useScript`, `useScriptAsDataURI`, `inlineScript`: v7's bytes, without v7's `NODE_ENV` warning |
 | `@decocms/compat-v7/clx` | `src/clx.ts` — `clx` (named and default) |
 | `@decocms/compat-v7/matchers` | `src/matchers/index.ts` — v7's `device`, `cookie`, `host`, `pathname`, `queryString`, `location`, `multi` and the sticky `random` (latest 7.x: `deco_segment` cookie, cohort = the saved block's name, carried in `cohort`), each `(props, request)`; `environment` throws (it read env). `random`/`decideRandom` record decisions on the request's `flags`; `segmentSetCookie` gives the `Set-Cookie`, which the framework subpaths send. Fuzz-pinned to v7's cms/resolve.ts, matchers/builtins.ts and the TanStack route's `persistFlags`, run unchanged by `src/__tests__/loadV7.ts` |
 | `@decocms/compat-v7/sections` | `src/sections/index.ts` — v7's section loader runner, `runSectionLoaders(sections, { loaders, request, url?, nonCritical?, nested? })` → `{ sections, degraded }`: `(props, req)` loaders, `__pageUrl`/`__pagePath` injected, a GET for the page URL with the request's headers, saved props kept on failure, critical failures listed as degraded, nested sections anywhere (latest 7.x; `nested: "direct"` is 7.77.12's direct-children-only walk). No caches, no registries. The third argument (v7's `ctx`) throws on any read. Plus `withDevice`, `withMobile`, `withSearchParam`, `compose`, `withSectionLoader`. Fuzz-pinned to 7.x cms/sectionLoaders.ts (and 7.77.12's) and cms/sectionMixins.ts |
+| `@decocms/compat-v7/commerce/*` | `src/commerce/**` — v7's `@decocms/apps-commerce` pure files under its own subpath layout: `/commerce` and `/commerce/types` (types/commerce.ts: the schema.org commerce types, re-exporting the cart types), `/commerce/types/cart`, `/commerce/sdk/{analytics,formatPrice,url,useOffer,useVariantPossibilities}`, `/commerce/utils/{canonical,constants,filters,productToAnalyticsItem,stateByZip}`. React-free. Each file is v7's (same TypeScript AST, comments aside, `commerce.test.ts`) and fuzzed against it. Not ported: app-types, manifest-utils, registry, resolve (v7's app runtime) |
+| `@decocms/compat-v7/tanstack` | `src/tanstack/index.ts` — `DeviceProvider`, `useDevice`, `DeviceContext` (`src/react/device.ts`, `"use client"`, shared with `/nextjs`): v7's context, seeded with the server's `requestDevice()` through the page's loader data. Browser-safe |
+| `@decocms/compat-v7/tanstack/server` | `src/tanstack/server.ts` — `requestDevice()`, `matcherContext(pageUrl?)` (one `flags` array per request; a server-function call needs the page URL), `commitSegmentCookie()` (v7's `persistFlags` `deco_segment` Set-Cookie on TanStack Start's response; the worker never stores a response that sets it), `cohortSegment(request)` (v7's `__abf` cache split, for `createDecoWorker`'s `segment`). Imports `@tanstack/react-start/server` and `@decocms/tanstack/server`; no change to `@decocms/tanstack` was needed |
+| `@decocms/compat-v7/nextjs` | `src/nextjs/index.ts` — the same `DeviceProvider`/`useDevice`/`DeviceContext` (a client component a server component renders) |
+| `@decocms/compat-v7/nextjs/server` | `src/nextjs/server.ts` — `requestDevice()`, `matcherContext(pageUrl?)` (async; headers via `next/headers`, URL from the proxy's `x-deco-page-url`, flags per request through React's `cache`), `SegmentCookie` (a server component can't set a cookie, so the page renders a script writing v7's exact `deco_segment` cookie) |
+| `@decocms/compat-v7/nextjs/proxy` | `src/nextjs/proxy.ts` — `pageUrlRequestHeaders(request, headers?)`, `PAGE_URL_HEADER`: the proxy forwards the visitor's URL (replacing any copy from outside). No React, no `next` |
 
 ### Key boundaries
 

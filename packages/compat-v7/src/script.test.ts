@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/useHookAtTopLevel: v7 named these helpers use*; they are not React hooks
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import * as v7 from "./__fixtures__/v7/sdk/useScript";
 import { pick, rng } from "./__tests__/v7";
