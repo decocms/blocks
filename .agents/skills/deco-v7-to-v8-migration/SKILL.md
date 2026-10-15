@@ -49,12 +49,13 @@ rm -rf .deco-migrate
 |---|---|
 | `--root <dir>` | The app root, the folder with the site's `package.json`. Default: `.` |
 | `--decofile <file>` | Content to split into `.deco/blocks` when the site has none: the JSON the v7 site serves at `/.decofile`. |
+| `--vtex-invoke keep\|v8` | VTEX keys v7's app answered from its invoke map: `keep` (default) vendors v7's handler; `v8` uses `@decocms/apps-vtex`'s client or a stub that rejects ([`reference/server-functions.md`](reference/server-functions.md)). |
 
 In order: **content** (site **settings** folded into `.deco/blocks/CMS.json`, app blocks turned into `src/clients/<app>.ts`), **secrets**, **block map**, **invoke** (one server function per key), **scaffold** (`src/cms.ts`, the page loader, the catch-all route), **imports**, **scripts**. Each step: [`reference/script-steps.md`](reference/script-steps.md).
 
 Commit the script's output unedited as its own commit (`chore: run the v7-to-v8 migration`), apart from hand-written changes.
 
-**A sibling site already migrated?** When the site shares its v7 tree with one that is already on v8 (a fork, a redesign of a template), port the sibling's v8 changes with a three-way merge per file instead of by hand: `git merge-file <site file> <sibling's file after its script run> <sibling's v8 file>`. Conflicts are mostly import lines. Then check what the merge brought that isn't the migration ([`reference/sibling-port.md`](reference/sibling-port.md)).
+**A sibling site already migrated?** Port its v8 changes with a three-way merge per file, `git merge-file <site file> <sibling's file after its script run> <sibling's v8 file>`, then check what else the merge brought ([`reference/sibling-port.md`](reference/sibling-port.md)).
 
 ## Review the report
 
@@ -92,7 +93,7 @@ Then the rest of [`reference/verify.md`](reference/verify.md): `"blocksMajor": 8
 
 | Reference | Load it when |
 |---|---|
-| [`script-steps.md`](reference/script-steps.md) | You need what each script step did (content, settings, secrets, block map, imports, scripts) |
+| [`script-steps.md`](reference/script-steps.md) | You need what each script step did |
 | [`manual-steps.md`](reference/manual-steps.md) | You work through the report's "Left to do" |
 | [`verify.md`](reference/verify.md) | The site builds and you're checking it before review |
 | [`import-map.md`](reference/import-map.md) | A v7 import needs its v8 replacement |
@@ -117,4 +118,4 @@ What the site migrations taught, one subject per file. Commit hashes refer to `d
 | [`content.md`](reference/content.md) | `deco check` as a deploy gate, content it rejects, editing locally with `deco serve` |
 | [`telemetry.md`](reference/telemetry.md) | Telemetry params, resource attributes, dropped v7 bindings, analytics |
 
-`scripts/` is the migration (`main.ts` entry). Its tests run with the repo's `bun run test`.
+`scripts/` is the migration (`main.ts`), tested by the repo's `bun run test`.

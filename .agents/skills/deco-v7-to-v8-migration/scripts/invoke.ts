@@ -15,9 +15,12 @@
  *
  * A key resolves to its handler module as v7's did: `site/<path>` →
  * `src/<path>`, an app's key → the app's loader or action, vendored into
- * `src/vendor` like the block map's. A key with no handler file becomes
- * `unportedInvoke(key, props)` (src/migration-stubs.ts), which rejects; a
- * key the script can't read (a computed property) is reported and left.
+ * `src/vendor` like the block map's. A key v7's VTEX app answered from its
+ * own invoke map (a named export, `vtex/actions/checkout/addItemsToCart`)
+ * follows the migration's `vtexInvoke` choice (./vtexInvoke.ts). A key with
+ * no handler file becomes `unportedInvoke(key, props)` (src/migration-stubs.ts),
+ * which rejects; a key the script can't read (a computed property) is
+ * reported and left.
  *
  * Only v7's dispatcher is rewritten: `invoke` from `@decocms/blocks/sdk/invoke`
  * (or `@decocms/tanstack`), or from a site module that fetches `/deco/invoke`
@@ -32,6 +35,13 @@ import { type Framework, siteFramework } from "./framework";
 import type { Report } from "./report";
 import { chainKey, normalizeKey, propertyChain, type Stub, stubImport } from "./stubs";
 import { firstFile, locateAppModule, relativeSpecifier, vendorModule } from "./vendor";
+import {
+  V8_VTEX_OPERATIONS,
+  type VtexInvokeMode,
+  v8Operation,
+  vtexInvokeMapKey,
+  writeV8Module,
+} from "./vtexInvoke";
 
 const FUNCTIONS_FILE: Record<Framework, string> = {
   tanstack: path.join("src", "server", "invoke.functions.ts"),
@@ -129,6 +139,8 @@ function functionName(key: string): string {
 interface Handler {
   key: string;
   file: string;
+  /** The module's export that handles it, when not the default (v7's VTEX invoke map). */
+  exportName?: string;
   name: string;
   /** "GET" for a loader, "POST" for anything else (v7's invoke was always a POST). */
   method: "GET" | "POST";
@@ -143,7 +155,9 @@ export function rewriteInvokes(
   root: string,
   report: Report,
   vendored: Map<string, string>,
+  options: { vtexInvoke?: VtexInvokeMode } = {},
 ): Set<Stub> {
+  const vtexInvoke = options.vtexInvoke ?? "keep";
   const framework = siteFramework(root);
   const stubs = new Set<Stub>();
   const sources = listSources(path.join(root, "src"));
@@ -229,8 +243,62 @@ export function rewriteInvokes(
   // Each key's handler: the site's module, or the app's vendored copy.
   const handlers = new Map<string, Handler | null>();
   const names = new Set<string>();
+  /** VTEX invoke-map keys: on the v8 client, or why not (`--vtex-invoke v8`); vendored (`keep`). */
+  const v8Mapped: string[] = [];
+  const v8Unmapped = new Map<string, string>();
+  const kept = new Map<string, string>();
+  const v8File = path.join(root, "src", "server", "vtex-invoke.server.ts");
+  const handlerName = (key: string) => {
+    let name = functionName(key);
+    for (let n = 2; names.has(name); n++) name = `${functionName(key)}${n}`;
+    names.add(name);
+    return name;
+  };
+  const method = (key: string) => (/(^|\/)loaders\//.test(key) ? "GET" : "POST");
   const resolve = (key: string): Handler | null => {
     if (handlers.has(key)) return handlers.get(key)!;
+    const mapKey =
+      /^vtex\/(loaders|actions)\//.test(key) && !locateAppModule(root, key)
+        ? vtexInvokeMapKey(root, key)
+        : undefined;
+    if (mapKey) {
+      let handler: Handler | null = null;
+      if (vtexInvoke === "keep") {
+        const before = vendored.size;
+        const file = vendorModule(root, mapKey.module, vendored, report);
+        if (vendored.size > before) {
+          report.done.push({
+            step: "vendor",
+            subject: mapKey.moduleKey,
+            message: `copied to ${rel(file)} for v7's VTEX invoke keys (--vtex-invoke keep); rewrite it over the platform's upstream client (/next/upstream-clients)`,
+          });
+        }
+        kept.set(key, `${rel(file)} ${mapKey.exportName}`);
+        handler = {
+          key,
+          file,
+          exportName: mapKey.exportName,
+          name: handlerName(key),
+          method: method(key),
+        };
+      } else {
+        const v8 = v8Operation(key, framework);
+        if ("operation" in v8) {
+          v8Mapped.push(key);
+          handler = {
+            key,
+            file: v8File,
+            exportName: v8.operation.name,
+            name: handlerName(key),
+            method: method(key),
+          };
+        } else {
+          v8Unmapped.set(key, v8.reason);
+        }
+      }
+      handlers.set(key, handler);
+      return handler;
+    }
     let file: string | undefined;
     const [namespace, ...rest] = key.split("/");
     if (namespace === "site" && !rest.includes("..")) {
@@ -254,10 +322,7 @@ export function rewriteInvokes(
     }
     let handler: Handler | null = null;
     if (file && HAS_DEFAULT.test(fs.readFileSync(file, "utf8"))) {
-      let name = functionName(key);
-      for (let n = 2; names.has(name); n++) name = `${functionName(key)}${n}`;
-      names.add(name);
-      handler = { key, file, name, method: /(^|\/)loaders\//.test(key) ? "GET" : "POST" };
+      handler = { key, file, name: handlerName(key), method: method(key) };
     }
     handlers.set(key, handler);
     return handler;
@@ -277,7 +342,7 @@ export function rewriteInvokes(
   for (const { file, text, source, roots, calls, dynamic } of found) {
     const edits: Edit[] = [];
     const imported = new Set<string>();
-    let usesStub = false;
+    const usedStubs = new Set<Stub>();
     const replaced = new Set<ts.Node>();
     for (const call of calls) {
       const handler = resolve(call.key!);
@@ -289,9 +354,10 @@ export function rewriteInvokes(
             ? `${handler.name}(${call.props ? `{ data: ${call.props} }` : ""})`
             : `${handler.name}(${call.props ?? ""})`;
       } else {
-        usesStub = true;
-        stubs.add("unportedInvoke");
-        replacement = `unportedInvoke(${[JSON.stringify(call.key), call.props].filter(Boolean).join(", ")})`;
+        const stub = v8Unmapped.has(call.key!) ? "unportedVtexInvoke" : "unportedInvoke";
+        usedStubs.add(stub);
+        stubs.add(stub);
+        replacement = `${stub}(${[JSON.stringify(call.key), call.props].filter(Boolean).join(", ")})`;
         const set = missing.get(call.key!) ?? new Set();
         set.add(`${rel(file)}:${call.line}`);
         missing.set(call.key!, set);
@@ -337,7 +403,7 @@ export function rewriteInvokes(
       const line = `import { ${[...imported].sort().join(", ")} } from "${relativeSpecifier(file, functionsFile)}";`;
       edits.push({ start: at, end: at, text: at === 0 ? `${line}\n` : `\n${line}` });
     }
-    if (usesStub) edits.push(stubImport(file, root, ["unportedInvoke"], source));
+    if (usedStubs.size > 0) edits.push(stubImport(file, root, [...usedStubs].sort(), source));
     if (edits.length > 0) {
       fs.writeFileSync(file, applyEdits(text, edits));
       rewritten++;
@@ -352,6 +418,34 @@ export function rewriteInvokes(
     }
   }
 
+  if (v8Mapped.length > 0) {
+    const { clientFile } = writeV8Module(root, framework, v8Mapped);
+    report.done.push({
+      step: "invoke",
+      subject: rel(v8File),
+      message: `--vtex-invoke v8: v7's VTEX invoke-map keys on the v8 VTEX client, no v7 code: ${v8Mapped.map((k) => `${k} → vtex.${V8_VTEX_OPERATIONS[k].call.replace(/^vtex\./, "").replace(/\(.*$/s, "")}()`).join(", ")}`,
+    });
+    report.manual.push({
+      step: "invoke",
+      subject: `${rel(v8File)} (differences from v7)`,
+      message: `list them in the PR: ${v8Mapped.map((k) => `${k}: ${V8_VTEX_OPERATIONS[k].differs}`).join("; ")}`,
+    });
+    if (!clientFile) {
+      report.manual.push({
+        step: "invoke",
+        subject: "src/clients/vtex.ts",
+        message:
+          "the site saved no deco-vtex app block, so the script wrote no VTEX client: create src/clients/vtex.ts exporting vtexClient(), a createVtexClient from @decocms/apps-vtex with the store's account (/next/upstream-clients)",
+      });
+    }
+  }
+  if (kept.size > 0) {
+    report.done.push({
+      step: "invoke",
+      subject: "VTEX invoke keys (--vtex-invoke keep)",
+      message: `v7's VTEX app answered them from its own invoke map; each server function calls v7's handler, vendored: ${[...kept].map(([k, where]) => `${k} → ${where}`).join(", ")}. Run the migration with --vtex-invoke v8 instead to move them to @decocms/apps-vtex's client`,
+    });
+  }
   const used = [...handlers.values()].filter((h): h is Handler => h !== null);
   if (used.length > 0) {
     writeFunctions(functionsFile, framework, used);
@@ -372,9 +466,11 @@ export function rewriteInvokes(
     report.manual.push({
       step: "invoke",
       subject: `${key} (${list.slice(0, 3).join(", ")}${list.length > 3 ? `, +${list.length - 3} more` : ""})`,
-      message: key.startsWith("site/")
-        ? "no handler file answers this key, so v7's invoke failed with \"handler not found\" too; it's unportedInvoke from src/migration-stubs.ts now, which rejects. Remove the call, or write the handler and its server function"
-        : "no module of the installed app is this key's handler (v7's app answered it from its own invoke map, or the app isn't installed), so there was nothing to vendor; it's unportedInvoke from src/migration-stubs.ts now, which rejects. Call the platform's client (/next/upstream-clients) from a server function instead",
+      message: v8Unmapped.has(key)
+        ? `v7's VTEX app answered it from its own invoke map, and the migration ran with --vtex-invoke v8 (no v7 code), but ${v8Unmapped.get(key)}. It's unportedVtexInvoke from src/migration-stubs.ts now, which rejects with the key: write it over the site's VTEX client (src/clients/vtex.ts, /next/upstream-clients) in src/server/vtex-invoke.server.ts and give it a server function, or run the migration with --vtex-invoke keep to vendor v7's handler`
+        : key.startsWith("site/")
+          ? "no handler file answers this key, so v7's invoke failed with \"handler not found\" too; it's unportedInvoke from src/migration-stubs.ts now, which rejects. Remove the call, or write the handler and its server function"
+          : "no module of the installed app is this key's handler (v7's app answered it from its own invoke map, or the app isn't installed), so there was nothing to vendor; it's unportedInvoke from src/migration-stubs.ts now, which rejects. Call the platform's client (/next/upstream-clients) from a server function instead",
     });
   }
 
@@ -410,8 +506,10 @@ function writeFunctions(file: string, framework: Framework, handlers: Handler[])
     " * endpoints, as /deco/invoke was: validate each input before you ship.",
     " */",
   ];
-  const imports = handlers.map(
-    (h) => `import ${ident.get(h.key)} from "${relativeSpecifier(file, h.file)}";`,
+  const imports = handlers.map((h) =>
+    h.exportName
+      ? `import { ${h.exportName} as ${ident.get(h.key)} } from "${relativeSpecifier(file, h.file)}";`
+      : `import ${ident.get(h.key)} from "${relativeSpecifier(file, h.file)}";`,
   );
   const input = [
     "",

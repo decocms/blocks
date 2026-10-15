@@ -49,12 +49,19 @@ import { reencryptSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
 import { rewriteLoaderContext, rewritePartialImports, writeStubs } from "./stubs";
+import type { VtexInvokeMode } from "./vtexInvoke";
 
 interface MigrateOptions {
   /** The app root: the folder with the site's package.json. */
   root: string;
   /** A decofile to split into `.deco/blocks` when the site has none, relative to the root. */
   decofile?: string;
+  /**
+   * What the VTEX invoke keys v7's VTEX app answered from its own invoke map
+   * become: `"keep"` (default) vendors v7's handler, `"v8"` moves them to
+   * `@decocms/apps-vtex`'s client with no v7 code (./vtexInvoke.ts).
+   */
+  vtexInvoke?: VtexInvokeMode;
 }
 
 /** The scripts /next/cli#run-it-before-dev-and-build asks for. */
@@ -139,7 +146,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   const wiring = wireSectionLoaders(root, report);
   const { vendored } = writeBlockMap(root, report, wiring, apps);
   const stubs = new Set([
-    ...rewriteInvokes(root, report, vendored),
+    ...rewriteInvokes(root, report, vendored, { vtexInvoke: options.vtexInvoke }),
     ...rewriteLoaderContext(root, report),
     ...rewritePartialImports(root, report),
   ]);

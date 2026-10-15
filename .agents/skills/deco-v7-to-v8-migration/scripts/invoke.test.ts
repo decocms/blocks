@@ -8,6 +8,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createVtexClient } from "@decocms/apps-vtex";
+import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeAppClients } from "./apps";
 import { rewriteInvokes } from "./invoke";
@@ -147,6 +150,202 @@ describe("rewriteInvokes", () => {
     rewriteInvokes(root, createReport(), new Map());
     expect(read("src/c.ts")).toContain("invoke.site.loaders.x({})");
     expect(exists("src/server/invoke.functions.ts")).toBe(false);
+  });
+});
+
+/**
+ * The generated `src/server/vtex-invoke.server.ts`, run: its framework import and the site's VTEX
+ * client are replaced by the test's (the real v8 client over a fake fetch).
+ */
+async function importWith(
+  dir: string,
+  fakes: { getResponseHeaders: () => unknown; fetch: typeof fetch },
+): Promise<any> {
+  const text = fs
+    .readFileSync(path.join(dir, "src/server/vtex-invoke.server.ts"), "utf8")
+    .replace(
+      /^import \{ getResponseHeaders \} from .*$/m,
+      "const { getResponseHeaders } = globalThis.__vtexInvokeTest;",
+    )
+    .replace(
+      /^import \{ vtexClient \} from .*$/m,
+      "const { vtexClient } = globalThis.__vtexInvokeTest;",
+    );
+  (globalThis as Record<string, unknown>).__vtexInvokeTest = {
+    getResponseHeaders: fakes.getResponseHeaders,
+    vtexClient: () => createVtexClient({ account: "store", fetch: fakes.fetch, retry: false }),
+  };
+  const js = ts.transpileModule(text, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const file = path.join(dir, "vtex-invoke.run.mjs");
+  fs.writeFileSync(file, js);
+  return import(pathToFileURL(file).href);
+}
+
+describe("VTEX invoke-map keys (--vtex-invoke)", () => {
+  const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  const CHECKOUT = [
+    'import { vtexFetch } from "../client";',
+    "export async function addItemsToCart(props: { orderFormId: string; orderItems: unknown[] }) {",
+    '  return vtexFetch("/api/checkout/pub/orderForm/" + props.orderFormId + "/items", props);',
+    "}",
+    "export async function simulateCart(props: { items: unknown[]; postalCode: string }) {",
+    '  return vtexFetch("/api/checkout/pub/orderForms/simulation", props);',
+    "}",
+    "",
+  ].join("\n");
+  const v7Site = (pkg: object) =>
+    site({
+      "package.json": pkg,
+      "node_modules/@decocms/apps-vtex/package.json": {
+        name: "@decocms/apps-vtex",
+        exports: { "./*": "./src/*.ts" },
+      },
+      "node_modules/@decocms/apps-vtex/src/client.ts":
+        "export const vtexFetch = async (path: string, body: unknown) => ({ path, body });\n",
+      "node_modules/@decocms/apps-vtex/src/actions/checkout.ts": CHECKOUT,
+      "node_modules/@decocms/apps-vtex/src/actions/address.ts":
+        "export async function deleteAddress(props: { id: string }) { return props; }\n",
+      "src/clients/vtex.ts": [
+        'import { createVtexClient, type VtexClient } from "@decocms/apps-vtex";',
+        'export function vtexClient(): VtexClient { return createVtexClient({ account: "store", salesChannel: "1" }); }',
+        "",
+      ].join("\n"),
+      "src/cart.ts": [
+        'import { invoke } from "@decocms/blocks/sdk/invoke";',
+        "export const cart = () => [",
+        '  invoke.vtex.actions.checkout.addItemsToCart({ orderFormId: "of", orderItems: [] }),',
+        '  invoke["vtex/actions/checkout/simulateCart.ts"]({ items: [], postalCode: "01000" }),',
+        '  invoke.vtex.actions.address.deleteAddress({ id: "a" }),',
+        "];",
+        "",
+      ].join("\n"),
+    });
+
+  it("keep (the default): each key calls v7's handler, vendored, by its export", () => {
+    v7Site(TANSTACK);
+    const report = createReport();
+    const stubs = rewriteInvokes(root, report, new Map());
+    const fns = read("src/server/invoke.functions.ts");
+    expect(fns).toContain(
+      'import { addItemsToCart as handler0 } from "../vendor/vtex/actions/checkout";',
+    );
+    expect(fns).toContain(
+      'import { deleteAddress as handler2 } from "../vendor/vtex/actions/address";',
+    );
+    expect(read("src/vendor/vtex/actions/checkout.ts")).toContain(
+      "export async function simulateCart",
+    );
+    expect(read("src/cart.ts")).toContain(
+      '$vtexActionsAddressDeleteAddress({ data: { id: "a" } })',
+    );
+    expect(stubs.size).toBe(0);
+    expect(exists("src/server/vtex-invoke.server.ts")).toBe(false);
+    expect(
+      report.done.find((n) => n.subject === "VTEX invoke keys (--vtex-invoke keep)")?.message,
+    ).toContain(
+      "vtex/actions/checkout/addItemsToCart → src/vendor/vtex/actions/checkout.ts addItemsToCart",
+    );
+  });
+
+  it("v8 on TanStack Start: the client's operations, a stub that rejects for the rest, no v7 code", async () => {
+    v7Site(TANSTACK);
+    const report = createReport();
+    const stubs = rewriteInvokes(root, report, new Map(), { vtexInvoke: "v8" });
+    expect(exists("src/vendor")).toBe(false);
+    const fns = read("src/server/invoke.functions.ts");
+    expect(fns).toContain('import { addItemsToCart as handler0 } from "./vtex-invoke.server";');
+    expect(fns).toContain('import { simulateCart as handler1 } from "./vtex-invoke.server";');
+    const v8 = read("src/server/vtex-invoke.server.ts");
+    expect(v8).toContain(
+      "return forward(vtex.checkout.addItems(props.orderFormId, props.orderItems.map((item) => ({ ...item, id: Number(item.id) })), shopper), request);",
+    );
+    expect(v8).toContain('import { vtexClient } from "../clients/vtex";');
+    const cart = read("src/cart.ts");
+    expect(cart).toContain('unportedVtexInvoke("vtex/actions/address/deleteAddress", { id: "a" })');
+    expect(cart).toContain('import { unportedVtexInvoke } from "./migration-stubs";');
+    expect([...stubs]).toEqual(["unportedVtexInvoke"]);
+    const note = report.manual.find((n) =>
+      n.subject.startsWith("vtex/actions/address/deleteAddress"),
+    );
+    expect(note?.message).toContain("--vtex-invoke v8");
+    expect(note?.message).toContain("no operation for it");
+    expect(
+      report.manual.find((n) => n.subject.endsWith("(differences from v7)"))?.message,
+    ).toContain("allowedOutdatedData");
+
+    // The generated module and the server functions type-check against the v8 VTEX client.
+    writeStubs(root, stubs, createReport());
+    const links: [string, string][] = [
+      ["node_modules/@tanstack", path.join(REPO, "node_modules", "@tanstack")],
+    ];
+    for (const [link, target] of links) fs.symlinkSync(target, path.join(root, link), "dir");
+    const program = ts.createProgram(
+      ["src/server/vtex-invoke.server.ts", "src/server/invoke.functions.ts", "src/cart.ts"].map(
+        (f) => path.join(root, f),
+      ),
+      {
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        allowImportingTsExtensions: true,
+        lib: ["lib.es2022.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
+        types: [],
+        paths: {
+          "@decocms/apps-vtex": [path.join(REPO, "packages/apps-vtex/src/index.ts")],
+          "@decocms/blocks/fetch": [path.join(REPO, "packages/blocks/src/v8/fetch.ts")],
+          "@decocms/tanstack/server": [path.join(REPO, "packages/tanstack/src/server.ts")],
+        },
+      },
+    );
+    const errors = ts
+      .getPreEmitDiagnostics(program)
+      .filter((d) => d.file?.fileName.startsWith(path.join(root, "src")))
+      .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+    expect(errors).toEqual([]);
+
+    // And the cart call forwards VTEX's cookies as v7 did: IS session cookies kept back, the site's domain.
+    const appended: string[] = [];
+    const { addItemsToCart } = await importWith(root, {
+      getResponseHeaders: () => ({ append: (_: string, v: string) => appended.push(v) }),
+      fetch: async () =>
+        new Response(JSON.stringify({ orderFormId: "of" }), {
+          headers: [
+            [
+              "set-cookie",
+              "checkout.vtex.com=__ofid=of; Domain=store.vtexcommercestable.com.br; Path=/",
+            ],
+            ["set-cookie", "vtex_is_session=x; Path=/"],
+          ],
+        }),
+    });
+    const data = await addItemsToCart(
+      { orderFormId: "of", orderItems: [] },
+      new Request("https://shop.test/_serverFn/x", { headers: { cookie: "a=b" } }),
+    );
+    expect(data).toEqual({ orderFormId: "of" });
+    expect(appended).toEqual(["checkout.vtex.com=__ofid=of; Domain=shop.test; Path=/"]);
+  }, 60_000);
+
+  it("v8 on Next.js: a call that returns VTEX's cookies isn't mapped (cookies() re-encodes them)", () => {
+    v7Site(NEXT);
+    const report = createReport();
+    rewriteInvokes(root, report, new Map(), { vtexInvoke: "v8" });
+    const v8 = read("src/server/vtex-invoke.server.ts");
+    expect(v8).toContain("export async function simulateCart(");
+    expect(v8).not.toContain("addItems");
+    expect(v8).not.toContain("@tanstack");
+    expect(read("src/cart.ts")).toContain(
+      'unportedVtexInvoke("vtex/actions/checkout/addItemsToCart", { orderFormId: "of", orderItems: [] })',
+    );
+    expect(
+      report.manual.find((n) => n.subject.startsWith("vtex/actions/checkout/addItemsToCart"))
+        ?.message,
+    ).toContain("route handler");
   });
 });
 

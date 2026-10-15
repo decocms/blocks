@@ -38,6 +38,7 @@ export const STUBS_FILE = path.join("src", "migration-stubs.ts");
 
 export type Stub =
   | "unportedInvoke"
+  | "unportedVtexInvoke"
   | "appState"
   | "useSection"
   | "usePartialSection"
@@ -55,6 +56,21 @@ const STUB_SOURCES: Record<Stub, string[]> = {
     "    new Error(",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
     "      `invoke(${String(key)}) has no v8 equivalent here: call its handler or its server function (see src/migration-stubs.ts)`,",
+    "    ),",
+    "  );",
+    "}",
+  ],
+  unportedVtexInvoke: [
+    "/**",
+    " * @deprecated A VTEX invoke key v7's VTEX app answered from its own invoke map, migrated with",
+    " * --vtex-invoke v8 (no v7 code) to an operation @decocms/apps-vtex's client doesn't have. Write it over",
+    " * the site's VTEX client (src/clients/vtex.ts) in src/server/vtex-invoke.server.ts, with a server function.",
+    " */",
+    "export function unportedVtexInvoke(key: unknown, _props?: unknown): Promise<any> {",
+    "  return Promise.reject(",
+    "    new Error(",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
+    "      `VTEX invoke ${String(key)} isn't ported to the v8 VTEX client yet (migrated with --vtex-invoke v8; see src/migration-stubs.ts)`,",
     "    ),",
     "  );",
     "}",
@@ -93,6 +109,7 @@ const STUB_SOURCES: Record<Stub, string[]> = {
 
 const ORDER: Stub[] = [
   "unportedInvoke",
+  "unportedVtexInvoke",
   "appState",
   "useSection",
   "usePartialSection",
