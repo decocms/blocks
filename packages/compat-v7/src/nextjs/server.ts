@@ -11,12 +11,14 @@
  *   (latest 7.x) reuses a decision and records new ones.
  * - `SegmentCookie`: writes the `deco_segment` cookie with the visitor's A/B
  *   groups. A server component can't set a cookie and the proxy runs before
- *   the page decides, so the page renders a one-line script that sets it,
- *   the same cookie v7's `persistFlags` sent:
+ *   the page decides, so the page renders a one-line script that sets it
+ *   (and, after a client-side navigation, where React runs no script it
+ *   renders, an effect that sets it), the same cookie v7's `persistFlags` sent:
  *   `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`.
  *   Render it after the content resolved (the matchers ran), as the last
  *   child of the page. A page that reads the request is dynamic, so Next
- *   never shares it between visitors.
+ *   never shares it between visitors; keep any CDN in front from caching it
+ *   too, or every visitor gets the first one's groups.
  *
  * ```tsx
  * // the block map
@@ -32,11 +34,12 @@ import { cache, createElement, type ReactElement } from "react";
 import { type Device, detectDevice } from "../device.ts";
 import type { MatcherContext } from "../matchers/context.ts";
 import { type StoredFlag, segmentSetCookie } from "../matchers/segment.ts";
-import { PAGE_URL_HEADER } from "./shared.ts";
+import { SegmentCookieWriter } from "./SegmentCookieWriter.ts";
+import { PAGE_URL_HEADER, segmentCookieScript } from "./shared.ts";
 
 export type { Device } from "../device.ts";
 export type { MatcherContext, StoredFlag } from "../matchers/index.ts";
-export { PAGE_URL_HEADER };
+export { PAGE_URL_HEADER, segmentCookieScript };
 
 interface RequestState {
   flags: StoredFlag[];
@@ -86,7 +89,8 @@ export interface SegmentCookieProps {
 }
 
 /**
- * The script that sets `deco_segment` to keep this request's A/B decisions,
+ * The script (and, on a client-side navigation, the effect) that sets
+ * `deco_segment` to keep this request's A/B decisions,
  * merged over the visitor's cookie; nothing when no matcher decided or the
  * cookie already says the same.
  */
@@ -95,13 +99,5 @@ export function SegmentCookie({ nonce }: SegmentCookieProps = {}): ReactElement 
   if (!state.request) return null;
   const value = segmentSetCookie(state.request, state.flags);
   if (value === null) return null;
-  return createElement("script", {
-    nonce,
-    dangerouslySetInnerHTML: { __html: segmentCookieScript(value) },
-  });
-}
-
-/** `document.cookie = <Set-Cookie value>`, inert inside a `<script>`. */
-export function segmentCookieScript(setCookie: string): string {
-  return `document.cookie=${JSON.stringify(setCookie).replace(/</g, "\\u003c")}`;
+  return createElement(SegmentCookieWriter, { setCookie: value, nonce });
 }
