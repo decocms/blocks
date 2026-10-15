@@ -1909,6 +1909,11 @@ export function createDecoWorkerEntry(
       ? createResponseCache(
           storage,
           JSON.stringify([new URL(request.url).origin, getBuildHash(env), getRevision()]),
+          // Runtime flag (no rebuild to flip): store cached bodies as raw bytes. See ResponseCacheOptions.
+          {
+            bytes:
+              env.DECO_RESPONSE_CACHE_BYTES === "1" || env.DECO_RESPONSE_CACHE_BYTES === "true",
+          },
         )
       : null;
   }
