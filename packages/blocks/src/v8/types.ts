@@ -256,9 +256,10 @@ export interface CMSConfig {
   /** ms between `update()` checks of a content source that has one; minimum 60 000. */
   interval?: number;
   /**
-   * Local development (`import.meta.env.DEV`, `process.env.NODE_ENV === "development"`):
-   * hosted releases are never swapped in, so local files win. Drafts still load.
-   * The SDK reads no environment variable for it; default `false`.
+   * Local development: hosted releases are never swapped in, so local files win.
+   * Drafts still load. Default: `process.env.NODE_ENV === "development"` (read
+   * guarded, so `false` where there is no `process`: Workers, browsers). Pass it
+   * to override that, e.g. `dev: import.meta.env.DEV` or `dev: false`.
    */
   dev?: boolean;
   /** Where telemetry goes; see /next/telemetry. */
