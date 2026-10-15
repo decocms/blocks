@@ -7,12 +7,16 @@
  * export and so no handler file of its own. Each migration chooses what
  * those keys become (`--vtex-invoke`):
  *
- * - `keep` (the default): v7's handler, vendored into `src/vendor` like any
- *   app loader, so the call works as it did;
+ * - `keep`: v7's handler, vendored into `src/vendor` like any app loader, so
+ *   the call works as it did;
  * - `v8`: no v7 code. A key the v8 VTEX client (`@decocms/apps-vtex`) has an
  *   operation for becomes a function over that client in
  *   `src/server/vtex-invoke.server.ts`; any other is the
  *   `unportedVtexInvoke` stub, which rejects, and a report line.
+ *
+ * There is no default (PO 2026-10-15: "each migration could choose this"): a
+ * site that calls such keys and gave no choice stops before anything is
+ * written (`VtexInvokeChoiceNeeded`); a site without them needs no flag.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +25,31 @@ import { locateAppModule, relativeSpecifier } from "./vendor";
 
 export type VtexInvokeMode = "keep" | "v8";
 export const VTEX_INVOKE_MODES: readonly VtexInvokeMode[] = ["keep", "v8"];
+
+/**
+ * The site calls keys of v7's VTEX invoke map and the migration wasn't told
+ * what they become. Thrown before anything is written; the message lists the
+ * keys and both choices.
+ */
+export class VtexInvokeChoiceNeeded extends Error {
+  readonly keys: readonly string[];
+  constructor(keys: readonly string[]) {
+    super(
+      [
+        `This site calls ${keys.length === 1 ? "1 VTEX key" : `${keys.length} VTEX keys`} that v7's VTEX app answered from its own invoke map:`,
+        ...keys.map((key) => `  - ${key}`),
+        "",
+        "Choose what they become and run the migration again (nothing was changed yet):",
+        "  --vtex-invoke keep  copy v7's handlers into src/vendor, so each call works as it did",
+        "  --vtex-invoke v8    no v7 code: @decocms/apps-vtex's client where it has the operation",
+        "                      (the cart, simulation, sellers), else a stub that rejects, listed in the report",
+        "Either way the report lists every key and what it became (reference/server-functions.md).",
+      ].join("\n"),
+    );
+    this.name = "VtexInvokeChoiceNeeded";
+    this.keys = keys;
+  }
+}
 
 /** A key of v7's VTEX invoke map: a named export of one of the app's modules. */
 export interface VtexInvokeMapKey {

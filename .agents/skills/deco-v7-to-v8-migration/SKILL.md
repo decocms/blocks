@@ -49,7 +49,7 @@ rm -rf .deco-migrate
 |---|---|
 | `--root <dir>` | The app root, the folder with the site's `package.json`. Default: `.` |
 | `--decofile <file>` | Content to split into `.deco/blocks` when the site has none: the JSON the v7 site serves at `/.decofile`. |
-| `--vtex-invoke keep\|v8` | VTEX keys v7's app answered from its invoke map: `keep` (default) vendors v7's handler; `v8` uses `@decocms/apps-vtex`'s client or a stub that rejects ([`reference/server-functions.md`](reference/server-functions.md)). |
+| `--vtex-invoke keep\|v8` | No default. Needed if the site calls v7's VTEX invoke-map keys (else it stops, listing them): `keep` vendors v7's handler; `v8` uses the v8 client or a stub ([`reference/server-functions.md`](reference/server-functions.md)). |
 
 In order: **content** (site **settings** folded into `.deco/blocks/CMS.json`, app blocks turned into `src/clients/<app>.ts`), **secrets**, **block map**, **invoke** (one server function per key), **scaffold** (`src/cms.ts`, the page loader, the catch-all route), **imports**, **scripts**. Each step: [`reference/script-steps.md`](reference/script-steps.md).
 

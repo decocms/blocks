@@ -37,6 +37,7 @@ import { chainKey, normalizeKey, propertyChain, type Stub, stubImport } from "./
 import { firstFile, locateAppModule, relativeSpecifier, vendorModule } from "./vendor";
 import {
   V8_VTEX_OPERATIONS,
+  VtexInvokeChoiceNeeded,
   type VtexInvokeMode,
   v8Operation,
   vtexInvokeMapKey,
@@ -146,29 +147,20 @@ interface Handler {
   method: "GET" | "POST";
 }
 
-/**
- * Rewrites v7's invoke calls under `src/` into server functions. Returns the
- * stubs it used. `vendored` is the block map's vendored modules (shared, so
- * an app loader both use is copied once).
- */
-export function rewriteInvokes(
-  root: string,
-  report: Report,
-  vendored: Map<string, string>,
-  options: { vtexInvoke?: VtexInvokeMode } = {},
-): Set<Stub> {
-  const vtexInvoke = options.vtexInvoke ?? "keep";
-  const framework = siteFramework(root);
-  const stubs = new Set<Stub>();
+/** A site file's invoke calls: the keys it names, and the lines of the ones it builds at run time. */
+interface FoundInvokes {
+  file: string;
+  text: string;
+  source: ts.SourceFile;
+  roots: Map<string, Root>;
+  calls: Call[];
+  dynamic: number[];
+}
+
+/** Every v7 invoke call under `src/`, read only. */
+function findInvokeCalls(root: string): FoundInvokes[] {
   const sources = listSources(path.join(root, "src"));
-  const found: {
-    file: string;
-    text: string;
-    source: ts.SourceFile;
-    roots: Map<string, Root>;
-    calls: Call[];
-    dynamic: number[];
-  }[] = [];
+  const found: FoundInvokes[] = [];
 
   for (const file of sources) {
     const text = fs.readFileSync(file, "utf8");
@@ -226,6 +218,47 @@ export function rewriteInvokes(
     if (calls.length > 0 || dynamic.length > 0)
       found.push({ file, text, source, roots, calls, dynamic });
   }
+  return found;
+}
+
+/**
+ * The keys of v7's VTEX invoke map (./vtexInvoke.ts) the site calls, sorted,
+ * read before the migration writes anything: when there are any, the
+ * migration needs `--vtex-invoke`. A site on no v8 binding the script knows
+ * keeps its invoke calls as they are, so it needs no choice.
+ */
+export function vtexInvokeMapKeysUsed(root: string): string[] {
+  if (!siteFramework(root)) return [];
+  const keys = new Set<string>();
+  for (const { calls } of findInvokeCalls(root)) {
+    for (const { key } of calls) {
+      if (
+        /^vtex\/(loaders|actions)\//.test(key) &&
+        !locateAppModule(root, key) &&
+        vtexInvokeMapKey(root, key)
+      ) {
+        keys.add(key);
+      }
+    }
+  }
+  return [...keys].sort();
+}
+
+/**
+ * Rewrites v7's invoke calls under `src/` into server functions. Returns the
+ * stubs it used. `vendored` is the block map's vendored modules (shared, so
+ * an app loader both use is copied once).
+ */
+export function rewriteInvokes(
+  root: string,
+  report: Report,
+  vendored: Map<string, string>,
+  options: { vtexInvoke?: VtexInvokeMode } = {},
+): Set<Stub> {
+  const vtexInvoke = options.vtexInvoke;
+  const framework = siteFramework(root);
+  const stubs = new Set<Stub>();
+  const found = findInvokeCalls(root);
   if (found.length === 0) return stubs;
 
   const rel = (file: string) => path.relative(root, file).split(path.sep).join("/");
@@ -262,6 +295,8 @@ export function rewriteInvokes(
         ? vtexInvokeMapKey(root, key)
         : undefined;
     if (mapKey) {
+      // migrate() asks for the choice before writing anything (vtexInvokeMapKeysUsed).
+      if (!vtexInvoke) throw new VtexInvokeChoiceNeeded([key]);
       let handler: Handler | null = null;
       if (vtexInvoke === "keep") {
         const before = vendored.size;

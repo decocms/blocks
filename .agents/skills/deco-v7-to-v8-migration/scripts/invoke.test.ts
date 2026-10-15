@@ -14,10 +14,12 @@ import { createVtexClient } from "@decocms/apps-vtex";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeAppClients } from "./apps";
-import { rewriteInvokes } from "./invoke";
+import { rewriteInvokes, vtexInvokeMapKeysUsed } from "./invoke";
+import { migrate } from "./migrate";
 import { createReport } from "./report";
 import { scopeQueryClient, v7RouteOptions, writeScaffold } from "./scaffold";
 import { rewriteLoaderContextIn, rewritePartialImports, writeStubs } from "./stubs";
+import { VtexInvokeChoiceNeeded } from "./vtexInvoke";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let root: string;
@@ -225,10 +227,70 @@ describe("VTEX invoke-map keys (--vtex-invoke)", () => {
       ].join("\n"),
     });
 
-  it("keep (the default): each key calls v7's handler, vendored, by its export", () => {
+  /** Every file under the site and its bytes, to prove a run wrote nothing. */
+  const tree = (dir: string): Record<string, string> =>
+    Object.fromEntries(
+      (fs.readdirSync(dir, { recursive: true }) as string[])
+        .map((file) => path.join(dir, file))
+        .filter((file) => fs.statSync(file).isFile())
+        .map((file) => [path.relative(dir, file), fs.readFileSync(file, "utf8")]),
+    );
+  const KEYS = [
+    "vtex/actions/address/deleteAddress",
+    "vtex/actions/checkout/addItemsToCart",
+    "vtex/actions/checkout/simulateCart",
+  ];
+
+  it("has no default: a site calling them without a choice stops before anything is written", async () => {
+    v7Site(TANSTACK);
+    const before = tree(root);
+    expect(vtexInvokeMapKeysUsed(root)).toEqual(KEYS);
+    const error = await migrate({ root }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(VtexInvokeChoiceNeeded);
+    expect((error as VtexInvokeChoiceNeeded).keys).toEqual(KEYS);
+    const message = (error as Error).message;
+    for (const key of KEYS) expect(message).toContain(`  - ${key}\n`);
+    expect(message).toContain("--vtex-invoke keep");
+    expect(message).toContain("--vtex-invoke v8");
+    expect(message).toContain("nothing was changed yet");
+    expect(tree(root)).toEqual(before);
+    // The step itself refuses to guess too.
+    expect(() => rewriteInvokes(root, createReport(), new Map())).toThrow(VtexInvokeChoiceNeeded);
+  });
+
+  it("the command line stops with the keys and both choices, without the usage, and writes nothing", () => {
+    v7Site(TANSTACK);
+    const before = tree(root);
+    const run = spawnSync("bun", [path.join(HERE, "main.ts"), "--root", root], {
+      encoding: "utf8",
+    });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("3 VTEX keys that v7's VTEX app answered from its own invoke map");
+    expect(run.stderr).toContain("  - vtex/actions/checkout/addItemsToCart");
+    expect(run.stderr).toMatch(/--vtex-invoke keep {2}copy v7's handlers/);
+    expect(run.stderr).toMatch(/--vtex-invoke v8 {4}no v7 code/);
+    expect(run.stderr).not.toContain("Usage:");
+    expect(tree(root)).toEqual(before);
+  });
+
+  it("a site that calls none of them needs no flag", () => {
+    site({
+      "package.json": TANSTACK,
+      "src/loaders/thing.ts": "export default (props: { id: string }) => props;\n",
+      "src/cart.ts": [
+        'import { invoke } from "@decocms/blocks/sdk/invoke";',
+        'export const thing = () => invoke["site/loaders/thing.ts"]({ id: "1" });',
+        "",
+      ].join("\n"),
+    });
+    expect(vtexInvokeMapKeysUsed(root)).toEqual([]);
+    expect(() => rewriteInvokes(root, createReport(), new Map())).not.toThrow();
+  });
+
+  it("keep: each key calls v7's handler, vendored, by its export", () => {
     v7Site(TANSTACK);
     const report = createReport();
-    const stubs = rewriteInvokes(root, report, new Map());
+    const stubs = rewriteInvokes(root, report, new Map(), { vtexInvoke: "keep" });
     const fns = read("src/server/invoke.functions.ts");
     expect(fns).toContain(
       'import { addItemsToCart as handler0 } from "../vendor/vtex/actions/checkout";',

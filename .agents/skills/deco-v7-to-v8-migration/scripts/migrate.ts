@@ -41,7 +41,7 @@ import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
 import { siteFramework, V8_RANGE } from "./framework";
 import { rewriteImports } from "./imports";
-import { rewriteInvokes } from "./invoke";
+import { rewriteInvokes, vtexInvokeMapKeysUsed } from "./invoke";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
 import { writeScaffold } from "./scaffold";
@@ -49,7 +49,7 @@ import { reencryptSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
 import { rewriteLoaderContext, rewritePartialImports, writeStubs } from "./stubs";
-import type { VtexInvokeMode } from "./vtexInvoke";
+import { VtexInvokeChoiceNeeded, type VtexInvokeMode } from "./vtexInvoke";
 
 interface MigrateOptions {
   /** The app root: the folder with the site's package.json. */
@@ -58,8 +58,10 @@ interface MigrateOptions {
   decofile?: string;
   /**
    * What the VTEX invoke keys v7's VTEX app answered from its own invoke map
-   * become: `"keep"` (default) vendors v7's handler, `"v8"` moves them to
-   * `@decocms/apps-vtex`'s client with no v7 code (./vtexInvoke.ts).
+   * become: `"keep"` vendors v7's handler, `"v8"` moves them to
+   * `@decocms/apps-vtex`'s client with no v7 code (./vtexInvoke.ts). No
+   * default: a site that calls such keys without a choice gets
+   * `VtexInvokeChoiceNeeded` before anything is written.
    */
   vtexInvoke?: VtexInvokeMode;
 }
@@ -134,6 +136,10 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   const root = path.resolve(options.root);
   if (!fs.existsSync(path.join(root, "package.json"))) {
     throw new Error(`no package.json in ${root}; pass the app root with --root`);
+  }
+  if (!options.vtexInvoke) {
+    const keys = vtexInvokeMapKeysUsed(root);
+    if (keys.length > 0) throw new VtexInvokeChoiceNeeded(keys);
   }
   const report = createReport();
   moveContent(root, report, { decofile: options.decofile });
