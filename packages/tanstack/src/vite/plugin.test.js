@@ -155,6 +155,21 @@ describe("decoVitePlugin meta.gen.json on SSR (regression: vite:json double-pars
     expect(watched).toEqual([path.join(dir, ".deco", "meta.gen.json")]);
   });
 
+  it("embeds an indented meta.gen.json compacted (whitespace costs isolate heap)", () => {
+    writeFileSync(
+      path.join(dir, ".deco", "meta.gen.json"),
+      JSON.stringify({ major: 1, schema: { title: "Coleção" } }, null, 2),
+    );
+    const p = getPlugin();
+    const id = p.resolveId.call({}, "../.deco/meta.gen.json", path.join(dir, "src", "setup.ts"), {
+      ssr: true,
+    });
+    const code = p.load.call({ addWatchFile() {} }, id, { ssr: true });
+    expect(code).toBe(
+      `export default JSON.parse(${JSON.stringify('{"major":1,"schema":{"title":"Coleção"}}')});`,
+    );
+  });
+
   it("gives each meta.gen.json its own module id (no shared state)", () => {
     const p = getPlugin();
     const other = mkdtempSync(path.join(tmpdir(), "deco-meta-other-"));

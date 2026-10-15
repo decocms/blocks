@@ -330,8 +330,12 @@ export function decoVitePlugin({ fastDeploy = "auto" } = {}) {
         const file = id.slice(META_GEN_PREFIX.length, -META_GEN_SUFFIX.length);
         // Virtual id → Vite won't watch the file on its own.
         this.addWatchFile?.(file);
-        const raw = readFileSync(file, "utf-8");
-        return `export default JSON.parse(${JSON.stringify(raw)});`;
+        // Re-serialize compactly: generate-schema writes it indented, and every
+        // byte of that whitespace is paid twice in the isolate (module source +
+        // the string literal), at two-byte width since the schema has accented
+        // text. On a real site: 7.3 MB chunk / +15 MB heap, vs 3.3 MB compact.
+        const compact = JSON.stringify(JSON.parse(readFileSync(file, "utf-8")));
+        return `export default JSON.parse(${JSON.stringify(compact)});`;
       }
 
       // loaders.gen.ts — the site's invoke registry (`export const siteLoaders`).
