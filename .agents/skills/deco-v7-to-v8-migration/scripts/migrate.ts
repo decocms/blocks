@@ -13,15 +13,25 @@
  *    matchers from `@decocms/compat-v7/matchers`, `loadSections` running the
  *    section loaders), after vendoring the app loaders and actions the
  *    content calls, and the view registry `src/views.ts`;
- * 4. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
+ * 4. invoke: each `/deco/invoke` key the site calls → one server function
+ *    (`src/server/invoke.functions.ts` or `invoke.actions.ts`), imported at
+ *    each call site; `ctx.invoke`, app state and `useSection` → the stubs in
+ *    `src/migration-stubs.ts`;
+ * 5. scaffold: `src/cms.ts`, the page loader and the catch-all route for the
+ *    binding, replacing v7's page routes;
+ * 6. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
- * 5. scripts: `deco schema && deco content` before dev and build.
+ * 7. scripts: `deco schema && deco content` before dev and build.
+ *
+ * Before the block map, v7's app blocks (`deco-vtex`, …) become the client
+ * code that configures each platform's client (`src/clients/<app>.ts`).
  *
  * It changes files in place, so run it on a clean working tree and review the
  * diff. What it can't do is returned in the report.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { writeAppClients } from "./apps";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { listSources, rewriteDeviceReads } from "./compat";
@@ -29,11 +39,14 @@ import { moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
 import { siteFramework, V8_RANGE } from "./framework";
 import { rewriteImports } from "./imports";
+import { rewriteInvokes } from "./invoke";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
+import { writeScaffold } from "./scaffold";
 import { reencryptSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
+import { rewriteLoaderContext, rewritePartialImports, writeStubs } from "./stubs";
 
 interface MigrateOptions {
   /** The app root: the folder with the site's package.json. */
@@ -118,11 +131,19 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   unwrapAsyncRendering(root, report);
   renameLegacyTypes(root, report);
   copyExperimentIds(root, report);
+  const apps = writeAppClients(root, report);
   foldSiteSettings(root, report);
   await reencryptSecrets(root, report);
   const wiring = wireSectionLoaders(root, report);
-  const { vendored } = writeBlockMap(root, report, wiring);
+  const { vendored } = writeBlockMap(root, report, wiring, apps);
+  const stubs = new Set([
+    ...rewriteInvokes(root, report, vendored),
+    ...rewriteLoaderContext(root, report),
+    ...rewritePartialImports(root, report),
+  ]);
+  writeStubs(root, stubs, report);
   rewriteDeviceReads(root, report);
+  writeScaffold(root, report);
   rewriteImports(root, report, vendored);
   addScripts(root, report);
   return report;

@@ -137,6 +137,8 @@ export function writeBlockMap(
   root: string,
   report: Report,
   wiring: SectionLoaderWiring = {},
+  /** v7 app types the apps step turned into client code (./apps.ts): not reported again. */
+  apps: ReadonlySet<string> = new Set(),
 ): BlockMapResult {
   const existing = ["index.ts", "index.tsx"].find((f) =>
     fs.existsSync(path.join(root, ".deco", f)),
@@ -209,7 +211,7 @@ export function writeBlockMap(
         continue;
       }
       if (rest.startsWith("apps/")) {
-        leave(type, hintFor(type));
+        if (!apps.has(type)) leave(type, hintFor(type));
         continue;
       }
       file = moduleFile(path.join(root, "src", rest));
@@ -436,7 +438,9 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
     "/** What a section block returns: the component to render (its v7 type name) and its props (/next/rendering). */",
     "export interface BlockDescriptor {",
     "  component: string;",
-    "  props: Record<string, unknown>;",
+    "  /** JSON from content and loader results. Loose, so a page's loader data can carry it to the browser. */",
+    "  // biome-ignore lint/suspicious/noExplicitAny: each view types its own props",
+    "  props: Record<string, any>;",
     "}",
     "",
     "/** A page with its blocks resolved. */",
@@ -454,7 +458,7 @@ function renderBlockMap(root: string, entries: Entry[], options: RenderOptions):
     "",
     "const section =",
     "  <M>(component: string) =>",
-    "  (props: PropsOf<M>): BlockDescriptor => ({ component, props: props as Record<string, unknown> });",
+    "  (props: PropsOf<M>): BlockDescriptor => ({ component, props: props as Record<string, any> });",
     "",
   );
   for (const e of entries.filter((e) => e.kind === "section")) {
