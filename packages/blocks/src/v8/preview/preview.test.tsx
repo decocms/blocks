@@ -438,11 +438,24 @@ describe("StudioBridge", () => {
       expect(opened(open)).toMatchObject({ pathTemplate: "/category/*" });
     });
 
-    it("StudioPage renders an inert marker, and nothing without a template", () => {
+    it("StudioPage renders a <meta> marker (React hoists it into the head), and nothing without a template", () => {
       expect(renderToStaticMarkup(<StudioPage pathTemplate={'/"><x'} id="p" />)).toBe(
-        '<template data-deco-page="" data-path-template="/&quot;&gt;&lt;x" data-page-id="p"></template>',
+        '<meta name="deco:page" content="/&quot;&gt;&lt;x" data-deco-page="" data-path-template="/&quot;&gt;&lt;x" data-page-id="p"/>',
       );
       expect(renderToStaticMarkup(<StudioPage />)).toBe("");
+      const doc = renderToString(
+        <html lang="en">
+          <head />
+          <body>
+            <main>
+              <StudioPage pathTemplate="/:slug/p" />
+              <p>page</p>
+            </main>
+          </body>
+        </html>,
+      );
+      expect(doc.indexOf('name="deco:page"')).toBeLessThan(doc.indexOf("<body>"));
+      expect(doc).toContain("<main><p>page</p></main>");
     });
 
     it('leaves a plain "." typed in any field alone', () => {
