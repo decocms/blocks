@@ -18,7 +18,12 @@ export {
   snapshotKey,
 } from "./blockSource";
 export type { DeferredTrigger } from "./deferredTrigger";
-export { DEFAULT_DEFERRED_TRIGGER, getDeferredTrigger } from "./deferredTrigger";
+export {
+  DEFAULT_DEFERRED_ROOT_MARGIN,
+  DEFAULT_DEFERRED_TRIGGER,
+  getDeferredRootMargin,
+  getDeferredTrigger,
+} from "./deferredTrigger";
 export type {
   DraftPointer,
   ResolveDraftForRequestOptions,
