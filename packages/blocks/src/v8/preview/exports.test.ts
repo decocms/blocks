@@ -17,6 +17,7 @@ describe("the ./preview subpath", () => {
     expect(Object.keys(await import("@decocms/blocks/preview")).sort()).toEqual([
       "DraftBadge",
       "StudioBridge",
+      "StudioPage",
     ]);
   });
 

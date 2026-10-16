@@ -15,8 +15,13 @@ import { describe, expect, it } from "vitest";
 import { DecoDocument } from "./DecoDocument.tsx";
 import { pageValues, publishScript } from "./pageValues.ts";
 
-async function render(scope: { csegToken?: string; draft?: string }, props = {}) {
+async function render(
+  scope: { csegToken?: string; draft?: string },
+  props = {},
+  loader?: () => unknown,
+) {
   const rootRoute = createRootRoute({
+    loader,
     component: () => (
       <DecoDocument site="acme" {...props}>
         <p id="extra">extra</p>
@@ -87,6 +92,25 @@ describe("DecoDocument", () => {
       html.match(/<script[^>]*data-deco-studio-bridge[^>]*>/)?.[0] ?? "";
     expect(bridgeTag(await render({}))).toContain("data-shortcut");
     expect(bridgeTag(await render({}, { editShortcut: false }))).not.toContain("data-shortcut");
+  });
+});
+
+describe("the page the edit shortcut opens", () => {
+  const bridgeTag = (html: string) =>
+    html.match(/<script[^>]*data-deco-studio-bridge[^>]*>/)?.[0] ?? "";
+
+  it("is the route's pathTemplate and pageId, on the bridge", async () => {
+    const tag = bridgeTag(
+      await render({}, {}, () => ({ pathTemplate: "/:slug/p", pageId: "pages-pdp", name: "PDP" })),
+    );
+    expect(tag).toContain('data-path-template="/:slug/p"');
+    expect(tag).toContain('data-page-id="pages-pdp"');
+  });
+
+  it("is absent when no route says (Studio falls back to the URL)", async () => {
+    const tag = bridgeTag(await render({}, {}, () => ({ name: "x" })));
+    expect(tag).not.toContain("data-path-template");
+    expect(tag).not.toContain("data-page-id");
   });
 });
 

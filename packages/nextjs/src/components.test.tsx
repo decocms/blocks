@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const slot = vi.hoisted(() => ({ pointer: null as string | null }));
 vi.mock("./server/slot.ts", () => ({ activeDraftPointer: () => slot.pointer }));
 
-const { DraftPreviewIndicator, StudioBridge } = await import("./index.ts");
+const { DraftPreviewIndicator, StudioBridge, StudioPage } = await import("./index.ts");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,5 +59,16 @@ describe("StudioBridge", () => {
     const html = renderToStaticMarkup(<StudioBridge site="acme" editShortcut nonce="n1" />);
     expect(html).toContain('data-shortcut=""');
     expect(html).toContain('nonce="n1"');
+  });
+
+  it("passes the page through, and StudioPage is the marker a page renders", () => {
+    const html = renderToStaticMarkup(
+      <StudioBridge site="acme" page={{ pathTemplate: "/:slug/p", id: "pages-pdp" }} />,
+    );
+    expect(html).toContain('data-path-template="/:slug/p"');
+    expect(html).toContain('data-page-id="pages-pdp"');
+    expect(renderToStaticMarkup(<StudioPage pathTemplate="/s" />)).toBe(
+      '<template data-deco-page="" data-path-template="/s"></template>',
+    );
   });
 });
