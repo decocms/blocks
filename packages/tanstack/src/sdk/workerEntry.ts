@@ -122,6 +122,12 @@ import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationR
 declare const __DECO_BUILD_HASH__: string | undefined;
 
 /**
+ * Cache-key version that survives CMS-only commits (fast deploy) — see
+ * `codeTreeHash` in the vite plugin. Empty when unavailable.
+ */
+declare const __DECO_CACHE_VERSION__: string | undefined;
+
+/**
  * The five canonical cache-decision strings stamped on the `X-Cache`
  * response header (and on the `decision` label of `cache_*_total`
  * metrics). Used by the request-metric label enrichment to keep label
@@ -1556,6 +1562,23 @@ export function createDecoWorkerEntry(
     if (cacheVersionEnv === false) return "";
     const fromEnv = (env[cacheVersionEnv] as string) || "";
     if (fromEnv) return fromEnv;
+    // Survives CMS-only commits (same code, same chunks) — see `codeTreeHash`
+    // in the vite plugin. Falls back to the commit when the plugin couldn't
+    // compute it.
+    if (typeof __DECO_CACHE_VERSION__ !== "undefined" && __DECO_CACHE_VERSION__) {
+      return __DECO_CACHE_VERSION__;
+    }
+    return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
+  }
+
+  /**
+   * Like `getBuildHash`, but always the commit (or the env override): what
+   * `X-Cache-Version` reports, so a response can still be matched to a SHA.
+   */
+  function getDeployHash(env: Record<string, unknown>): string {
+    if (cacheVersionEnv === false) return "";
+    const fromEnv = (env[cacheVersionEnv] as string) || "";
+    if (fromEnv) return fromEnv;
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
   }
 
@@ -1969,12 +1992,31 @@ export function createDecoWorkerEntry(
           : undefined;
       storage = native ? createWebCacheStorage(native, new URL(request.url).origin) : null;
     }
+    // The CMS revision is NOT part of the namespace: with fast deploy every
+    // publish changes it, and keying on it orphaned the whole cache on each
+    // publish (PDP MISS 95%+ for hours on sites that publish every 10-30 min).
+    // Entries carry the revision they were rendered with instead, and a
+    // mismatch is served as STALE-HIT + background revalidation — see
+    // `isCurrentRevision`. The build hash stays: a new build can mean new
+    // client chunks, and stale HTML pointing at deleted chunks 404s.
     return storage
       ? createResponseCache(
           storage,
-          JSON.stringify([new URL(request.url).origin, getBuildHash(env), getRevision()]),
+          JSON.stringify([new URL(request.url).origin, getBuildHash(env)]),
         )
       : null;
+  }
+
+  const REVISION_HEADER = "X-Deco-Revision";
+  const revisionTag = () => getRevision() ?? "";
+
+  function stampRevision(headers: Headers): void {
+    headers.set(REVISION_HEADER, revisionTag());
+  }
+
+  /** An entry from another CMS revision may be served stale, never as a fresh HIT. */
+  function isCurrentRevision(cached: Response): boolean {
+    return cached.headers.get(REVISION_HEADER) === revisionTag();
   }
 
   // -- Admin route handler ---------------------------------------------------
@@ -2896,7 +2938,7 @@ export function createDecoWorkerEntry(
         const storedAt = Number(sfnCached.headers.get("X-Deco-Stored-At") || "0");
         const ageSec = storedAt > 0 ? (Date.now() - storedAt) / 1000 : Infinity;
 
-        if (ageSec < sfnEdge.fresh) {
+        if (ageSec < sfnEdge.fresh && isCurrentRevision(sfnCached)) {
           recordCacheMetric(true, sfnProfile, "HIT", "edge");
           const out = new Response(sfnCached.body, sfnCached);
           const hdrs = cacheHeaders(sfnProfile);
@@ -2935,6 +2977,7 @@ export function createDecoWorkerEntry(
                     const toStore = bgOrigin.clone();
                     toStore.headers.set("Cache-Control", `public, max-age=${ttl}`);
                     toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+                    stampRevision(toStore.headers);
                     toStore.headers.delete("CDN-Cache-Control");
                     toStore.headers.delete("X-Deco-Cacheable");
                     await serverFnCache.put(sfnCacheKey, toStore);
@@ -2990,6 +3033,7 @@ export function createDecoWorkerEntry(
           const toStore = origin.clone();
           toStore.headers.set("Cache-Control", `public, max-age=${ttl}`);
           toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+          stampRevision(toStore.headers);
           toStore.headers.delete("CDN-Cache-Control");
           toStore.headers.delete("X-Deco-Cacheable");
           ctx.waitUntil(
@@ -3136,7 +3180,7 @@ export function createDecoWorkerEntry(
       out.headers.set("X-Cache", xCache);
       out.headers.set("X-Cache-Profile", profile);
       if (segment) out.headers.set("X-Cache-Segment", hashSegment(segment));
-      const headerVersion = getBuildHash(env);
+      const headerVersion = getDeployHash(env);
       if (headerVersion) out.headers.set("X-Cache-Version", headerVersion);
       if (extra) for (const [k, v] of Object.entries(extra)) out.headers.set(k, v);
       appendResourceHints(out);
@@ -3153,6 +3197,7 @@ export function createDecoWorkerEntry(
         const toStore = resp.clone();
         toStore.headers.set("Cache-Control", `public, max-age=${storageTtl}`);
         toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+        stampRevision(toStore.headers);
         toStore.headers.delete("CDN-Cache-Control");
         const stored = withTracing("deco.cache.store", () => cache.put(cacheKey, toStore), {
           "cache.profile": profile,
@@ -3247,7 +3292,7 @@ export function createDecoWorkerEntry(
       const ageMs = storedAt > 0 ? Date.now() - storedAt : Infinity;
       const ageSec = ageMs / 1000;
 
-      if (ageSec < edgeConfig.fresh) {
+      if (ageSec < edgeConfig.fresh && isCurrentRevision(cached)) {
         // FRESH HIT — serve immediately
         recordCacheMetric(true, profile, "HIT", "edge");
         return dressResponse(cached, "HIT");

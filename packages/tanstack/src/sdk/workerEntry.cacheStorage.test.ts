@@ -76,6 +76,32 @@ describe("worker cache storage injection", () => {
     await flush();
   });
 
+  it("a CMS publish serves the previous revision as STALE-HIT and refreshes it in background", async () => {
+    let n = 0;
+    const origin = {
+      fetch: vi.fn(
+        async () => new Response(`page v${++n}`, { headers: { "content-type": "text/html" } }),
+      ),
+    };
+    const worker = createDecoWorkerEntry(origin, options);
+    const bindings = env();
+    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("MISS");
+    await flush();
+    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+
+    setBlocks({ published: { __resolveType: "x" } });
+    const stale = await worker.fetch(request(), bindings, ctx);
+    expect(stale.headers.get("x-cache")).toBe("STALE-HIT");
+    expect(await stale.text()).toBe("page v1");
+    await flush();
+
+    const refreshed = await worker.fetch(request(), bindings, ctx);
+    expect(refreshed.headers.get("x-cache")).toBe("HIT");
+    expect(await refreshed.text()).toBe("page v2");
+    expect(origin.fetch).toHaveBeenCalledTimes(2);
+    await flush();
+  });
+
   it("uses the same adapter for loader results and isolates authenticated requests", async () => {
     const upstream = vi.fn(async () => ({ n: upstream.mock.calls.length }));
     const loader = createCachedLoader("worker-cache-test", upstream, {
