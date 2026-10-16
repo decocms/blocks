@@ -12,6 +12,9 @@
  *   `STUDIO_ORIGINS`; outside it, "." opens the page in Studio's editor, with
  *   the page's `pathTemplate` from the route's loader data) and `DraftBadge`
  *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`.
+ *
+ * A site that keeps its own document renders `DecoPreview` in its `<body>`
+ * for the bridge, the badge and the draft they read.
  */
 import { DraftBadge, StudioBridge } from "@decocms/blocks/preview";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
@@ -92,6 +95,67 @@ function studioPageOf(
   return undefined;
 }
 
+/** The Studio bridge, with the page on screen, and the badge for the request's draft. */
+function StudioPieces({
+  site,
+  editShortcut,
+  nonce,
+  draft,
+}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce"> & { draft: string | undefined }) {
+  // Two primitives, so a navigation that keeps the page doesn't re-render the document.
+  const pathTemplate = useRouterState({ select: (s) => studioPageOf(s.matches)?.pathTemplate });
+  const pageId = useRouterState({ select: (s) => studioPageOf(s.matches)?.id });
+  return (
+    <>
+      <StudioBridge
+        site={site}
+        trustedOrigins={STUDIO_ORIGINS}
+        editShortcut={editShortcut}
+        page={{ pathTemplate, id: pageId }}
+        nonce={nonce}
+      />
+      <DraftBadge pointer={draft ?? null} />
+    </>
+  );
+}
+
+export interface DecoPreviewProps {
+  /** The site's name in Deco (the "." shortcut opens the page under it). */
+  site: string;
+  /**
+   * The "." shortcut that opens the page in Studio (on by default; `false`
+   * turns it off). It opens the page whose route returns `pathTemplate` (and
+   * optionally `pageId`) in its loader data; without one, Studio picks the
+   * page from the URL.
+   */
+  editShortcut?: boolean;
+  /** The CSP nonce for the inline scripts, when the site enforces one. */
+  nonce?: string;
+}
+
+/**
+ * What `DecoDocument` mounts for Studio and draft previews, for a site that
+ * keeps its own document (a skip link before `<main>`, say): the request's
+ * draft and CDN segment token published to the browser, `StudioBridge` and
+ * `DraftBadge`. Render it once, in the `<body>`.
+ */
+export function DecoPreview({ site, editShortcut, nonce }: DecoPreviewProps) {
+  const values = pageValues();
+  const publish = publishScript(values);
+  return (
+    <>
+      {publish && (
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: publish }}
+        />
+      )}
+      <StudioPieces site={site} editShortcut={editShortcut} nonce={nonce} draft={values.draft} />
+    </>
+  );
+}
+
 export interface DecoDocumentProps {
   /** The site's name in Deco (the Studio bridge's shortcut opens the page under it). */
   site: string;
@@ -138,10 +202,6 @@ export function DecoDocument({
     return () => clearTimeout(id);
   }, [readyDelay]);
 
-  // Two primitives, so a navigation that keeps the page doesn't re-render the document.
-  const pathTemplate = useRouterState({ select: (s) => studioPageOf(s.matches)?.pathTemplate });
-  const pageId = useRouterState({ select: (s) => studioPageOf(s.matches)?.id });
-
   const values = pageValues();
   const publish = publishScript(values);
   const Outer = outlet;
@@ -165,14 +225,7 @@ export function DecoDocument({
           <StableOutlet />
         </Outer>
         {children}
-        <StudioBridge
-          site={site}
-          trustedOrigins={STUDIO_ORIGINS}
-          editShortcut={editShortcut}
-          page={{ pathTemplate, id: pageId }}
-          nonce={nonce}
-        />
-        <DraftBadge pointer={values.draft ?? null} />
+        <StudioPieces site={site} editShortcut={editShortcut} nonce={nonce} draft={values.draft} />
         <ScriptOnce>{DATA_EVENT_OBSERVER}</ScriptOnce>
         <Scripts />
       </body>
