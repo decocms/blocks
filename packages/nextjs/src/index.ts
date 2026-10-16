@@ -8,6 +8,9 @@
  *   lets Studio's site editor drive the page when Studio frames it
  *   (`@decocms/blocks/preview`'s, answering `STUDIO_ORIGINS`). It renders an
  *   inline script with no React hooks, so a Server Component renders it as is.
+ *   Outside Studio's frame, "." opens the page in Studio's editor.
+ * - `StudioPage`: rendered inside each CMS page, `<StudioPage pathTemplate={page.path} />`,
+ *   tells the bridge which page "." opens (the root layout doesn't re-render per page).
  * - `DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`, `draftResponseHeaders`,
  *   `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS`, `isStudioOrigin`: for a site
  *   that needs them in its own code (a route that sets its own headers, a CSP
@@ -19,7 +22,7 @@
  * loads React.
  */
 
-export { DraftBadge } from "@decocms/blocks/preview";
+export { DraftBadge, StudioPage, type StudioPageInfo } from "@decocms/blocks/preview";
 export {
   DraftPreviewIndicator,
   type DraftPreviewIndicatorProps,
