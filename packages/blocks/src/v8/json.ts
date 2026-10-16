@@ -9,6 +9,16 @@ export function isPlainObject(value: unknown): value is JsonObject {
   return proto === Object.prototype || proto === null;
 }
 
+/**
+ * The reserved key a saved block's metadata lives under, next to
+ * `__resolveType`: `{ lastEditedBy: <Studio user id>, lastEditedAt: <ISO
+ * 8601> }`, stamped by the site editor on every save. It is metadata, never
+ * content: the resolver drops it wherever it walks, so no block function,
+ * loader, list or rendered page sees it. `deco check` accepts it like any
+ * `_`-prefixed key.
+ */
+export const META_KEY = "__meta";
+
 /** A stored block: a plain object whose `__resolveType` is a string. */
 export function isBlock(value: unknown): value is JsonObject & { __resolveType: string } {
   return isPlainObject(value) && typeof value.__resolveType === "string";
