@@ -8,8 +8,9 @@
  *   keeps its height while the next page loads;
  * - the CDN segment token and the draft this request renders, for
  *   `decoServerFnFetch` and the draft badge;
- * - `StudioBridge` (inert unless Studio frames the page; it answers Studio's
- *   origins, `STUDIO_ORIGINS`) and `DraftBadge`
+ * - `StudioBridge` (in Studio's frame it answers Studio's origins,
+ *   `STUDIO_ORIGINS`; outside it, "." opens the page in Studio's editor, with
+ *   the page's `pathTemplate` from the route's loader data) and `DraftBadge`
  *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`.
  */
 import { DraftBadge, StudioBridge } from "@decocms/blocks/preview";
@@ -70,6 +71,27 @@ export function StableOutlet() {
   );
 }
 
+/**
+ * The page the "." shortcut opens in Studio: the deepest matched route whose
+ * loader data carries a string `pathTemplate` (the page block's `path`, as
+ * `matchRoute` matched it) and, optionally, `pageId`. v7's document read the
+ * same thing from its CMS route's `path` and `blockKey`.
+ */
+function studioPageOf(
+  matches: readonly { loaderData?: unknown }[],
+): { pathTemplate: string; id?: string } | undefined {
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const data = matches[i]?.loaderData as { pathTemplate?: unknown; pageId?: unknown } | undefined;
+    if (data && typeof data === "object" && typeof data.pathTemplate === "string") {
+      return {
+        pathTemplate: data.pathTemplate,
+        id: typeof data.pageId === "string" ? data.pageId : undefined,
+      };
+    }
+  }
+  return undefined;
+}
+
 export interface DecoDocumentProps {
   /** The site's name in Deco (the Studio bridge's shortcut opens the page under it). */
   site: string;
@@ -83,7 +105,12 @@ export interface DecoDocumentProps {
   readyDelay?: number;
   /** The element around the page: `"main"` (default), or `"div"` when the page renders its own `<main>`. */
   outlet?: "main" | "div";
-  /** The "." shortcut that opens the page in Studio (on by default; `false` turns it off). */
+  /**
+   * The "." shortcut that opens the page in Studio (on by default; `false`
+   * turns it off). It opens the page whose route returns `pathTemplate` (and
+   * optionally `pageId`) in its loader data; without one, Studio picks the
+   * page from the URL.
+   */
   editShortcut?: boolean;
   /** The CSP nonce for the inline scripts, when the site enforces one. */
   nonce?: string;
@@ -110,6 +137,10 @@ export function DecoDocument({
     }, readyDelay);
     return () => clearTimeout(id);
   }, [readyDelay]);
+
+  // Two primitives, so a navigation that keeps the page doesn't re-render the document.
+  const pathTemplate = useRouterState({ select: (s) => studioPageOf(s.matches)?.pathTemplate });
+  const pageId = useRouterState({ select: (s) => studioPageOf(s.matches)?.id });
 
   const values = pageValues();
   const publish = publishScript(values);
@@ -138,6 +169,7 @@ export function DecoDocument({
           site={site}
           trustedOrigins={STUDIO_ORIGINS}
           editShortcut={editShortcut}
+          page={{ pathTemplate, id: pageId }}
           nonce={nonce}
         />
         <DraftBadge pointer={values.draft ?? null} />
