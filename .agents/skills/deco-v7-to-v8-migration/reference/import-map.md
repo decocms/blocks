@@ -27,7 +27,7 @@ An import that mixes moved and other names is split; the rest is reported.
 
 ## Left alone (already the v8 API)
 
-`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, …), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`, `/image` (platform-neutral: `createImageUrl`, `decoCdn`, `srcSet`, `parseSrcSet`, `preloadLink`), `/vite`, `/preview` (`DraftBadge`, `StudioBridge`); the platforms' image helpers, `@decocms/apps-vtex/image` and `@decocms/apps-shopify/image`; the root of `@decocms/tanstack` 8 (the draft names and Studio's origins) and every subpath (`/worker`, `/server`, `/start`, `/router`, `/react`, `/scope`, and `/vite`'s `decoTanstack`), and of `@decocms/nextjs` 8 (`/proxy`, `/server`, `/image-loader`, `/config`'s `withDeco`, the root's `StudioBridge`, `DraftBadge`, draft names and Studio's origins); every `@decocms/compat-v7` entry point.
+`@decocms/blocks` (the root's v8 names: `createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, `Seo`, …), `@decocms/blocks/fetch`, `/analytics`, `/secrets`, `/cli`, `/image` (platform-neutral: `createImageUrl`, `decoCdn`, `srcSet`, `parseSrcSet`, `preloadLink`), `/vite`, `/preview` (`DraftBadge`, `StudioBridge`, `StudioPage`); the platforms' image helpers, `@decocms/apps-vtex/image` and `@decocms/apps-shopify/image`; the root of `@decocms/tanstack` 8 (the draft names and Studio's origins) and every subpath (`/worker`, `/server`, `/start`, `/router`, `/react`, `/scope`, and `/vite`'s `decoTanstack`), and of `@decocms/nextjs` 8 (`/proxy`, `/server`, `/image-loader`, `/config`'s `withDeco`, the root's `StudioBridge`, `StudioPage`, `DraftBadge`, draft names and Studio's origins); every `@decocms/compat-v7` entry point.
 
 ## Reported, with where the replacement lives (first match wins)
 
@@ -58,7 +58,7 @@ An import that mixes moved and other names is split; the rest is reported.
 | `DraftPreviewIndicator` (`@decocms/nextjs`) | the same name in v8, showing what `bindDraft` bound: call that first |
 | `@decocms/nextjs/middleware` | `decideDraft` … `applyDraft` (or `draftProxy`) from `@decocms/nextjs/proxy` |
 | `@decocms/nextjs/routeHandlers`, `DECO_REWRITES` | delete: no `/deco/*` handlers in v8 |
-| `LiveControls` (`@decocms/blocks/hooks`) | `StudioBridge`: `DecoDocument` mounts it; a Next.js layout renders it from `@decocms/nextjs` |
+| `LiveControls` (`@decocms/blocks/hooks`) | `StudioBridge`: `DecoDocument` mounts it (`DecoPreview` in a site's own document); a Next.js layout renders it from `@decocms/nextjs`, and each page renders `StudioPage` |
 | `DraftPreviewBadge` (`@decocms/blocks/preview`, `@decocms/nextjs`) | `DraftBadge` from `@decocms/blocks/preview` |
 | `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all", ...byRelease })] })` (`byRelease` by the site's 7.x release, or read from the site's own copy of the helper: `framework-code.md`): `createImageUrl`, `decoCdn` from `@decocms/blocks/image`, `vtexCatalog` from `@decocms/apps-vtex/image`, `shopifyCdn` from `@decocms/apps-shopify/image`; `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
 | `Image`, `Picture` on a Next.js site | next/image with `createDecoImageLoader` from `@decocms/nextjs/image-loader` |
