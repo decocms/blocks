@@ -15,11 +15,8 @@
  * - Every read revalidates: with a body this process already holds, it sends
  *   `If-None-Match` with that body's ETag, and a `304` reuses the body. Only
  *   a 200 or that 304 is accepted, within 10 s; a 200 is up to 16 MiB, shaped
- *   exactly `{ set: { <name>: <block JSON> }, delete: [<name>…], edits? }`
- *   with `set` and `delete` disjoint. `edits` is the editor's own record of
- *   who changed each name and when (`{ <name>: { userId, at } }`, written by
- *   Studio): it must be an object when present, and is dropped right here,
- *   so nothing of it reaches a snapshot or a rendered page.
+ *   exactly `{ set: { <name>: <block JSON> }, delete: [<name>…] }` with `set`
+ *   and `delete` disjoint.
  */
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
 import { isPlainObject } from "./json.ts";
@@ -173,11 +170,8 @@ export async function fetchDraftChanges(
 export function parseDraftChanges(body: unknown): DraftChanges {
   const invalid = (why: string) => new Error(`draft changes: ${why}`);
   if (!isPlainObject(body)) throw invalid("expected an object");
-  if (Object.keys(body).some((key) => key !== "set" && key !== "delete" && key !== "edits")) {
+  if (Object.keys(body).some((key) => key !== "set" && key !== "delete")) {
     throw invalid("unexpected field");
-  }
-  if (body.edits !== undefined && !isPlainObject(body.edits)) {
-    throw invalid("edits must be an object");
   }
   const { set, delete: deleted } = body;
   if (!isPlainObject(set)) throw invalid("set must be an object");
@@ -185,8 +179,7 @@ export function parseDraftChanges(body: unknown): DraftChanges {
     throw invalid("delete must be a list of names");
   }
   if (deleted.some((name) => Object.hasOwn(set, name))) throw invalid("set and delete overlap");
-  // Only `set` and `delete` go on: the editor's `edits` never reach content.
-  return { set, delete: deleted as string[] };
+  return body as unknown as DraftChanges;
 }
 
 /**
