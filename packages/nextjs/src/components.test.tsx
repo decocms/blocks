@@ -68,7 +68,7 @@ describe("StudioBridge", () => {
     expect(html).toContain('data-path-template="/:slug/p"');
     expect(html).toContain('data-page-id="pages-pdp"');
     expect(renderToStaticMarkup(<StudioPage pathTemplate="/s" />)).toBe(
-      '<template data-deco-page="" data-path-template="/s"></template>',
+      '<meta name="deco:page" content="/s" data-deco-page="" data-path-template="/s"/>',
     );
   });
 });
