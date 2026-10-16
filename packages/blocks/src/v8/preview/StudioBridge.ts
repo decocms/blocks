@@ -167,12 +167,15 @@ export function StudioBridge({
 /**
  * Tells the bridge which page is on screen: render it inside the page (not a
  * layout that stays across navigations), with the page block's `path` as
- * `matchRoute` matched it. An inert, hidden `<template>`; the "." shortcut
- * reads the last one in the document when the key is pressed.
+ * `matchRoute` matched it. A `<meta>`, which React places in the document's
+ * `<head>` wherever the page renders it, so it adds nothing to the page's own
+ * markup; the "." shortcut reads the last one when the key is pressed.
  */
 export function StudioPage({ pathTemplate, id }: StudioPageInfo): ReactNode {
   if (!pathTemplate) return null;
-  return createElement("template", {
+  return createElement("meta", {
+    name: "deco:page",
+    content: pathTemplate,
     [PAGE_MARKER]: "",
     "data-path-template": pathTemplate,
     "data-page-id": id || undefined,
