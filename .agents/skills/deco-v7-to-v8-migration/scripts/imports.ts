@@ -101,6 +101,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "DraftBadgeProps",
     "StudioBridge",
     "StudioBridgeProps",
+    "StudioPage",
+    "StudioPageInfo",
   ]),
   // The v8 bindings. Subpaths v7 never had are whole; the rest list v8's names.
   // The draft names and Studio's origins live in each binding's root, not in @decocms/blocks.
@@ -141,6 +143,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "STUDIO_ORIGINS",
     "StudioBridge",
     "StudioBridgeProps",
+    "StudioPage",
+    "StudioPageInfo",
   ]),
   "@decocms/nextjs/config": new Set([
     "DECO_DRAFT_HEADERS",
