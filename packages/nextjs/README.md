@@ -8,7 +8,7 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19.
 | --- | --- |
 | `@decocms/nextjs/proxy` | Draft previews in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, or `draftProxy` for a site with no proxy of its own. No React and no block map. |
 | `@decocms/nextjs/server` | Draft previews in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
-| `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page) and `StudioBridge` (lets Studio's site editor drive the page), plus the draft names and Studio's origins (below). |
+| `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/image-loader` | `createDecoImageLoader(imageUrl)`: a next/image loader over an `ImageUrl` from `@decocms/blocks/image`. |
 
@@ -63,6 +63,18 @@ import { StudioBridge } from "@decocms/nextjs";
 ```
 
 Studio's origins are the package's own (`STUDIO_ORIGINS`), so the bridge takes only the site's name. v7's "." edit shortcut is on by default (`editShortcut={false}` turns it off), and `nonce` is optional.
+
+On a page that isn't in Studio's frame, "." (or Ctrl+Shift+E) opens the page in Studio's editor, and Ctrl or Cmd+"." opens it in a new tab; Studio asks a visitor who isn't signed in to sign in first. To open the right page, each CMS page tells the bridge its path template: the root layout stays across navigations, so the page renders the marker, next to the sections it resolved:
+
+```tsx
+import { StudioPage } from "@decocms/nextjs";
+
+const match = matchRoute(pathname, { routes: pages });
+// …
+return <>{sections}<StudioPage pathTemplate={match.entry.path} /></>;
+```
+
+It renders a hidden `<template>`. Without it, Studio picks the page from the URL.
 
 ## Names and Studio's origins
 
