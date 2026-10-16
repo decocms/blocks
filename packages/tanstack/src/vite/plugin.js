@@ -85,6 +85,45 @@ function resolveBuildHash() {
   return Date.now().toString(36);
 }
 
+/**
+ * Edge/loader cache-key version for fast-deploy builds, injected as
+ * `__DECO_CACHE_VERSION__`: a hash of the committed tree at HEAD minus the
+ * decofile (`.deco/blocks/` and `.deco/blocks.gen.*`). A CMS publish commits
+ * only `.deco/blocks/` and ships byte-identical code — same client chunks — so
+ * it must not wipe the cache; the CMS revision is handled at runtime instead.
+ * Everything else in `.deco/` (sections/loaders/meta/redirects gen files) is
+ * bundled code and stays in the hash.
+ *
+ * Deliberately NOT `__DECO_BUILD_HASH__`: that one is also the deployment id
+ * the decofile snapshot is stored under (`decofile:<id>`), and two deploys
+ * must never share it.
+ *
+ * `null` (worker falls back to `__DECO_BUILD_HASH__`) whenever this can't be
+ * exact: no git, or the site isn't the repo root — then code outside the site
+ * directory could change without changing this hash.
+ *
+ * @returns {string | null}
+ */
+function codeTreeHash() {
+  const git = (args) =>
+    execFileSync("git", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+  try {
+    if (git(["rev-parse", "--show-prefix"]).trim() !== "") return null;
+    const root = git(["ls-tree", "HEAD"])
+      .split("\n")
+      .filter((line) => !line.endsWith("\t.deco"));
+    const deco = git(["ls-tree", "HEAD", ".deco/"])
+      .split("\n")
+      .filter((line) => !/\t\.deco\/blocks(\.gen\.[^/]+)?$/.test(line));
+    const digest = createHash("sha256")
+      .update([...root, "--", ...deco].join("\n"))
+      .digest("hex");
+    return `t${digest.slice(0, 11)}`;
+  } catch {
+    return null;
+  }
+}
+
 // Virtual id for meta.gen.json on the server: the real path wrapped so the id
 // does NOT end in `.json` (Vite's `vite:json` would re-parse our JS output).
 const META_GEN_PREFIX = "\0deco-meta:";
@@ -952,9 +991,11 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // identifier; prod gets WORKERS_CI_COMMIT_SHA → git rev-parse →
       // time-based fallback (see resolveBuildHash above).
       const buildHash = command === "build" ? resolveBuildHash() : "dev";
+      const cacheVersion = command === "build" && stubBlocks ? codeTreeHash() : null;
       cfg.define = {
         ...cfg.define,
         __DECO_BUILD_HASH__: JSON.stringify(buildHash),
+        __DECO_CACHE_VERSION__: JSON.stringify(cacheVersion ?? ""),
         // Tells the runtime whether this bundle actually ships a decofile.
         // `ensureBlocksHydrated` needs a build-time answer: with no bundled
         // snapshot, its "warn and serve bundled" recovery would serve an EMPTY
