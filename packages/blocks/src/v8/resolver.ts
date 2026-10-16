@@ -22,7 +22,7 @@ import { isLazyBuiltin } from "./builtins/lazy.ts";
 import { LEGACY_ALIASES, wrapLegacyVariants } from "./builtins/legacy.ts";
 import { isMultivariateBuiltin } from "./builtins/multivariate.ts";
 import { errors, isResolutionError } from "./errors.ts";
-import { canonicalKey, isPlainObject, type JsonObject, own } from "./json.ts";
+import { canonicalKey, isPlainObject, type JsonObject, META_KEY, own } from "./json.ts";
 import type { BlockFunction, Blocks, Lazy, Snapshot } from "./types.ts";
 
 type Path = (string | number)[];
@@ -55,9 +55,12 @@ export class Resolver {
     this.#onBlock = onBlock;
   }
 
-  /** The saved entry with this name, or `undefined`. */
+  /** The saved entry with this name, or `undefined`; never its `__meta`. */
   entry(name: string): unknown {
-    return own(this.#snapshot.blocks, name);
+    const saved = own(this.#snapshot.blocks, name);
+    if (!isPlainObject(saved) || !Object.hasOwn(saved, META_KEY)) return saved;
+    const { [META_KEY]: _meta, ...content } = saved;
+    return content;
   }
 
   /** The type an alias points at, or the type itself. */
@@ -128,6 +131,11 @@ export class Resolver {
     let changed = fromContent;
     const out: JsonObject = {};
     for (const [key, value] of Object.entries(node)) {
+      // Metadata, never content (see META_KEY).
+      if (key === META_KEY) {
+        changed = true;
+        continue;
+      }
       const expanded = this.expand(value, [...path, key], chain, fromContent);
       if (expanded !== value) changed = true;
       out[key] = expanded;
@@ -141,11 +149,12 @@ export class Resolver {
     chain: string[],
     fromContent: boolean,
   ): Promise<JsonObject> {
-    const keys = Object.keys(node);
+    // Metadata, never content (see META_KEY).
+    const keys = Object.keys(node).filter((key) => key !== META_KEY);
     const values = await Promise.all(
       keys.map((key) => this.resolve(node[key], [...path, key], chain, fromContent)),
     );
-    let changed = fromContent;
+    let changed = fromContent || keys.length !== Object.keys(node).length;
     const out: JsonObject = {};
     keys.forEach((key, i) => {
       if (values[i] !== node[key]) changed = true;
