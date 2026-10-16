@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeRevision,
   getRevision,
@@ -12,6 +12,7 @@ import {
   __resetKvHydrationStateForTests,
   ensureBlocksHydrated,
   getDeploymentId,
+  HYDRATION_STALE_MS,
   isFastDeployEnabled,
   maybePollRevision,
 } from "./kvHydration";
@@ -155,6 +156,118 @@ describe("ensureBlocksHydrated", () => {
       ensureBlocksHydrated({ DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID }),
     ).resolves.toBeUndefined();
     expect(loadBlocks()).toEqual(BUNDLED);
+  });
+});
+
+/**
+ * KV whose reads hang until `release()`: a load whose creating request is gone
+ * never settles on Workers, which is what a never-resolving get() models.
+ */
+function makeHangingKV(blocks: Record<string, unknown>) {
+  const store = new Map<string, string>([
+    [SNAP, JSON.stringify(blocks)],
+    [REV, computeRevision(blocks)],
+  ]);
+  let hang = true;
+  let getCalls = 0;
+  const kv: KVNamespace = {
+    get: (k) => {
+      getCalls++;
+      return hang ? new Promise(() => {}) : Promise.resolve(store.get(k) ?? null);
+    },
+    put: () => Promise.resolve(),
+    delete: () => Promise.resolve(),
+  };
+  return {
+    env: { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID },
+    release: () => {
+      hang = false;
+    },
+    getCalls: () => getCalls,
+  };
+}
+
+describe("ensureBlocksHydrated when the in-flight load never settles", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hands the load to ctx.waitUntil so the creating request outlives it", async () => {
+    const { env } = snapshotEnv({ Site: { name: "from-kv" } });
+    const { ctx, settle } = makeCtx();
+    const waitUntil = vi.spyOn(ctx, "waitUntil");
+    await ensureBlocksHydrated(env, ctx);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    await settle();
+  });
+
+  it("a waiting request gives up after HYDRATION_STALE_MS and loads on its own", async () => {
+    vi.useFakeTimers();
+    const kvBlocks = { Site: { name: "from-kv" } };
+    const { env, release, getCalls } = makeHangingKV(kvBlocks);
+
+    void ensureBlocksHydrated(env); // the creator, whose load never settles
+    const waiter = ensureBlocksHydrated(env);
+    const done = vi.fn();
+    void waiter.then(done);
+
+    await vi.advanceTimersByTimeAsync(HYDRATION_STALE_MS - 1);
+    expect(done).not.toHaveBeenCalled();
+
+    release(); // KV is fine again; only the dead load is stuck
+    await vi.advanceTimersByTimeAsync(1);
+    await waiter;
+    expect(loadBlocks()).toEqual(kvBlocks);
+    expect(getCalls()).toBeGreaterThan(1);
+  });
+
+  it("a request arriving after HYDRATION_STALE_MS does not join the dead load", async () => {
+    vi.useFakeTimers();
+    const kvBlocks = { Site: { name: "from-kv" } };
+    const { env, release } = makeHangingKV(kvBlocks);
+
+    void ensureBlocksHydrated(env);
+    await vi.advanceTimersByTimeAsync(HYDRATION_STALE_MS);
+    release();
+    await ensureBlocksHydrated(env);
+    expect(loadBlocks()).toEqual(kvBlocks);
+  });
+
+  it("a dropped load that settles late does not clobber the load that replaced it", async () => {
+    vi.useFakeTimers();
+    let resolveOld: ((v: string | null) => void) | undefined;
+    const fresh = { Site: { name: "fresh" } };
+    let calls = 0;
+    const kv: KVNamespace = {
+      get: (k) => {
+        calls++;
+        if (calls > 2) return new Promise(() => {}); // the replacement load is still in flight
+        if (k !== SNAP) return Promise.resolve(null);
+        return new Promise((r) => {
+          resolveOld = r;
+        });
+      },
+      put: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+    };
+    const env = { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID };
+
+    void ensureBlocksHydrated(env);
+    await vi.advanceTimersByTimeAsync(HYDRATION_STALE_MS);
+    const replacement = ensureBlocksHydrated(env); // drops the old load, starts its own
+    const done = vi.fn();
+    void replacement.then(done);
+
+    resolveOld?.(JSON.stringify(fresh)); // the old load finishes late
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Its finally must not mark the isolate hydrated nor null the replacement:
+    // a third request still joins the replacement instead of returning at once.
+    const third = vi.fn();
+    void ensureBlocksHydrated(env).then(third);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(third).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
   });
 });
 
