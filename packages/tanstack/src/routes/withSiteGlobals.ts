@@ -141,10 +141,15 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
   if (inflightEntry) {
     // Bounded by THIS request's timer: if the owner request was cancelled, its
     // I/O and timers died with it and the slot never settles (see joinInflight).
-    return joinInflight(inflightEntry, () => {
-      if (inflight.get(cacheKey) === inflightEntry) inflight.delete(cacheKey);
-      return resolveSiteGlobals(matcherCtx);
-    });
+    return joinInflight(
+      inflightEntry,
+      () => {
+        if (inflight.get(cacheKey) === inflightEntry) inflight.delete(cacheKey);
+        return resolveSiteGlobals(matcherCtx);
+      },
+      undefined,
+      `siteGlobals ${cacheKey}`,
+    );
   }
 
   const site = readSiteBlock();

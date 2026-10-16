@@ -27,11 +27,17 @@ function joinSlot<T>(
   key: string,
   shared: Promise<T>,
   rerun: () => Promise<T>,
+  label: string,
 ): Promise<T> {
-  return joinInflight(shared, () => {
-    if (map.get(key) === shared) map.delete(key);
-    return rerun();
-  });
+  return joinInflight(
+    shared,
+    () => {
+      if (map.get(key) === shared) map.delete(key);
+      return rerun();
+    },
+    undefined,
+    label,
+  );
 }
 
 function publishSlot<T>(
@@ -180,13 +186,14 @@ async function runCacheableSectionLoader(
 
   const rerun = () => runCacheableSectionLoader(section, loader, request, config);
   const existing = sectionLoaderInflight.get(key);
-  if (existing) return joinSlot(sectionLoaderInflight, key, existing, rerun);
+  if (existing)
+    return joinSlot(sectionLoaderInflight, key, existing, rerun, `sectionLoader ${key}`);
 
   const entry = getCacheStorageContext()?.storage
     ? await sectionLoaderCache.read(key)
     : sectionLoaderCache.get(key);
   const pending = sectionLoaderInflight.get(key);
-  if (pending) return joinSlot(sectionLoaderInflight, key, pending, rerun);
+  if (pending) return joinSlot(sectionLoaderInflight, key, pending, rerun, `sectionLoader ${key}`);
   const now = Date.now();
   const isStale = entry ? now - entry.createdAt > config.maxAge : true;
 
@@ -420,8 +427,12 @@ async function resolveLayoutSection(
 
   const existing = layoutInflight.get(key);
   if (existing) {
-    return joinSlot(layoutInflight, key, existing, () =>
-      resolveLayoutSection(section, loader, request),
+    return joinSlot(
+      layoutInflight,
+      key,
+      existing,
+      () => resolveLayoutSection(section, loader, request),
+      `layoutSection ${key}`,
     ).then(withIndex);
   }
 

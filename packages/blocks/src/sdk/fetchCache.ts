@@ -250,6 +250,7 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
           return fetchWithCache<T>(inputKey, doFetch, opts);
         },
         inflightBackstopMs,
+        `fetchCache ${cacheKey}`,
       );
     }
 

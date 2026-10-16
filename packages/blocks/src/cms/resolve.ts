@@ -1273,11 +1273,16 @@ function sharedResolvedLayout(
 ): Promise<ResolvedSection[]> {
   const inflight = resolvedLayoutInflight.get(cacheKey);
   if (inflight) {
-    return joinInflight(inflight, () => {
-      if (resolvedLayoutInflight.get(cacheKey) === inflight)
-        resolvedLayoutInflight.delete(cacheKey);
-      return sharedResolvedLayout(cacheKey, run);
-    });
+    return joinInflight(
+      inflight,
+      () => {
+        if (resolvedLayoutInflight.get(cacheKey) === inflight)
+          resolvedLayoutInflight.delete(cacheKey);
+        return sharedResolvedLayout(cacheKey, run);
+      },
+      undefined,
+      `resolvedLayout ${cacheKey}`,
+    );
   }
   const p: Promise<ResolvedSection[]> = withInflightTimeout(
     run().then((results) => {
