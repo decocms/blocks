@@ -163,9 +163,10 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
     }
     if (!info.isFile()) return null;
     const fingerprint = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+    const modifiedAt = new Date(Number(info.mtimeMs)).toISOString();
     const cached = hashCache.get(file);
     if (cached?.fingerprint === fingerprint) {
-      return { file, version: cached.version, size: Number(info.size) };
+      return { file, version: cached.version, size: Number(info.size), modifiedAt };
     }
     let bytes: Uint8Array;
     try {
@@ -176,7 +177,7 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
     }
     const version = gitBlobHash(bytes);
     hashCache.set(file, { fingerprint, version });
-    return { file, version, size: bytes.byteLength };
+    return { file, version, size: bytes.byteLength, modifiedAt };
   }
 
   /** The current version of a file, read fresh (no cache), or `null` when absent. */

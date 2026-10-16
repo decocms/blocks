@@ -3,7 +3,7 @@
  * The filesystem storage's base: the git HEAD of the repository the app root
  * is in, compared with git's own idea of equal content.
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -120,6 +120,23 @@ describe("the base is HEAD", () => {
     expect((await read("a.json")).toString("utf8")).toBe(crlf);
     expect(await changed(client)).toEqual({});
     expect(git(repo, "status", "--porcelain")).toBe("");
+  });
+
+  it("reports when an entry's file was last written (modifiedAt), and none for a deleted one", async () => {
+    const { root, client, write } = await app({ "a.json": a, "b.json": b });
+    await write("a.json", serializeBlock({ title: "A2" }));
+    const at = new Date("2026-10-16T12:00:00.000Z");
+    await utimes(join(root, ".deco", "blocks", "a.json"), at, at);
+    await rm(join(root, ".deco", "blocks", "b.json"));
+    const detail = await client.changesGet({ names: ["a", "b"] });
+    expect(detail.entries.a?.modifiedAt).toBe("2026-10-16T12:00:00.000Z");
+    expect(detail.entries.b).toMatchObject({ kind: "delete" });
+    expect(detail.entries.b).not.toHaveProperty("modifiedAt");
+    // The time says when, not what: touching a file doesn't move the revision.
+    const before = await client.blocksList();
+    await utimes(join(root, ".deco", "blocks", "a.json"), new Date(), new Date());
+    const after = await client.blocksList({ ifNoneMatch: before.revision });
+    expect(after.notModified).toBe(true);
   });
 
   it("keeps a base file's BOM: a discard restores its exact bytes, and both sides still parse", async () => {

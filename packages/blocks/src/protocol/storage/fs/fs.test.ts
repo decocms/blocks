@@ -44,8 +44,14 @@ describe("versions", () => {
     expect(gitBlobHash(content)).toBe(expected);
     await writeFile(join(blocksDir(), "a.json"), content);
     const snapshot = await createFsStorage({ root }).snapshot();
+    const { mtime } = await stat(join(blocksDir(), "a.json"));
     expect(snapshot.files).toEqual([
-      { file: "a.json", version: expected, size: Buffer.byteLength(content) },
+      {
+        file: "a.json",
+        version: expected,
+        size: Buffer.byteLength(content),
+        modifiedAt: mtime.toISOString(),
+      },
     ]);
   });
 

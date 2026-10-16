@@ -7,7 +7,7 @@
  */
 import { ErrorCode } from "../../errors.ts";
 import { MAX_NAMES_PER_GET } from "../../server/core.ts";
-import type { BlocksListResult, ChangesListResult } from "../../types.ts";
+import type { BlocksListResult, ChangeDetail, ChangesListResult } from "../../types.ts";
 import { REQUIRED_PROTOCOL_MINOR } from "../../types.ts";
 import {
   assert,
@@ -20,6 +20,22 @@ import type { ConformanceCase } from "./types.ts";
 
 type FullChanges = Extract<ChangesListResult, { notModified: false }>;
 type FullList = Extract<BlocksListResult, { notModified: false }>;
+
+/**
+ * A `changes.get` entry without its optional `modifiedAt`, which a server
+ * may leave out; when present it must be an ISO 8601 time, and never on a
+ * deleted entry.
+ */
+function withoutModifiedAt(entry: ChangeDetail | undefined): unknown {
+  if (!entry || !("modifiedAt" in entry)) return entry;
+  const { modifiedAt, ...rest } = entry;
+  assert(
+    typeof modifiedAt === "string" && Number.isFinite(Date.parse(modifiedAt)),
+    "modifiedAt, when present, is an ISO 8601 time",
+  );
+  assert(entry.after !== null || entry.kind !== "delete", "no modifiedAt on a deleted entry");
+  return rest;
+}
 
 async function changes(ctx: ConformanceContext): Promise<FullChanges> {
   const result = await ctx.client.changesList();
@@ -127,7 +143,7 @@ export const changesCases: ConformanceCase[] = [
 
       const detail = await ctx.client.changesGet({ names: [name] });
       assertEqual(
-        detail.entries[name],
+        withoutModifiedAt(detail.entries[name]),
         {
           kind: "set",
           before: null,
@@ -309,6 +325,7 @@ export const changesCases: ConformanceCase[] = [
 
         const detail = (await ctx.client.changesGet({ names: [base.name] })).entries[base.name];
         assertEqual(detail?.after, null, "after is null");
+        assert(!(detail && "modifiedAt" in detail), "no modifiedAt on a deleted entry");
         assertEqual(detail?.before, base.value, "before is the base");
 
         await ctx.client.changesDiscard({ names: [base.name], ifMatch: { [base.name]: null } });
@@ -327,7 +344,7 @@ export const changesCases: ConformanceCase[] = [
       const base = await baseEntry(ctx);
       const detail = (await ctx.client.changesGet({ names: [base.name] })).entries[base.name];
       assertEqual(
-        detail,
+        withoutModifiedAt(detail),
         {
           kind: null,
           before: base.value,

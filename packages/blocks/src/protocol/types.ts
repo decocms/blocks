@@ -192,6 +192,13 @@ export interface ChangeDetail {
   version: string | null;
   /** For an unchanged entry, equal to `version`. */
   baseVersion: string | null;
+  /**
+   * When the entry's current file was last written (ISO 8601). Optional:
+   * only a storage that knows it reports it (`deco serve`'s working tree,
+   * the file's mtime); absent for a deleted entry. A host may show it ("changed
+   * on your computer 3 minutes ago"); it never identifies who changed it.
+   */
+  modifiedAt?: string;
 }
 
 /** A side `changes.get` couldn't read: as in `blocks.list`, plus which side. */

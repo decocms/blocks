@@ -127,6 +127,13 @@ describe("changes.get", () => {
     ]);
   });
 
+  it("leaves modifiedAt out when the storage can't tell when a file was written", async () => {
+    const { storage, client } = committed({ "a.json": file({ v: 1 }) });
+    storage.setFile("a.json", file({ v: 2 }));
+    const detail = await client.changesGet({ names: ["a"] });
+    expect(detail.entries.a).not.toHaveProperty("modifiedAt");
+  });
+
   it("answers under the requested spelling, and leaves out names in neither side", async () => {
     const { storage, client } = committed({ "a%20b.json": file({ v: 1 }) });
     storage.setFile("a%20b.json", file({ v: 2 }));

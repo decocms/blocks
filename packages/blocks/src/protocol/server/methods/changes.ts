@@ -306,6 +306,9 @@ export async function changesGet(core: Core, params: ChangesGetParams): Promise<
     });
     const baseBodies = await readBaseBodies(core, state.base, baseFiles);
 
+    const modifiedAt = new Map(
+      state.snapshot.files.flatMap((f) => (f.modifiedAt ? [[f.file, f.modifiedAt]] : [])),
+    );
     const entries: Record<string, ChangeDetail> = Object.create(null);
     const diagnostics: ChangeDiagnostic[] = [];
     const side = (
@@ -333,12 +336,14 @@ export async function changesGet(core: Core, params: ChangesGetParams): Promise<
               plan.baseFile,
               "before",
             );
+      const writtenAt = plan.currentFile ? modifiedAt.get(plan.currentFile) : undefined;
       entries[plan.name] = {
         kind: plan.kind,
         before,
         after,
         version: plan.version,
         baseVersion: plan.baseVersion,
+        ...(writtenAt ? { modifiedAt: writtenAt } : {}),
       };
     }
     diagnostics.sort((a, b) => byFile(a, b) || (a.side < b.side ? -1 : a.side > b.side ? 1 : 0));

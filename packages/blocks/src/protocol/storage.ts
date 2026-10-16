@@ -34,6 +34,12 @@ export interface StorageFile {
   version: string;
   /** The file's size in bytes, when the storage knows it without reading the body. */
   size?: number;
+  /**
+   * When the file was last written (ISO 8601), for a storage that knows it
+   * without reading the body (a working tree's mtime). Never part of the
+   * revision: it says when, not what.
+   */
+  modifiedAt?: string;
 }
 
 /** Every saved-block file at one point in time. */
