@@ -32,6 +32,16 @@ import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
 /** How often (ms) an isolate re-probes its `index:revision:<id>`. */
 export const POLL_INTERVAL_MS = 10_000;
 
+/**
+ * Age (ms) past which a request stops waiting on an in-flight cold-start load
+ * and starts its own. A Workers promise can only settle while the request that
+ * created it is alive; if that request is gone, the load never settles (its
+ * `finally` included) and every request awaiting it hangs. `waitUntil` keeps
+ * the creator alive, but only for 30 s after its response, and a KV read has
+ * no deadline. Calibration knob: a healthy ~7 MB read takes up to ~10 s.
+ */
+export const HYDRATION_STALE_MS = 25_000;
+
 /** KV binding name expected on the Worker `env`. */
 export const KV_BINDING = "DECO_KV";
 
@@ -50,6 +60,7 @@ const G = globalThis as unknown as {
   __deco?: {
     kvHydrated?: boolean;
     kvHydration?: Promise<void> | null;
+    kvHydrationStartedAt?: number;
     kvLastPolledAt?: number;
     dataVersion?: string | null;
     dataVersionAt?: number;
@@ -139,7 +150,7 @@ function bundleHasNoDecofile(): boolean {
  *   a 5xx is the only honest answer; hydration is left unlatched so the next
  *   request retries instead of pinning the isolate to an empty decofile.
  */
-export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Promise<void> {
+export function ensureBlocksHydrated(env: Env, ctx?: ExecutionContextLike): Promise<void> {
   if (!isFastDeployEnabled(env)) {
     // A stubbed bundle with fast-deploy off would serve an empty 200 the edge caches.
     return bundleHasNoDecofile()
@@ -151,7 +162,15 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
       : Promise.resolve();
   }
   if (G.__deco!.kvHydrated) return Promise.resolve();
-  if (G.__deco!.kvHydration) return G.__deco!.kvHydration;
+  const inFlight = G.__deco!.kvHydration;
+  if (inFlight) {
+    // The load belongs to another request. Wait for it, but never past
+    // HYDRATION_STALE_MS: this request's own timer still fires if the creator
+    // is gone, and then it drops the dead load and starts one of its own.
+    const left = (G.__deco!.kvHydrationStartedAt ?? 0) + HYDRATION_STALE_MS - Date.now();
+    if (left > 0) return waitOrRestart(inFlight, left, env, ctx);
+    G.__deco!.kvHydration = null;
+  }
 
   const kv = getKV(env);
   if (!kv) return Promise.resolve();
@@ -172,6 +191,8 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
     return Promise.resolve();
   }
 
+  const startedAt = Date.now();
+  G.__deco!.kvHydrationStartedAt = startedAt;
   const load = (async () => {
     // Held rather than rethrown inline so the `finally` below can decide
     // whether to latch — latching on a fatal path would serve an empty
@@ -179,6 +200,9 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
     let fatal: Error | null = null;
     try {
       const snapshot = await new KVBlockSource(kv, deploymentId).loadSnapshot();
+      // Dropped as stale while reading: the load that replaced it owns the
+      // decofile now, and this snapshot may be an older revision than its.
+      if (G.__deco!.kvHydrationStartedAt !== startedAt) return;
       // An empty snapshot is treated as a failure, not a success: with no
       // bundled decofile it would otherwise latch and serve exactly the empty,
       // edge-cached site this guard exists to prevent. A site legitimately has
@@ -204,14 +228,39 @@ export function ensureBlocksHydrated(env: Env, _ctx?: ExecutionContextLike): Pro
         fatal = e instanceof Error ? e : new Error(String(e));
       }
     } finally {
-      G.__deco!.kvHydrated = !fatal;
-      G.__deco!.kvHydration = null;
+      // A load dropped as stale must not clobber the one that replaced it.
+      if (G.__deco!.kvHydrationStartedAt === startedAt) {
+        G.__deco!.kvHydrated = !fatal;
+        G.__deco!.kvHydration = null;
+      }
     }
     if (fatal) throw fatal;
   })();
 
   G.__deco!.kvHydration = load;
+  // Keep this request alive until the load settles: the other requests of the
+  // isolate await it, and it can only settle while its creator is alive.
+  ctx?.waitUntil(load.catch(() => {}));
   return load;
+}
+
+function waitOrRestart(
+  inFlight: Promise<void>,
+  ms: number,
+  env: Env,
+  ctx?: ExecutionContextLike,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stale = new Promise<"stale">((resolve) => {
+    timer = setTimeout(() => resolve("stale"), ms);
+  });
+  return Promise.race([inFlight, stale])
+    .finally(() => clearTimeout(timer))
+    .then((r) => {
+      if (r !== "stale") return;
+      if (G.__deco!.kvHydration === inFlight) G.__deco!.kvHydration = null;
+      return ensureBlocksHydrated(env, ctx);
+    });
 }
 
 /**
@@ -312,6 +361,7 @@ export async function getDataCacheVersion(env: Env, ctx?: ExecutionContextLike):
 export function __resetKvHydrationStateForTests(): void {
   G.__deco!.kvHydrated = false;
   G.__deco!.kvHydration = null;
+  G.__deco!.kvHydrationStartedAt = 0;
   G.__deco!.kvLastPolledAt = 0;
   G.__deco!.dataVersion = null;
   G.__deco!.dataVersionAt = 0;
