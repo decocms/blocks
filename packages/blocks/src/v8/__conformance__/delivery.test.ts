@@ -8,6 +8,7 @@
  * drafts on the CDN. Each test names the claim it checks (CD-*, RD-*, H-*, HP-*,
  * HD-*, HRI-*, DP-*). A failing test is a claim the code doesn't meet yet.
  */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,7 @@ import * as root from "../../index";
 import { computeContentRevision, sha256Hex } from "../../protocol/canonical";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import { instanceOf } from "../cms";
+import { parseDraftChanges } from "../draftChanges.ts";
 import {
   createCMS,
   formatDraftPointer,
@@ -652,10 +654,13 @@ describe("draft previews", () => {
     expect(await result).toEqual(FAILED);
   });
 
-  it("DP-11: the shape is checked: exactly { set, delete }, disjoint", async () => {
+  it("DP-11: the shape is checked: exactly { set, delete, edits? }, set and delete disjoint", async () => {
     const bodies: unknown[] = [
       { format: 1, set: {}, delete: [] }, // the old git-branch form
       { set: {}, delete: [], baseRevision: "x" },
+      { set: {}, delete: [], edits: [] },
+      { set: {}, delete: [], edits: "ana" },
+      { set: {}, delete: [], edits: null },
       { set: [], delete: [] },
       { set: null, delete: [] },
       { set: {} },
@@ -676,6 +681,39 @@ describe("draft previews", () => {
       );
       expect({ body, ...(await failed(cmsOf().forDraft(pointer))) }).toEqual({ body, ...FAILED });
     }
+  });
+
+  it("DP-11b: a draft's edits (who changed what, for the editor) never reach content", async () => {
+    const edits = {
+      SummerSEO: { userId: "user-ana", at: "2026-10-16T12:00:00.000Z" },
+      HelloWorld: { userId: "user-bob", at: "2026-10-16T12:01:00.000Z" },
+    };
+    expect(Object.keys(parseDraftChanges({ set: {}, delete: [], edits })).sort()).toEqual([
+      "delete",
+      "set",
+    ]);
+    const api = deliveryApi();
+    const pointer = api.draft({});
+    api.respond("summer-sale", () =>
+      Response.json({
+        set: { SummerSEO: seoEntry("Draft") },
+        delete: ["HelloWorld"],
+        edits,
+      }),
+    );
+    const draft = cmsOf().forDraft(pointer);
+    expect(await titleOf(draft)).toBe("Draft");
+    expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
+    // No block is named after the record, and nothing resolved carries it.
+    expect((await draft.resolve("edits"))[1]?.code).toBe("NOT_FOUND");
+    const resolved = await Promise.all([
+      draft.resolve("SummerSEO"),
+      draft.resolve("SummerCard"),
+      draft.list("seo"),
+      draft.list("page"),
+      draft.list("post"),
+    ]);
+    expect(JSON.stringify(resolved)).not.toMatch(/user-ana|user-bob|userId/);
   });
 
   it("DP-12: a failed draft is LOADER_FAILED on every call, never published content, and isn't reused", async () => {

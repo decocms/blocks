@@ -91,7 +91,7 @@ export const DRAFT_HOST = "delivery.decocms.com";
 /**
  * A fake delivery CDN answering draft pointers the way the docs describe
  * (/next/content-delivery#draft-previews): `sites/<site>/drafts/<slug>.json`
- * is `{ set, delete }`, served `no-cache` with an ETag that changes on every
+ * is `{ set, delete, edits? }`, served `no-cache` with an ETag that changes on every
  * save, and a `304` to an `If-None-Match` that still matches. Hand `fetch` to
  * `vi.stubGlobal("fetch", …)`.
  */
