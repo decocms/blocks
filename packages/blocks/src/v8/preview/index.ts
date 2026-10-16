@@ -6,7 +6,13 @@
  * - `DraftBadge`: the "Preview mode" badge on a page rendered from a draft,
  *   outside Studio's frame.
  * - `StudioBridge`: lets Studio's site editor drive the page when Studio
- *   frames it.
+ *   frames it, and opens the page in Studio on "." when it isn't framed.
+ * - `StudioPage`: what a page renders to tell the bridge which page it is.
  */
 export { DraftBadge, type DraftBadgeProps } from "./DraftBadge.tsx";
-export { StudioBridge, type StudioBridgeProps } from "./StudioBridge.ts";
+export {
+  StudioBridge,
+  type StudioBridgeProps,
+  StudioPage,
+  type StudioPageInfo,
+} from "./StudioBridge.ts";
