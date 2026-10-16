@@ -54,4 +54,6 @@ export const startInstance = createStart(() => ({ serverFns: { fetch: decoServer
 export const Route = createRootRoute({ component: () => <DecoDocument site="my-store" /> });
 ```
 
+`DecoDocument` mounts Studio's bridge and the draft badge. A page route returns `pathTemplate` (the page block's `path`, as `matchRoute` matched it) in its loader data, so "." on the store page opens that page in Studio's editor. A site that keeps its own document (a skip link before `<main>`, say) renders `<DecoPreview site="my-store" />` in its `<body>` instead: the bridge, the badge and the draft they read.
+
 `examples/tanstack-worker-smoke` in the repository is a complete app.
