@@ -12,7 +12,7 @@ import {
 } from "@tanstack/react-router";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DecoDocument } from "./DecoDocument.tsx";
+import { DecoDocument, DecoPreview } from "./DecoDocument.tsx";
 import { pageValues, publishScript } from "./pageValues.ts";
 
 async function render(
@@ -111,6 +111,46 @@ describe("the page the edit shortcut opens", () => {
     const tag = bridgeTag(await render({}, {}, () => ({ name: "x" })));
     expect(tag).not.toContain("data-path-template");
     expect(tag).not.toContain("data-page-id");
+  });
+});
+
+describe("DecoPreview, for a site's own document", () => {
+  async function renderOwn(scope: { csegToken?: string; draft?: string }) {
+    const rootRoute = createRootRoute({
+      loader: () => ({ pathTemplate: "/:slug" }),
+      component: () => (
+        <html lang="pt-BR">
+          <body>
+            <a href="#main-content">skip</a>
+            <main id="main-content" />
+            <DecoPreview site="blog" />
+          </body>
+        </html>
+      ),
+    });
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    return runInScope(scope, async () => {
+      await router.load();
+      return renderToString(<RouterProvider router={router} />);
+    });
+  }
+
+  it("publishes the draft and mounts the bridge with the page, after the site's own markup", async () => {
+    const html = await renderOwn({ draft: "studio.decocms.com/x@1" });
+    expect(html).toContain('window.__DECO_DRAFT="studio.decocms.com/x@1"');
+    const tag = html.match(/<script[^>]*data-deco-studio-bridge[^>]*>/)?.[0] ?? "";
+    expect(tag).toContain('data-site="blog"');
+    expect(tag).toContain('data-path-template="/:slug"');
+    expect(html.indexOf('href="#main-content"')).toBeLessThan(
+      html.indexOf("data-deco-studio-bridge"),
+    );
+  });
+
+  it("publishes nothing without a draft or segment", async () => {
+    expect(await renderOwn({})).not.toContain("__DECO_DRAFT");
   });
 });
 

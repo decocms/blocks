@@ -5,6 +5,8 @@
 export {
   DecoDocument,
   type DecoDocumentProps,
+  DecoPreview,
+  type DecoPreviewProps,
   NavigationProgress,
   type NavigationProgressProps,
   StableOutlet,
