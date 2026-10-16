@@ -271,6 +271,43 @@ describe("ensureBlocksHydrated when the in-flight load never settles", () => {
   });
 });
 
+describe("ensureBlocksHydrated when a dropped load settles late", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not swap its snapshot over the one the replacement loaded", async () => {
+    vi.useFakeTimers();
+    const old = { Site: { name: "old-revision" } };
+    const fresh = { Site: { name: "new-revision" } };
+    let resolveOld: ((v: string | null) => void) | undefined;
+    let firstLoad = true;
+    const kv: KVNamespace = {
+      get: (k) => {
+        if (firstLoad && k === SNAP) {
+          return new Promise((r) => {
+            resolveOld = r;
+          });
+        }
+        return Promise.resolve(k === SNAP ? JSON.stringify(fresh) : computeRevision(fresh));
+      },
+      put: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+    };
+    const env = { DECO_KV: kv, DECO_FAST_DEPLOY: "1", DECO_DEPLOYMENT_ID: ID };
+
+    void ensureBlocksHydrated(env);
+    await vi.advanceTimersByTimeAsync(HYDRATION_STALE_MS);
+    firstLoad = false;
+    await ensureBlocksHydrated(env); // drops the old load and hydrates with `fresh`
+    expect(loadBlocks()).toEqual(fresh);
+
+    resolveOld?.(JSON.stringify(old)); // the old load finishes after a CMS publish
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loadBlocks()).toEqual(fresh);
+  });
+});
+
 describe("getDeploymentId", () => {
   it("prefers DECO_DEPLOYMENT_ID", () => {
     expect(getDeploymentId({ DECO_DEPLOYMENT_ID: "a", BUILD_HASH: "b" })).toBe("a");

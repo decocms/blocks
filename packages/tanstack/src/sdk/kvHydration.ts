@@ -200,6 +200,9 @@ export function ensureBlocksHydrated(env: Env, ctx?: ExecutionContextLike): Prom
     let fatal: Error | null = null;
     try {
       const snapshot = await new KVBlockSource(kv, deploymentId).loadSnapshot();
+      // Dropped as stale while reading: the load that replaced it owns the
+      // decofile now, and this snapshot may be an older revision than its.
+      if (G.__deco!.kvHydrationStartedAt !== startedAt) return;
       // An empty snapshot is treated as a failure, not a success: with no
       // bundled decofile it would otherwise latch and serve exactly the empty,
       // edge-cached site this guard exists to prevent. A site legitimately has
