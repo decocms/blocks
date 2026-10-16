@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildExitUrl, buildShareUrl, DraftBadge, isFramed } from "./DraftBadge.tsx";
-import { StudioBridge, type StudioBridgeProps } from "./StudioBridge.ts";
+import { StudioBridge, type StudioBridgeProps, StudioPage } from "./StudioBridge.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -372,6 +372,95 @@ describe("StudioBridge", () => {
       expect(press({ key: ".", ctrlKey: true }, input).defaultPrevented).toBe(false);
       expect(open).not.toHaveBeenCalled();
       input.remove();
+    });
+
+    /** The choose-editor URL a Ctrl+"." opened (a plain "." navigates the tab, which jsdom can't follow). */
+    function opened(open: { mock: { calls: unknown[][] } }, call = 0): Record<string, string> {
+      const url = new URL(open.mock.calls[call][0] as string);
+      expect(url.origin + url.pathname).toBe("https://studio.decocms.com/choose-editor");
+      return Object.fromEntries(url.searchParams);
+    }
+
+    it('a plain "." on the store page itself (not framed) opens the editor', () => {
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
+      const e = press({ key: "." });
+      expect(e.defaultPrevented).toBe(true);
+      expect(press({ key: "E", ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    });
+
+    it("sends the page's path template and id the binding passed", () => {
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+      unmount = mountBridge(
+        {
+          site: "shop",
+          trustedOrigins: STUDIO,
+          page: { pathTemplate: "/:slug/p", id: "pages-pdp-1" },
+        },
+        false,
+      );
+      press({ key: ".", metaKey: true });
+      expect(opened(open)).toEqual({
+        site: "shop",
+        domain: window.location.origin,
+        pageId: "pages-pdp-1",
+        path: window.location.pathname + window.location.search,
+        pathTemplate: "/:slug/p",
+      });
+    });
+
+    it("reads the page at the keypress: a StudioPage on the page wins, the last one rendered", () => {
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+      unmount = mountBridge(
+        { site: "shop", trustedOrigins: STUDIO, page: { pathTemplate: "/from-layout" } },
+        false,
+      );
+      const markers = document.createElement("div");
+      document.body.appendChild(markers);
+      // A page rendered after the bridge ran (a client-side navigation).
+      markers.innerHTML =
+        renderToStaticMarkup(<StudioPage pathTemplate="/old" />) +
+        renderToStaticMarkup(<StudioPage pathTemplate="/s/:term" id="pages-search" />);
+      press({ key: ".", ctrlKey: true });
+      expect(opened(open, 0)).toMatchObject({ pathTemplate: "/s/:term", pageId: "pages-search" });
+      markers.innerHTML = "";
+      press({ key: ".", ctrlKey: true });
+      expect(opened(open, 1)).toMatchObject({ pathTemplate: "/from-layout" });
+      expect(opened(open, 1)).not.toHaveProperty("pageId");
+      markers.remove();
+    });
+
+    it("a page template the bridge's attributes change to after it ran is the one sent", () => {
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
+      const script = document.querySelector("script[data-deco-studio-bridge]") as HTMLElement;
+      script.setAttribute("data-path-template", "/category/*");
+      press({ key: ".", ctrlKey: true });
+      expect(opened(open)).toMatchObject({ pathTemplate: "/category/*" });
+    });
+
+    it("StudioPage renders an inert marker, and nothing without a template", () => {
+      expect(renderToStaticMarkup(<StudioPage pathTemplate={'/"><x'} id="p" />)).toBe(
+        '<template data-deco-page="" data-path-template="/&quot;&gt;&lt;x" data-page-id="p"></template>',
+      );
+      expect(renderToStaticMarkup(<StudioPage />)).toBe("");
+    });
+
+    it('leaves a plain "." typed in any field alone', () => {
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
+      const fields = [
+        document.createElement("input"),
+        document.createElement("textarea"),
+        document.createElement("select"),
+      ];
+      const editable = document.createElement("div");
+      editable.contentEditable = "true";
+      // jsdom doesn't implement isContentEditable.
+      Object.defineProperty(editable, "isContentEditable", { value: true });
+      for (const field of [...fields, editable]) {
+        document.body.appendChild(field);
+        expect(press({ key: "." }, field).defaultPrevented).toBe(false);
+        field.remove();
+      }
     });
 
     it("is never active inside Studio's frame", () => {
