@@ -390,7 +390,7 @@ describe("imports", () => {
       "src/Banner.tsx":
         'import { Image, Picture, Source, type ImageProps, LiveControls } from "@decocms/blocks/hooks";\n',
       "src/v8.ts":
-        'import { createDecoWorker } from "@decocms/tanstack/worker";\nimport { decoTanstack } from "@decocms/tanstack/vite";\nimport { createImageUrl } from "@decocms/blocks/image";\nimport { DraftBadge } from "@decocms/blocks/preview";\n',
+        'import { createDecoWorker } from "@decocms/tanstack/worker";\nimport { decoTanstack } from "@decocms/tanstack/vite";\nimport { createImageUrl } from "@decocms/blocks/image";\nimport { DraftBadge, StudioPage } from "@decocms/blocks/preview";\nimport { DecoPreview } from "@decocms/tanstack/react";\n',
     });
     const report = createReport();
     rewriteImports(root, report, new Map());
