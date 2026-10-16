@@ -74,7 +74,7 @@ const match = matchRoute(pathname, { routes: pages });
 return <>{sections}<StudioPage pathTemplate={match.entry.path} /></>;
 ```
 
-It renders a hidden `<template>`. Without it, Studio picks the page from the URL.
+It renders a `<meta>` that React places in the `<head>`, so the page's own markup doesn't change. Without it, Studio picks the page from the URL.
 
 ## Names and Studio's origins
 
