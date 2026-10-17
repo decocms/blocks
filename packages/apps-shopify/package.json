@@ -35,7 +35,10 @@
     "test": "vitest run --root ../.. packages/apps-shopify/",
     "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@decocms/blocks": "^8.3.0"
+  },
+  "devDependencies": {
     "@decocms/blocks": "workspace:*"
   },
   "publishConfig": {

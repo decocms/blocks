@@ -118,50 +118,71 @@
     "packages/apps-algolia": {
       "name": "@decocms/apps-algolia",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/apps-magento": {
       "name": "@decocms/apps-magento",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/apps-resend": {
       "name": "@decocms/apps-resend",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/apps-sfmc-personalization": {
       "name": "@decocms/apps-sfmc-personalization",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/apps-shopify": {
       "name": "@decocms/apps-shopify",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/apps-vtex": {
       "name": "@decocms/apps-vtex",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/apps-wake": {
       "name": "@decocms/apps-wake",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
       },
     },
     "packages/blocks": {
