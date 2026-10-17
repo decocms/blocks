@@ -53,6 +53,42 @@ describe("v8 core bundle", () => {
     }
   });
 
+  it("@decocms/blocks/preview bundles for a browser with no server code: only its own files, the draft names and React (no Studio origin list)", () => {
+    for (const args of [
+      ["--platform=browser"],
+      ["--platform=neutral", "--conditions=workerd,worker,browser", "--main-fields=module,main"],
+    ]) {
+      const dir = mkdtempSync(join(tmpdir(), "blocks-preview-bundle-"));
+      try {
+        const metafile = join(dir, "meta.json");
+        const outfile = join(dir, "out.js");
+        bundle(
+          [
+            ...args,
+            '--define:process.env.NODE_ENV="production"',
+            `--metafile=${metafile}`,
+            `--outfile=${outfile}`,
+            "--log-level=error",
+          ],
+          "preview/index.ts",
+        );
+        const output = readFileSync(outfile, "utf-8");
+        expect(output).not.toMatch(/node:|require\("(?!react)/);
+        expect(output).toContain("editor::inject");
+        expect(output).not.toMatch(/createCMS|AsyncLocalStorage/);
+        const inputs = Object.keys(JSON.parse(readFileSync(metafile, "utf-8")).inputs);
+        for (const input of inputs) {
+          expect(input, input).toMatch(
+            /(^|\/)(packages\/blocks\/src\/v8\/(preview\/[^/]+|draft\.ts)|node_modules\/(react|scheduler)\/.*)$/,
+          );
+        }
+        expect(inputs.some((i) => i.endsWith("v8/draft.ts"))).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
     // A real file, not /dev/stdout: esbuild leaves that empty on Linux.
     const dir = mkdtempSync(join(tmpdir(), "blocks-bundle-"));
