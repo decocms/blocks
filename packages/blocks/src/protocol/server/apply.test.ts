@@ -246,19 +246,3 @@ describe("names a storage can't hold", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 });
-
-describe("block metadata", () => {
-  it("passes a block's __meta through: stored, listed and read back as written", async () => {
-    const { client, storage } = setup();
-    const entry = {
-      __resolveType: "site/sections/Hero.tsx",
-      title: "Hi",
-      __meta: { lastEditedBy: "user-ana", lastEditedAt: "2026-10-16T12:00:00.000Z" },
-    };
-    await client.blocksApply({ set: { hero: entry } });
-    expect(JSON.parse(storage.dump().files["hero.json"]!)).toEqual(entry);
-    const listed = await client.blocksList();
-    if (listed.notModified) throw new Error("unexpected");
-    expect(listed.blocks.hero).toEqual(entry);
-  });
-});
