@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*"],
-  "exclude": ["src/__fixtures__/v7/cms/**", "src/__fixtures__/v7/matchers/**", "src/__fixtures__/v7/sdk/experiments.ts", "src/__fixtures__/v7/tanstack/**", "src/__fixtures__/v7/vendor/**"]
+  "exclude": ["src/__fixtures__/v7/cms/**", "src/__fixtures__/v7/matchers/**", "src/__fixtures__/v7/sdk/experiments.ts", "src/__fixtures__/v7/tanstack/**", "src/__fixtures__/v7/vendor/**", "src/__fixtures__/v7/v7.77.12/**"]
 }

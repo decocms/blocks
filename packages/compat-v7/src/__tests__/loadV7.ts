@@ -5,7 +5,8 @@
  * half of v7: page loading, observability, the section registry. Those
  * imports don't take part in matching, so this loader evaluates the file as
  * it is (esbuild strips the types) and gives every import it doesn't have a
- * stub: `stubs` by fixture-relative path, else an object whose every export
+ * stub: `stubs` by fixture-relative path (or by package specifier, for
+ * the few package imports), else an object whose every export
  * is a no-op function. `expose` names module-private functions to export, so
  * a test can call v7's `evaluateVariantRule` directly; the file's own text is
  * never edited.
@@ -19,7 +20,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "../__fixtures__/v7")
 
 type Exports = Record<string, any>;
 
-const noop: Exports = new Proxy(
+export const noop: Exports = new Proxy(
   {},
   {
     get: (_, key) => (key === "__esModule" ? true : () => undefined),
@@ -54,7 +55,11 @@ export function v7Loader(options: { stubs?: Record<string, Exports> } = {}) {
     const module = { exports: {} as Exports };
     cache.set(rel, module.exports);
     const require = (spec: string): Exports => {
-      if (!spec.startsWith(".")) throw new Error(`v7 fixture ${rel} imports ${spec}`);
+      if (!spec.startsWith(".")) {
+        const bare = options.stubs?.[spec];
+        if (bare) return bare;
+        throw new Error(`v7 fixture ${rel} imports ${spec}`);
+      }
       const target = relative(root, join(root, dirname(rel), spec));
       const stub = options.stubs?.[target];
       if (stub) return stub;

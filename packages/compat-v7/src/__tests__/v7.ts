@@ -8,6 +8,11 @@
  * `git show origin/7.x:packages/blocks/src/<path> > src/__fixtures__/v7/<path>`
  * and update the hash and the commit.
  *
+ * `v7.77.12/<path>` is the same file at `@decocms/blocks` 7.77.12 (`44952cbe`),
+ * the last release before 7.x#648: its section runner ran the loaders of
+ * the sections a section held directly in a prop or a list prop, and of no
+ * section nested deeper (`runSectionLoaders`' `nested: "direct"`).
+ *
  * `vendor/h3-cookie.js` is the cookie code v7's TanStack route ran through
  * `getCookies()`/`setCookie()`: lines 1236–1335 of `h3-v2` (npm `h3`
  * 2.0.1-rc.16, the version `@tanstack/start-server-core` 1.166 pinned for v7
@@ -17,6 +22,8 @@ export const V7_COMMIT = "9131e9d9"; // origin/7.x, @decocms/blocks 7.79.6
 
 export const V7_FILES: Record<string, string> = {
   "cms/resolve.ts": "5cc19883e18f99e3c3f84d74a4f7a1fb7264eafbd0b05024cb22387535269337",
+  "cms/sectionLoaders.ts": "d0762627471c4b917f00f2be44b602ccb0a9c87fa0b17b98d639e0839b3d6d4c",
+  "cms/sectionMixins.ts": "768706c228f1f62d099308fae6b25eab7b8466ad8e4e9ed66c4288f1ddcf54fd",
   "matchers/builtins.ts": "72e7122c4bc5fb231efe50157906e6ee8fc9b6499488e796876a71b38f7f49fc",
   "matchers/countryNames.ts": "8a9642d2f826fa2776cbf5f8c891feecd0baaeb1edda38de7f3c49790c5fdadb",
   "matchers/override.ts": "0410e149e7bf91bc9babbb5009adafedc0a8c1edbbb3dfd7adaf2cea338d032e",
@@ -29,6 +36,8 @@ export const V7_FILES: Record<string, string> = {
   "tanstack/routes/cmsRoute.ts": "86c5f980fea9e36c0c3982f1129b883c74f9e906c5a278948b87623829d44bdb",
   "types/index.ts": "e74120a518f1d6c7dd1e4db2499de67db081fb1d8077514806dc434b6f5e5ca5",
   "types/widgets.ts": "f45956ea4344b9267069518fa3e952810dc7d37d9f798b56c68e28527e84c752",
+  "v7.77.12/cms/sectionLoaders.ts":
+    "b9e51e240d3e7f42bd07288efa34138f586a7d643f0b0fa8f30472c600792024",
   "vendor/h3-cookie.js": "828b798434aa40d29c8d889758187da5da82bfa39a7b43a7ab37f1ddcb234f7a",
 };
 
