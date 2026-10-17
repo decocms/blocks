@@ -434,7 +434,9 @@ export const BOT_UA_SUBSTRINGS = [
   "ia_archiver",
   "semrush",
   "ahrefs",
-  "lighthouse",
+  // "lighthouse" is deliberately NOT listed. Lighthouse / PageSpeed Insights
+  // (UA suffix "Chrome-Lighthouse") is a performance-measurement tool, not a
+  // crawler; it must see the same deferred render real visitors get.
 ] as const;
 
 const botPatterns: RegExp[] = [new RegExp(BOT_UA_SUBSTRINGS.join("|"), "i")];
