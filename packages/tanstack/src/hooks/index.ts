@@ -8,3 +8,5 @@ export { DraftPreviewIndicator } from "./DraftPreviewIndicator";
 export { NavigationProgress } from "./NavigationProgress";
 export { StableOutlet } from "./StableOutlet";
 export { default as PreviewProviders } from "./PreviewProviders";
+export { useExperiment } from "./useExperiment";
+export type { ExperimentResult } from "./useExperiment";
