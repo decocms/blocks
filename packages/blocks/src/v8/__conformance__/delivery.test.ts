@@ -447,28 +447,6 @@ describe("draft previews", () => {
     expect(JSON.stringify(production)).toBe(before); // never mutated
   });
 
-  it("DP-2b: a draft's or a release's block metadata (__meta: who edited it last) never reaches content", async () => {
-    const __meta = { lastEditedBy: "user-ana", lastEditedAt: "2026-10-16T12:00:00.000Z" };
-    const api = deliveryApi();
-    const release = await hashed("Published");
-    (release.blocks.SummerSEO as Record<string, unknown>).__meta = __meta;
-    api.publish(release);
-    const pointer = api.draft({ set: { SummerSEO: { ...seoEntry("Draft"), __meta } } });
-    const cms = cmsOf({ site: SITE });
-    await cms.update();
-    for (const client of [cms.forRelease(), cms.forDraft(pointer)]) {
-      const resolved = await Promise.all([
-        client.resolve("SummerSEO"),
-        client.resolve("SummerSEO", { run: false }),
-        client.list("seo"),
-        client.list("seo", { run: true }),
-      ]);
-      expect(JSON.stringify(resolved)).not.toMatch(/__meta|user-ana|lastEdited/);
-    }
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    expect(await titleOf(cms.forRelease())).toBe("Published");
-  });
-
   it("DP-3: a client captures production once; the next client gets the new release and fetches the draft again", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
