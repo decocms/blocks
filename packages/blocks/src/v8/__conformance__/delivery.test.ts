@@ -972,6 +972,57 @@ describe("hosted", () => {
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
   });
 
+  it("H-5 (default): without dev, NODE_ENV=development keeps local files; drafts still load", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const api = deliveryApi();
+    api.publish(await hashed("Published"));
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    await cms.update();
+    expect(api.latestFetches()).toBe(0);
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
+  });
+
+  it("H-5 (override): an explicit dev: false swaps releases in even when NODE_ENV=development", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const api = deliveryApi();
+    api.publish(await hashed("Published"));
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: SITE,
+      dev: false,
+    });
+    await expect(cms.update()).resolves.toEqual({ updated: true });
+    expect(await titleOf(cms.forRelease())).toBe("Published");
+  });
+
+  it("H-5 (production): NODE_ENV=production, or no NODE_ENV, swaps releases in", async () => {
+    for (const env of ["production", undefined]) {
+      resetForTests();
+      vi.stubEnv("NODE_ENV", env);
+      const api = deliveryApi();
+      api.publish(await hashed("Published"));
+      const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+      await expect(cms.update(), String(env)).resolves.toEqual({ updated: true });
+    }
+  });
+
+  it("H-5 (no process): where there is no process global (Workers, browsers), dev defaults to false", async () => {
+    const api = deliveryApi();
+    api.publish(await hashed("Published"));
+    const saved = globalThis.process;
+    let cms: ReturnType<typeof createCMS>;
+    try {
+      (globalThis as { process?: unknown }).process = undefined;
+      cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    } finally {
+      globalThis.process = saved;
+    }
+    await expect(cms.update()).resolves.toEqual({ updated: true });
+  });
+
   it("H-6: site alone never sends telemetry; site reads no environment variable", async () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel.example.com");
     vi.stubEnv("DECO_SITE_TOKEN", TOKEN);
