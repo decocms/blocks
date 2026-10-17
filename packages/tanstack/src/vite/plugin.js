@@ -249,6 +249,70 @@ function readSectionPackageSrcDirs(cwd) {
 }
 
 /**
+ * Single-flight state for the dev regenerators (generate-schema, generate),
+ * process-wide on purpose. Vite's restartServer() re-loads vite.config — a
+ * fresh decoVitePlugin() and configureServer closure — and builds the new
+ * server BEFORE closing the old one, while the old closure's timers and child
+ * processes keep running. Per-closure in-flight flags therefore reset on every
+ * restart (wrangler.jsonc edit, .env change, dep re-optimization), and a dev
+ * server left up for hours accumulated ~15 concurrent generate-schema children
+ * pinning the CPU. Lives on globalThis rather than in module scope because a
+ * linked (non-node_modules) plugin is bundled into the re-loaded config, which
+ * would give it fresh module state too.
+ *
+ * owners: cwd -> the server that currently owns that project's regens.
+ * runs:   `${cwd}:${name}` -> { timer, inFlight, queued, run }.
+ */
+const DEV_REGENS = Symbol.for("deco.devRegens");
+globalThis[DEV_REGENS] ??= { owners: new Map(), runs: new Map() };
+const devRegens = globalThis[DEV_REGENS];
+
+/**
+ * Debounced, single-flight `run(done)` for `key`: at most one in flight, and
+ * edits that land meanwhile collapse into one follow-up. The latest caller's
+ * `run` wins, so a follow-up after a restart uses the live server's closure.
+ */
+function scheduleDevRegen(key, run) {
+  let s = devRegens.runs.get(key);
+  if (!s) {
+    s = { timer: null, inFlight: false, queued: false };
+    devRegens.runs.set(key, s);
+  }
+  s.run = run;
+  if (s.timer) clearTimeout(s.timer);
+  s.timer = setTimeout(() => {
+    s.timer = null;
+    if (s.inFlight) {
+      s.queued = true;
+      return;
+    }
+    s.inFlight = true;
+    s.run(() => {
+      s.inFlight = false;
+      if (s.queued) {
+        s.queued = false;
+        scheduleDevRegen(key, s.run);
+      }
+    });
+  }, 500);
+}
+
+/**
+ * On server close, drop pending (not in-flight) regens — unless a restart's
+ * new server already took the project over, in which case they are its work.
+ */
+function releaseDevRegens(cwd, server) {
+  if (devRegens.owners.get(cwd) !== server) return;
+  devRegens.owners.delete(cwd);
+  for (const [key, s] of devRegens.runs) {
+    if (!key.startsWith(`${cwd}:`)) continue;
+    if (s.timer) clearTimeout(s.timer);
+    s.timer = null;
+    s.queued = false;
+  }
+}
+
+/**
  * @param {object} [opts]
  * @param {boolean | "auto"} [opts.fastDeploy="auto"] Stub `blocks.gen` out of
  *   the SERVER bundle too, so the worker's only copy of the decofile is the one
@@ -687,8 +751,21 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // default (.deco/meta.gen.json) — this constant must track that default.
       // Both invocations get their args from generateSchemaArgs() so they can't
       // drift apart (see its doc comment).
-      const schemaWatchDirs = ["src"];
+      //
+      // Only the dirs the generators walk: generate-schema reads
+      // sections/loaders/flags/matchers/apps, generate's scaffold pass reads
+      // sections/loaders/actions (invoke reads node_modules). Watching all of
+      // src/ re-ran both on every unrelated edit (src/server/*, components,
+      // routes) and on generate's own src/server/invoke.gen.ts output.
+      // ponytail: a Props type imported from outside these dirs (e.g.
+      // src/components) doesn't trigger a regen by itself; the next edit
+      // under a watched dir (or `npm run generate`) picks it up.
+      const schemaWatchDirs = ["sections", "loaders", "actions", "apps", "matchers", "flags"].map(
+        (d) => path.join("src", d),
+      );
       const schemaOutFile = path.resolve(cwd, ".deco/meta.gen.json");
+      devRegens.owners.set(cwd, server);
+      server.httpServer?.on("close", () => releaseDevRegens(cwd, server));
 
       // Resolve the site name once from vite define or env.
       const definedSite = server.config.define?.["process.env.DECO_SITE_NAME"];
@@ -696,15 +773,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         ? JSON.parse(definedSite)
         : process.env.DECO_SITE_NAME || "storefront";
 
-      let schemaTimer = null;
-      let schemaInFlight = false;
-      let schemaQueued = false;
-      const runSchemaGen = () => {
-        if (schemaInFlight) {
-          schemaQueued = true;
-          return;
-        }
-        schemaInFlight = true;
+      const runSchemaGen = (done) => {
         const start = Date.now();
         const scriptPath = path.resolve(
           cwd,
@@ -712,32 +781,21 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         );
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} ${generateSchemaArgs(schemaSiteName).join(" ")}`;
         exec(cmd, { cwd }, (err) => {
-            schemaInFlight = false;
-            if (err) {
-              console.warn("[deco] schema generation failed:", err.message);
-            } else {
-              console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
-              // Invalidate the meta.gen.json module so SSR picks up fresh schema
-              const mod =
-                server.environments?.ssr?.moduleGraph?.getModuleById(metaGenSsrId(schemaOutFile));
-              if (mod) {
-                server.environments.ssr.moduleGraph.invalidateModule(mod);
-              }
+          done();
+          if (err) {
+            console.warn("[deco] schema generation failed:", err.message);
+          } else {
+            console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
+            // Invalidate the meta.gen.json module so SSR picks up fresh schema
+            const mod =
+              server.environments?.ssr?.moduleGraph?.getModuleById(metaGenSsrId(schemaOutFile));
+            if (mod) {
+              server.environments.ssr.moduleGraph.invalidateModule(mod);
             }
-            if (schemaQueued) {
-              schemaQueued = false;
-              scheduleSchemaGen();
-            }
-          },
-        );
+          }
+        });
       };
-      const scheduleSchemaGen = () => {
-        if (schemaTimer) clearTimeout(schemaTimer);
-        schemaTimer = setTimeout(() => {
-          schemaTimer = null;
-          runSchemaGen();
-        }, 500);
-      };
+      const scheduleSchemaGen = () => scheduleDevRegen(`${cwd}:schema`, runSchemaGen);
 
       // Cold-start bootstrap: generate meta.gen.json if it's absent. Unlike the
       // decofile, meta.gen.json is normally COMMITTED (it merges cleanly), so
@@ -804,46 +862,28 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // changed. Best-effort: a failure here only warns (matches the schema
       // regen's own error handling above) — dev keeps running off whatever
       // was last generated, same as before this feature existed.
-      let scaffoldTimer = null;
-      let scaffoldInFlight = false;
-      let scaffoldQueued = false;
-      const runScaffoldGen = () => {
-        if (scaffoldInFlight) {
-          scaffoldQueued = true;
-          return;
-        }
-        scaffoldInFlight = true;
+      const runScaffoldGen = (done) => {
         const start = Date.now();
         const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
         exec(cmd, { cwd }, (err) => {
-          scaffoldInFlight = false;
+          done();
           if (err) {
             console.warn("[deco] sections/loaders/invoke generation failed:", err.message);
           } else {
             console.log(`[deco] sections/loaders/invoke checked (${Date.now() - start}ms)`);
           }
-          if (scaffoldQueued) {
-            scaffoldQueued = false;
-            scheduleScaffoldGen();
-          }
         });
       };
-      const scheduleScaffoldGen = () => {
-        if (scaffoldTimer) clearTimeout(scaffoldTimer);
-        scaffoldTimer = setTimeout(() => {
-          scaffoldTimer = null;
-          runScaffoldGen();
-        }, 500);
-      };
+      const scheduleScaffoldGen = () => scheduleDevRegen(`${cwd}:scaffold`, runScaffoldGen);
 
       // Cold-start: run once on dev startup. The digest cache makes this a
       // fast no-op when nothing changed since the last `generate` run (e.g.
       // right after a `build`) — fire-and-forget, doesn't block the first request.
       scheduleScaffoldGen();
 
-      // Reuse the same src/**/*.{ts,tsx} watch predicate as the schema regen
-      // above — sections/loaders/actions all live under the same tree.
+      // Reuse the schema regen's watch predicate above — it covers the
+      // sections/loaders/actions dirs this pass reads.
       server.watcher.on("change", (file) => {
         if (isSchemaSource(file)) scheduleScaffoldGen();
       });
