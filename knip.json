@@ -16,7 +16,8 @@
       "ignoreDependencies": [
         "@decocms/blocks",
         "@decocms/apps-algolia",
-        "@decocms/apps-vtex"
+        "@decocms/apps-vtex",
+        "@decocms/nextjs"
       ]
     },
     "packages/*": {

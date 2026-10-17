@@ -29,7 +29,7 @@ bun run check         # typecheck + lint + lint:unused
 bun run skills:check && bun run skills:readme:check   # agent skills gate (CI: skills-check.yml)
 ```
 
-No dev server at the root. `examples/tanstack-smoke`, `examples/tanstack-rsc-smoke` and `examples/nextjs-smoke` are real consumers that depend only on `@decocms/blocks`; `examples/tanstack-worker-smoke` is the same app on `@decocms/tanstack`, and its `bun run smoke` runs the worker's header matrix on workerd (`vite preview`), in CI (`cd examples/<name> && bun run dev`).
+No dev server at the root. `examples/tanstack-smoke`, `examples/tanstack-rsc-smoke` and `examples/nextjs-smoke` are real consumers that depend only on `@decocms/blocks`; `examples/tanstack-worker-smoke` is the same app on `@decocms/tanstack`, and its `bun run smoke` runs the worker's header matrix on workerd (`vite preview`); `examples/nextjs-binding-smoke` is the Next.js app on `@decocms/nextjs`, and its `bun run smoke` runs the draft flow on `next start`; both in CI (`cd examples/<name> && bun run dev`).
 
 ## Architecture: one core package, two bindings, thin clients
 
@@ -39,6 +39,8 @@ packages/
 │                               the deco CLI (/cli, bin `deco`) and the content protocol (/protocol/*)
 ├── tanstack/                   @decocms/tanstack — TanStack Start + Cloudflare Workers: createDecoWorker,
 │                               DecoDocument, the router, decoTanstack(); depends only on @decocms/blocks
+├── nextjs/                     @decocms/nextjs — any Next.js App Router app: draft proxy and pages helpers,
+│                               DraftPreviewIndicator, withDeco(), the image loader; depends only on @decocms/blocks
 ├── apps-vtex/                  @decocms/apps-vtex                 ┐
 ├── apps-shopify/               @decocms/apps-shopify              │
 ├── apps-wake/                  @decocms/apps-wake                 │ thin upstream clients built on
@@ -47,7 +49,7 @@ packages/
 ├── apps-resend/                @decocms/apps-resend               │
 └── apps-sfmc-personalization/  @decocms/apps-sfmc-personalization ┘
 tests/                          cross-package tests (upstream-client and helper guardrails, conformance)
-examples/                       tanstack-smoke, tanstack-rsc-smoke, nextjs-smoke, tanstack-worker-smoke
+examples/                       tanstack-smoke, tanstack-rsc-smoke, nextjs-smoke, tanstack-worker-smoke, nextjs-binding-smoke
 .agents/skills/                 agent skills (index: .agents/skills/README.md); .claude/skills is a symlink to it
 └── deco-v7-to-v8-migration/    the v7 → v8 site migration (SKILL.md, reference/, runnable scripts/)
 .agents/skill-template/         copy it to start a new skill
@@ -99,6 +101,18 @@ Opinionated by design: the behaviour every Deco TanStack site should have is fix
 | `@decocms/tanstack/react` | `src/react/index.ts` — `DecoDocument` (mounts `StudioBridge` and `DraftBadge` from `@decocms/blocks/preview`, publishes the `__cseg` token and the draft), `NavigationProgress`, `StableOutlet`. Browser-safe |
 | `@decocms/tanstack/vite` | `src/vite/index.ts` — `decoTanstack({ buildHash })` (= `decoContent()` from `@decocms/blocks/vite`, `__BUILD_HASH__`, a browser stub for `node:async_hooks`, `resolve.dedupe`), `gitBuildHash` |
 | `@decocms/tanstack/scope` | `src/scope/server.ts` / `browser.ts` — the request scope the worker hands the render (`AsyncLocalStorage`). Conditional export: `workerd` and `node` before `browser`, because a Workers build turns `browser` on too; `src/__tests__/exports.test.ts` resolves it under those conditions |
+
+### `@decocms/nextjs` exports
+
+Small helpers for any Next.js App Router app, with no hosting assumptions (no CDN, ISR or platform rules): the site calls them from its own proxy, layout, pages and `next.config`. No environment reads. `nextjs-smoke` stays on `@decocms/blocks` alone because it is the docs' Next.js guide (`guides.cli.test.ts` nx-02); `nextjs-binding-smoke` is the app on this package.
+
+| Import path | File |
+|---|---|
+| `@decocms/nextjs/proxy` | `src/proxy/index.ts` — `decideDraft(cms, request, { site, previewHosts })` (the draft host allowlist, v7's, `src/drafts.ts`), `draftRequestHeaders` (`x-deco-draft`, a forged one removed), `rewriteToDraftRoute` (`/_draft`), `applyDraft` (cookie, `draftResponseHeaders`), `isDraftRoutePath`, `draftProxy`. No React, no `next/headers`, no block map (`src/__tests__/exports.test.ts`) |
+| `@decocms/nextjs/server` | `src/server/index.ts` — `bindDraft(cms, { searchParams, site, previewHosts })` (param, then `x-deco-draft`, then cookie; the same allowlist; reads no header when previews are off), `activeDraftPointer`, `contentClient(cms)`. The draft lives in React's `cache()` (`server/slot.ts`), so no conditional export is needed |
+| `@decocms/nextjs` | `src/index.ts` — `DraftPreviewIndicator` (renders `DraftBadge` for the bound draft), `DraftBadge`, `StudioBridge` (`src/StudioBridge.ts`: blocks' bridge with `trustedOrigins` set to the package's `STUDIO_ORIGINS`), and the package's own draft names and Studio origins: `DRAFT_PARAM`/`DRAFT_COOKIE`/`DRAFT_HEADER`, `draftResponseHeaders` (`src/draft.ts`), `STUDIO_ORIGINS`/`STUDIO_FRAME_ANCESTORS`/`isStudioOrigin` (`src/studio.ts`). The same values as `@decocms/tanstack`'s, never imported from it (`exports.test.ts`) |
+| `@decocms/nextjs/config` | `src/config/index.cjs` (+ `index.d.cts`), plain CommonJS shipped from `src` — `withDeco(nextConfig, { draftHeaders, studioOrigins })`: v7's draft header rules first, `STUDIO_ORIGINS` in `allowedDevOrigins`; no rewrites, no image rules. It repeats the package's names (`src/draft.ts`, `src/studio.ts`), held equal by `config.test.ts` |
+| `@decocms/nextjs/image-loader` | `src/image-loader/index.ts` — `createDecoImageLoader(imageUrl, { fallback })`, `nextImageOptimizer`. Platform-neutral: the site composes its platform's helpers (`@decocms/apps-vtex/image`, …) into the `ImageUrl`; the package depends on no `@decocms/apps-*`. `tests/nextjs-image-loader.golden.test.ts` runs the next/image golden URLs of blocks and apps-vtex through that composition (no changed case but the PO-approved fix-2 ones, marked `before`/`reason` in the fixture) |
 
 ### Key boundaries
 
