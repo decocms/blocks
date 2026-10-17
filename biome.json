@@ -36,6 +36,7 @@
   "files": {
     "includes": [
       "packages/*/src/**",
+      "!packages/compat-v7/src/__fixtures__/v7/**",
       "tests/**",
       ".agents/skills/deco-v7-to-v8-migration/scripts/**"
     ]

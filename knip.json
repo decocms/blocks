@@ -46,7 +46,20 @@
       "entry": [
         "src/v8/cli/main.ts"
       ]
+    },
+    "packages/compat-v7": {
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "ignore": [
+        "src/__fixtures__/v7/**"
+      ]
     }
   },
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "ignoreIssues": {
+    "packages/compat-v7/src/clx.ts": [
+      "duplicates"
+    ]
+  }
 }

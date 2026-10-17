@@ -1,0 +1,68 @@
+{
+  "name": "@decocms/compat-v7",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "v7's pure helpers (types, device detection, inline scripts, clx) on @decocms/blocks 8, with v7's output and no v7 runtime",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/decocms/blocks.git",
+    "directory": "packages/compat-v7"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/__tests__",
+    "!src/**/__fixtures__"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "source": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    },
+    "./types/widgets": {
+      "types": "./dist/types/widgets.d.ts",
+      "source": "./src/types/widgets.ts",
+      "default": "./dist/types/widgets.js"
+    },
+    "./device": {
+      "types": "./dist/device.d.ts",
+      "source": "./src/device.ts",
+      "default": "./dist/device.js"
+    },
+    "./script": {
+      "types": "./dist/script.d.ts",
+      "source": "./src/script.ts",
+      "default": "./dist/script.js"
+    },
+    "./clx": {
+      "types": "./dist/clx.d.ts",
+      "source": "./src/clx.ts",
+      "default": "./dist/clx.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "test": "vitest run --root ../.. packages/compat-v7/",
+    "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@decocms/blocks": "^8.3.0"
+  },
+  "devDependencies": {
+    "@decocms/blocks": "workspace:*"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  }
+}
