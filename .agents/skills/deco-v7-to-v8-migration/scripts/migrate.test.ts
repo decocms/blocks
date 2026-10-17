@@ -82,6 +82,11 @@ beforeAll(async () => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-to-v8-")));
   fs.mkdirSync(path.join(root, "node_modules", "@decocms"), { recursive: true });
   fs.symlinkSync(BLOCKS_PACKAGE, path.join(root, "node_modules", "@decocms", "blocks"), "dir");
+  fs.symlinkSync(
+    path.join(BLOCKS_PACKAGE, "../compat-v7"),
+    path.join(root, "node_modules", "@decocms", "compat-v7"),
+    "dir",
+  );
   write(root, "package.json", {
     name: "v7-site",
     private: true,
@@ -137,6 +142,40 @@ beforeAll(async () => {
       "",
     ].join("\n"),
   );
+  // A section whose loader reads v7's ctx.device, and v7's registration of the loaders.
+  write(
+    root,
+    "src/sections/Promo.tsx",
+    [
+      "export interface Props { label: string; device?: string }",
+      'export function loader(props: Props, _req: Request, ctx: { device: "mobile" | "tablet" | "desktop" }) {',
+      "  return { ...props, device: ctx.device };",
+      "}",
+      'export default function Promo(props: Props) { return [props.label, props.device].join(" "); }',
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "src/setup/section-loaders.ts",
+    [
+      "import {",
+      "  compose,",
+      "  registerNonCriticalSections,",
+      "  registerSectionLoaders,",
+      "  withDevice,",
+      "  withSearchParam,",
+      "  withSectionLoader,",
+      '} from "@decocms/blocks/cms";',
+      "",
+      "registerSectionLoaders({",
+      '  "site/sections/Hero.tsx": compose(withDevice(), withSearchParam()),',
+      '  "site/sections/Promo.tsx": withSectionLoader(() => import("../sections/Promo")),',
+      "});",
+      'registerNonCriticalSections(["site/sections/Promo.tsx"]);',
+      "",
+    ].join("\n"),
+  );
   write(
     root,
     "src/setup.ts",
@@ -164,6 +203,7 @@ beforeAll(async () => {
     path: "/",
     sections: [
       { __resolveType: "site/sections/Hero.tsx", title: "Welcome" },
+      { __resolveType: "site/sections/Promo.tsx", label: "Sale" },
       {
         __resolveType: "website/sections/Rendering/Lazy.tsx",
         section: {
@@ -206,18 +246,38 @@ afterAll(() => {
 });
 
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+
+/** The home page's sections as the migrated block map resolves them: descriptors with saved props. */
+const SECTIONS = [
+  { component: "site/sections/Hero.tsx", props: { title: "Welcome" } },
+  { component: "site/sections/Promo.tsx", props: { label: "Sale" } },
+  {
+    component: "site/sections/Shelf.tsx",
+    props: {
+      items: [
+        { sku: "0", name: "shirt" },
+        { sku: "1", name: "shirt" },
+        { sku: "2", name: "shirt" },
+      ],
+    },
+  },
+];
 const manual = (step: string) =>
   report.manual.filter((n) => n.step === step).map((n) => `${n.subject}: ${n.message}`);
 
 describe("migrate", () => {
-  it("writes a block map with a short name and an alias under each v7 name", () => {
+  it("writes a block map under the v7 names only, so the site editor lists each block once", () => {
     const map = read(".deco/index.ts");
-    expect(map).toContain('const hero = section<typeof import("../src/sections/Hero")>("hero");');
-    expect(map).toContain('"hero": hero,\n  "site/sections/Hero.tsx": hero,');
-    expect(map).toContain('import acmeItemList from "../src/vendor/acme/loaders/ItemList";');
+    // A descriptor's component is the section's v7 type name: v7's section loaders and the
+    // view registry are keyed on it.
     expect(map).toContain(
-      '"acme-item-list": acmeItemList,\n  "acme/loaders/ItemList.ts": acmeItemList,',
+      'const hero = section<typeof import("../src/sections/Hero")>("site/sections/Hero.tsx");',
     );
+    expect(map).toContain('\n  "site/sections/Hero.tsx": hero,');
+    expect(map).not.toContain('"hero":');
+    expect(map).toContain('import acmeItemList from "../src/vendor/acme/loaders/ItemList";');
+    expect(map).toContain('\n  "acme/loaders/ItemList.ts": acmeItemList,');
+    expect(map).not.toContain('"acme-item-list":');
     // Built-ins and the runtime's legacy names need no entry.
     expect(map).not.toContain("website/pages/Page.tsx");
     expect(map).not.toContain("website/loaders/secret.ts");
@@ -239,7 +299,7 @@ describe("migrate", () => {
       __resolveType: "site/sections/Hero.tsx",
       title: "Later",
     });
-    expect(JSON.parse(read(".deco/blocks/pages-home.json")).sections[1]).toEqual({
+    expect(JSON.parse(read(".deco/blocks/pages-home.json")).sections[2]).toEqual({
       __resolveType: "site/sections/Shelf.tsx",
       items: { __resolveType: "acme/loaders/ItemList.ts", query: "shirt", count: 3 },
     });
@@ -313,20 +373,60 @@ describe("migrate", () => {
     const client = cms.forRelease();
     const [page, error] = await client.resolve<any>("pages-home");
     expect(error).toBeNull();
-    expect(page.sections).toEqual([
-      { component: "hero", props: { title: "Welcome" } },
-      {
-        component: "shelf",
-        props: {
-          items: [
-            { sku: "0", name: "shirt" },
-            { sku: "1", name: "shirt" },
-            { sku: "2", name: "shirt" },
-          ],
-        },
-      },
-    ]);
+    expect(page.sections).toEqual(SECTIONS);
     expect(await client.resolve("API_KEY")).toEqual(["s3cret-value", null]);
+  });
+
+  it("writes the view registry: each section's module by its v7 type name", () => {
+    expect(read("src/views.ts")).toContain('import * as hero from "./sections/Hero";');
+    expect(read("src/views.ts")).toContain('  "site/sections/Promo.tsx": promo,');
+    expect(report.done.some((n) => n.subject === "src/views.ts")).toBe(true);
+  });
+
+  it("runs v7's registered section loaders through loadSections, ctx.device read from the request", async () => {
+    // v7's registration is now an export of the same map; its mixins come from @decocms/compat-v7.
+    const loaders = read("src/setup/section-loaders.ts");
+    expect(loaders).toContain(
+      'export const sectionLoaders: RunSectionLoadersOptions["loaders"] = {',
+    );
+    expect(loaders).toContain(
+      'export const nonCriticalSections: readonly string[] = ["site/sections/Promo.tsx"];',
+    );
+    expect(loaders).toContain(
+      'import { compose, withDevice, withSearchParam, withSectionLoader } from "@decocms/compat-v7/sections";',
+    );
+    expect(loaders).not.toContain("@decocms/blocks/cms");
+    expect(read("src/sections/Promo.tsx")).toContain(
+      'device: detectDevice(_req.headers.get("user-agent") ?? "")',
+    );
+    expect(read("src/sections/Promo.tsx")).toContain(
+      'import { detectDevice } from "@decocms/compat-v7/device";',
+    );
+    // Only the loader v7 never ran (none here) would be reported.
+    expect(manual("block map").join("\n")).not.toContain("which v7 never ran");
+
+    const map = await import(pathToFileURL(path.join(root, ".deco/index.ts")).href);
+    const iphone =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
+    const request = new Request("https://shop.test/_serverFn/abc", {
+      headers: { "user-agent": iphone },
+    });
+    const { sections, degraded } = await map.loadSections(
+      SECTIONS,
+      request,
+      "https://shop.test/?q=boots",
+    );
+    expect(degraded).toEqual([]);
+    const page = { __pageUrl: "https://shop.test/?q=boots", __pagePath: "/" };
+    expect(sections[0]).toEqual({
+      component: "site/sections/Hero.tsx",
+      props: { title: "Welcome", ...page, device: "mobile", currentSearchParam: "boots" },
+    });
+    expect(sections[1]).toEqual({
+      component: "site/sections/Promo.tsx",
+      props: { label: "Sale", ...page, device: "mobile" },
+    });
+    expect(sections[2]).toEqual(SECTIONS[2]);
   });
 
   it("keeps an existing block map and copies on a second run", async () => {

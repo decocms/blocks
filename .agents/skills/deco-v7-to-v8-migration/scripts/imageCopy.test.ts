@@ -22,6 +22,7 @@ import {
   leadingStripChanges,
   readImageCopy,
 } from "./imageCopy";
+import { imageModule, releaseRules } from "./imageModule";
 import { copyImageUrl, rewriteImports, v7StripsAnywhere } from "./imports";
 import { createReport } from "./report";
 
@@ -171,8 +172,13 @@ describe("the report for a site with its own copy", () => {
       'createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain: "decoims.com", quality: "high", sources: "all" })] })';
     expect(note("src/vendor/blocks/Image.tsx")).toContain(want);
     expect(note("src/vendor/blocks/Image.tsx")).toContain("re-resized from its src");
-    expect(note("Image, Picture, Source")).toContain(want);
-    expect(note("Image, Picture, Source")).not.toContain("stripAssetHosts");
+    // The site's src/imageUrl.ts is written with them.
+    const module = fs.readFileSync(path.join(root as string, "src/imageUrl.ts"), "utf8");
+    expect(module).toContain(
+      'providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain: "decoims.com", quality: "high", sources: "all" })]',
+    );
+    expect(module).toContain("src/vendor/blocks/Image.tsx");
+    expect(note("Image, Picture, Source")).toBeUndefined();
   });
 
   it("lists a copy's Nuvemshop provider, and says when it can't read a copy", () => {
@@ -199,9 +205,72 @@ describe("the report for a site with its own copy", () => {
     });
     const report = createReport();
     rewriteImports(root as string, report, new Map());
-    expect(report.manual.find((n) => n.subject === "Image, Picture, Source")?.message).toContain(
-      'decoCdn({ domain, quality, sources: "all" })',
+    expect(fs.readFileSync(path.join(root as string, "src/imageUrl.ts"), "utf8")).toContain(
+      'providers: [vtexCatalog(), shopifyCdn(), decoCdn({ sources: "all" })]',
     );
+    // 7.77.1 resized Nuvemshop images too, which no package covers.
+    expect(report.manual.find((n) => n.subject === "src/imageUrl.ts")?.message).toContain(
+      "Nuvemshop",
+    );
+  });
+
+  it("can't write src/imageUrl.ts for a copy it can't read, or a registered value that isn't a literal", () => {
+    site({
+      "package.json": JSON.stringify({
+        dependencies: { "@decocms/blocks": "7.77.1", "@decocms/tanstack": "7.77.1" },
+      }),
+      "src/Banner.tsx": 'import { Picture } from "@decocms/blocks/hooks";\n',
+      "src/setup.ts":
+        'import { registerImageCdnDomain } from "@decocms/blocks/hooks";\nregisterImageCdnDomain(process.env.CDN);\n',
+    });
+    const report = createReport();
+    rewriteImports(root as string, report, new Map());
+    expect(fs.existsSync(path.join(root as string, "src/imageUrl.ts"))).toBe(false);
+    expect(report.manual.find((n) => n.subject === "Image, Picture, Source")?.message).toContain(
+      "something other than one string literal",
+    );
+  });
+});
+
+describe("src/imageUrl.ts by 7.x release", () => {
+  const REGISTERED = [
+    {},
+    { domain: "decoims.com" },
+    { domain: "assets.decocms.com", quality: "high" },
+    { domain: "deco-assets.edgedeco.com" },
+    { quality: "medium" },
+  ];
+
+  it("gives each release the options its own Image's code needs (the verbatim excerpts above)", () => {
+    for (const [version, text] of Object.entries(RELEASES)) {
+      if (version === "edited") continue;
+      const fromCode = readImageCopy(text)!;
+      expect(releaseRules(version).nuvemshop, version).toBe(fromCode.nuvemshop);
+      for (const registered of REGISTERED) {
+        expect(copyDecoCdnOptions(releaseRules(version), registered), version).toBe(
+          copyDecoCdnOptions(fromCode, registered),
+        );
+      }
+    }
+    // Between the excerpts' releases: the rules of the release before.
+    expect(releaseRules("7.70.9")).toEqual(releaseRules("7.2.0"));
+    expect(releaseRules("7.71.3")).toEqual(releaseRules("7.71.0"));
+    expect(releaseRules("7.71.5")).toEqual({ ...releaseRules("7.77.1"), nuvemshop: false });
+    expect(releaseRules(undefined)).toEqual(releaseRules("7.77.1"));
+  });
+
+  it("writes a module that imports what it lists", () => {
+    const { text } = imageModule("7.64.3", { copies: [], registered: { quality: "high" } });
+    expect(text).toContain('import { createImageUrl, decoCdn } from "@decocms/blocks/image";');
+    expect(text).toContain('import { shopifyCdn } from "@decocms/apps-shopify/image";');
+    expect(text).toContain('import { vtexCatalog } from "@decocms/apps-vtex/image";');
+    expect(text).toContain(
+      'providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain: "decoims.com", quality: "high", sources: "all" })]',
+    );
+    expect(text).toContain("v7 7.64.3's Image, with the site's registerImageQuality(\"high\")");
+    expect(text).not.toContain("stripAssetHosts");
+    expect(text).toContain("strips only a leading Deco asset host");
+    expect(imageModule("7.77.1", { copies: [], registered: {} }).text).not.toContain("leading");
   });
 });
 

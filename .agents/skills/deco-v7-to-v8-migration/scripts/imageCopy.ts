@@ -14,7 +14,7 @@ import ts from "typescript";
 
 const SOURCE = /\.(tsx?|mts|cts)$/;
 const CLOUDFLARE_CDNS = new Set(["assets.decocms.com", "decoims.com"]);
-const DEFAULT_DOMAIN = "assets.decocms.com";
+export const DEFAULT_DOMAIN = "assets.decocms.com";
 
 export interface ImageCopyRules {
   /** `imageCdnDomain`'s initial value. */

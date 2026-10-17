@@ -23,6 +23,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import {
+  COMPAT_MOVES,
+  COMPAT_NAME_HINTS,
+  COMPAT_V7_ENTRIES,
+  compatCommerceSpecifier,
+} from "./compat";
 import { type Framework, siteBlocksVersion, siteFramework } from "./framework";
 import {
   copyDecoCdnOptions,
@@ -30,6 +36,7 @@ import {
   type ImageCopy,
   leadingStripChanges,
 } from "./imageCopy";
+import { imageModule, writeImageUrl } from "./imageModule";
 import type { Report } from "./report";
 import { relativeSpecifier, resolvePackageFile } from "./vendor";
 
@@ -153,6 +160,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "withDeco",
     "WithDecoOptions",
   ]),
+  // v7's pure helpers, with v7's output (the product owner's one home for them).
+  ...Object.fromEntries(COMPAT_V7_ENTRIES.map((e) => [e, "*" as const])),
 };
 
 const IMAGE_COMPONENTS = [
@@ -162,6 +171,14 @@ const IMAGE_COMPONENTS = [
   "PictureProps",
   "Source",
   "SourceProps",
+];
+
+/** v7's image URL helpers (`@decocms/blocks/hooks`). */
+const IMAGE_URL_NAMES = [
+  "registerImageCdnDomain",
+  "registerImageQuality",
+  "getOptimizedMediaUrl",
+  "getSrcSet",
 ];
 
 /** The draft names and Studio's origins: each binding's root exports them, `@decocms/blocks` doesn't. */
@@ -185,10 +202,15 @@ type MoveTarget = string | Partial<Record<Framework, string>>;
  * site with one of those bindings.
  */
 export const MOVES: Record<string, { only?: Framework; names: Record<string, MoveTarget> }> = {
+  // v7's helpers @decocms/compat-v7 has (./compat.ts), whatever the binding.
+  ...Object.fromEntries(Object.entries(COMPAT_MOVES).map(([s, names]) => [s, { names }])),
   "@decocms/blocks": {
-    names: Object.fromEntries(
-      BINDING_NAMES.map((n) => [n, { tanstack: "@decocms/tanstack", nextjs: "@decocms/nextjs" }]),
-    ),
+    names: {
+      ...Object.fromEntries(
+        BINDING_NAMES.map((n) => [n, { tanstack: "@decocms/tanstack", nextjs: "@decocms/nextjs" }]),
+      ),
+      ...COMPAT_MOVES["@decocms/blocks"],
+    },
   },
   "@decocms/tanstack": {
     names: {
@@ -290,6 +312,7 @@ const V7_IMAGE_URL = "\u0001v7-image-url\u0001";
 
 /** The hints for names the bindings replace, by v7 specifier: checked before `HINTS`. */
 const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
+  ...COMPAT_NAME_HINTS,
   {
     specifier: /^@decocms\/tanstack$/,
     names: ["createDecoWorkerEntry"],
@@ -421,10 +444,6 @@ const HINTS: [RegExp, string][] = [
     "telemetry is the telemetry option of createCMS (/next/telemetry)",
   ],
   [
-    /^@decocms\/blocks\/types\/widgets$/,
-    "type the field as a string with a @format tag (/next/schema#widgets)",
-  ],
-  [
     /(OneDollarStats|Analytics)$|^@decocms\/blocks\/sdk\/analytics$/,
     "AnalyticsScript and track from @decocms/blocks/analytics, with the analytics section of cms.settings() (/next/analytics)",
   ],
@@ -433,8 +452,12 @@ const HINTS: [RegExp, string][] = [
     "the Salesforce client is @decocms/apps-sfmc-personalization (/next/upstream-clients#what-a-client-is)",
   ],
   [
-    /^@decocms\/apps-commerce(\/|$)|^@decocms\/apps\/commerce(\/|$)/,
-    "converters, hooks and shared commerce types live in your platform template (/next/upstream-clients#what-a-client-is)",
+    /^@decocms\/apps-commerce(\/|$)/,
+    "v7's app runtime (app-types, registry, resolve, manifest-utils) has no v8 equivalent: an app is its upstream client, created in code (/next/upstream-clients); v7's commerce types and helpers are @decocms/compat-v7/commerce/*",
+  ],
+  [
+    /^@decocms\/apps\/commerce(\/|$)/,
+    "a 6.x import: upgrade the site to 7.x first (7.x's @decocms/apps-commerce becomes @decocms/compat-v7/commerce)",
   ],
   [
     /^@decocms\/apps-website(\/|$)|^@decocms\/apps\/website(\/|$)/,
@@ -455,6 +478,10 @@ const HINTS: [RegExp, string][] = [
   [
     /^@decocms\/blocks\/sdk\/redirects$/,
     "createDecoWorker applies the CMS redirects before any route",
+  ],
+  [
+    /^@decocms\/blocks\/sdk\/abTesting$/,
+    "withABTesting is abTestingRoutes({ worker: () => worker, ...the same options }) from @decocms/compat-v7/tanstack/worker, a handler run first in createDecoWorker's routes (not a wrapper around the worker): same KV entry, buckets, cookie and fallback proxy (reference/framework-code.md)",
   ],
   [
     /^@decocms\/tanstack\/vite$/,
@@ -672,13 +699,16 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
   const fromCopy = images.copies
     .map((copy) => copyImageUrl(copy, images.registered))
     .find((url) => url !== undefined);
-  const imageUrl = fromCopy ?? v7ImageUrl(siteBlocksVersion(root));
+  const version = siteBlocksVersion(root);
+  const imageUrl = fromCopy ?? v7ImageUrl(version);
   const readCopy = images.copies.find((copy) => copy.rules !== null);
   const stripsAnywhere = readCopy
     ? readCopy.rules?.stripAssetHosts === "anywhere"
-    : v7StripsAnywhere(siteBlocksVersion(root));
+    : v7StripsAnywhere(version);
   /** Names moved to a binding, by target, for the report. */
   const moved = new Map<string, Set<string>>();
+  /** Whether the site uses v7's image components or URL helpers. */
+  let usesImages = images.copies.length > 0;
 
   for (const file of listSources(path.join(root, "src"))) {
     const text = fs.readFileSync(file, "utf8");
@@ -696,6 +726,12 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
     for (const found of findImports(source)) {
       const specifier = found.literal.text;
       if (!specifier.startsWith("@decocms/")) continue;
+      if (
+        specifier === "@decocms/blocks/hooks" &&
+        found.names.some((n) => IMAGE_COMPONENTS.includes(n) || IMAGE_URL_NAMES.includes(n))
+      ) {
+        usesImages = true;
+      }
       const replace = (to: string) =>
         edits.push({
           start: found.literal.getStart(source) + 1,
@@ -708,6 +744,16 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
       const copy = target ? vendored.get(target) : undefined;
       if (copy) {
         replace(relativeSpecifier(file, copy));
+        continue;
+      }
+
+      // 1b. v7's commerce types and helpers: the same file under @decocms/compat-v7/commerce.
+      const commerce = compatCommerceSpecifier(specifier);
+      if (commerce) {
+        replace(commerce);
+        const set = moved.get("@decocms/compat-v7/commerce/*") ?? new Set();
+        set.add(specifier.replace(/^@decocms\/(apps-commerce|apps\/commerce)\//, ""));
+        moved.set("@decocms/compat-v7/commerce/*", set);
         continue;
       }
 
@@ -813,18 +859,32 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
     report.done.push({
       step: "imports",
       subject: target,
-      message: `${[...names].join(", ")} now come from the v8 binding`,
+      message: target.startsWith("@decocms/compat-v7/commerce")
+        ? `${[...names].join(", ")} from @decocms/apps-commerce are the same files under @decocms/compat-v7/commerce (v7's types and helpers, with v7's output)`
+        : target.startsWith("@decocms/compat-v7")
+          ? `${[...names].join(", ")} now come from @decocms/compat-v7 (v7's own helpers, with v7's output)`
+          : `${[...names].join(", ")} now come from the v8 binding`,
     });
   }
-  if (
-    moved.get("@decocms/tanstack/react")?.has("Image") ||
-    moved.get("@decocms/tanstack/react")?.has("Picture")
-  ) {
+  const contextDevice = [
+    ...(moved.get("@decocms/compat-v7/tanstack") ?? []),
+    ...(moved.get("@decocms/compat-v7/nextjs") ?? []),
+  ];
+  if (contextDevice.includes("useDevice") || contextDevice.includes("DeviceProvider")) {
     report.manual.push({
       step: "imports",
-      subject: "Image, Picture, Source",
-      message: `they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, and @decocms/tanstack knows no commerce platform: without a provider every source goes through the Deco image CDN, where v7 resized VTEX catalog and Shopify images on their own hosts. Wrap every page in <ImageUrlProvider value={imageUrl}> through createDecoRouter's Wrap option, with imageUrl = ${imageUrl}, so every URL stays v7's`,
+      subject: "useDevice",
+      message: `v7 seeded it from its request scope, which v8 has none of: render the page under <DeviceProvider value={device}> from @decocms/compat-v7/${framework}, with device = ${framework === "tanstack" ? "requestDevice()" : "await requestDevice()"} from @decocms/compat-v7/${framework}/server returned with the page's data, so the server and the browser render the same device; without a provider the server renders "desktop"`,
     });
+  }
+  if (framework === "tanstack" && usesImages) {
+    const plan = imageModule(version, images);
+    writeImageUrl(
+      root,
+      report,
+      plan,
+      `they take their URLs from ImageUrlProvider (@decocms/tanstack/react) now, and @decocms/tanstack knows no commerce platform: without a provider every source goes through the Deco image CDN, where v7 resized VTEX catalog and Shopify images on their own hosts. The script couldn't write src/imageUrl.ts (${plan.reason}): write imageUrl = ${imageUrl}, and wrap every page in <ImageUrlProvider value={imageUrl}> through createDecoRouter's Wrap option, so every URL stays v7's`,
+    );
   }
   for (const copy of images.copies) {
     const url = copyImageUrl(copy, images.registered);

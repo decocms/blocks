@@ -18,6 +18,7 @@
         "@decocms/apps-algolia",
         "@decocms/apps-shopify",
         "@decocms/apps-vtex",
+        "@decocms/compat-v7",
         "@decocms/nextjs",
         "@decocms/tanstack",
         "react",
