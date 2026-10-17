@@ -48,7 +48,7 @@ export function v7Loader(options: { stubs?: Record<string, Exports> } = {}) {
     let src = text ?? readFileSync(abs, "utf8");
     if (expose?.length) src += `\nexport { ${expose.join(", ")} };\n`;
     const { code } = transformSync(src, {
-      loader: rel.endsWith(".js") ? "js" : "ts",
+      loader: rel.endsWith(".js") ? "js" : rel.endsWith(".tsx") ? "tsx" : "ts",
       format: "cjs",
       target: "es2022",
     });
@@ -63,7 +63,7 @@ export function v7Loader(options: { stubs?: Record<string, Exports> } = {}) {
       const target = relative(root, join(root, dirname(rel), spec));
       const stub = options.stubs?.[target];
       if (stub) return stub;
-      for (const ext of [".ts", ".js"]) {
+      for (const ext of [".ts", ".tsx", ".js"]) {
         if (existsSync(join(root, target + ext))) return load(target + ext);
       }
       return noop;
