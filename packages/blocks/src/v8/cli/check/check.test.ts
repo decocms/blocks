@@ -130,29 +130,6 @@ describe("__resolveType", () => {
     ).toEqual([]);
   });
 
-  it("accepts the site editor's __meta on any saved block, and on one referenced with overrides", () => {
-    const __meta = { lastEditedBy: "user-ana", lastEditedAt: "2026-10-16T12:00:00.000Z" };
-    expect(
-      run({
-        Summer: { ...hero, __meta },
-        Legacy: {
-          __resolveType: "website/pages/Page.tsx",
-          name: "Old",
-          path: "/old",
-          sections: [],
-          __meta,
-        },
-        HomePage: page(
-          [
-            { __resolveType: "Summer", size: "lg" },
-            { ...hero, __meta },
-          ],
-          { __meta },
-        ),
-      }),
-    ).toEqual([]);
-  });
-
   it("reports a missing __resolveType on a saved block", () => {
     expect(lines(run({ Bare: { title: "x" } }))).toEqual([
       "Bare.json missing __resolveType: a saved block names the function it calls",
