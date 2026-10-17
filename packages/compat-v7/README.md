@@ -60,4 +60,23 @@ clx("btn", isActive && "btn-active", undefined); // "btn btn-active"
 
 It drops falsy values, joins the rest and collapses whitespace runs, as v7 did. Like v7, it doesn't trim.
 
-Everything is also exported from the package root.
+## Matchers
+
+```ts
+import { type DeviceProps, device, type RandomProps, random } from "@decocms/compat-v7/matchers";
+
+export const blocks = {
+  "website/matchers/device.ts": (props: DeviceProps) => device(props, matcherContext()),
+  "website/matchers/random.ts": (props: RandomProps) => random(props, matcherContext()),
+};
+```
+
+`device`, `cookie`, `host`, `pathname`, `queryString`, `location`, `multi` and `random` give v7's results. A v8 block function gets only its inputs, so each matcher takes the request as its second argument: a `Request`, or `{ request, url, flags }`, where `url` is the page's URL when the request is a client-side navigation's server-function call, and `flags` is one array per request for the A/B decisions. `matcherContext()` stands for however the site reaches the request being served; the framework subpaths provide it. `always`, `never` and `date` are v8 built-ins, so they aren't here.
+
+- `random` is v7's sticky random (latest 7.x): a visitor keeps their group through the `deco_segment` cookie, and is drawn again once when the traffic share changes. The cookie is keyed on the test's **cohort, the saved matcher block's name**. A v8 block doesn't know its own name, so the block carries it in `cohort`; a random rule written inline uses `website/matchers/random.ts`, as v7 did. Keep the cohort when changing the traffic share: renaming it puts every visitor in a new test.
+- After the page resolved, `segmentSetCookie(request, flags)` gives the `Set-Cookie` to send, or `null` when the visitor's cookie already says the same. `decideRandom` returns a decision with that cookie. Don't cache a response that sets it for other visitors.
+- `multi` gets its rules' results: v8 resolves them first. An inner `random` is sticky here; v7 drew it again on every request.
+- `environment` throws: it read the process environment, which no v8 package does. Register your own matcher under its name.
+- `location` reads the `cf-*` headers, then the Workers `request.cf`, then the `__cf_geo_*` cookies, as v7 did.
+
+Everything except the matchers is also exported from the package root.

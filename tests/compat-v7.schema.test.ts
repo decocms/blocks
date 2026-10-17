@@ -8,7 +8,8 @@
  * editor renders the same way) and `Secret` is a secret block (v7: a
  * "password" string; v8 stores secrets encrypted). Runs the
  * generator on a temp app that installs the package (the workspace's
- * node_modules, so the built dist/ types, as a site would see them).
+ * node_modules, so the built dist/ types, as a site would see them). The
+ * matchers keep their fields when the site wraps them in its block map.
  */
 import { describe, expect, it } from "vitest";
 import { createFixture } from "../packages/blocks/src/v8/cli/__tests__/fixture";
@@ -60,6 +61,43 @@ export const banner = (props: Props) => ({ component: "banner", props });`,
         format: "secret",
         properties: { __resolveType: { enum: ["secret"] } },
       });
+    } finally {
+      fixture.remove();
+    }
+  }, 60_000);
+});
+
+describe("@decocms/compat-v7 matchers in deco schema", () => {
+  it("a matcher wrapped in the block map gets v7's fields, and random its cohort", async () => {
+    const fixture = createFixture({
+      "src/matchers.ts": `
+import { type DeviceProps, device, type RandomProps, random } from "@decocms/compat-v7/matchers";
+declare const request: Request;
+export const matchers = {
+  "website/matchers/device.ts": (props: DeviceProps) => device(props, request),
+  "website/matchers/random.ts": (props: RandomProps) => random(props, request),
+};`,
+      ".deco/index.ts": `import { matchers } from "../src/matchers"; export default { ...matchers };`,
+    });
+    try {
+      const { meta, diagnostics } = await generateSchema(decoPaths(fixture.root));
+      expect(diagnostics).toEqual([]);
+      const defs = meta.schema.definitions;
+      const find = (name: string) =>
+        Object.entries(defs).find(([key]) => key.startsWith(toBase64(name)))?.[1] as
+          | { properties: Record<string, { type?: string; title?: string }> }
+          | undefined;
+      const random = find("website/matchers/random.ts");
+      expect(random, Object.keys(defs).join(" ")).toBeDefined();
+      expect(random?.properties.traffic).toMatchObject({ type: "number", title: "Traffic share" });
+      expect(random?.properties.cohort).toMatchObject({ type: "string", title: "Cohort" });
+      const deviceProps = find("website/matchers/device.ts")?.properties;
+      expect(Object.keys(deviceProps ?? {}).sort()).toEqual([
+        "__resolveType",
+        "desktop",
+        "mobile",
+        "tablet",
+      ]);
     } finally {
       fixture.remove();
     }
