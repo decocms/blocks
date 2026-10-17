@@ -5,7 +5,7 @@ description: "@decocms/blocks 8 (the next major): moves a v7 Deco site (@decocms
 
 # Deco v7 → v8 Migration
 
-A script does the mechanical, content-safe part in one pass and prints the manual steps. Proven on `deco-sites/storefront-tanstack`, `deco-sites/demo-storefront` (a redesign of storefront-tanstack's v7 tree) and `deco-sites/blog-tanstack` (TanStack Start), plus four private storefronts: two Next.js App Router (ejected FastStore), one TanStack Start and one non-ejected FastStore, all on VTEX.
+A script does the mechanical, content-safe part in one pass and prints the manual steps. Proven on `deco-sites/storefront-tanstack`, `deco-sites/demo-storefront` (a redesign of storefront-tanstack's v7 tree), `deco-sites/blog-tanstack` and four private VTEX storefronts (two ejected FastStore on Next.js, one TanStack Start, one non-ejected FastStore).
 
 The spec is the docs page **Migrating from v7** (`/next/renames-and-migrations`). When this skill and the docs disagree, the docs win.
 
@@ -16,7 +16,7 @@ The spec is the docs page **Migrating from v7** (`/next/renames-and-migrations`)
 
 **FastStore storefronts that aren't ejected** (FastStore owns the Next.js app; v7 monkey-patched its content requests) keep that seam with v8 behind it: follow [`reference/faststore.md`](reference/faststore.md) for steps 2, 3 and 6. **Native or mobile apps** whose v7 package only generated Studio's files (bundled JSON, native rendering): the script still runs, but most manual steps don't; follow [`reference/native-apps.md`](reference/native-apps.md).
 
-Not for sites still on `@decocms/start@6.x` (upgrade to 7.x first with `decocms-v6-to-v7-upgrade`) or on Fresh/Deno (migrate to TanStack first with `deco-to-tanstack-migration`). Both live on the `7.x` branch, not on this one.
+Not for sites on `@decocms/start@6.x` (upgrade to 7.x first with `decocms-v6-to-v7-upgrade`) or on Fresh/Deno (first `deco-to-tanstack-migration`); both skills live on the `7.x` branch.
 
 ## Prerequisites
 
@@ -49,25 +49,26 @@ rm -rf .deco-migrate
 |---|---|
 | `--root <dir>` | The app root, the folder with the site's `package.json`. Default: `.` |
 | `--decofile <file>` | Content to split into `.deco/blocks` when the site has none: the JSON the v7 site serves at `/.decofile`. |
+| `--vtex-invoke keep\|v8` | No default. Needed if the site calls v7's VTEX invoke-map keys (else it stops, listing them): `keep` vendors v7's handler; `v8` uses the v8 client or a stub ([`reference/server-functions.md`](reference/server-functions.md)). |
 
-In order: **content** (and site **settings** folded into `.deco/blocks/CMS.json`), **secrets**, **block map**, **imports**, **scripts**. Each step in full: [`reference/script-steps.md`](reference/script-steps.md).
+In order: **content** (site **settings** folded into `.deco/blocks/CMS.json`, app blocks turned into `src/clients/<app>.ts`), **secrets**, **block map**, **invoke** (one server function per key), **scaffold** (`src/cms.ts`, the page loader, the catch-all route), **imports**, **scripts**. Each step: [`reference/script-steps.md`](reference/script-steps.md).
 
-Commit the script's output unedited as its own commit (`chore: run the v7-to-v8 migration`), so reviewers can tell generated changes from hand-written ones.
+Commit the script's output unedited as its own commit (`chore: run the v7-to-v8 migration`), apart from hand-written changes.
 
-**A sibling site already migrated?** When the site shares its v7 tree with one that is already on v8 (a fork, a redesign of a template), port the sibling's v8 changes with a three-way merge per file instead of by hand: `git merge-file <site file> <sibling's file after its script run> <sibling's v8 file>`. Conflicts are mostly import lines. Then check what the merge brought that isn't the migration ([`reference/sibling-port.md`](reference/sibling-port.md)).
+**A sibling site already migrated?** Port its v8 changes with a three-way merge per file, `git merge-file <site file> <sibling's file after its script run> <sibling's v8 file>`, then check what else the merge brought ([`reference/sibling-port.md`](reference/sibling-port.md)).
 
 ## Review the report
 
-The script prints **Done** and **Left to do**, grouped by step. Every "Left to do" line names its subject and where the replacement lives. Work through it top to bottom; nothing it lists was changed.
+The script prints **Done** and **Left to do**, grouped by step. Every "Left to do" line names its subject and where the replacement lives; work through it top to bottom.
 
 ## Manual steps
 
 The full text of each step: [`reference/manual-steps.md`](reference/manual-steps.md).
 
 1. **Dependencies**: `@decocms/blocks@^8.3`, the v8 binding and `@decocms/compat-v7` at the same version, and the v8 `@decocms/apps-<platform>` client; remove the other v7 packages and codegen once nothing imports them.
-2. **Render pages with `createCMS` on the binding** (`/next/tanstack-start-descriptors`, `/next/nextjs`); delete the v7 setup files, admin routes, `/deco/*` handlers and v7 CI jobs.
+2. **Check the page setup the script wrote** (`/next/tanstack-start-descriptors`, `/next/nextjs`), carry over what the site added to v7's page routes, and delete the v7 setup files and CI jobs.
 3. **Worker, drafts, Studio and images from the binding; v7's pure helpers (commerce types, `clx`, scripts, device, matchers, section loaders) from `@decocms/compat-v7`; the rest is site code** ([`reference/framework-code.md`](reference/framework-code.md)).
-4. **Replace `/deco/invoke`** with one server function per loader or action the browser called ([`reference/server-functions.md`](reference/server-functions.md)).
+4. **Finish `/deco/invoke`**: validate the server functions the script wrote, and replace each stub in `src/migration-stubs.ts` ([`reference/server-functions.md`](reference/server-functions.md)).
 5. **Fix the content `deco check` rejects** ([`reference/content.md`](reference/content.md)).
 6. **Telemetry, analytics and previews** ([`reference/telemetry.md`](reference/telemetry.md)).
 
@@ -83,7 +84,7 @@ Then the rest of [`reference/verify.md`](reference/verify.md): `"blocksMajor": 8
 ## DO NOT
 
 - Add compat shims that re-create v7 APIs (`useCart` from a package, `invoke`, `RequestContext`, `ctx`). `@decocms/compat-v7` is the one approved home of v7's pure helpers: import them from it, never copy them in. The rest is site code.
-- Copy v7's worker entry, draft middleware, Studio bridge, preview badge or `Image` into the site: `@decocms/tanstack` and `@decocms/nextjs` ship them. A site-local `invoke` object with v7's paths, or a `runInvoke("site/loaders/…")` dispatcher, is the same shim.
+- Copy v7's worker entry, draft middleware, Studio bridge, preview badge or `Image` into the site: the bindings ship them. A site-local `invoke` object with v7's paths, or a `runInvoke(key)` dispatcher, is the same shim.
 - Strip `"use client"` from hook, event or browser-API components to render them.
 - Rename saved type names. Content stores them; keep the v7 name as an alias (`/next/renames-and-migrations#rename-a-type-with-an-alias`).
 - Hand-edit the script's output in the same commit as the run.
@@ -92,7 +93,7 @@ Then the rest of [`reference/verify.md`](reference/verify.md): `"blocksMajor": 8
 
 | Reference | Load it when |
 |---|---|
-| [`script-steps.md`](reference/script-steps.md) | You need what each script step did (content, settings, secrets, block map, imports, scripts) |
+| [`script-steps.md`](reference/script-steps.md) | You need what each script step did |
 | [`manual-steps.md`](reference/manual-steps.md) | You work through the report's "Left to do" |
 | [`verify.md`](reference/verify.md) | The site builds and you're checking it before review |
 | [`import-map.md`](reference/import-map.md) | A v7 import needs its v8 replacement |
@@ -117,4 +118,4 @@ What the site migrations taught, one subject per file. Commit hashes refer to `d
 | [`content.md`](reference/content.md) | `deco check` as a deploy gate, content it rejects, editing locally with `deco serve` |
 | [`telemetry.md`](reference/telemetry.md) | Telemetry params, resource attributes, dropped v7 bindings, analytics |
 
-`scripts/` is the migration (`main.ts` entry). Its tests run with the repo's `bun run test`.
+`scripts/` is the migration (`main.ts`), tested by the repo's `bun run test`.

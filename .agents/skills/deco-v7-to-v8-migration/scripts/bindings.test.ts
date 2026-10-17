@@ -130,6 +130,94 @@ function writeContent(write: (file: string, data: string | object) => void) {
   });
 }
 
+/** v7 browser code and loaders that went through /deco/invoke, v7's loader ctx and its partial sections. */
+function writeInvokeFixture(write: (file: string, data: string | object) => void) {
+  // v7 templates' own proxy (src/runtime.ts): it fetched /deco/invoke.
+  write(
+    "src/runtime.ts",
+    [
+      "function proxy(path: string[] = []): any {",
+      "  return new Proxy(async (props: unknown) => {",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: generated source with a template literal
+      '    const response = await fetch(`/deco/invoke/${path.join("/")}`, { method: "POST", body: JSON.stringify(props ?? {}) });',
+      "    return response.json();",
+      "  }, { get: (_t, prop: string) => proxy([...path, prop]) });",
+      "}",
+      "export const invoke = proxy() as any;",
+      "export const Runtime = { invoke };",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "src/actions/notifyMe/subscribe.ts",
+    [
+      "export interface Props { skuId: string; email: string }",
+      "export default async function subscribe(props: Props): Promise<{ success: boolean }> {",
+      '  return { success: props.email.includes("@") };',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "src/loaders/get-wishlist.ts",
+    [
+      "export default async function wishlist(_props: unknown, req: Request): Promise<string[]> {",
+      '  return req.headers.get("cookie") ? ["a"] : [];',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "src/components/OutOfStock.tsx",
+    [
+      'import { invoke } from "../runtime";',
+      "export async function notify(email: string) {",
+      "  const result = await invoke.site.actions.notifyMe.subscribe({",
+      '    skuId: "1",',
+      "    email,",
+      "  });",
+      "  return result.success;",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "src/components/Wishlist.tsx",
+    [
+      'import { invoke } from "@decocms/blocks/sdk/invoke";',
+      "export async function load() {",
+      '  const items = await invoke["site"].loaders["get-wishlist"]();',
+      '  await invoke("site/loaders/missing.ts", { id: 1 });',
+      "  return items;",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "src/sections/Search.tsx",
+    [
+      'import { useSection } from "@decocms/blocks/sdk";',
+      "export interface Props { loader: { __resolveType: string }; title: string }",
+      "export const loader = async (props: Props, req: Request, ctx: { invoke: any; account: string }) => {",
+      "  const found = await ctx.invoke(props.loader.__resolveType, { q: new URL(req.url).search });",
+      "  const tree = await ctx.invoke.vtex.loaders.categories.tree({ levels: 1 });",
+      "  return { ...props, found, tree, account: ctx.account };",
+      "};",
+      "export default function Search(props: Props) {",
+      "  return <input hx-post={useSection({ props })} placeholder={props.title} />;",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  write(".deco/blocks/deco-vtex.json", {
+    __resolveType: "site/apps/deco/vtex.ts",
+    account: "acme",
+    appKey: { __resolveType: "website/loaders/secret.ts", encrypted: "00ff", name: "VTEX_APP_KEY" },
+    publicUrl: "https://secure.acme.test",
+    salesChannel: "",
+  });
+}
+
 /** A v7 section with every helper compat-v7 carries, and a loader that reads ctx.device. */
 const HERO = [
   'import { clx } from "@decocms/blocks/sdk/clx";',
@@ -237,11 +325,144 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     );
     write("src/sections/Hero.tsx", HERO);
     write("src/setup/section-loaders.ts", SECTION_LOADERS);
+    writeInvokeFixture(write);
+    write(
+      "src/types/cloudflare.d.ts",
+      'declare module "cloudflare:workers" {\n  export const env: Record<string, unknown>;\n}\n',
+    );
+    write(
+      "src/routes/__root.tsx",
+      'import { createRootRoute } from "@tanstack/react-router";\nexport const Route = createRootRoute();\n',
+    );
+    write(
+      "src/routes/$.tsx",
+      [
+        'import { createFileRoute } from "@tanstack/react-router";',
+        'import { cmsRouteConfig, DecoPageRenderer } from "@decocms/tanstack";',
+        'export const Route = createFileRoute("/$")({ ...cmsRouteConfig({ siteName: "x" }), component: DecoPageRenderer });',
+        "",
+      ].join("\n"),
+    );
+    write(
+      "src/routes/deco/invoke.$.ts",
+      [
+        'import { createFileRoute } from "@tanstack/react-router";',
+        'import { decoInvokeRoute } from "@decocms/tanstack/routes";',
+        'export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRoute);',
+        "",
+      ].join("\n"),
+    );
     report = await migrate({ root });
+    // What the site's own tooling generates before a type-check: the content module (deco content)
+    // and the route tree (the router plugin).
+    const { content } = await import("@decocms/blocks/cli");
+    await content({ root, reporter: { info() {}, warn() {}, error() {} } as never });
+    write(
+      "src/routeTree.gen.ts",
+      [
+        'import { Route as rootRouteImport } from "./routes/__root";',
+        'import { Route as SplatRouteImport } from "./routes/$";',
+        'declare module "@tanstack/react-router" {',
+        "  interface FileRoutesByPath {",
+        '    "/$": { id: "/$"; path: "/$"; fullPath: "/$"; preLoaderRoute: typeof SplatRouteImport; parentRoute: typeof rootRouteImport };',
+        "  }",
+        "}",
+        "export {};",
+        "",
+      ].join("\n"),
+    );
   });
 
   afterAll(() => {
     if (root) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("turns each /deco/invoke key into a server function its call sites import", () => {
+    const functions = read("src/server/invoke.functions.ts");
+    expect(functions).toContain(
+      'export const $siteActionsNotifyMeSubscribe = createServerFn({ method: "POST" })',
+    );
+    // A loader is a GET kept out of the shared cache.
+    expect(functions).toContain(
+      'export const $siteLoadersGetWishlist = createServerFn({ method: "GET" })',
+    );
+    expect(functions).toContain("markPrivate();");
+    expect(functions).toContain('import handler0 from "../actions/notifyMe/subscribe";');
+    const outOfStock = read("src/components/OutOfStock.tsx");
+    expect(outOfStock).toContain(
+      'import { $siteActionsNotifyMeSubscribe } from "../server/invoke.functions";',
+    );
+    expect(outOfStock).toContain("await $siteActionsNotifyMeSubscribe({ data: {");
+    expect(outOfStock).not.toContain("../runtime");
+    const wishlist = read("src/components/Wishlist.tsx");
+    expect(wishlist).toContain("await $siteLoadersGetWishlist()");
+    // No handler file: v7 failed too; the stub rejects.
+    expect(wishlist).toContain('await unportedInvoke("site/loaders/missing", { id: 1 })');
+    expect(wishlist).not.toContain("@decocms/blocks/sdk/invoke");
+    // v7's proxy module: nothing imports it any more.
+    expect(fs.existsSync(path.join(root, "src/runtime.ts"))).toBe(false);
+  });
+
+  it("stubs ctx.invoke, app state and useSection, keeping v7's placeholder URL", () => {
+    const search = read("src/sections/Search.tsx");
+    expect(search).toContain(
+      "const found = await unportedInvoke(props.loader.__resolveType, { q: new URL(req.url).search });",
+    );
+    expect(search).toContain(
+      'const tree = await unportedInvoke("vtex/loaders/categories/tree", { levels: 1 });',
+    );
+    expect(search).toContain('account: appState("account")');
+    expect(search).toContain('import { useSection } from "../migration-stubs";');
+    const stubs = read("src/migration-stubs.ts");
+    expect(stubs).toContain('return "/__deco_legacy_htmx_section__";');
+    expect(stubs).toContain("export function unportedInvoke(");
+    expect(stubs).toContain("export function appState(");
+    expect(report.manual.some((n) => n.subject.startsWith("hx-* attributes"))).toBe(true);
+  });
+
+  it("writes the VTEX client from v7's app block, credentials from v7's variables", () => {
+    const vtex = read("src/clients/vtex.ts");
+    expect(vtex).toContain('account: "acme",');
+    // v7: block.salesChannel || "1".
+    expect(vtex).toContain('salesChannel: "1",');
+    expect(vtex).toContain('appKey: variable("VTEX_APP_KEY"),');
+    expect(vtex).not.toContain("00ff");
+    expect(vtex).toContain('"publicUrl": "https://secure.acme.test"');
+    const note = report.manual.find((n) => n.step === "apps");
+    expect(note?.message).toContain("set VTEX_APP_KEY, VTEX_APP_TOKEN");
+    expect(report.manual.some((n) => n.subject.startsWith("site/apps/deco/vtex.ts"))).toBe(false);
+  });
+
+  it("writes the page setup: the CMS, a page server function on the page's URL, the catch-all route", () => {
+    expect(read("src/cms.ts")).toContain("contentClient(cms, request)");
+    const open = read("src/open-page.server.ts");
+    expect(open).toContain("const url = new URL(href, request.url);");
+    expect(open).toContain("matchPage(url, request);");
+    expect(open).toContain(
+      "const { sections, degraded } = await loadSections(resolved.flat(), request, url);",
+    );
+    expect(open).toContain("commitSegmentCookie(request);");
+    expect(open).toContain("device: requestDevice(request)");
+    expect(read("src/page.functions.ts")).toContain(
+      ".handler(({ data }) => openPage(data.href, getRequest()));",
+    );
+    const view = read("src/page-view.tsx");
+    expect(view).toContain("<DeviceProvider value={page.device}>");
+    // v7's wrapper around each section, and its head.
+    expect(view).toContain("data-manifest-key={section.component}");
+    expect(view).toContain("<SectionErrorBoundary sectionKey={section.component}>");
+    expect(view).toContain('meta.push({ property: "og:title", content: title });');
+    expect(read("src/section-error-boundary.tsx")).toContain(
+      'return <div data-section-error={sectionKey} className="hidden" />;',
+    );
+    // v7's catch-all is replaced, keeping what it passed cmsRouteConfig; its admin route is gone.
+    const route = read("src/routes/$.tsx");
+    expect(route).toContain("return loadPage({ data: { href: location.pathname + query } });");
+    expect(route).toContain('siteName: "x",');
+    expect(route).toContain('const IGNORED_SEARCH_PARAMS = new Set(["skuId"]);');
+    expect(route).toContain("head: ({ loaderData }) => pageHead(loaderData, SITE),");
+    expect(route).not.toContain("cmsRouteConfig(");
+    expect(fs.existsSync(path.join(root, "src/routes/deco/invoke.$.ts"))).toBe(false);
   });
 
   it("points the kept imports at @decocms/tanstack", () => {
@@ -339,7 +560,11 @@ describe("a v7 Next.js site on the v8 binding", () => {
   const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 
   beforeAll(async () => {
-    root = makeSite("deco-v7-to-v8-next-", PKGS, ["react", "@types/react", "next"]);
+    root = makeSite(
+      "deco-v7-to-v8-next-",
+      [...PKGS, "apps-vtex"],
+      ["react", "@types/react", "next"],
+    );
     write("package.json", {
       name: "v7-next-site",
       private: true,
@@ -349,11 +574,52 @@ describe("a v7 Next.js site on the v8 binding", () => {
     writeContent(write);
     write("src/sections/Hero.tsx", HERO);
     write("src/setup/section-loaders.ts", SECTION_LOADERS);
+    writeInvokeFixture(write);
+    write("src/env.d.ts", "declare const process: { env: Record<string, string | undefined> };\n");
+    write(
+      "src/app/[[...slug]]/page.tsx",
+      [
+        'import { createDecoPage } from "@decocms/nextjs";',
+        'const page = createDecoPage({ siteName: "x" });',
+        "export const generateMetadata = page.generateMetadata;",
+        "export default page.default;",
+        "",
+      ].join("\n"),
+    );
+    write(
+      "src/app/deco/[[...deco]]/route.ts",
+      [
+        'import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";',
+        "export const { GET, POST } = createDecoRouteHandlers({});",
+        "",
+      ].join("\n"),
+    );
     report = await migrate({ root });
+    const { content } = await import("@decocms/blocks/cli");
+    await content({ root, reporter: { info() {}, warn() {}, error() {} } as never });
   });
 
   afterAll(() => {
     if (root) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("turns each /deco/invoke key into a server action, and writes the page setup", () => {
+    const actions = read("src/server/invoke.actions.ts");
+    expect(actions.startsWith('"use server";')).toBe(true);
+    expect(actions).toContain("export async function $siteActionsNotifyMeSubscribe(");
+    expect(read("src/components/OutOfStock.tsx")).toContain(
+      "await $siteActionsNotifyMeSubscribe({",
+    );
+    expect(read("src/clients/vtex.ts")).toContain("process.env[name]");
+    expect(read("src/cms.ts")).toContain("contentClient(cms)");
+    const page = read("src/app/[[...slug]]/page.tsx");
+    expect(page).toContain("await bindDraft(cms, { searchParams: query });");
+    expect(page).toContain("<SegmentCookie />");
+    expect(page).not.toContain("createDecoPage");
+    expect(read("src/open-page.server.ts")).toContain(
+      "await loadSections(resolved.flat(), request, url)",
+    );
+    expect(fs.existsSync(path.join(root, "src/app/deco/[[...deco]]/route.ts"))).toBe(false);
   });
 
   it("registers v7's matchers over next/headers, and points useDevice at the Next.js subpath", () => {
@@ -376,7 +642,7 @@ describe("a v7 Next.js site on the v8 binding", () => {
   });
 
   it("type-checks against the v8 packages", () => {
-    expect(typeErrors(root, PKGS)).toEqual([]);
+    expect(typeErrors(root, [...PKGS, "apps-vtex"])).toEqual([]);
   }, 120_000);
 });
 
