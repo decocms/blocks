@@ -27,7 +27,12 @@
 
 import type { MatcherContext, ResolvedSection } from "@decocms/blocks/cms";
 import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
-import { createCacheStore, getCacheStorageContext } from "@decocms/blocks/sdk/cacheStorage";
+import {
+  cacheBackground,
+  createCacheStore,
+  getCacheStorageContext,
+} from "@decocms/blocks/sdk/cacheStorage";
+import { joinInflight } from "@decocms/blocks/sdk/inflightTimeout";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,7 +138,19 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
     : cache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached;
   const inflightEntry = inflight.get(cacheKey);
-  if (inflightEntry) return inflightEntry;
+  if (inflightEntry) {
+    // Bounded by THIS request's timer: if the owner request was cancelled, its
+    // I/O and timers died with it and the slot never settles (see joinInflight).
+    return joinInflight(
+      inflightEntry,
+      () => {
+        if (inflight.get(cacheKey) === inflightEntry) inflight.delete(cacheKey);
+        return resolveSiteGlobals(matcherCtx);
+      },
+      undefined,
+      `siteGlobals ${cacheKey}`,
+    );
+  }
 
   const site = readSiteBlock();
   if (!site) {
@@ -152,7 +169,9 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
     return empty;
   }
 
-  const p = (async () => {
+  // Cleanup lives in an outer `.finally` (always async) so it can compare by
+  // identity: a stale owner must not evict a newer flight a joiner published.
+  const p: Promise<CacheEntry> = (async () => {
     try {
       const resolvedSections = await resolvePageSections(rawRefs, matcherCtx);
       const entry: CacheEntry = {
@@ -166,11 +185,13 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
       console.error("[site-globals] failed to resolve:", err);
       // Don't cache failures — let the next request retry.
       return { resolvedSections: [], rawRefs, expiresAt: 0 };
-    } finally {
-      inflight.delete(cacheKey);
     }
-  })();
+  })().finally(() => {
+    if (inflight.get(cacheKey) === p) inflight.delete(cacheKey);
+  });
 
+  // Keep the shared work alive past its owner request so joiners get it.
+  cacheBackground(p);
   inflight.set(cacheKey, p);
   return p;
 }

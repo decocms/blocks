@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_INFLIGHT_TIMEOUT_MS, withInflightTimeout } from "./inflightTimeout";
+import { DEFAULT_INFLIGHT_TIMEOUT_MS, joinInflight, withInflightTimeout } from "./inflightTimeout";
 
 describe("withInflightTimeout", () => {
   it("returns the underlying value when work settles in time", async () => {
@@ -31,5 +31,31 @@ describe("withInflightTimeout", () => {
   it("exports a sane default timeout", () => {
     expect(DEFAULT_INFLIGHT_TIMEOUT_MS).toBeGreaterThanOrEqual(1_000);
     expect(DEFAULT_INFLIGHT_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
+  });
+});
+
+describe("joinInflight — stall signal", () => {
+  it("logs one `[inflight] stall` with the label when the joiner gives up", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const joined = joinInflight(
+        new Promise<string>(() => {}),
+        async () => "rerun",
+        50,
+        "layoutSection k",
+      );
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await joined).toBe("rerun");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toBe("[inflight] stall");
+      expect(JSON.parse(warn.mock.calls[0][1] as string)).toEqual({
+        label: "layoutSection k",
+        waitedMs: 50,
+      });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

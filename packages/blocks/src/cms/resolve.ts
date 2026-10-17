@@ -1,11 +1,11 @@
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
-import { createCacheStore } from "../sdk/cacheStorage";
+import { cacheBackground, createCacheStore } from "../sdk/cacheStorage";
 import { detectDevice } from "../sdk/detectDevice";
 import { djb2Hex } from "../sdk/djb2";
 import { stickyDecide } from "../sdk/experiments";
 import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
-import { withInflightTimeout } from "../sdk/inflightTimeout";
+import { joinInflight, withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { stripTrackingParams } from "../sdk/urlUtils";
 import { DEFAULT_DEFERRED_TRIGGER, type DeferredTrigger } from "./deferredTrigger";
@@ -1259,6 +1259,44 @@ interface ResolvedSectionsCache {
 
 const resolvedLayoutCache = createCacheStore<ResolvedSectionsCache>("resolved-layouts");
 const resolvedLayoutInflight = new Map<string, Promise<ResolvedSection[]>>();
+
+/**
+ * Single-flight for resolved layouts (Header/Footer — every page joins it).
+ * A slot whose owner request was cancelled never settles (its I/O and its
+ * `withInflightTimeout` timer die with that request), so joiners are bounded
+ * by their own timer (`joinInflight`), the owner's work is kept alive with
+ * `waitUntil` (`cacheBackground`) and the slot is released by identity.
+ */
+function sharedResolvedLayout(
+  cacheKey: string,
+  run: () => Promise<ResolvedSection[]>,
+): Promise<ResolvedSection[]> {
+  const inflight = resolvedLayoutInflight.get(cacheKey);
+  if (inflight) {
+    return joinInflight(
+      inflight,
+      () => {
+        if (resolvedLayoutInflight.get(cacheKey) === inflight)
+          resolvedLayoutInflight.delete(cacheKey);
+        return sharedResolvedLayout(cacheKey, run);
+      },
+      undefined,
+      `resolvedLayout ${cacheKey}`,
+    );
+  }
+  const p: Promise<ResolvedSection[]> = withInflightTimeout(
+    run().then((results) => {
+      setCachedResolvedLayout(cacheKey, results);
+      return results;
+    }),
+    `resolvedLayout ${cacheKey}`,
+  ).finally(() => {
+    if (resolvedLayoutInflight.get(cacheKey) === p) resolvedLayoutInflight.delete(cacheKey);
+  });
+  cacheBackground(p);
+  resolvedLayoutInflight.set(cacheKey, p);
+  return p;
+}
 
 /**
  * Cache key for a resolved layout block, segmented by DEVICE.
@@ -2521,18 +2559,7 @@ async function resolveDecoPageImpl(
             const cached = await getCachedResolvedLayout(cacheKey);
             if (cached) return cached;
 
-            const inflight = resolvedLayoutInflight.get(cacheKey);
-            if (inflight) return inflight;
-
-            const p = withInflightTimeout(
-              resolveRawSection(section, rctx).then((results) => {
-                setCachedResolvedLayout(cacheKey, results);
-                return results;
-              }),
-              `resolvedLayout ${cacheKey}`,
-            ).finally(() => resolvedLayoutInflight.delete(cacheKey));
-            resolvedLayoutInflight.set(cacheKey, p);
-            return p;
+            return sharedResolvedLayout(cacheKey, () => resolveRawSection(section, rctx));
           }
 
           return resolveRawSection(section, rctx);
@@ -2627,18 +2654,7 @@ export async function resolvePageSections(
           const cached = await getCachedResolvedLayout(cacheKey);
           if (cached) return cached;
 
-          const inflight = resolvedLayoutInflight.get(cacheKey);
-          if (inflight) return inflight;
-
-          const p = withInflightTimeout(
-            resolveRawSection(section, rctx).then((results) => {
-              setCachedResolvedLayout(cacheKey, results);
-              return results;
-            }),
-            `resolvedLayout ${cacheKey}`,
-          ).finally(() => resolvedLayoutInflight.delete(cacheKey));
-          resolvedLayoutInflight.set(cacheKey, p);
-          return p;
+          return sharedResolvedLayout(cacheKey, () => resolveRawSection(section, rctx));
         }
 
         return resolveRawSection(section, rctx);
