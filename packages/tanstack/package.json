@@ -1,0 +1,111 @@
+{
+	"name": "@decocms/tanstack",
+	"version": "0.0.0",
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"description": "Deco CMS for TanStack Start on Cloudflare Workers: the worker, the root document, the router and the Vite plugin",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/decocms/blocks.git",
+		"directory": "packages/tanstack"
+	},
+	"files": [
+		"dist",
+		"src",
+		"!src/**/*.test.ts",
+		"!src/**/*.test.tsx",
+		"!src/**/__tests__",
+		"!src/**/testing.ts"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"source": "./src/index.ts",
+			"default": "./dist/index.js"
+		},
+		"./worker": {
+			"types": "./dist/worker/index.d.ts",
+			"source": "./src/worker/index.ts",
+			"default": "./dist/worker/index.js"
+		},
+		"./server": {
+			"types": "./dist/server/index.d.ts",
+			"source": "./src/server/index.ts",
+			"default": "./dist/server/index.js"
+		},
+		"./start": {
+			"types": "./dist/start/index.d.ts",
+			"source": "./src/start/index.ts",
+			"default": "./dist/start/index.js"
+		},
+		"./router": {
+			"types": "./dist/router/index.d.ts",
+			"source": "./src/router/index.ts",
+			"default": "./dist/router/index.js"
+		},
+		"./react": {
+			"types": "./dist/react/index.d.ts",
+			"source": "./src/react/index.ts",
+			"default": "./dist/react/index.js"
+		},
+		"./vite": {
+			"types": "./dist/vite/index.d.ts",
+			"source": "./src/vite/index.ts",
+			"default": "./dist/vite/index.js"
+		},
+		"./scope": {
+			"types": "./dist/scope/server.d.ts",
+			"workerd": {
+				"source": "./src/scope/server.ts",
+				"default": "./dist/scope/server.js"
+			},
+			"node": {
+				"source": "./src/scope/server.ts",
+				"default": "./dist/scope/server.js"
+			},
+			"browser": {
+				"source": "./src/scope/browser.ts",
+				"default": "./dist/scope/browser.js"
+			},
+			"default": {
+				"source": "./src/scope/server.ts",
+				"default": "./dist/scope/server.js"
+			}
+		}
+	},
+	"scripts": {
+		"build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+		"prepack": "npm run build",
+		"test": "vitest run --root ../.. packages/tanstack/",
+		"typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
+	},
+	"peerDependencies": {
+		"@decocms/blocks": "^8.3.0",
+		"@tanstack/react-router": ">=1.166.0",
+		"@tanstack/react-start": ">=1.166.0",
+		"react": "^19.0.0",
+		"vite": ">=7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"vite": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@decocms/blocks": "workspace:*",
+		"@tanstack/react-router": "1.170.39",
+		"@tanstack/react-start": "1.168.58",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"esbuild": "^0.27.3",
+		"react": "19.2.7",
+		"react-dom": "19.2.7",
+		"vite": "^8.0.1"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	}
+}
