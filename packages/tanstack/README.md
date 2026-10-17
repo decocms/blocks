@@ -56,4 +56,24 @@ export const Route = createRootRoute({ component: () => <DecoDocument site="my-s
 
 `DecoDocument` mounts Studio's bridge and the draft badge. A page route returns `pathTemplate` (the page block's `path`, as `matchRoute` matched it) in its loader data, so "." on the store page opens that page in Studio's editor. A site that keeps its own document (a skip link before `<main>`, say) renders `<DecoPreview site="my-store" />` in its `<body>` instead: the bridge, the badge and the draft they read.
 
+## Images
+
+```tsx
+// src/imageUrl.ts: the site's image URLs (@decocms/blocks/image plus its platform's helpers)
+import { createImageUrl, decoCdn } from "@decocms/blocks/image";
+import { vtexCatalog } from "@decocms/apps-vtex/image"; // a VTEX store
+import { shopifyCdn } from "@decocms/apps-shopify/image"; // a Shopify store
+export const imageUrl = createImageUrl({
+  providers: [vtexCatalog(), shopifyCdn(), decoCdn({ quality: "high", sources: "all" })],
+});
+
+// src/router.tsx: around every page
+createDecoRouter({ routeTree, Wrap: ({ children }) => <ImageUrlProvider value={imageUrl}>{children}</ImageUrlProvider> });
+
+// any component
+<Image src={src} width={400} height={300} preload={isLcp} />
+```
+
+`Image`, `Picture` and `Source` from `/react` take v7's props and render v7's markup, so a migrated call site only changes its import. This package knows no commerce platform: v7's components resized VTEX catalog and Shopify images on those platforms' hosts, and a site keeps those URLs by listing the platform's helper before `decoCdn` as above (v7's URLs, byte for byte, with the `decoCdn` options of the 7.x release the site ran, e.g. `stripAssetHosts: "leading"` from 7.71.4: the v7 to v8 migration skill lists them). An `Image` or `Source` without a width writes v7's `width=NaN` candidates, as v7 did. Without an `ImageUrlProvider` every source goes through `assets.decocms.com` (`DECO_IMAGE_URL`).
+
 `examples/tanstack-worker-smoke` in the repository is a complete app.
