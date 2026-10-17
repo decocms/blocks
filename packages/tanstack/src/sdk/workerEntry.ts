@@ -729,7 +729,20 @@ function buildPreviewShell(): string {
  * the path.
  */
 export function detectLocationMatcher(blocks: Record<string, unknown>): boolean {
-  return JSON.stringify(blocks).includes('"__resolveType":"website/matchers/location.ts"');
+  // Walk instead of `JSON.stringify(blocks).includes(...)`: stringifying a 10 MB
+  // decofile allocated ~21 MB on every isolate boot just to find one resolver.
+  // ponytail: no visited set — a decofile is a JSON tree (the old stringify threw on cycles).
+  const stack: object[] = [blocks];
+  while (stack.length) {
+    const value = stack.pop() as Record<string, unknown>;
+    if (value.__resolveType === "website/matchers/location.ts" && !Array.isArray(value))
+      return true;
+    for (const key in value) {
+      const child = value[key];
+      if (child && typeof child === "object") stack.push(child);
+    }
+  }
+  return false;
 }
 
 /**

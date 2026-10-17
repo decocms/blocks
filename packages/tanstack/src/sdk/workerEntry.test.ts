@@ -3,7 +3,7 @@ import {
   __resetAutoconfigStateForTests,
   autoconfigApps,
 } from "@decocms/blocks-admin/apps/autoconfig";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { segmentToken } from "./cdnSegment";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 import {
@@ -185,6 +185,23 @@ describe("detectLocationMatcher", () => {
 
   it("returns false for an empty decofile", () => {
     expect(detectLocationMatcher({})).toBe(false);
+  });
+
+  it("finds the matcher inside arrays and does not serialize the decofile", () => {
+    const stringify = vi.spyOn(JSON, "stringify");
+    const blocks = {
+      "pages/home.json": {
+        sections: [{ variants: [{ rule: { __resolveType: "website/matchers/location.ts" } }] }],
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(true);
+    expect(stringify).not.toHaveBeenCalled();
+    stringify.mockRestore();
+  });
+
+  it("ignores the path when it only appears inside a content string", () => {
+    const blocks = { "pages/a.json": { text: '"__resolveType":"website/matchers/location.ts"' } };
+    expect(detectLocationMatcher(blocks)).toBe(false);
   });
 
   it("returns true when the matcher is nested deeply", () => {
