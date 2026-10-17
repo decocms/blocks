@@ -24,6 +24,8 @@
  * once the request ends).
  */
 
+import { cacheBackground } from "./cacheStorage";
+
 /** Default per-entry timeout for inflight dedup caches. */
 export const DEFAULT_INFLIGHT_TIMEOUT_MS = 10_000;
 
@@ -40,11 +42,7 @@ export function withInflightTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(
-        new Error(
-          `[blocks] inflight cache entry "${label}" timed out after ${ms}ms`,
-        ),
-      );
+      reject(new Error(`[blocks] inflight cache entry "${label}" timed out after ${ms}ms`));
     }, ms);
   });
   return Promise.race([work, timeout]).finally(() => {
@@ -90,4 +88,56 @@ export function joinInflight<T>(
       },
     );
   });
+}
+
+/** Free a dedup slot only while it still holds `promise` — never a newer flight. */
+export function releaseSlot<T>(
+  map: Map<string, Promise<T>>,
+  key: string,
+  promise: Promise<unknown>,
+): void {
+  if (map.get(key) === promise) map.delete(key);
+}
+
+/**
+ * Start shared work: keep it alive past its own request and publish it in the
+ * dedup map.
+ *
+ * On Workers a Promise's subrequests belong to the request that created it.
+ * When that client disconnects the runtime cancels its pending I/O, the
+ * Promise never settles, and every caller that joined it would wait forever.
+ * `cacheBackground` registers it with the owner's `ctx.waitUntil`, so the
+ * owner's invocation stays alive until the work settles and the joiners get
+ * the answer. Inert outside the worker entry (no `waitUntil` bound).
+ */
+export function publishInflight<T, P extends T>(
+  map: Map<string, Promise<T>>,
+  key: string,
+  promise: Promise<P>,
+): Promise<P> {
+  cacheBackground(promise);
+  map.set(key, promise);
+  return promise;
+}
+
+/**
+ * Join the flight `shared` found in `map[key]`, bounded by the joiner's own
+ * timer (see `joinInflight`). If it stalls, the dead slot is evicted — only
+ * while it still holds `shared` — and `retry` answers the joiner instead.
+ */
+export function joinSlot<T>(
+  map: Map<string, Promise<T>>,
+  key: string,
+  shared: Promise<T>,
+  retry: () => Promise<T>,
+  ms: number = DEFAULT_INFLIGHT_TIMEOUT_MS,
+): Promise<T> {
+  return joinInflight(
+    shared,
+    () => {
+      releaseSlot(map, key, shared);
+      return retry();
+    },
+    ms,
+  );
 }
