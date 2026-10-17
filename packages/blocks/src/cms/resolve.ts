@@ -1701,6 +1701,16 @@ function resolveFinalSectionKey(section: unknown, matcherCtx?: MatcherContext): 
 }
 
 /**
+ * Whether a raw page section (named block ref, Lazy, flag…) renders a layout
+ * section — the site chrome, e.g. Header and Footer (`export const layout = true`).
+ * Lets a 404 borrow the homepage's chrome without resolving its content.
+ */
+export function isLayoutRawSection(section: unknown, matcherCtx?: MatcherContext): boolean {
+  const key = resolveFinalSectionKey(section, matcherCtx);
+  return key !== null && isLayoutSection(key);
+}
+
+/**
  * Walk the full wrapper chain (block refs, multivariate flags, Lazy, Deferred)
  * and return true if a deferral wrapper (Lazy.tsx or Deferred.tsx) is found
  * at any level. This is used by shouldDeferSection to determine if the CMS

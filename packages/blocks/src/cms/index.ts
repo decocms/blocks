@@ -109,6 +109,7 @@ export {
   isBot,
   isDeferred,
   isEagerRequest,
+  isLayoutRawSection,
   isSeoSection,
   onBeforeResolve,
   readDeferredRawProps,
