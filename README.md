@@ -129,14 +129,14 @@ All packages are versioned and released in lockstep.
 
 ## Getting started
 
-This is the v7 line (branch `7.x`). `@decocms/blocks` and the apps v8 also ships (`apps-vtex`, `apps-shopify`, `apps-wake`, `apps-magento`, `apps-algolia`, `apps-resend`) are on npm's `latest` as 8.x, so install their v7 with `@latest-7`; a plain `@decocms/blocks` next to a v7 binding puts two copies of it in the site. The v7-only packages (`tanstack`, `nextjs`, `blocks-admin`, `blocks-cli`, the other apps) stay on `latest`.
+This is the v7 line (branch `7.x`). `@decocms/blocks`, the bindings (`tanstack`, `nextjs`) and the apps v8 also ships (`apps-vtex`, `apps-shopify`, `apps-wake`, `apps-magento`, `apps-algolia`, `apps-resend`) are on npm's `latest` as 8.x, so install their v7 with `@latest-7`; a plain `@decocms/blocks` next to a v7 binding puts two copies of it in the site. The v7-only packages (`blocks-admin`, `blocks-cli`, the other apps) stay on `latest`.
 
 The monorepo uses [Bun](https://bun.sh/) 1.3+. The web bindings target React 19; Eitri is generation-only. Pick the binding that matches your application.
 
 ### TanStack Start
 
 ```bash
-bun add @decocms/blocks@latest-7 @decocms/blocks-admin @decocms/tanstack \
+bun add @decocms/blocks@latest-7 @decocms/blocks-admin @decocms/tanstack@latest-7 \
   @tanstack/react-start @tanstack/react-query @tanstack/store react react-dom
 bun add -d vite
 ```
@@ -162,7 +162,7 @@ Add `decoVitePlugin()` to Vite and mount `cmsRouteConfig()` in the catch-all rou
 ### Next.js App Router
 
 ```bash
-bun add @decocms/blocks@latest-7 @decocms/blocks-admin @decocms/nextjs
+bun add @decocms/blocks@latest-7 @decocms/blocks-admin @decocms/nextjs@latest-7
 ```
 
 The Next.js binding has four required integration points:
