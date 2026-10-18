@@ -113,7 +113,7 @@ describe("hosted-releases-internals", () => {
 });
 
 describe("draft-synchronization", () => {
-  it("DS-2: deco serve edits the working tree only: no GitHub calls, local git read-only", () => {
+  it("DS-2: deco serve edits the working tree only: no GitHub calls, no commits; git writes only a discard's unstage", () => {
     const sources = [
       "../cli/serve/server.ts",
       ...fs
@@ -121,19 +121,40 @@ describe("draft-synchronization", () => {
         .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
         .map((f) => `../../protocol/storage/fs/${f}`),
     ];
+    // Git calls that commit, move refs, rewrite the working tree, write
+    // objects or talk to a remote. Never allowed, anywhere.
+    const neverRun =
+      /"(-w|commit|add|restore|checkout|switch|stash|push|fetch|pull|clone|remote|merge|rebase|write-tree|commit-tree|update-ref|tag|--hard|--soft|--keep|--merge)"/;
+    // Index writes: allowed only inside `unstage`, which a discard runs on the
+    // paths it restores, so a block staged with `git add`/`git mv`/`git rm`
+    // isn't committed later (#689; covered by storage/fs/git.test.ts).
+    const indexWrites = /"(reset|rm|update-index|read-tree|apply)"/;
+    let unstageSeen = false;
     for (const file of sources) {
       const text = fs.readFileSync(path.join(HERE, file), "utf8");
       expect(text, file).not.toMatch(/api\.github|github\.com|simple-git|isomorphic-git/);
-      // Only the base reader runs git (the local HEAD is the base the site
-      // editor's change list compares with), and only commands that read.
-      if (file.endsWith("/git.ts")) {
-        expect(text, file).not.toMatch(
-          /"(-w|commit|add|restore|checkout|reset|update-index|stash|push|fetch|pull|write-tree|update-ref)"/,
-        );
-      } else {
+      if (!file.endsWith("/git.ts")) {
+        // Only the base reader runs git.
         expect(text, file).not.toMatch(/child_process/);
+        continue;
       }
+      expect(text, file).not.toMatch(neverRun);
+      const start = text.indexOf("async function unstage(");
+      expect(start, `${file}: unstage`).toBeGreaterThan(-1);
+      const end = text.indexOf("\n  }\n", start);
+      expect(end, `${file}: end of unstage`).toBeGreaterThan(start);
+      const unstage = text.slice(start, end);
+      expect(text.slice(0, start) + text.slice(end), file).not.toMatch(indexWrites);
+      // Inside unstage: `rm` only drops index entries (never the file), and
+      // `reset` only resets named paths to HEAD.
+      for (const call of unstage.match(/\[\s*"(rm|reset)"[^\]]*\]/g) ?? []) {
+        if (call.includes('"rm"')) expect(call, file).toContain('"--cached"');
+        else expect(call, file).toMatch(/^\[\s*"reset",\s*"-q",\s*"HEAD"\s*\]$/);
+      }
+      expect(unstage, file).toMatch(/forPaths\(top, \["reset"/);
+      unstageSeen = true;
     }
+    expect(unstageSeen).toBe(true);
   });
 
   describe("against a running deco serve", () => {
