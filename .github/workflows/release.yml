@@ -44,9 +44,9 @@ name: Release
 
 on:
   push:
-    # main releases the 10 lockstep v8 packages (@decocms/blocks, the
-    # @decocms/tanstack and @decocms/nextjs bindings, the 7 @decocms/apps-*
-    # clients) under blocks-v*.*.* tags (.releaserc.json), on npm's `latest`.
+    # main releases the 11 lockstep v8 packages (@decocms/blocks, the
+    # @decocms/tanstack and @decocms/nextjs bindings, @decocms/compat-v7, the
+    # 7 @decocms/apps-* clients) under blocks-v*.*.* tags (.releaserc.json), on npm's `latest`.
     # v7 (@decocms/blocks 7.x, tanstack 7.x, nextjs 7.x, blocks-admin,
     # blocks-cli, apps-commerce/-blog/-website) releases from the 7.x branch, with its
     # own copy of this workflow. Publishing goes through npm Trusted Publishing

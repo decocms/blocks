@@ -24,7 +24,7 @@
   <img alt="Any framework" src="https://img.shields.io/badge/framework-any-FF4154?style=flat-square" />
 </p>
 
-`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; `@decocms/nextjs`, for any Next.js App Router app; and thin upstream clients, `@decocms/apps-*`. Each package publishes JavaScript compiled file for file by `tsc` (`dist/`, with declarations), plus its TypeScript source under a `source` export condition for the workspace: nothing is bundled, so no runtime state is duplicated.
+`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; `@decocms/nextjs`, for any Next.js App Router app; thin upstream clients, `@decocms/apps-*`; and `@decocms/compat-v7`, v7's pure helpers for sites moved from v7. Each package publishes JavaScript compiled file for file by `tsc` (`dist/`, with declarations), plus its TypeScript source under a `source` export condition for the workspace: nothing is bundled, so no runtime state is duplicated.
 
 v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce` and the rest) is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 
@@ -50,13 +50,14 @@ v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@d
 
 ## Packages
 
-All packages are versioned and released in lockstep, starting at 8.3.0 for the bindings. The bindings and the clients take `@decocms/blocks` as a peer dependency (`^8.3.0`), so a site installs one copy of it.
+All packages are versioned and released in lockstep, starting at 8.3.0 for the bindings. The bindings, `@decocms/compat-v7` and the clients take `@decocms/blocks` as a peer dependency (`^8.3.0`), so a site installs one copy of it.
 
 | Package | Purpose |
 | --- | --- |
 | [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`), secrets (`/secrets`) and the `vite dev` content reload plugin (`/vite`). |
 | [`@decocms/tanstack`](./packages/tanstack) | TanStack Start on Cloudflare Workers, deployed the Deco way: the edge worker (`/worker`), the root document (`/react`), the router (`/router`), the server-function fetch (`/start`), server helpers (`/server`) and the Vite plugin (`/vite`). |
 | [`@decocms/nextjs`](./packages/nextjs) | Any Next.js App Router app: draft previews in the proxy (`/proxy`) and the pages (`/server`), the preview badge and the Studio bridge (root), `withDeco()` for `next.config` (`/config`) and a next/image loader (`/image-loader`). |
+| [`@decocms/compat-v7`](./packages/compat-v7) | v7's pure helpers with v7's output, for sites moved from v7: section types and widget aliases (`/types`), device detection (`/device`), inline scripts (`/script`) and `clx`. No v7 runtime. |
 | [`@decocms/apps-vtex`](./packages/apps-vtex) | Thin VTEX client. |
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Thin Shopify Storefront API client. |
 | [`@decocms/apps-wake`](./packages/apps-wake) | Thin Wake Commerce client, with storefront operations on `/storefront`. |
@@ -74,6 +75,7 @@ packages/
 ├── blocks/          @decocms/blocks: runtime, CLI and content protocol
 ├── tanstack/        @decocms/tanstack: TanStack Start on Cloudflare Workers
 ├── nextjs/          @decocms/nextjs: any Next.js App Router app
+├── compat-v7/       @decocms/compat-v7: v7's pure helpers for migrated sites
 └── apps-*/          thin upstream clients
 tests/               cross-package tests (upstream-client guardrail and conformance)
 examples/

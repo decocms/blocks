@@ -212,6 +212,16 @@
         "vite",
       ],
     },
+    "packages/compat-v7": {
+      "name": "@decocms/compat-v7",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@decocms/blocks": "workspace:*",
+      },
+      "peerDependencies": {
+        "@decocms/blocks": "^8.3.0",
+      },
+    },
     "packages/nextjs": {
       "name": "@decocms/nextjs",
       "version": "0.0.0",
@@ -371,6 +381,8 @@
     "@decocms/apps-wake": ["@decocms/apps-wake@workspace:packages/apps-wake"],
 
     "@decocms/blocks": ["@decocms/blocks@workspace:packages/blocks"],
+
+    "@decocms/compat-v7": ["@decocms/compat-v7@workspace:packages/compat-v7"],
 
     "@decocms/nextjs": ["@decocms/nextjs@workspace:packages/nextjs"],
 
