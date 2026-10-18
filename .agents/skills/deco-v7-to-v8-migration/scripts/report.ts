@@ -2,7 +2,17 @@
  * What a migration did and what it left for a person: every step adds to one
  * report, which the command prints at the end.
  */
-type Step = "content" | "settings" | "secrets" | "block map" | "vendor" | "imports" | "scripts";
+type Step =
+  | "content"
+  | "settings"
+  | "apps"
+  | "secrets"
+  | "block map"
+  | "vendor"
+  | "invoke"
+  | "scaffold"
+  | "imports"
+  | "scripts";
 
 export interface Note {
   step: Step;

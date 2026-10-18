@@ -126,7 +126,7 @@ export const COMPAT_NAME_HINTS: { specifier: RegExp; names: string[]; hint: stri
   {
     specifier: /^@decocms\/blocks\/sdk(\/useScript)?$/,
     names: ["useSection", "usePartialSection", "HTMX_LEGACY_URL"],
-    hint: "v7's partial sections (HTMX) have no v8 equivalent: render the section on the server and fetch it with a server function (reference/server-functions.md)",
+    hint: "v7's partial sections (HTMX) have no v8 equivalent; v7 7.x's own useSection only returned a placeholder URL (the script points named imports at src/migration-stubs.ts, which keeps it): render the section on the server and fetch it with a server function (reference/server-functions.md)",
   },
   {
     specifier: /^@decocms\/blocks(\/types)?$/,
@@ -227,6 +227,32 @@ function isFunctionLike(node: ts.Node): node is FunctionLike {
   );
 }
 
+/**
+ * When `node` is a v7 loader, `(props, req, ctx)`, its context and request
+ * parameter names. The context is named so (`ctx`, `context`) or typed as one
+ * (`AppContext`, `FnContext`, …).
+ */
+export function loaderContextOf(
+  node: ts.Node,
+  source: ts.SourceFile,
+): { ctx: string; req?: string; isRequest: boolean } | undefined {
+  if (!isFunctionLike(node) || node.parameters.length < 3) return undefined;
+  const [, req, ctx] = node.parameters;
+  if (!ts.isIdentifier(ctx.name)) return undefined;
+  const isContext =
+    /^_?(ctx|context)$/i.test(ctx.name.text) ||
+    (ctx.type !== undefined && /Context\b/.test(ctx.type.getText(source)));
+  if (!isContext) return undefined;
+  return {
+    ctx: ctx.name.text,
+    req: ts.isIdentifier(req.name) ? req.name.text : undefined,
+    // A v7 loader's second parameter is the request: named so, or typed as one.
+    isRequest:
+      (ts.isIdentifier(req.name) && /^_?(req|request)$/i.test(req.name.text)) ||
+      (req.type !== undefined && /^Request$/.test(req.type.getText(source).trim())),
+  };
+}
+
 /** A read of v7's loader context the codemod leaves: its line and the property read. */
 export interface ContextRead {
   line: number;
@@ -234,7 +260,7 @@ export interface ContextRead {
 }
 
 /** `ctx`, `(ctx as X)`, `ctx!`: the identifier under the wrappers, if any. */
-function unwrap(expr: ts.Expression): ts.Identifier | undefined {
+export function unwrapIdentifier(expr: ts.Expression): ts.Identifier | undefined {
   let e = expr;
   while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e))
     e = e.expression;
@@ -262,22 +288,10 @@ export function rewriteDeviceReadsIn(
       : "detectDevice";
   const visit = (node: ts.Node, scope: { ctx: string; req?: string }[]) => {
     let inner = scope;
-    if (isFunctionLike(node) && node.parameters.length >= 3) {
-      const [, req, ctx] = node.parameters;
-      // v7's loader context: named so, or typed as one (`AppContext`, `FnContext`, …).
-      const isContext =
-        ts.isIdentifier(ctx.name) &&
-        (/^_?(ctx|context)$/i.test(ctx.name.text) ||
-          (ctx.type !== undefined && /Context\b/.test(ctx.type.getText(source))));
-      if (isContext && ts.isIdentifier(ctx.name)) {
-        inner = [
-          ...scope,
-          { ctx: ctx.name.text, req: ts.isIdentifier(req.name) ? req.name.text : undefined },
-        ];
-      }
-    }
+    const context = loaderContextOf(node, source);
+    if (context) inner = [...scope, context];
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      const id = unwrap(node.expression);
+      const id = unwrapIdentifier(node.expression);
       const owner = id && [...inner].reverse().find((s) => s.ctx === id.text);
       if (owner) {
         const read = ts.isPropertyAccessExpression(node)
