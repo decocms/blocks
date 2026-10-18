@@ -44,7 +44,7 @@ v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@d
 
 - **Your functions, editable:** register any function with a typed first parameter in a block map; the CLI turns its types into editor forms and checks saved content against them.
 - **Content is JSON in your repo:** saved blocks live in `.deco/blocks`, read through `createCMS` with no database and no framework lock-in.
-- **Any framework:** TanStack Start, Next.js App Router or plain Node; the package has no framework binding and runs on Workers, Node and Bun.
+- **Any framework:** TanStack Start, Next.js App Router or plain Node; the core package has no framework binding (`@decocms/tanstack` and `@decocms/nextjs` are separate) and runs on Workers, Node and Bun.
 - **Site-editor ready:** the content protocol (`@decocms/blocks/protocol`) lets the site editor read and write saved blocks without running your code.
 - **Measured upstream calls:** every client sends through `createInstrumentedFetch`, so each upstream request is timed and labeled.
 
@@ -115,7 +115,7 @@ const [props, error] = await cms.forRelease().resolve("Home Hero");
 
 ### TanStack Start
 
-Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. In `vite.config.ts`, add `decoContent()` from `@decocms/blocks/vite` so a block saved in the site editor shows in open pages during `vite dev`. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps.
+Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. In `vite.config.ts`, add `decoContent()` from `@decocms/blocks/vite` so a block saved in the site editor shows in open pages during `vite dev`. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps. A site on Cloudflare Workers deployed the Deco way uses [`@decocms/tanstack`](./packages/tanstack): `createDecoWorker` (drafts, the edge cache, Studio framing), `DecoDocument`, the router, `Image`/`Picture` and `decoTanstack()` (which includes `decoContent()`); [`examples/tanstack-worker-smoke`](./examples/tanstack-worker-smoke) is the same app on it.
 
 ### Next.js App Router
 

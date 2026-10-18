@@ -7,7 +7,8 @@ import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
 import { copyExperimentIds } from "./experiments";
-import { rewriteImports, V8_API } from "./imports";
+import { siteBlocksVersion } from "./framework";
+import { BINDING_NAMES, MOVES, rewriteImports, V8_API, v7ImageUrl } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
 import { reencryptSecrets } from "./secrets";
@@ -308,29 +309,124 @@ describe("imports", () => {
     ]);
   });
 
-  it("points prerelease draft helpers at the CMS methods", () => {
+  it("points prerelease draft helpers at the CMS methods, and the draft names at the binding", () => {
     site({
       "src/a.ts": 'import { createCMS, draftPointer, DRAFT_COOKIE } from "@decocms/blocks";\n',
     });
     const report = createReport();
     rewriteImports(root, report, new Map());
-    expect(report.manual).toHaveLength(1);
+    expect(report.manual.map((n) => n.subject)).toEqual([
+      "@decocms/blocks {draftPointer}",
+      "@decocms/blocks {DRAFT_COOKIE}",
+    ]);
     expect(report.manual[0]?.message).toContain("cms.draftPointer");
+    // No binding in package.json: reported, since the home depends on the binding.
+    expect(report.manual[1]?.message).toContain("@decocms/tanstack on TanStack Start");
   });
 
-  it("reports every framework-binding import, kvLoader included: the next major has no binding", () => {
+  it.each([
+    ["@decocms/tanstack", "@decocms/tanstack"],
+    ["@decocms/nextjs", "@decocms/nextjs"],
+  ])("on a %s site, moves the draft names and Studio's origins from @decocms/blocks to %s", (binding, target) => {
+    site({
+      "package.json": { name: "site", dependencies: { [binding]: "7.0.0" } },
+      "src/a.ts":
+        'import { createCMS, DRAFT_COOKIE, STUDIO_ORIGINS, isStudioOrigin } from "@decocms/blocks";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    expect(fs.readFileSync(path.join(root, "src/a.ts"), "utf8")).toBe(
+      `import { DRAFT_COOKIE, STUDIO_ORIGINS, isStudioOrigin } from "${target}";\nimport { createCMS } from "@decocms/blocks";\n`,
+    );
+    expect(report.manual).toEqual([]);
+  });
+
+  it("reports v7 binding imports name by name, with the v8 binding's replacement", () => {
     site({
       "src/a.ts":
-        'import { kvLoader } from "@decocms/tanstack";\nimport { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";\n',
+        'import { kvLoader, createDecoWorkerEntry } from "@decocms/tanstack";\nimport { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";\nimport { LiveControls, registerImageQuality } from "@decocms/blocks/hooks";\n',
     });
     const report = createReport();
     rewriteImports(root, report, new Map());
     const notes = report.manual.map((n) => `${n.subject}: ${n.message}`);
     expect(notes.map((n) => n.split(":")[0])).toEqual([
+      "@decocms/blocks/hooks {LiveControls}",
+      "@decocms/blocks/hooks {registerImageQuality}",
       "@decocms/nextjs/routeHandlers {createDecoRouteHandlers}",
+      "@decocms/tanstack {createDecoWorkerEntry}",
       "@decocms/tanstack {kvLoader}",
     ]);
-    for (const note of notes) expect(note).toContain("drop the dependency");
+    const note = (subject: string) => notes.find((n) => n.startsWith(subject)) ?? "";
+    expect(note("@decocms/tanstack {createDecoWorkerEntry}")).toContain(
+      "createDecoWorker({ serverEntry, cms, site, buildHash }) from @decocms/tanstack/worker",
+    );
+    expect(note("@decocms/tanstack {kvLoader}")).toContain("createCMS({ site, token })");
+    expect(note("@decocms/blocks/hooks {LiveControls}")).toContain("StudioBridge");
+    expect(note("@decocms/blocks/hooks {registerImageQuality}")).toContain("ImageUrlProvider");
+    // Platform image URLs come from the platforms' client packages, never @decocms/blocks/image.
+    expect(note("@decocms/blocks/hooks {registerImageQuality}")).toContain(
+      "vtexCatalog from @decocms/apps-vtex/image, shopifyCdn from @decocms/apps-shopify/image",
+    );
+    expect(note("@decocms/nextjs/routeHandlers")).toContain("delete them");
+  });
+
+  it("moves names the v8 bindings export unchanged, splitting a mixed import", () => {
+    site({
+      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
+      "src/router.tsx":
+        'import { createDecoRouter, NavigationProgress, StableOutlet, DecoRootLayout } from "@decocms/tanstack";\n',
+      "src/start.ts": "import { decoServerFnFetch } from '@decocms/tanstack/sdk/serverFnFetch';\n",
+      "src/Banner.tsx":
+        'import { Image, Picture, Source, type ImageProps, LiveControls } from "@decocms/blocks/hooks";\n',
+      "src/v8.ts":
+        'import { createDecoWorker } from "@decocms/tanstack/worker";\nimport { decoTanstack } from "@decocms/tanstack/vite";\nimport { createImageUrl } from "@decocms/blocks/image";\nimport { DraftBadge, StudioPage } from "@decocms/blocks/preview";\nimport { DecoPreview } from "@decocms/tanstack/react";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    const read = (f: string) => fs.readFileSync(path.join(root, f), "utf8");
+    expect(read("src/router.tsx")).toBe(
+      [
+        'import { createDecoRouter } from "@decocms/tanstack/router";',
+        'import { NavigationProgress, StableOutlet } from "@decocms/tanstack/react";',
+        'import { DecoRootLayout } from "@decocms/tanstack";',
+        "",
+      ].join("\n"),
+    );
+    expect(read("src/start.ts")).toBe(
+      "import { decoServerFnFetch } from '@decocms/tanstack/start';\n",
+    );
+    expect(read("src/Banner.tsx")).toBe(
+      [
+        'import { Image, Picture, Source, type ImageProps } from "@decocms/tanstack/react";',
+        'import { LiveControls } from "@decocms/blocks/hooks";',
+        "",
+      ].join("\n"),
+    );
+    // Only what's left is reported; the v8 imports are not.
+    expect(report.manual.map((n) => n.subject)).toEqual([
+      "Image, Picture, Source",
+      "@decocms/blocks/hooks {LiveControls}",
+      "@decocms/tanstack {DecoRootLayout}",
+    ]);
+    expect(report.done.map((n) => n.subject)).toEqual([
+      "src/",
+      "@decocms/tanstack/react",
+      "@decocms/tanstack/router",
+      "@decocms/tanstack/start",
+    ]);
+  });
+
+  it("leaves Image on a Next.js site to the image loader", () => {
+    site({
+      "package.json": { name: "site", dependencies: { "@decocms/nextjs": "7.0.0" } },
+      "src/a.tsx": 'import { Image } from "@decocms/blocks/hooks";\n',
+    });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    expect(fs.readFileSync(path.join(root, "src/a.tsx"), "utf8")).toContain(
+      "@decocms/blocks/hooks",
+    );
+    expect(report.manual[0]?.message).toContain("createDecoImageLoader");
   });
 });
 
@@ -347,6 +443,77 @@ describe("the codemod's list of the root's next-major exports", () => {
       .filter(Boolean);
     expect(names.length).toBeGreaterThan(10);
     expect([...(V8_API["@decocms/blocks"] as Set<string>)].sort()).toEqual(names.sort());
+  });
+});
+
+describe("the codemod's lists of the v8 bindings' and subpaths' exports", () => {
+  const PACKAGES = path.resolve(__dirname, "../../../../packages");
+  const entry = (specifier: string) => {
+    const [, pkg, sub] = /^@decocms\/([^/]+)(?:\/(.+))?$/.exec(specifier) ?? [];
+    const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGES, pkg, "package.json"), "utf8"));
+    const target = manifest.exports[sub ? `./${sub}` : "."];
+    expect(target, specifier).toBeDefined();
+    // The file a type-checker reads: the source, else the declarations of a CommonJS entry.
+    const file = target.source ?? target.default?.source ?? target.workerd?.source ?? target.types;
+    return path.join(PACKAGES, pkg, file);
+  };
+  const v8Entries = Object.entries(V8_API).filter(([s]) => s !== "@decocms/blocks");
+
+  it.each(v8Entries)("%s exists, and exports every name listed", (specifier, api) => {
+    const text = fs.readFileSync(entry(specifier), "utf8");
+    if (api === "*") return;
+    for (const name of api)
+      expect(text, `${specifier} ${name}`).toMatch(new RegExp(`\\b${name}\\b`));
+  });
+
+  it("every name a binding's root, /preview or /image exports at runtime is listed, or reported on purpose", async () => {
+    const REPORTED = new Set(["DraftPreviewIndicator"]);
+    for (const specifier of [
+      "@decocms/tanstack",
+      "@decocms/nextjs",
+      "@decocms/blocks/preview",
+      "@decocms/blocks/image",
+    ]) {
+      const api = V8_API[specifier] as Set<string>;
+      const runtime = Object.keys(await import(specifier));
+      expect(
+        runtime.filter((n) => !api.has(n) && !REPORTED.has(n)),
+        specifier,
+      ).toEqual([]);
+    }
+  });
+
+  it("every move points at a v8 entry that exports the name", () => {
+    for (const { names } of Object.values(MOVES)) {
+      for (const [name, to] of Object.entries(names)) {
+        for (const target of typeof to === "string" ? [to] : Object.values(to)) {
+          const api = V8_API[target];
+          expect(api === "*" || api?.has(name), `${target} ${name}`).toBe(true);
+          expect(fs.readFileSync(entry(target), "utf8"), `${target} ${name}`).toMatch(
+            new RegExp(`\\b${name}\\b`),
+          );
+        }
+      }
+    }
+  });
+
+  it("@decocms/blocks exports none of the names that moved to the bindings", async () => {
+    const runtime = Object.keys(await import("@decocms/blocks"));
+    expect(runtime.filter((n) => BINDING_NAMES.includes(n))).toEqual([]);
+    expect(
+      [...(V8_API["@decocms/blocks"] as Set<string>)].filter((n) => BINDING_NAMES.includes(n)),
+    ).toEqual([]);
+  });
+
+  it("@decocms/blocks/image names no commerce platform; the platforms' helpers are their clients' /image", () => {
+    const names = [...(V8_API["@decocms/blocks/image"] as Set<string>)];
+    expect(names.filter((n) => /vtex|shopify/i.test(n))).toEqual([]);
+    expect(fs.readFileSync(entry("@decocms/apps-vtex/image"), "utf8")).toMatch(
+      /export function vtexCatalog\b/,
+    );
+    expect(fs.readFileSync(entry("@decocms/apps-shopify/image"), "utf8")).toMatch(
+      /export function shopifyCdn\b/,
+    );
   });
 });
 
@@ -424,7 +591,7 @@ export function Root() {
     expect(bad.map((n) => n.message).join("\n")).toContain("*.x.com");
   });
 
-  it("on TanStack Start, adds the deco-hosted hosts v7 allowed for DECO_SITE_NAME", () => {
+  it("on TanStack Start, writes only the site's own hosts and names the site the worker needs", () => {
     site({
       "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
       "wrangler.jsonc": `{ "vars": { "DECO_SITE_NAME": "acme" } }`,
@@ -436,16 +603,20 @@ export function Root() {
     });
     const report = createReport();
     foldSiteSettings(root, report);
-    expect(read("CMS.json").preview).toEqual({
-      hosts: ["staging.example.com", "acme.deco.site", "acme.deco-cx.workers.dev"],
-    });
-    expect(report.manual.map((n) => n.subject)).not.toContain("preview hosts");
+    // The Deco hosts come from createDecoWorker's site, not from content.
+    expect(read("CMS.json").preview).toEqual({ hosts: ["staging.example.com", "acme.deco.site"] });
+    const note = report.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
+    expect(note).toContain('pass site: "acme" to createDecoWorker');
+    expect(note).toContain("acme.deco-cx.workers.dev");
+    expect(note).not.toContain("previewHosts: []");
+    const allowed = report.manual.find((n) => n.subject === "DECO_ALLOWED_PREVIEW_HOSTS")?.message;
+    expect(allowed).toContain("previewHosts option of createDecoWorker");
     const before = snapshotDir();
     foldSiteSettings(root, createReport());
     expect(snapshotDir()).toEqual(before);
   });
 
-  it("on TanStack Start without a site name, reports the deco-hosted hosts; a Next.js site never gets them", () => {
+  it("without a site name, the note asks for it; a Next.js site is told the Deco hosts are new", () => {
     site({
       "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
       ".deco/blocks/site.json": {
@@ -457,7 +628,8 @@ export function Root() {
     foldSiteSettings(root, report);
     expect(read("CMS.json").preview).toEqual({ hosts: ["a.example.com"] });
     const note = report.manual.find((n) => n.subject === "preview hosts");
-    expect(note?.message).toContain("<site>.deco.site");
+    expect(note?.message).toContain('site: "<site>"');
+    expect(note?.message).toContain("DECO_SITE_NAME wasn't found");
 
     fs.rmSync(root, { recursive: true, force: true });
     site({
@@ -471,10 +643,12 @@ export function Root() {
     const next = createReport();
     foldSiteSettings(root, next);
     expect(read("CMS.json").preview).toEqual({ hosts: ["a.example.com"] });
-    expect(next.manual.map((n) => n.subject)).not.toContain("preview hosts");
+    const nextNote = next.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
+    expect(nextNote).toContain('pass site: "acme" to decideDraft and bindDraft');
+    expect(nextNote).toContain("v7's Next.js binding didn't");
   });
 
-  it("with no previewHosts on a named TanStack site, keeps v7's deco-hosted hosts in CMS.json", () => {
+  it("with no previewHosts on a named TanStack site, writes no list: the worker keeps v7's two hosts with no extra option", () => {
     site({
       "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
       ".env": "DECO_SITE_NAME=acme\n",
@@ -482,10 +656,11 @@ export function Root() {
     });
     const report = createReport();
     foldSiteSettings(root, report);
-    expect(read("CMS.json").preview).toEqual({
-      hosts: ["acme.deco.site", "acme.deco-cx.workers.dev"],
-    });
-    expect(report.manual.map((n) => n.subject)).not.toContain("preview hosts");
+    expect(exists("CMS.json")).toBe(false);
+    const note = report.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
+    expect(note).toContain('pass site: "acme" to createDecoWorker');
+    expect(note).toContain("allows only those two, as v7 did");
+    expect(note).not.toContain("previewHosts: []");
   });
 
   it("reads a Site block named Site, and collectorAddress={'…'}", () => {
@@ -640,5 +815,54 @@ export function Root() {
     const subjects = report.manual.map((n) => n.subject);
     expect(subjects).toContain("OneDollarStats collectorAddress");
     expect(subjects).toContain("src/c.tsx");
+  });
+});
+
+describe("v7's image URLs by 7.x release", () => {
+  const deco = (v: string | undefined) => /decoCdn\(\{ ([^}]*) \}\)/.exec(v7ImageUrl(v))?.[1];
+
+  it("gives the decoCdn options that reproduce each release's Image", () => {
+    expect(deco("7.64.3")).toBe('domain, quality, sources: "all", legacyHosts: []');
+    expect(v7ImageUrl("7.64.3")).toContain('else "decoims.com", the default before 7.71.0');
+    expect(deco("7.71.0")).toBe('domain, quality, sources: "all", legacyHosts: []');
+    expect(deco("7.71.3")).toBe('domain, quality, sources: "all", legacyHosts: []');
+    expect(deco("7.71.4")).toBe('domain, quality, sources: "all", legacyHosts: ["decoims.com"]');
+    expect(deco("7.71.5")).toBe('domain, quality, sources: "all"');
+    expect(deco("7.80.0")).toBe('domain, quality, sources: "all"');
+    expect(v7ImageUrl("7.77.0")).not.toContain("Nuvemshop");
+    expect(v7ImageUrl("7.77.1")).toContain("Nuvemshop");
+    expect(v7ImageUrl(undefined)).toContain(
+      "reference/framework-code.md lists the decoCdn options",
+    );
+    for (const v of ["7.2.0", "7.77.1", undefined]) {
+      expect(v7ImageUrl(v)).toContain(
+        "createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn(",
+      );
+    }
+  });
+
+  it("reads the site's 7.x version: installed copy first, else the package.json range", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-version-"));
+    try {
+      expect(siteBlocksVersion(root)).toBeUndefined();
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@decocms/blocks": "^7.71.2" } }),
+      );
+      expect(siteBlocksVersion(root)).toBe("7.71.2");
+      fs.mkdirSync(path.join(root, "node_modules", "@decocms", "blocks"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "node_modules", "@decocms", "blocks", "package.json"),
+        JSON.stringify({ version: "7.77.4" }),
+      );
+      expect(siteBlocksVersion(root)).toBe("7.77.4");
+      fs.writeFileSync(
+        path.join(root, "node_modules", "@decocms", "blocks", "package.json"),
+        JSON.stringify({ version: "8.3.0" }),
+      );
+      expect(siteBlocksVersion(root)).toBe("7.71.2");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
