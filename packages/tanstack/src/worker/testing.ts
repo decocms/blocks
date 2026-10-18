@@ -1,0 +1,109 @@
+/**
+ * Test doubles for the worker's tests: the Cache API, an execution context
+ * that collects `waitUntil` work, a CMS over an in-memory release, and a
+ * server entry that records what it was asked. Not exported by the package.
+ */
+import { type Blocks, type CMS, createCMS, type Snapshot } from "@decocms/blocks";
+import { currentScope, type RequestScope } from "@decocms/tanstack/scope";
+import type { ExecutionContextLike } from "./index.ts";
+
+export class MemoryCache {
+  readonly entries = new Map<string, Response>();
+
+  async match(key: Request): Promise<Response | undefined> {
+    const hit = this.entries.get(key.url);
+    return hit ? hit.clone() : undefined;
+  }
+
+  async put(key: Request, response: Response): Promise<void> {
+    // The Cache API reads the body now; keep a copy with its headers.
+    const body = await response.arrayBuffer();
+    this.entries.set(key.url, new Response(body, response));
+  }
+
+  async delete(key: Request): Promise<boolean> {
+    return this.entries.delete(key.url);
+  }
+}
+
+export function installCache(): MemoryCache {
+  const cache = new MemoryCache();
+  (globalThis as unknown as { caches: unknown }).caches = { default: cache };
+  return cache;
+}
+
+export function uninstallCache(): void {
+  delete (globalThis as unknown as { caches?: unknown }).caches;
+}
+
+export class TestContext implements ExecutionContextLike {
+  readonly work: Promise<unknown>[] = [];
+  waitUntil(promise: Promise<unknown>): void {
+    this.work.push(promise);
+  }
+  async settle(): Promise<void> {
+    while (this.work.length) await Promise.allSettled(this.work.splice(0));
+  }
+}
+
+/** A release with a page, a redirect and, when given, the `CMS` block's preview hosts. */
+export function snapshot(options: { revision?: string; previewHosts?: string[] } = {}): Snapshot {
+  const blocks: Record<string, unknown> = {
+    Home: { __resolveType: "page", path: "/", sections: [] },
+    "Old shoes": { __resolveType: "redirect", from: "/old-shoes", to: "/shoes", permanent: true },
+  };
+  if (options.previewHosts) {
+    blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
+  }
+  return { revision: options.revision ?? "rev-1", blocks } as Snapshot;
+}
+
+let cmsCount = 0;
+
+/** A CMS of its own (a fresh content root) over `content`. */
+export function testCMS(content: Snapshot = snapshot()): CMS {
+  cmsCount += 1;
+  return createCMS({
+    blocks: {} as Blocks,
+    content: { ...content, root: `/test-cms-${cmsCount}` } as Snapshot & { root: string },
+  });
+}
+
+export interface Served {
+  url: string;
+  method: string;
+  headers: Headers;
+  scope: RequestScope | undefined;
+}
+
+/**
+ * A server entry answering `respond(request)` (HTML by default), recording
+ * each request and the request scope it ran in.
+ */
+export function recordingEntry(respond?: (request: Request) => Response | Promise<Response>) {
+  const served: Served[] = [];
+  return {
+    served,
+    fetch: async (request: Request) => {
+      served.push({
+        url: request.url,
+        method: request.method,
+        headers: new Headers(request.headers),
+        scope: currentScope(),
+      });
+      return respond
+        ? respond(request)
+        : new Response(`<!doctype html><p>${new URL(request.url).pathname}</p>`, {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+    },
+  };
+}
+
+export const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+
+export function html(body = "<p>ok</p>", headers: Record<string, string> = {}): Response {
+  return new Response(body, {
+    headers: { "content-type": "text/html; charset=utf-8", ...headers },
+  });
+}
