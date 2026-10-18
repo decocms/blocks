@@ -44,7 +44,7 @@ packages/
 ├── apps-algolia/               @decocms/apps-algolia              │ depend only on @decocms/blocks
 ├── apps-resend/                @decocms/apps-resend               │
 └── apps-sfmc-personalization/  @decocms/apps-sfmc-personalization ┘
-tests/                          cross-package tests (upstream-client guardrail and conformance)
+tests/                          cross-package tests (upstream-client and helper guardrails, conformance)
 examples/                       tanstack-smoke, tanstack-rsc-smoke, nextjs-smoke
 .agents/skills/                 agent skills (index: .agents/skills/README.md); .claude/skills is a symlink to it
 └── deco-v7-to-v8-migration/    the v7 → v8 site migration (SKILL.md, reference/, runnable scripts/)
@@ -77,6 +77,7 @@ Each export is built from the source file below (`dist/<same path>.js`, see abov
 | `@decocms/blocks` | `src/index.ts` — the v8 runtime API only (`createCMS`, `matchRoute`, `remoteLoader`, `parseDraftPointer`, `Blocks`, `Lazy`, …; the draft helpers are `cms.draftPointer`/`cms.draftCookie`, since they check the preview hosts in `cms.settings()`), re-exported from `src/v8/index.ts` as one explicit `export { … } from "./v8/index.ts"` block (a conformance test parses that form) |
 | `@decocms/blocks/analytics` | `src/v8/analytics.ts` — `AnalyticsScript`, `track` |
 | `@decocms/blocks/fetch` | `src/v8/fetch.ts` — `createInstrumentedFetch` |
+| `@decocms/blocks/image` | `src/v8/image.ts` — the Deco image CDN's URLs (`decoCdn`), `createImageUrl`, `srcSet`, `parseSrcSet`, `preloadLink` and the generic `ImageProvider` type. Platform-neutral only: no commerce platform's URLs, hosts or detection here (a platform's provider lives in its client package, e.g. `@decocms/apps-vtex/image`). Pure functions, no React, no module state: a site builds one `ImageUrl`; the bindings render it |
 | `@decocms/blocks/secrets` | `src/v8/secrets.ts` |
 | `@decocms/blocks/cli` | `src/v8/cli/index.ts` — the `deco` CLI (`schema`, `content`, `check`, `serve`), also the bin (`bin/deco.js`, which runs the compiled `dist/v8/cli/main.js` under Node or Bun). CLI-only: the runtime never imports it (`run.test.ts`), so it and the TypeScript compiler never reach an app bundle |
 | `@decocms/blocks/protocol` (+ `/keys`, `/server`, `/storage/fs`, `/conformance`) | `src/protocol/**` — the content protocol the site editor uses; browser-safe except `storage/fs` (conditional export: `node` → real, `default` → a stub that throws) |
@@ -85,6 +86,7 @@ Each export is built from the source file below (`dist/<same path>.js`, see abov
 
 - **The runtime never imports the protocol or the CLI.** `src/v8` modules import only each other (no Node built-ins, no React at runtime except `/analytics`); `src/v8/browserBundle.test.ts` proves it with a real esbuild bundle. The CLI may import the protocol.
 - **Clients depend only on `@decocms/blocks`**, with no peers and no framework binding. A client takes settings as arguments (no env reads), never caches, has no hooks, converters or `"use client"` code: those belong in the site's platform template (`tests/upstream-clients.conformance.test.ts`).
+- **Platform helpers live in the platform's package, not in blocks.** Besides its client, an `apps-*` package may export pure helper subpaths that compose with `@decocms/blocks` (`@decocms/apps-vtex/image` and `@decocms/apps-shopify/image`: image URL providers for `createImageUrl`). Pure: no network, no React, no env reads, no runtime imports (`tests/upstream-helpers.guardrail.test.ts`, which also bundles each for a browser and workerd). The product owner's call: `@decocms/blocks` holds framework code only, nothing that knows VTEX, Shopify or another commerce platform. Bindings never depend on an `apps-*` package: sites wire the helper in.
 - **Cross-package imports are package imports**: type-checks resolve them to `.ts` source through the `source` condition; the build resolves them to the dependency's built `dist/*.d.ts`, which is why `bun run build` builds blocks before the clients. No `tsconfig.json` `references` anywhere: adding them back reintroduces a TS6305 build-ordering bug.
 - **No compat layers.** If a site needs something a package should export, add the export; don't let sites (or this repo) re-create v7 APIs as shims.
 

@@ -42,6 +42,17 @@ describe("v8 core bundle", () => {
     ).not.toMatch(/node:|require\(/);
   });
 
+  it("@decocms/blocks/image bundles for a browser and a workerd target with no Node built-ins and no React", () => {
+    for (const args of [
+      ["--platform=browser"],
+      ["--platform=neutral", "--conditions=workerd,worker,browser"],
+    ]) {
+      const output = bundle(args, "image.ts");
+      expect(output).not.toMatch(/node:|require\(|react/);
+      expect(output).toContain("createImageUrl");
+    }
+  });
+
   it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
     // A real file, not /dev/stdout: esbuild leaves that empty on Linux.
     const dir = mkdtempSync(join(tmpdir(), "blocks-bundle-"));

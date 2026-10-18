@@ -8,7 +8,9 @@
  * operation labels.
  *
  * It reads package source from disk (it does not import the clients). A new
- * client package goes in CLIENTS.
+ * client package goes in CLIENTS. A package's pure helper subpaths (such as
+ * `@decocms/apps-vtex/image`) are not clients: upstream-helpers.guardrail.test.ts
+ * checks those.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
