@@ -79,4 +79,32 @@ export const blocks = {
 - `environment` throws: it read the process environment, which no v8 package does. Register your own matcher under its name.
 - `location` reads the `cf-*` headers, then the Workers `request.cf`, then the `__cf_geo_*` cookies, as v7 did.
 
-Everything except the matchers is also exported from the package root.
+## Section loaders
+
+```ts
+import { compose, runSectionLoaders, withDevice, withSearchParam } from "@decocms/compat-v7/sections";
+
+const loaders = {
+  "site/sections/Product/ProductShelf.tsx": withDevice(),
+  "site/sections/Header/Header.tsx": compose(withDevice(), withSearchParam()),
+  "site/sections/Category/Banner.tsx": async (props, req) => ({ ...props, url: req.url }),
+};
+
+// After the page's sections resolved, once per page, globals included:
+const { sections, degraded } = await runSectionLoaders(page.sections, { loaders, request, url: pageUrl });
+```
+
+`runSectionLoaders` runs v7's `(props, req)` section loaders the way v7 did after a page resolved, with v7's results:
+
+- Each section runs its loader, then the sections in its props run theirs, wherever they are (latest 7.x). Sites whose v7 baseline is 7.77.12 or earlier pass `nested: "direct"`: those releases only ran the sections held directly in a prop or a list prop.
+- A loader gets the props with `__pageUrl` and `__pagePath` added (values already in the props win), and a `GET` request for the page: `url` when the request is a client-side navigation's server-function call, else `request.url`, with the request's headers.
+- A loader that throws leaves the section's saved props. The section is listed in `degraded` unless it's in `nonCritical` (v7's `registerNonCriticalSections`; put v7's layout sections there too, since v7 never marked them degraded). v7 sent `X-Deco-Degraded` when the list wasn't empty, so the page wasn't edge-cached.
+- `runSectionLoader` does the same for one section (a deferred section).
+
+v7's caches (layout sections, cacheable sections) and its registries aren't here: the loaders are an argument. v7's third argument, `ctx`, is gone. A loader that reads it throws an error that says what to use instead, and its section keeps the saved props.
+
+`withDevice`, `withMobile`, `withSearchParam`, `compose` and `withSectionLoader` are v7's mixins, with v7's output. `withSectionLoader` keeps v7's catch: a section module's loader that throws returns the props, and the section isn't degraded.
+
+v8 sections are `{ component, props }`. v7's resolver wrote nested sections as `{ Component, props }`; here a nested section has the same shape as a page section, and keeps any other keys it has.
+
+Everything except the matchers and the section runner is also exported from the package root.

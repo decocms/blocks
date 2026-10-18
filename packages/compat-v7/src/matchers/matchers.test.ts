@@ -8,7 +8,7 @@
  * TanStack's splat gave (decoded), and the cookies h3 parsed.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { v7Loader, v7Source } from "../__tests__/loadV7";
+import { noop, v7Loader, v7Source } from "../__tests__/loadV7";
 import { pick, rng } from "../__tests__/v7";
 import {
   COUNTRY_NAME_TO_CODE,
@@ -45,6 +45,8 @@ const setCookies: string[] = [];
 const v7 = v7Loader({
   stubs: {
     "cms/loader": { loadBlocks: () => savedBlocks },
+    // The section runner takes no part in matching (sections.test.ts runs it).
+    "cms/sectionLoaders": noop,
     "tanstack/routes/__h3": {
       setCookie: (name: string, value: string, options: object) =>
         setCookies.push(h3.serialize(name, value, { path: "/", ...options })),
