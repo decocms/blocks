@@ -482,9 +482,9 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
       'import { DRAFT_COOKIE, STUDIO_ORIGINS } from "@decocms/tanstack";',
     );
     const deps = report.manual.find((n) => n.step === "scripts" && n.subject === "package.json");
-    expect(deps?.message).toContain("@decocms/tanstack ^8.3.0");
-    expect(deps?.message).toContain("@decocms/compat-v7 ^8.3.0");
-    expect(deps?.message).toContain("@decocms/apps-vtex ^8.3.0");
+    expect(deps?.message).toContain("@decocms/tanstack ^8.4.0");
+    expect(deps?.message).toContain("@decocms/compat-v7 ^8.4.0");
+    expect(deps?.message).toContain("@decocms/apps-vtex ^8.4.0");
   });
 
   it("writes v7 7.64.3's image URLs and gives them to every image through createDecoRouter's Wrap", () => {

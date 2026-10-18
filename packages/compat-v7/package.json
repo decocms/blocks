@@ -161,9 +161,9 @@
     "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
   },
   "peerDependencies": {
-    "@decocms/blocks": "^8.3.0",
-    "@decocms/nextjs": "^8.3.0",
-    "@decocms/tanstack": "^8.3.0",
+    "@decocms/blocks": "^8.4.0",
+    "@decocms/nextjs": "^8.4.0",
+    "@decocms/tanstack": "^8.4.0",
     "@tanstack/react-start": ">=1.166.0",
     "next": "^16.0.0",
     "react": "^19.0.0"

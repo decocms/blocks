@@ -50,7 +50,7 @@ v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@d
 
 ## Packages
 
-All packages are versioned and released in lockstep, starting at 8.3.0 for the bindings. The bindings, `@decocms/compat-v7` and the clients take `@decocms/blocks` as a peer dependency (`^8.3.0`), so a site installs one copy of it.
+All packages are versioned and released in lockstep, starting at 8.4.0 for the bindings and `@decocms/compat-v7`. The bindings, `@decocms/compat-v7` and the clients take `@decocms/blocks` as a peer dependency (`^8.4.0`), so a site installs one copy of it.
 
 | Package | Purpose |
 | --- | --- |

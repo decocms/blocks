@@ -55,7 +55,7 @@ const exec = releaserc.plugins.find(
 const allowlist = /PACKAGES=\\?"([^"\\]+)\\?"/.exec(exec.publishCmd)?.[1].split(" ") ?? [];
 
 const BLOCKS = "@decocms/blocks";
-const PEER = "^8.3.0";
+const PEER = "^8.4.0";
 
 describe("release: lockstep", () => {
   it("publishes every package in packages/, blocks first, then the bindings", () => {
@@ -82,7 +82,7 @@ describe("release: lockstep", () => {
 describe("release: dependency ranges", () => {
   it.each(
     published.filter((d) => d !== "blocks"),
-  )("%s takes @decocms/blocks as a peer, ^8.3.0, and the workspace copy only for development", (dir) => {
+  )("%s takes @decocms/blocks as a peer, ^8.4.0, and the workspace copy only for development", (dir) => {
     const m = readManifest(dir);
     expect(m.dependencies?.[BLOCKS]).toBeUndefined();
     expect(m.peerDependencies?.[BLOCKS]).toBe(PEER);
@@ -207,33 +207,36 @@ describe("scripts/sync-versions.mjs", () => {
       encoding: "utf8",
     });
 
-  it("writes 8.3.0 everywhere, keeps the peer ranges and leaves no workspace: range", () => {
+  it("writes 8.4.0 everywhere, keeps the peer ranges and leaves no workspace: range", () => {
     const root = copyManifests();
-    const r = sync(root, "8.3.0");
+    const r = sync(root, "8.4.0");
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
     for (const dir of packageDirs) {
       const m = readManifest(dir, root);
-      expect(m.version).toBe("8.3.0");
+      expect(m.version).toBe("8.4.0");
       expect(JSON.stringify(m)).not.toContain("workspace:");
       if (dir !== "blocks") {
         expect(m.peerDependencies?.[BLOCKS]).toBe(PEER);
-        expect(m.devDependencies?.[BLOCKS]).toBe("8.3.0");
+        expect(m.devDependencies?.[BLOCKS]).toBe("8.4.0");
       }
     }
   });
 
   it("keeps the peer floor on a later lockstep release", () => {
     const root = copyManifests();
-    expect(sync(root, "8.4.1").status).toBe(0);
+    expect(sync(root, "8.5.1").status).toBe(0);
     expect(readManifest("tanstack", root).peerDependencies?.[BLOCKS]).toBe(PEER);
   });
 
-  it("refuses a release below a peer floor, which no blocks of that release could satisfy", () => {
+  it.each([
+    "8.3.0",
+    "8.3.9",
+  ])("refuses %s, below the peer floor, which no blocks of that release could satisfy", (version) => {
     const root = copyManifests();
-    const r = sync(root, "8.2.4");
+    const r = sync(root, version);
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain('peer @decocms/blocks "^8.3.0"');
+    expect(r.stderr).toContain('peer @decocms/blocks "^8.4.0"');
     expect(readManifest("blocks", root).version).toBe("0.0.0");
   });
 
@@ -243,7 +246,7 @@ describe("scripts/sync-versions.mjs", () => {
     const m = readManifest("apps-vtex", root);
     m.dependencies = { [BLOCKS]: "workspace:*" };
     writeFileSync(path, JSON.stringify(m));
-    const r = sync(root, "8.3.0");
+    const r = sync(root, "8.4.0");
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("apps-vtex: @decocms/blocks must be a peer dependency");
   });

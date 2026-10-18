@@ -58,4 +58,4 @@ export function siteBlocksVersion(root: string): string | undefined {
 }
 
 /** The v8 version every package of the release shares: blocks and both bindings. */
-export const V8_RANGE = "^8.3.0";
+export const V8_RANGE = "^8.4.0";

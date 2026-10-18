@@ -113,7 +113,7 @@ describe("@decocms/compat-v7", () => {
 
   it("takes @decocms/blocks as its one required peer; a binding only as an optional peer", () => {
     expect(pkg.dependencies ?? {}).toEqual({});
-    expect(pkg.peerDependencies["@decocms/blocks"]).toBe("^8.3.0");
+    expect(pkg.peerDependencies["@decocms/blocks"]).toBe("^8.4.0");
     for (const name of Object.keys(pkg.peerDependencies)) {
       if (name === "@decocms/blocks") continue;
       expect(FRAMEWORK_PEERS).toContain(name);

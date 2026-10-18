@@ -4,7 +4,7 @@ From the site migrations; the sites and what the commit hashes refer to are list
 
 ## Before you run the script
 
-- **Install `@decocms/blocks@^8.3` first** (`^8` resolves to the accidental v7 build published as `8.0.0`). A v7 site already has `@decocms/blocks@7`, which has no `/cli` or `/protocol/keys`; the script fails to import. Keep v7 `@decocms/apps-*` installed until after the run: vendoring copies from them.
+- **Install `@decocms/blocks@^8.4` first** (`^8` resolves to the accidental v7 build published as `8.0.0`). A v7 site already has `@decocms/blocks@7`, which has no `/cli` or `/protocol/keys`; the script fails to import. Keep v7 `@decocms/apps-*` installed until after the run: vendoring copies from them.
 - **Commit the script's output unedited** (`046de4d`, `de03793`), then do the manual work in follow-up commits.
 - **The script vendors every app loader the content calls**, including ones the v7 site never ran (a v7 Next.js site resolved many VTEX loader blocks to `null`). Check which ones actually rendered before keeping a vendored copy; delete the rest along with the saved blocks nothing references.
 

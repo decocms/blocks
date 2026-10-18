@@ -30,7 +30,7 @@
     "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
   },
   "peerDependencies": {
-    "@decocms/blocks": "^8.3.0"
+    "@decocms/blocks": "^8.4.0"
   },
   "devDependencies": {
     "@decocms/blocks": "workspace:*"

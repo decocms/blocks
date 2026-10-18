@@ -22,7 +22,7 @@ Not for sites on `@decocms/start@6.x` (upgrade to 7.x first with `decocms-v6-to-
 
 1. A clean working tree: the script edits files in place.
 2. `DECO_CRYPTO_KEY` (the v7 secret key) in the environment, and `.deco/secrets.pub` committed (see `/next/secrets`). Without them, v7 secrets are reported, not re-encrypted.
-3. **Install `@decocms/blocks@^8.3` before running the script** (not `^8`: `8.0.0` is an accidental v7 build). v7's blocks lacks the `/cli` and `/protocol/keys` the script imports. Keep the v7 `@decocms/apps-*` installed until the script has run: it vendors the app loaders your content calls from `node_modules`.
+3. **Install `@decocms/blocks@^8.4` before running the script** (not `^8`: `8.0.0` is an accidental v7 build). v7's blocks lacks the `/cli` and `/protocol/keys` the script imports. Keep the v7 `@decocms/apps-*` installed until the script has run: it vendors the app loaders your content calls from `node_modules`.
 4. `typescript` resolvable from the site (the import codemod parses `src/` with it).
 
 ## Run
@@ -39,7 +39,7 @@ DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/
 **From an installed copy of the skill** (outside the repo): copy `scripts/` into the site so it resolves the site's `@decocms/blocks@8`, run it, then delete the copy:
 
 ```bash
-cd <site> && bun add @decocms/blocks@^8.3
+cd <site> && bun add @decocms/blocks@^8.4
 cp -R <skill>/scripts .deco-migrate
 DECO_CRYPTO_KEY=… bun .deco-migrate/main.ts --root .
 rm -rf .deco-migrate
@@ -65,7 +65,7 @@ The script prints **Done** and **Left to do**, grouped by step. Every "Left to d
 
 The full text of each step: [`reference/manual-steps.md`](reference/manual-steps.md).
 
-1. **Dependencies**: `@decocms/blocks@^8.3`, the v8 binding and `@decocms/compat-v7` at the same version, and the v8 `@decocms/apps-<platform>` client; remove the other v7 packages and codegen once nothing imports them.
+1. **Dependencies**: `@decocms/blocks@^8.4`, the v8 binding and `@decocms/compat-v7` at the same version, and the v8 `@decocms/apps-<platform>` client; remove the other v7 packages and codegen once nothing imports them.
 2. **Check the page setup the script wrote** (`/next/tanstack-start-descriptors`, `/next/nextjs`), carry over what the site added to v7's page routes, and delete the v7 setup files and CI jobs.
 3. **Worker, drafts, Studio and images from the binding; v7's pure helpers (commerce types, `clx`, scripts, device, matchers, section loaders) from `@decocms/compat-v7`; the rest is site code** ([`reference/framework-code.md`](reference/framework-code.md)).
 4. **Finish `/deco/invoke`**: validate the server functions the script wrote, and replace each stub in `src/migration-stubs.ts` ([`reference/server-functions.md`](reference/server-functions.md)).

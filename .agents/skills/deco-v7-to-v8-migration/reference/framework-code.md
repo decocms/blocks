@@ -2,7 +2,7 @@
 
 From the site migrations; the sites and what the commit hashes refer to are listed in `SKILL.md` ("Gotchas by subject").
 
-v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at one version (`^8.3.0`): `@decocms/tanstack` (TanStack Start on Cloudflare Workers, deployed the Deco way) and `@decocms/nextjs` (any Next.js App Router app). Use them; don't copy v7's worker, draft, preview or image code into the site. What neither binding covers (commerce flows, SEO, device-specific UI) is site code. Each package's README has the full wiring; `examples/tanstack-worker-smoke` and `examples/nextjs-binding-smoke` in this repo are complete apps.
+v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at one version (`^8.4.0`): `@decocms/tanstack` (TanStack Start on Cloudflare Workers, deployed the Deco way) and `@decocms/nextjs` (any Next.js App Router app). Use them; don't copy v7's worker, draft, preview or image code into the site. What neither binding covers (commerce flows, SEO, device-specific UI) is site code. Each package's README has the full wiring; `examples/tanstack-worker-smoke` and `examples/nextjs-binding-smoke` in this repo are complete apps.
 
 ## TanStack Start (`@decocms/tanstack`)
 
