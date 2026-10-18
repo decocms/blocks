@@ -370,6 +370,17 @@ describe("imports", () => {
     expect(note("@decocms/nextjs/routeHandlers")).toContain("delete them");
   });
 
+  it("points v7's withABTesting to compat-v7's routes handler, without rewriting it", () => {
+    const text = 'import { withABTesting } from "@decocms/blocks/sdk/abTesting";\n';
+    site({ "src/worker-entry.ts": text });
+    const report = createReport();
+    rewriteImports(root, report, new Map());
+    expect(fs.readFileSync(path.join(root, "src/worker-entry.ts"), "utf8")).toBe(text);
+    const note = report.manual.find((n) => n.subject.startsWith("@decocms/blocks/sdk/abTesting"));
+    expect(note?.message).toContain("abTestingRoutes");
+    expect(note?.message).toContain("@decocms/compat-v7/tanstack/worker");
+  });
+
   it("moves names the v8 bindings export unchanged, splitting a mixed import", () => {
     site({
       "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
@@ -402,9 +413,12 @@ describe("imports", () => {
         "",
       ].join("\n"),
     );
-    // Only what's left is reported; the v8 imports are not.
+    // Only what's left is reported; the v8 imports are not. The image URLs are written
+    // (src/imageUrl.ts, the latest 7.x's with no version known), but no createDecoRouter call
+    // here takes them.
     expect(report.manual.map((n) => n.subject)).toEqual([
-      "Image, Picture, Source",
+      "src/imageUrl.ts",
+      "ImageUrlProvider",
       "@decocms/blocks/hooks {LiveControls}",
       "@decocms/tanstack {DecoRootLayout}",
     ]);
@@ -413,6 +427,7 @@ describe("imports", () => {
       "@decocms/tanstack/react",
       "@decocms/tanstack/router",
       "@decocms/tanstack/start",
+      "src/imageUrl.ts",
     ]);
   });
 

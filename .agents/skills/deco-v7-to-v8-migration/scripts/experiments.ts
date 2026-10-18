@@ -3,11 +3,19 @@
  * v7 keyed A/B results on the saved name of the random matcher a variant's
  * rule pointed at. The next major keys them on `multivariate`'s `experiment`,
  * so this step copies that name into it and results carry over.
+ *
+ * The same name kept a visitor in their group: v7's sticky random matcher
+ * (latest 7.x) stored each decision in the `deco_segment` cookie under it. A
+ * v8 block function doesn't know the name it was saved under, so on a site
+ * whose block map registers `@decocms/compat-v7/matchers`' random (a TanStack
+ * Start or Next.js site, see ./blockMap.ts), each saved random matcher gets it
+ * as `cohort`, and visitors keep their v7 groups.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { LEGACY_ALIASES } from "@decocms/blocks/cli";
 import { serializeBlock } from "@decocms/blocks/protocol/keys";
+import { siteFramework } from "./framework";
 import type { Report } from "./report";
 import { forEachBlock, readContent } from "./walk";
 
@@ -29,6 +37,7 @@ export function copyExperimentIds(root: string, report: Report): void {
       .map(([name]) => name),
   );
   if (randoms.size === 0) return;
+  if (siteFramework(root)) writeCohorts(root, report, randoms);
 
   for (const [entry, block] of Object.entries(blocks)) {
     let changed = false;
@@ -50,5 +59,21 @@ export function copyExperimentIds(root: string, report: Report): void {
     if (changed) {
       fs.writeFileSync(path.join(root, ".deco", "blocks", files[entry]), serializeBlock(block));
     }
+  }
+}
+
+/** `cohort` = the saved name, on each saved random matcher that has none (v7's sticky key). */
+function writeCohorts(root: string, report: Report, randoms: Set<string>): void {
+  const { blocks, files } = readContent(root);
+  for (const name of [...randoms].sort()) {
+    const block = blocks[name];
+    if (block.cohort !== undefined) continue;
+    block.cohort = name;
+    fs.writeFileSync(path.join(root, ".deco", "blocks", files[name]), serializeBlock(block));
+    report.done.push({
+      step: "content",
+      subject: files[name],
+      message: `set cohort "${name}" (v7 kept the visitor's A/B group in deco_segment under the saved name), so visitors stay in their groups`,
+    });
   }
 }
