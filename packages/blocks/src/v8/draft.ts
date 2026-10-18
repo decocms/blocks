@@ -14,7 +14,8 @@ import type { DraftPointer, ForcedVariant, RequestLike } from "./types.ts";
 /** The draft cookie's name. Not exported from the package: reading it directly would skip the host check. */
 const DRAFT_COOKIE = "__deco_draft";
 
-const DRAFT_PARAM = "__draft";
+/** The draft link's query parameter. Shared with `./preview` (the badge's links); not exported from the package. */
+export const DRAFT_PARAM = "__draft";
 const DRAFT_OFF = "off";
 
 /** Lowercase DNS name; a single label (`localhost`) is allowed. */

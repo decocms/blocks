@@ -1,0 +1,28 @@
+{
+  "name": "nextjs-binding-smoke-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "deco schema && deco content",
+    "dev": "next dev",
+    "prebuild": "deco schema && deco content && deco check",
+    "build": "next build",
+    "pretypecheck": "deco content",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@decocms/blocks": "workspace:*",
+    "@decocms/nextjs": "workspace:*",
+    "next": "16.3.8",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
+}

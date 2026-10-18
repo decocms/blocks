@@ -16,7 +16,13 @@
       "ignoreDependencies": [
         "@decocms/blocks",
         "@decocms/apps-algolia",
-        "@decocms/apps-vtex"
+        "@decocms/apps-shopify",
+        "@decocms/apps-vtex",
+        "@decocms/compat-v7",
+        "@decocms/nextjs",
+        "@decocms/tanstack",
+        "react",
+        "react-dom"
       ]
     },
     "packages/*": {
@@ -41,7 +47,20 @@
       "entry": [
         "src/v8/cli/main.ts"
       ]
+    },
+    "packages/compat-v7": {
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "ignore": [
+        "src/__fixtures__/v7/**"
+      ]
     }
   },
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "ignoreIssues": {
+    "packages/compat-v7/src/clx.ts": [
+      "duplicates"
+    ]
+  }
 }

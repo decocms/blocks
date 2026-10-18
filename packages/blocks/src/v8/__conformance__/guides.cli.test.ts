@@ -815,7 +815,7 @@ export default {
     T,
   );
 
-  it("in-11: one package, @decocms/blocks, and upstream clients that depend only on it", () => {
+  it("in-11: one core package, @decocms/blocks; the framework bindings and upstream clients depend only on it", () => {
     const manifest = (name: string) =>
       JSON.parse(fs.readFileSync(path.join(REPO, "packages", name, "package.json"), "utf8"));
     const deco = (name: string) => {
@@ -827,11 +827,26 @@ export default {
     const packages = fs
       .readdirSync(path.join(REPO, "packages"))
       .filter((d) => fs.existsSync(path.join(REPO, "packages", d, "package.json")));
-    expect(packages.filter((d) => !d.startsWith("apps-"))).toEqual(["blocks"]);
+    // The framework bindings (@decocms/tanstack, @decocms/nextjs) never import each other.
+    const BINDINGS = ["tanstack", "nextjs"];
+    // @decocms/compat-v7: v7's pure helpers, approved by the product owner
+    // (2026-10-14) as their one home. Its /tanstack and /nextjs subpaths take
+    // a binding as an optional peer; nothing here depends on it (its guardrail,
+    // tests/compat-v7.guardrail.test.ts).
+    const COMPAT = "compat-v7";
+    expect(
+      packages.filter((d) => !d.startsWith("apps-") && !BINDINGS.includes(d) && d !== COMPAT),
+    ).toEqual(["blocks"]);
     expect(packages.filter((d) => d.startsWith("apps-")).length).toBe(7);
     expect(deco("blocks")).toEqual([]);
-    for (const app of packages.filter((d) => d.startsWith("apps-"))) {
-      expect([app, deco(app)]).toEqual([app, ["@decocms/blocks"]]);
+    for (const dependent of packages.filter((d) => d !== "blocks" && d !== COMPAT)) {
+      expect([dependent, deco(dependent)]).toEqual([dependent, ["@decocms/blocks"]]);
+    }
+    const compat = manifest(COMPAT);
+    expect(compat.peerDependencies["@decocms/blocks"]).toBeDefined();
+    for (const binding of deco(COMPAT).filter((d) => d !== "@decocms/blocks")) {
+      expect(["@decocms/tanstack", "@decocms/nextjs"]).toContain(binding);
+      expect(compat.peerDependenciesMeta?.[binding]?.optional).toBe(true);
     }
   });
 });

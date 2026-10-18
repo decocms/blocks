@@ -1,0 +1,203 @@
+{
+  "name": "@decocms/compat-v7",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "v7's pure helpers (types, device detection, inline scripts, clx, matchers, the section loader runner, apps-commerce's types and helpers) on @decocms/blocks 8, with v7's output and no v7 runtime; v7's device context and sticky A/B cookie for @decocms/tanstack and @decocms/nextjs, and v7's legacy-origin A/B split for createDecoWorker",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/decocms/blocks.git",
+    "directory": "packages/compat-v7"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/__tests__",
+    "!src/**/__fixtures__"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "source": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    },
+    "./types/widgets": {
+      "types": "./dist/types/widgets.d.ts",
+      "source": "./src/types/widgets.ts",
+      "default": "./dist/types/widgets.js"
+    },
+    "./device": {
+      "types": "./dist/device.d.ts",
+      "source": "./src/device.ts",
+      "default": "./dist/device.js"
+    },
+    "./script": {
+      "types": "./dist/script.d.ts",
+      "source": "./src/script.ts",
+      "default": "./dist/script.js"
+    },
+    "./clx": {
+      "types": "./dist/clx.d.ts",
+      "source": "./src/clx.ts",
+      "default": "./dist/clx.js"
+    },
+    "./matchers": {
+      "types": "./dist/matchers/index.d.ts",
+      "source": "./src/matchers/index.ts",
+      "default": "./dist/matchers/index.js"
+    },
+    "./sections": {
+      "types": "./dist/sections/index.d.ts",
+      "source": "./src/sections/index.ts",
+      "default": "./dist/sections/index.js"
+    },
+    "./commerce": {
+      "types": "./dist/commerce/types/commerce.d.ts",
+      "source": "./src/commerce/types/commerce.ts",
+      "default": "./dist/commerce/types/commerce.js"
+    },
+    "./commerce/types": {
+      "types": "./dist/commerce/types/commerce.d.ts",
+      "source": "./src/commerce/types/commerce.ts",
+      "default": "./dist/commerce/types/commerce.js"
+    },
+    "./commerce/types/cart": {
+      "types": "./dist/commerce/types/cart.d.ts",
+      "source": "./src/commerce/types/cart.ts",
+      "default": "./dist/commerce/types/cart.js"
+    },
+    "./commerce/sdk/analytics": {
+      "types": "./dist/commerce/sdk/analytics.d.ts",
+      "source": "./src/commerce/sdk/analytics.ts",
+      "default": "./dist/commerce/sdk/analytics.js"
+    },
+    "./commerce/sdk/formatPrice": {
+      "types": "./dist/commerce/sdk/formatPrice.d.ts",
+      "source": "./src/commerce/sdk/formatPrice.ts",
+      "default": "./dist/commerce/sdk/formatPrice.js"
+    },
+    "./commerce/sdk/url": {
+      "types": "./dist/commerce/sdk/url.d.ts",
+      "source": "./src/commerce/sdk/url.ts",
+      "default": "./dist/commerce/sdk/url.js"
+    },
+    "./commerce/sdk/useOffer": {
+      "types": "./dist/commerce/sdk/useOffer.d.ts",
+      "source": "./src/commerce/sdk/useOffer.ts",
+      "default": "./dist/commerce/sdk/useOffer.js"
+    },
+    "./commerce/sdk/useVariantPossibilities": {
+      "types": "./dist/commerce/sdk/useVariantPossibilities.d.ts",
+      "source": "./src/commerce/sdk/useVariantPossibilities.ts",
+      "default": "./dist/commerce/sdk/useVariantPossibilities.js"
+    },
+    "./commerce/utils/canonical": {
+      "types": "./dist/commerce/utils/canonical.d.ts",
+      "source": "./src/commerce/utils/canonical.ts",
+      "default": "./dist/commerce/utils/canonical.js"
+    },
+    "./commerce/utils/constants": {
+      "types": "./dist/commerce/utils/constants.d.ts",
+      "source": "./src/commerce/utils/constants.ts",
+      "default": "./dist/commerce/utils/constants.js"
+    },
+    "./commerce/utils/filters": {
+      "types": "./dist/commerce/utils/filters.d.ts",
+      "source": "./src/commerce/utils/filters.ts",
+      "default": "./dist/commerce/utils/filters.js"
+    },
+    "./commerce/utils/productToAnalyticsItem": {
+      "types": "./dist/commerce/utils/productToAnalyticsItem.d.ts",
+      "source": "./src/commerce/utils/productToAnalyticsItem.ts",
+      "default": "./dist/commerce/utils/productToAnalyticsItem.js"
+    },
+    "./commerce/utils/stateByZip": {
+      "types": "./dist/commerce/utils/stateByZip.d.ts",
+      "source": "./src/commerce/utils/stateByZip.ts",
+      "default": "./dist/commerce/utils/stateByZip.js"
+    },
+    "./tanstack": {
+      "types": "./dist/tanstack/index.d.ts",
+      "source": "./src/tanstack/index.ts",
+      "default": "./dist/tanstack/index.js"
+    },
+    "./tanstack/server": {
+      "types": "./dist/tanstack/server.d.ts",
+      "source": "./src/tanstack/server.ts",
+      "default": "./dist/tanstack/server.js"
+    },
+    "./tanstack/worker": {
+      "types": "./dist/tanstack/abTesting.d.ts",
+      "source": "./src/tanstack/abTesting.ts",
+      "default": "./dist/tanstack/abTesting.js"
+    },
+    "./nextjs": {
+      "types": "./dist/nextjs/index.d.ts",
+      "source": "./src/nextjs/index.ts",
+      "default": "./dist/nextjs/index.js"
+    },
+    "./nextjs/server": {
+      "types": "./dist/nextjs/server.d.ts",
+      "source": "./src/nextjs/server.ts",
+      "default": "./dist/nextjs/server.js"
+    },
+    "./nextjs/proxy": {
+      "types": "./dist/nextjs/proxy.d.ts",
+      "source": "./src/nextjs/proxy.ts",
+      "default": "./dist/nextjs/proxy.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "test": "vitest run --root ../.. packages/compat-v7/",
+    "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@decocms/blocks": "^8.4.0",
+    "@decocms/nextjs": "^8.4.0",
+    "@decocms/tanstack": "^8.4.0",
+    "@tanstack/react-start": ">=1.166.0",
+    "next": "^16.0.0",
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@decocms/nextjs": {
+      "optional": true
+    },
+    "@decocms/tanstack": {
+      "optional": true
+    },
+    "@tanstack/react-start": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@decocms/blocks": "workspace:*",
+    "@decocms/nextjs": "workspace:*",
+    "@decocms/tanstack": "workspace:*",
+    "@tanstack/react-start": "1.168.58",
+    "@types/react": "^19.0.0",
+    "esbuild": "^0.27.3",
+    "next": "16.3.8",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  }
+}

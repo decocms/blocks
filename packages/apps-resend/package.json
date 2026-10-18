@@ -29,7 +29,10 @@
     "test": "vitest run --root ../.. packages/apps-resend/",
     "typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@decocms/blocks": "^8.4.0"
+  },
+  "devDependencies": {
     "@decocms/blocks": "workspace:*"
   },
   "publishConfig": {

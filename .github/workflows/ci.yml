@@ -1,6 +1,6 @@
 name: CI
 
-# Type-checks and builds the 8 publishable packages on every PR. The build is
+# Type-checks and builds the publishable packages on every PR. The build is
 # what npm publishes: `tsc` emits one .js (+ .d.ts and maps) per source file
 # into each package's dist/, with no bundler, so the module graph — and every
 # module-level singleton — is the same as the source's. The last step imports
@@ -50,3 +50,69 @@ jobs:
             ')
           done
           node packages/blocks/bin/deco.js --help > /dev/null
+
+      # tests/release.test.ts: lockstep versions, the peer ranges, and what
+      # npm would pack for each package (every export's files, including
+      # the clients' helper subpaths such as @decocms/apps-vtex/image, and
+      # no test or fixture), against the dist/ built above.
+      - name: Release checks
+        run: bun x vitest run tests/release.test.ts
+
+  # @decocms/tanstack's smoke app, built and run on workerd (`vite preview`
+  # runs the Worker in Miniflare): the worker's header matrix (edge cache,
+  # drafts, Studio framing, CMS redirects, __cseg) against a real TanStack
+  # Start build. examples/tanstack-worker-smoke/smoke.mjs.
+  tanstack-worker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      # The root `prepare` script builds the workspace on install.
+      - run: bun install --frozen-lockfile
+
+      - name: Build the smoke app
+        working-directory: examples/tanstack-worker-smoke
+        run: bun run build
+
+      - name: Header matrix on workerd
+        working-directory: examples/tanstack-worker-smoke
+        run: bun run smoke
+
+  # @decocms/nextjs's smoke app, built with `next build` and run on
+  # `next start`: drafts through the proxy (the host allowlist, the rewrite to
+  # the draft route, the cookie, no-store and noindex) against a local draft
+  # server, the Studio bridge, the image loader, and a proxy bundle with no
+  # block map. examples/nextjs-binding-smoke/smoke.mjs.
+  nextjs-binding-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      # The root `prepare` script builds the workspace on install.
+      - run: bun install --frozen-lockfile
+
+      - name: Build the smoke app
+        working-directory: examples/nextjs-binding-smoke
+        run: bun run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Header matrix on next start
+        working-directory: examples/nextjs-binding-smoke
+        run: bun run smoke

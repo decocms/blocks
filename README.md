@@ -24,9 +24,9 @@
   <img alt="Any framework" src="https://img.shields.io/badge/framework-any-FF4154?style=flat-square" />
 </p>
 
-`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks, plus thin upstream clients, `@decocms/apps-*`. Packages export TypeScript source directly: no bundled dist layer, no duplicated runtime state.
+`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; `@decocms/nextjs`, for any Next.js App Router app; thin upstream clients, `@decocms/apps-*`; and `@decocms/compat-v7`, v7's pure helpers for sites moved from v7. Each package publishes JavaScript compiled file for file by `tsc` (`dist/`, with declarations), plus its TypeScript source under a `source` export condition for the workspace: nothing is bundled, so no runtime state is duplicated.
 
-v7 (`@decocms/tanstack`, `@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce` and the rest) is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
+v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce` and the rest) is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 
 ## Contents
 
@@ -44,17 +44,20 @@ v7 (`@decocms/tanstack`, `@decocms/nextjs`, `@decocms/blocks-admin`, `@decocms/b
 
 - **Your functions, editable:** register any function with a typed first parameter in a block map; the CLI turns its types into editor forms and checks saved content against them.
 - **Content is JSON in your repo:** saved blocks live in `.deco/blocks`, read through `createCMS` with no database and no framework lock-in.
-- **Any framework:** TanStack Start, Next.js App Router or plain Node; the package has no framework binding and runs on Workers, Node and Bun.
+- **Any framework:** TanStack Start, Next.js App Router or plain Node; the core package has no framework binding (`@decocms/tanstack` and `@decocms/nextjs` are separate) and runs on Workers, Node and Bun.
 - **Site-editor ready:** the content protocol (`@decocms/blocks/protocol`) lets the site editor read and write saved blocks without running your code.
 - **Measured upstream calls:** every client sends through `createInstrumentedFetch`, so each upstream request is timed and labeled.
 
 ## Packages
 
-All packages are versioned and released in lockstep.
+All packages are versioned and released in lockstep, starting at 8.4.0 for the bindings and `@decocms/compat-v7`. The bindings, `@decocms/compat-v7` and the clients take `@decocms/blocks` as a peer dependency (`^8.4.0`), so a site installs one copy of it.
 
 | Package | Purpose |
 | --- | --- |
 | [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`), secrets (`/secrets`) and the `vite dev` content reload plugin (`/vite`). |
+| [`@decocms/tanstack`](./packages/tanstack) | TanStack Start on Cloudflare Workers, deployed the Deco way: the edge worker (`/worker`), the root document (`/react`), the router (`/router`), the server-function fetch (`/start`), server helpers (`/server`) and the Vite plugin (`/vite`). |
+| [`@decocms/nextjs`](./packages/nextjs) | Any Next.js App Router app: draft previews in the proxy (`/proxy`) and the pages (`/server`), the preview badge and the Studio bridge (root), `withDeco()` for `next.config` (`/config`) and a next/image loader (`/image-loader`). |
+| [`@decocms/compat-v7`](./packages/compat-v7) | v7's pure helpers with v7's output, for sites moved from v7: section types and widget aliases (`/types`), device detection (`/device`), inline scripts (`/script`), `clx` (`/clx`), v7's matchers, with the sticky random (`/matchers`), v7's section loader runner with its mixins (`/sections`), `@decocms/apps-commerce`'s types and helpers (`/commerce/*`), and v7's device context and A/B cookie for each binding (`/tanstack`, `/nextjs`). No v7 runtime. |
 | [`@decocms/apps-vtex`](./packages/apps-vtex) | Thin VTEX client. |
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Thin Shopify Storefront API client. |
 | [`@decocms/apps-wake`](./packages/apps-wake) | Thin Wake Commerce client, with storefront operations on `/storefront`. |
@@ -70,12 +73,16 @@ Clients depend only on `@decocms/blocks`. Converters, hooks, cart flows and cach
 ```text
 packages/
 ├── blocks/          @decocms/blocks: runtime, CLI and content protocol
+├── tanstack/        @decocms/tanstack: TanStack Start on Cloudflare Workers
+├── nextjs/          @decocms/nextjs: any Next.js App Router app
+├── compat-v7/       @decocms/compat-v7: v7's pure helpers for migrated sites
 └── apps-*/          thin upstream clients
 tests/               cross-package tests (upstream-client guardrail and conformance)
 examples/
 ├── tanstack-smoke/      TanStack Start on Workers (the descriptor guide)
 ├── tanstack-rsc-smoke/  TanStack Start with React Server Components
-└── nextjs-smoke/        Next.js App Router
+├── nextjs-smoke/        Next.js App Router (the docs' guide)
+└── nextjs-binding-smoke/ Next.js App Router on @decocms/nextjs (drafts, Studio, image loader)
 .agents/skills/      agent skills: the v7 -> v8 migration (index: .agents/skills/README.md)
 ```
 
@@ -110,11 +117,11 @@ const [props, error] = await cms.forRelease().resolve("Home Hero");
 
 ### TanStack Start
 
-Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. In `vite.config.ts`, add `decoContent()` from `@decocms/blocks/vite` so a block saved in the site editor shows in open pages during `vite dev`. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps.
+Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. In `vite.config.ts`, add `decoContent()` from `@decocms/blocks/vite` so a block saved in the site editor shows in open pages during `vite dev`. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps. A site on Cloudflare Workers deployed the Deco way uses [`@decocms/tanstack`](./packages/tanstack): `createDecoWorker` (drafts, the edge cache, Studio framing), `DecoDocument`, the router, `Image`/`Picture` and `decoTanstack()` (which includes `decoContent()`); [`examples/tanstack-worker-smoke`](./examples/tanstack-worker-smoke) is the same app on it.
 
 ### Next.js App Router
 
-Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app. There is no `@decocms/nextjs` in v8: a Server Component resolves the page and renders its blocks.
+Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app: a Server Component resolves the page and renders its blocks. [`@decocms/nextjs`](./packages/nextjs) adds draft previews (the proxy, the draft route, the badge), the Studio bridge, `withDeco()` and a next/image loader; [`examples/nextjs-binding-smoke`](./examples/nextjs-binding-smoke) is the same app on it.
 
 ## Migration
 
