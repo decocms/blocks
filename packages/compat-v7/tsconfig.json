@@ -1,4 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/__fixtures__/v7/cms/**", "src/__fixtures__/v7/matchers/**", "src/__fixtures__/v7/sdk/experiments.ts", "src/__fixtures__/v7/tanstack/**", "src/__fixtures__/v7/vendor/**"]
 }

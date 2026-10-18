@@ -53,7 +53,15 @@ describe("@decocms/compat-v7", () => {
     expect(pkg.name).toBe("@decocms/compat-v7");
     expect(pkg.private).toBeUndefined();
     expect(neutral.map(([s]) => s)).toEqual(
-      expect.arrayContaining([".", "./types", "./types/widgets", "./device", "./script", "./clx"]),
+      expect.arrayContaining([
+        ".",
+        "./types",
+        "./types/widgets",
+        "./device",
+        "./script",
+        "./clx",
+        "./matchers",
+      ]),
     );
   });
 

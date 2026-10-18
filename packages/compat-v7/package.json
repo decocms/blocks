@@ -2,7 +2,7 @@
   "name": "@decocms/compat-v7",
   "version": "0.0.0",
   "type": "module",
-  "description": "v7's pure helpers (types, device detection, inline scripts, clx) on @decocms/blocks 8, with v7's output and no v7 runtime",
+  "description": "v7's pure helpers (types, device detection, inline scripts, clx, matchers) on @decocms/blocks 8, with v7's output and no v7 runtime",
   "repository": {
     "type": "git",
     "url": "https://github.com/decocms/blocks.git",
@@ -47,6 +47,11 @@
       "types": "./dist/clx.d.ts",
       "source": "./src/clx.ts",
       "default": "./dist/clx.js"
+    },
+    "./matchers": {
+      "types": "./dist/matchers/index.d.ts",
+      "source": "./src/matchers/index.ts",
+      "default": "./dist/matchers/index.js"
     }
   },
   "scripts": {
@@ -59,7 +64,8 @@
     "@decocms/blocks": "^8.3.0"
   },
   "devDependencies": {
-    "@decocms/blocks": "workspace:*"
+    "@decocms/blocks": "workspace:*",
+    "esbuild": "^0.27.3"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
