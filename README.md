@@ -24,7 +24,7 @@
   <img alt="Any framework" src="https://img.shields.io/badge/framework-any-FF4154?style=flat-square" />
 </p>
 
-`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; and thin upstream clients, `@decocms/apps-*`. Packages export TypeScript source directly: no bundled dist layer, no duplicated runtime state.
+`blocks` is a Bun workspace monorepo for Deco's CMS. This branch is the **next major (v8)**: one core package, `@decocms/blocks`, with the runtime, the `deco` CLI and the content protocol the site editor speaks; `@decocms/tanstack`, for TanStack Start sites on Cloudflare Workers; `@decocms/nextjs`, for any Next.js App Router app; and thin upstream clients, `@decocms/apps-*`. Packages export TypeScript source directly: no bundled dist layer, no duplicated runtime state.
 
 v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@decocms/blocks-cli`, `@decocms/apps-commerce` and the rest) is maintained on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 
@@ -56,6 +56,7 @@ All packages are versioned and released in lockstep.
 | --- | --- |
 | [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`), secrets (`/secrets`) and the `vite dev` content reload plugin (`/vite`). |
 | [`@decocms/tanstack`](./packages/tanstack) | TanStack Start on Cloudflare Workers, deployed the Deco way: the edge worker (`/worker`), the root document (`/react`), the router (`/router`), the server-function fetch (`/start`), server helpers (`/server`) and the Vite plugin (`/vite`). |
+| [`@decocms/nextjs`](./packages/nextjs) | Any Next.js App Router app: draft previews in the proxy (`/proxy`) and the pages (`/server`), the preview badge and the Studio bridge (root), `withDeco()` for `next.config` (`/config`) and a next/image loader (`/image-loader`). |
 | [`@decocms/apps-vtex`](./packages/apps-vtex) | Thin VTEX client. |
 | [`@decocms/apps-shopify`](./packages/apps-shopify) | Thin Shopify Storefront API client. |
 | [`@decocms/apps-wake`](./packages/apps-wake) | Thin Wake Commerce client, with storefront operations on `/storefront`. |
@@ -72,12 +73,14 @@ Clients depend only on `@decocms/blocks`. Converters, hooks, cart flows and cach
 packages/
 ├── blocks/          @decocms/blocks: runtime, CLI and content protocol
 ├── tanstack/        @decocms/tanstack: TanStack Start on Cloudflare Workers
+├── nextjs/          @decocms/nextjs: any Next.js App Router app
 └── apps-*/          thin upstream clients
 tests/               cross-package tests (upstream-client guardrail and conformance)
 examples/
 ├── tanstack-smoke/      TanStack Start on Workers (the descriptor guide)
 ├── tanstack-rsc-smoke/  TanStack Start with React Server Components
-└── nextjs-smoke/        Next.js App Router
+├── nextjs-smoke/        Next.js App Router (the docs' guide)
+└── nextjs-binding-smoke/ Next.js App Router on @decocms/nextjs (drafts, Studio, image loader)
 .agents/skills/      agent skills: the v7 -> v8 migration (index: .agents/skills/README.md)
 ```
 
@@ -116,7 +119,7 @@ Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/
 
 ### Next.js App Router
 
-Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app. There is no `@decocms/nextjs` in v8: a Server Component resolves the page and renders its blocks.
+Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app: a Server Component resolves the page and renders its blocks. [`@decocms/nextjs`](./packages/nextjs) adds draft previews (the proxy, the draft route, the badge), the Studio bridge, `withDeco()` and a next/image loader; [`examples/nextjs-binding-smoke`](./examples/nextjs-binding-smoke) is the same app on it.
 
 ## Migration
 

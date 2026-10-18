@@ -1,0 +1,70 @@
+{
+	"name": "@decocms/nextjs",
+	"version": "0.0.0",
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"description": "Deco CMS for any Next.js App Router app: draft previews in the proxy and the pages, the preview badge, the Studio bridge, withDeco() and a next/image loader",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/decocms/blocks.git",
+		"directory": "packages/nextjs"
+	},
+	"files": [
+		"dist",
+		"src",
+		"!src/**/*.test.ts",
+		"!src/**/*.test.tsx",
+		"!src/**/__tests__"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"source": "./src/index.ts",
+			"default": "./dist/index.js"
+		},
+		"./proxy": {
+			"types": "./dist/proxy/index.d.ts",
+			"source": "./src/proxy/index.ts",
+			"default": "./dist/proxy/index.js"
+		},
+		"./server": {
+			"types": "./dist/server/index.d.ts",
+			"source": "./src/server/index.ts",
+			"default": "./dist/server/index.js"
+		},
+		"./config": {
+			"types": "./src/config/index.d.cts",
+			"default": "./src/config/index.cjs"
+		},
+		"./image-loader": {
+			"types": "./dist/image-loader/index.d.ts",
+			"source": "./src/image-loader/index.ts",
+			"default": "./dist/image-loader/index.js"
+		}
+	},
+	"scripts": {
+		"build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+		"prepack": "npm run build",
+		"test": "vitest run --root ../.. packages/nextjs/",
+		"typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"
+	},
+	"peerDependencies": {
+		"@decocms/blocks": "^8.3.0",
+		"next": "^16.0.0",
+		"react": "^19.0.0"
+	},
+	"devDependencies": {
+		"@decocms/blocks": "workspace:*",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"next": "16.3.8",
+		"react": "19.2.7",
+		"react-dom": "19.2.7"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	}
+}
