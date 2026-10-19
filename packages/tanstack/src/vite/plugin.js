@@ -86,13 +86,18 @@ function resolveBuildHash() {
 }
 
 /**
- * Edge/loader cache-key version for fast-deploy builds, injected as
- * `__DECO_CACHE_VERSION__`: a hash of the committed tree at HEAD minus the
- * decofile (`.deco/blocks/` and `.deco/blocks.gen.*`). A CMS publish commits
- * only `.deco/blocks/` and ships byte-identical code — same client chunks — so
- * it must not wipe the cache; the CMS revision is handled at runtime instead.
- * Everything else in `.deco/` (sections/loaders/meta/redirects gen files) is
- * bundled code and stays in the hash.
+ * Code half of the edge cache-key version for fast-deploy builds
+ * (`__DECO_CACHE_VERSION__`, see `cacheVersionFor`): a hash of the committed
+ * tree at HEAD minus the decofile (`.deco/blocks/` and `.deco/blocks.gen.*`).
+ * A CMS publish commits only `.deco/blocks/`, so the server code is the same
+ * and the cache must survive it; the CMS revision is handled at runtime
+ * instead. Everything else in `.deco/` (sections/loaders/meta/redirects gen
+ * files) is bundled code and stays in the hash.
+ *
+ * Not enough on its own: the CLIENT output can still change with the decofile
+ * (Tailwind v4 scans every non-ignored file, `.deco/blocks/*.json` included,
+ * so a publish with a new class name rebuilds `app-*.css`). That half comes
+ * from the client bundle itself — see `clientBundleHash`.
  *
  * Deliberately NOT `__DECO_BUILD_HASH__`: that one is also the deployment id
  * the decofile snapshot is stored under (`decofile:<id>`), and two deploys
@@ -123,6 +128,42 @@ function codeTreeHash() {
     return null;
   }
 }
+
+/**
+ * Client half of the cache-key version: a hash of every file the client build
+ * emits (name and content). Cached HTML only links client files, so two builds
+ * with the same hash can serve each other's HTML without a 404 on a chunk or a
+ * stylesheet — whatever produced the change (code, Tailwind reading the
+ * decofile, a dependency).
+ *
+ * @param {Record<string, { type: string, code?: string, source?: string | Uint8Array }>} bundle
+ * @returns {string}
+ */
+export function clientBundleHash(bundle) {
+  const hash = createHash("sha256");
+  for (const fileName of Object.keys(bundle).sort()) {
+    const out = bundle[fileName];
+    hash.update(fileName).update("\0");
+    hash.update(out.type === "chunk" ? (out.code ?? "") : (out.source ?? "")).update("\0");
+  }
+  return `c${hash.digest("hex").slice(0, 11)}`;
+}
+
+/**
+ * `__DECO_CACHE_VERSION__` for the server bundle: both halves, or "" (the
+ * worker falls back to the commit) when either is missing — a code-only
+ * version can serve HTML that links a deleted client file.
+ *
+ * @param {string | null} code
+ * @param {string | null} client
+ */
+export function cacheVersionFor(code, client) {
+  return code && client ? `${code}.${client}` : "";
+}
+
+// Every use of the identifier except its TypeScript `declare const` (this
+// plugin runs `pre`, before the TS strip).
+const CACHE_VERSION_RE = /(?<!declare const )\b__DECO_CACHE_VERSION__\b/g;
 
 // Virtual id for meta.gen.json on the server: the real path wrapped so the id
 // does NOT end in `.json` (Vite's `vite:json` would re-parse our JS output).
@@ -351,11 +392,29 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
   let metaAssetFile = null;
   /** @type {string | null} */
   let clientOutDir = null;
+  /** `__DECO_BUILD_HASH__` for the server environments — set in `config`. */
+  let buildHashValue = "dev";
+  /** Halves of `__DECO_CACHE_VERSION__` — see `cacheVersionFor`. */
+  /** @type {string | null} */
+  let codeVersion = null;
+  /** @type {string | null} */
+  let clientVersion = null;
 
   /** @type {import("vite").Plugin} */
   const plugin = {
     name: "deco-server-only-stubs",
     enforce: "pre",
+
+    // The server build runs after the client one (see `writeBundle`), so the
+    // client half is known by now. In the opposite order it isn't, the value is
+    // "" and the worker keys on the commit — safe, just without the benefit.
+    transform(code) {
+      if (this.environment?.name === "client" || !code.includes("__DECO_CACHE_VERSION__")) {
+        return null;
+      }
+      const value = JSON.stringify(cacheVersionFor(codeVersion, clientVersion));
+      return { code: code.replace(CACHE_VERSION_RE, value), map: null };
+    },
 
     resolveId(id, importer, options) {
       // SSR-only stubs — must be checked first since the client guard below
@@ -525,9 +584,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       const loadGenModule = () => {
         if (genModule) return Promise.resolve(genModule);
         return import("tsx/esm/api")
-          .then(({ tsImport }) =>
-            tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url),
-          )
+          .then(({ tsImport }) => tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url))
           .then((mod) => {
             if (typeof mod.generateBlocks !== "function") {
               // tsx 4.22.0–4.22.4 has a loader-hook state bug (fixed upstream
@@ -751,24 +808,24 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         );
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} ${generateSchemaArgs(schemaSiteName).join(" ")}`;
         exec(cmd, { cwd }, (err) => {
-            schemaInFlight = false;
-            if (err) {
-              console.warn("[deco] schema generation failed:", err.message);
-            } else {
-              console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
-              // Invalidate the meta.gen.json module so SSR picks up fresh schema
-              const mod =
-                server.environments?.ssr?.moduleGraph?.getModuleById(metaGenSsrId(schemaOutFile));
-              if (mod) {
-                server.environments.ssr.moduleGraph.invalidateModule(mod);
-              }
+          schemaInFlight = false;
+          if (err) {
+            console.warn("[deco] schema generation failed:", err.message);
+          } else {
+            console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
+            // Invalidate the meta.gen.json module so SSR picks up fresh schema
+            const mod = server.environments?.ssr?.moduleGraph?.getModuleById(
+              metaGenSsrId(schemaOutFile),
+            );
+            if (mod) {
+              server.environments.ssr.moduleGraph.invalidateModule(mod);
             }
-            if (schemaQueued) {
-              schemaQueued = false;
-              scheduleSchemaGen();
-            }
-          },
-        );
+          }
+          if (schemaQueued) {
+            schemaQueued = false;
+            scheduleSchemaGen();
+          }
+        });
       };
       const scheduleSchemaGen = () => {
         if (schemaTimer) clearTimeout(schemaTimer);
@@ -803,10 +860,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
             stdio: "inherit",
           });
         } catch (err) {
-          console.warn(
-            "[deco] meta.gen.json cold-start generation failed:",
-            err?.message ?? err,
-          );
+          console.warn("[deco] meta.gen.json cold-start generation failed:", err?.message ?? err);
         }
       }
 
@@ -853,7 +907,10 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         }
         scaffoldInFlight = true;
         const start = Date.now();
-        const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
+        const scriptPath = path.resolve(
+          cwd,
+          "node_modules/@decocms/blocks-cli/scripts/generate.ts",
+        );
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
         exec(cmd, { cwd }, (err) => {
           scaffoldInFlight = false;
@@ -991,11 +1048,13 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // identifier; prod gets WORKERS_CI_COMMIT_SHA → git rev-parse →
       // time-based fallback (see resolveBuildHash above).
       const buildHash = command === "build" ? resolveBuildHash() : "dev";
-      const cacheVersion = command === "build" && stubBlocks ? codeTreeHash() : null;
+      // `__DECO_CACHE_VERSION__` is NOT a define: its client half only exists
+      // after the client build, so `transform` above fills it in on the server.
+      codeVersion = command === "build" && stubBlocks ? codeTreeHash() : null;
+      // Server environments only — see `configEnvironment`.
+      buildHashValue = buildHash;
       cfg.define = {
         ...cfg.define,
-        __DECO_BUILD_HASH__: JSON.stringify(buildHash),
-        __DECO_CACHE_VERSION__: JSON.stringify(cacheVersion ?? ""),
         // Tells the runtime whether this bundle actually ships a decofile.
         // `ensureBlocksHydrated` needs a build-time answer: with no bundled
         // snapshot, its "warn and serve bundled" recovery would serve an EMPTY
@@ -1069,6 +1128,15 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
     },
 
     configEnvironment(name, env) {
+      // `__DECO_BUILD_HASH__` is server-side state (cache keys, the decofile's
+      // deployment id) and every read is `typeof`-guarded. Kept out of the
+      // client bundle: there it changed a shared chunk on every commit, which
+      // renamed every chunk importing it — a full browser re-download per
+      // deploy, and a client build that never matched across deploys (see
+      // `clientBundleHash`).
+      if (name !== "client") {
+        env.define = { ...env.define, __DECO_BUILD_HASH__: JSON.stringify(buildHashValue) };
+      }
       if (name === "ssr" || name === "client") {
         env.optimizeDeps = env.optimizeDeps || {};
         env.optimizeDeps.esbuildOptions = env.optimizeDeps.esbuildOptions || {};
@@ -1133,7 +1201,9 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         // normal plugin pipeline (where TanStack Start's compiler
         // transforms it correctly) instead of esbuild's pre-bundler.
         env.optimizeDeps = env.optimizeDeps || {};
-        env.optimizeDeps.exclude = [...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"])];
+        env.optimizeDeps.exclude = [
+          ...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"]),
+        ];
       }
     },
 
@@ -1157,6 +1227,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
     },
 
     generateBundle(_, bundle) {
+      if (this.environment?.name === "client") clientVersion = clientBundleHash(bundle);
       if (metaAssetFile && this.environment?.name === "client") {
         this.emitFile({
           type: "asset",

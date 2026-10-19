@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { setBlocks } from "@decocms/blocks/cms";
+import { DEPLOYMENT_ID_ENV, getRevision, setBlocks } from "@decocms/blocks/cms";
 import { clearLoaderCache, createCachedLoader } from "@decocms/blocks/sdk/cachedLoader";
 import {
   type CacheKVNamespace,
@@ -176,6 +176,139 @@ describe("worker cache storage injection", () => {
       (await worker.fetch(unauthorized, { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" }, ctx))
         .status,
     ).toBe(401);
+  });
+
+  const staleEnv = () => ({ ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" });
+  const PUBLISHED = { published: { __resolveType: "x" } };
+
+  it("stamps the revision the render started with, not the one at store time", async () => {
+    let n = 0;
+    const origin = {
+      fetch: vi.fn(async () => {
+        const body = `page v${++n}`;
+        // The poll swaps the decofile while this render is still running.
+        if (n === 1) setBlocks(PUBLISHED);
+        return new Response(body, { headers: { "content-type": "text/html" } });
+      }),
+    };
+    const worker = createDecoWorkerEntry(origin, options);
+    const bindings = staleEnv();
+    await worker.fetch(request(), bindings, ctx);
+    await flush();
+    // Old content must not become a fresh HIT under the new revision.
+    const next = await worker.fetch(request(), bindings, ctx);
+    expect(next.headers.get("x-cache")).toBe("STALE-HIT");
+    await flush();
+    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+  });
+
+  it("an isolate that hasn't polled the publish yet doesn't put its old revision back", async () => {
+    __resetKvHydrationStateForTests();
+    const DECO_KV = makeKV();
+    const bindings = {
+      ...staleEnv(),
+      DECO_KV,
+      DECO_FAST_DEPLOY: "1",
+      [DEPLOYMENT_ID_ENV]: "dep-1",
+    };
+    const origin = versionedOrigin();
+    const worker = createDecoWorkerEntry(origin, options);
+    setBlocks(PUBLISHED);
+    await DECO_KV.put("index:revision:dep-1", getRevision() ?? "", { expirationTtl: 60 });
+    await worker.fetch(request(), bindings, ctx); // v1, at the published revision
+    await flush();
+
+    setBlocks({}); // a laggard isolate, still on the previous revision
+    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("STALE-HIT");
+    await flush(); // renders v2 at the old revision — must not be stored
+
+    setBlocks(PUBLISHED);
+    const current = await worker.fetch(request(), bindings, ctx);
+    expect(current.headers.get("x-cache")).toBe("HIT");
+    expect(await current.text()).toBe("page v1");
+    await flush();
+  });
+
+  it("drops the entry when the revalidation no longer gets a 200 (unpublished page)", async () => {
+    let status = 200;
+    const origin = {
+      fetch: vi.fn(
+        async () =>
+          new Response(status === 200 ? "landing" : "gone", {
+            status,
+            headers: { "content-type": "text/html" },
+          }),
+      ),
+    };
+    const worker = createDecoWorkerEntry(origin, options);
+    const bindings = staleEnv();
+    await worker.fetch(request("/night-sale"), bindings, ctx);
+    await flush();
+    setBlocks(PUBLISHED);
+    status = 404;
+    expect((await worker.fetch(request("/night-sale"), bindings, ctx)).headers.get("x-cache")).toBe(
+      "STALE-HIT",
+    );
+    await flush();
+    const after = await worker.fetch(request("/night-sale"), bindings, ctx);
+    expect(after.status).toBe(404);
+    expect(await after.text()).toBe("gone");
+  });
+
+  it("server functions follow the same rules with stale, and the revision header never leaks", async () => {
+    let n = 0;
+    const origin = {
+      fetch: vi.fn(
+        async () =>
+          new Response(`"v${++n}"`, {
+            headers: { "X-Deco-Cacheable": "true", "content-type": "application/json" },
+          }),
+      ),
+    };
+    const worker = createDecoWorkerEntry(origin, options);
+    const bindings = staleEnv();
+    const post = () =>
+      new Request("https://shop.test/_serverFn/public", { method: "POST", body: '"q"' });
+    await worker.fetch(post(), bindings, ctx);
+    await flush();
+    const hit = await worker.fetch(post(), bindings, ctx);
+    expect(hit.headers.get("x-cache")).toBe("HIT");
+    expect(hit.headers.has("x-deco-revision")).toBe(false);
+    setBlocks(PUBLISHED);
+    const stale = await worker.fetch(post(), bindings, ctx);
+    expect(stale.headers.get("x-cache")).toBe("STALE-HIT");
+    expect(await stale.text()).toBe('"v1"');
+    expect(stale.headers.has("x-deco-revision")).toBe(false);
+    await flush();
+    expect(await (await worker.fetch(post(), bindings, ctx)).text()).toBe('"v2"');
+    await flush();
+
+    const page = createDecoWorkerEntry(versionedOrigin(), options);
+    await page.fetch(request("/leak"), bindings, ctx);
+    await flush();
+    const htmlHit = await page.fetch(request("/leak"), bindings, ctx);
+    expect(htmlHit.headers.get("x-cache")).toBe("HIT");
+    expect(htmlHit.headers.has("x-deco-revision")).toBe(false);
+  });
+
+  it("an unknown purge version (first KV read timed out) skips the cache instead of reading the pre-purge one", async () => {
+    vi.useFakeTimers();
+    try {
+      __resetKvHydrationStateForTests();
+      const origin = versionedOrigin();
+      const worker = createDecoWorkerEntry(origin, options);
+      const DECO_KV = { ...makeKV(), get: () => new Promise<string | null>(() => {}) };
+      const bindings = { ...staleEnv(), DECO_KV };
+      for (const _ of [1, 2]) {
+        const pending = worker.fetch(request("/purged"), bindings, ctx);
+        await vi.advanceTimersByTimeAsync(DATA_VERSION_TIMEOUT_MS);
+        expect((await pending).status).toBe(200);
+      }
+      expect(origin.fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      await flush();
+    }
   });
 
   it("uses the same adapter for loader results and isolates authenticated requests", async () => {
