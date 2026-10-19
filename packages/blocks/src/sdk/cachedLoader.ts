@@ -288,10 +288,15 @@ export function createCachedLoader<TProps, TResult>(
     // request (see `joinInflight`): if the owner's request was cancelled and
     // its Promise will never settle, evict the dead slot and run again.
     const join = (shared: Promise<unknown>): Promise<TResult> =>
-      joinInflight(shared as Promise<TResult>, () => {
-        releaseSlot(inflightRequests, cacheKey, shared);
-        return cachedFn(props);
-      });
+      joinInflight(
+        shared as Promise<TResult>,
+        () => {
+          releaseSlot(inflightRequests, cacheKey, shared);
+          return cachedFn(props);
+        },
+        undefined,
+        `cachedLoader ${cacheKey}`,
+      );
     const retention =
       maxAge +
       Math.max(staleIfError, policy === "stale-while-revalidate" ? staleWhileRevalidate : 0);
@@ -527,10 +532,15 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     if (existing) {
       // Bounded by this caller's own timer: a flight whose owner request was
       // cancelled never settles — evict it and run again (see `joinInflight`).
-      return joinInflight(existing, () => {
-        releaseSlot(moduleInflight, key, existing);
-        return dedupedFn(props, req);
-      });
+      return joinInflight(
+        existing,
+        () => {
+          releaseSlot(moduleInflight, key, existing);
+          return dedupedFn(props, req);
+        },
+        undefined,
+        `dedupLoader ${key}`,
+      );
     }
 
     const promise: Promise<TResult> = Promise.resolve(mod.default(props, req)).finally(() => {
