@@ -2127,13 +2127,15 @@ export function createDecoWorkerEntry(
   }
 
   /**
-   * A revalidation that no longer gets a 200 (page unpublished, now a 404 or a
-   * redirect) must drop the entry: otherwise, with `stale`, the old 200 keeps
-   * being served for the whole SWR window. 5xx/429 keep it — that's what
-   * stale-if-error is for.
+   * A revalidation that says the page is gone (404/410 — an unpublished page;
+   * CMS redirects are answered before the cache) drops the entry: otherwise,
+   * with `stale`, the old 200 keeps being served for the whole SWR window.
+   * Only these two: the revalidation runs with the triggering visitor's headers,
+   * and statuses a client can provoke with them (3xx from a cookie, 400/401/403)
+   * would let anyone evict shared entries. 5xx/429 keep it (stale-if-error).
    */
   const dropsEntry = (status: number, env: Record<string, unknown>) =>
-    staleOnPublish(env) && status !== 200 && status < 500 && status !== 429;
+    staleOnPublish(env) && (status === 404 || status === 410);
 
   /**
    * With `stale`, an entry from another CMS revision may be served stale, never
