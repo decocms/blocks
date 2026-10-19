@@ -100,6 +100,87 @@ describe("worker cache storage injection", () => {
     await flush();
   });
 
+  describe("dataCacheForLoggedIn (#715)", () => {
+    // Logged in by a session cookie, as real sites detect it; `authorization`
+    // stays a separate, always-private signal.
+    const loggedInOptions = (dataCacheForLoggedIn?: boolean) => ({
+      ...options,
+      dataCacheForLoggedIn,
+      buildSegment: (req: Request) => ({
+        device: "desktop" as const,
+        loggedIn: (req.headers.get("cookie") ?? "").includes("session=member"),
+      }),
+    });
+    const member = (path: string) => request(path, { cookie: "session=member" });
+
+    function loaderWorker(opts: object) {
+      const upstream = vi.fn(async () => ({ n: upstream.mock.calls.length }));
+      const loader = createCachedLoader("worker-logged-in-test", upstream, {
+        policy: "no-cache",
+        maxAge: 60_000,
+      });
+      const worker = createDecoWorkerEntry(
+        {
+          fetch: async () =>
+            Response.json(await loader({}), {
+              headers: { "content-type": "text/html", "cache-control": "no-store" },
+            }),
+        },
+        opts,
+      );
+      return { worker, upstream };
+    }
+
+    it("keeps loader results for logged-in shoppers, and still bypasses the HTML cache", async () => {
+      const { worker, upstream } = loaderWorker(loggedInOptions(true));
+      const bindings = env();
+      const first = await worker.fetch(member("/one"), bindings, ctx);
+      expect(first.headers.get("x-cache")).toBe("BYPASS");
+      await flush();
+      clearLoaderCache(); // memory tier gone: a hit must come from shared storage
+      const second = await worker.fetch(member("/two"), bindings, ctx);
+      expect(second.headers.get("x-cache")).toBe("BYPASS");
+      expect(upstream).toHaveBeenCalledTimes(1);
+      await flush();
+    });
+
+    it("never shares entries between logged-in and anonymous segments", async () => {
+      const { worker, upstream } = loaderWorker(loggedInOptions(true));
+      const bindings = env();
+      await worker.fetch(member("/one"), bindings, ctx);
+      await flush();
+      await worker.fetch(request("/two"), bindings, ctx);
+      expect(upstream).toHaveBeenCalledTimes(2);
+      await flush();
+      await worker.fetch(member("/three"), bindings, ctx);
+      await worker.fetch(request("/four"), bindings, ctx);
+      expect(upstream).toHaveBeenCalledTimes(2);
+      await flush();
+    });
+
+    it("is off by default: logged-in requests skip the data caches", async () => {
+      const { worker, upstream } = loaderWorker(loggedInOptions(undefined));
+      const bindings = env();
+      await worker.fetch(member("/one"), bindings, ctx);
+      await flush();
+      await worker.fetch(member("/two"), bindings, ctx);
+      expect(upstream).toHaveBeenCalledTimes(2);
+      await flush();
+    });
+
+    it("keeps authorization requests private even when opted in", async () => {
+      const { worker, upstream } = loaderWorker(loggedInOptions(true));
+      const bindings = env();
+      const authed = (path: string) =>
+        request(path, { cookie: "session=member", authorization: "Bearer private" });
+      await worker.fetch(authed("/one"), bindings, ctx);
+      await flush();
+      await worker.fetch(authed("/two"), bindings, ctx);
+      expect(upstream).toHaveBeenCalledTimes(2);
+      await flush();
+    });
+  });
+
   // A fresh fetch cache per request: its memory tier can't answer, so a hit
   // proves the shared (KV) entry was found under the same key.
   function fetchWorker(opts: object = {}) {

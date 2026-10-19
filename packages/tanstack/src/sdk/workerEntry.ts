@@ -451,6 +451,33 @@ export interface DecoWorkerEntryOptions {
   dataCacheOnDeployEnv?: string | false;
 
   /**
+   * Keep the data caches on for logged-in shoppers.
+   *
+   * By default a request whose segment is `loggedIn` turns off the response
+   * cache AND every data cache (`createCachedLoader`, `createFetchCache`,
+   * section/layout caches, memory and shared storage): each SSR and each
+   * `?renderJson` of a logged-in shopper reruns every catalog/search/CMS call.
+   * The deco runtime (Fresh) never did that — a loader's own `cacheKey`
+   * decides, with the segment token in the key — so logged-in navigation is
+   * markedly slower than on Fresh (decocms/blocks#715).
+   *
+   * With `true`, being logged in still bypasses the HTML/response cache, but
+   * the data caches stay on, scoped by the segment hash (which carries
+   * `loggedIn`, sales channel, region and any custom dimension such as price
+   * tables): logged-in shoppers share entries only with shoppers of the same
+   * segment, never with anonymous ones. Drafts, previews, `authorization`
+   * requests and matcher overrides stay fully private.
+   *
+   * Opt in only once every cached loader is session-independent: a loader
+   * that reads the shopper's session (user, orders, wishlist, orderForm) must
+   * not go through `createCachedLoader` — the same contract Fresh expresses
+   * with `cacheKey → null`.
+   *
+   * @default false
+   */
+  dataCacheForLoggedIn?: boolean;
+
+  /**
    * Security headers appended to every SSR response (HTML pages).
    * Pass `false` to disable entirely.
    *
@@ -1226,6 +1253,7 @@ export function createDecoWorkerEntry(
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
     dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
+    dataCacheForLoggedIn = false,
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     cspMode = "report-only",
@@ -2330,9 +2358,11 @@ export function createDecoWorkerEntry(
 
     {
       const segment = buildSegment?.(request);
+      // Logged in alone keeps the data caches when the site opted in
+      // (`dataCacheForLoggedIn`); the response cache bypasses it regardless.
       const privateRequest =
         requestCarriesDraft(request, url) ||
-        segment?.loggedIn === true ||
+        (segment?.loggedIn === true && !dataCacheForLoggedIn) ||
         request.headers.has("authorization") ||
         url.searchParams.has("__deco_preview") ||
         url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM) ||
