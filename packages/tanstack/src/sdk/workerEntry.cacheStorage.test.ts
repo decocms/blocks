@@ -255,6 +255,37 @@ describe("worker cache storage injection", () => {
     expect(await after.text()).toBe("gone");
   });
 
+  it("keeps the entry when the revalidation gets a status a visitor's headers can provoke", async () => {
+    for (const status of [302, 403]) {
+      setBlocks({});
+      let current = 200;
+      const origin = {
+        fetch: vi.fn(
+          async () =>
+            new Response(current === 200 ? "landing" : "", {
+              status: current,
+              headers: {
+                "content-type": "text/html",
+                ...(current === 302 ? { location: "/" } : {}),
+              },
+            }),
+        ),
+      };
+      const worker = createDecoWorkerEntry(origin, options);
+      const bindings = staleEnv();
+      await worker.fetch(request("/kept"), bindings, ctx);
+      await flush();
+      setBlocks(PUBLISHED);
+      current = status;
+      await worker.fetch(request("/kept"), bindings, ctx);
+      await flush();
+      const after = await worker.fetch(request("/kept"), bindings, ctx);
+      expect(after.headers.get("x-cache")).toBe("STALE-HIT");
+      expect(await after.text()).toBe("landing");
+      await flush();
+    }
+  });
+
   it("server functions follow the same rules with stale, and the revision header never leaks", async () => {
     let n = 0;
     const origin = {
