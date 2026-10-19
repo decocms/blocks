@@ -500,6 +500,15 @@ describe("async rendering config defaults", () => {
     expect(cfg!.respectCmsLazy).toBe(true);
     expect(cfg!.botAwareSeo).toBe(false); // opt-in — off by default
     expect(cfg!.deferredTrigger).toBe("intersection"); // opt-in — a bump changes nothing
+    expect(cfg!.deferredRootMargin).toBe("300px"); // same margin as before the option existed
+  });
+
+  it("carries deferredRootMargin through a later partial call", () => {
+    setAsyncRenderingConfig({ deferredRootMargin: "200px" });
+    expect(getAsyncRenderingConfig()!.deferredRootMargin).toBe("200px");
+
+    setAsyncRenderingConfig({ alwaysEager: ["site/sections/Header.tsx"] });
+    expect(getAsyncRenderingConfig()!.deferredRootMargin).toBe("200px");
   });
 
   it("carries deferredTrigger through, and a later partial call does not reset it", () => {

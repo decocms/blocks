@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_DEFERRED_TRIGGER, getDeferredTrigger } from "./deferredTrigger";
+import {
+  DEFAULT_DEFERRED_ROOT_MARGIN,
+  DEFAULT_DEFERRED_TRIGGER,
+  getDeferredRootMargin,
+  getDeferredTrigger,
+} from "./deferredTrigger";
 
 /**
  * `getDeferredTrigger()` is the client-side half of `deferredTrigger`. It must
@@ -28,5 +33,26 @@ describe("getDeferredTrigger", () => {
   it("reads load off the shared global", () => {
     (globalThis as any).__deco = { asyncConfig: { deferredTrigger: "load" } };
     expect(getDeferredTrigger()).toBe("load");
+  });
+});
+
+describe("getDeferredRootMargin", () => {
+  beforeEach(() => {
+    delete (globalThis as any).__deco;
+  });
+
+  it("keeps 300px when setAsyncRenderingConfig() never ran", () => {
+    expect(getDeferredRootMargin()).toBe("300px");
+    expect(DEFAULT_DEFERRED_ROOT_MARGIN).toBe("300px");
+  });
+
+  it("keeps 300px when the config exists but omits the option", () => {
+    (globalThis as any).__deco = { asyncConfig: { deferredTrigger: "intersection" } };
+    expect(getDeferredRootMargin()).toBe("300px");
+  });
+
+  it("reads a configured margin off the shared global", () => {
+    (globalThis as any).__deco = { asyncConfig: { deferredRootMargin: "200px" } };
+    expect(getDeferredRootMargin()).toBe("200px");
   });
 });

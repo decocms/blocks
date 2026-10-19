@@ -8,7 +8,11 @@ import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } fro
 import { withInflightTimeout } from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { stripTrackingParams } from "../sdk/urlUtils";
-import { DEFAULT_DEFERRED_TRIGGER, type DeferredTrigger } from "./deferredTrigger";
+import {
+  DEFAULT_DEFERRED_ROOT_MARGIN,
+  DEFAULT_DEFERRED_TRIGGER,
+  type DeferredTrigger,
+} from "./deferredTrigger";
 import { findPageByPath, loadBlocks } from "./loader";
 import { getOnBeforeResolveProps, getSection, registerOnBeforeResolveProps } from "./registry";
 import {
@@ -149,6 +153,13 @@ export interface AsyncRenderingConfig {
    */
   deferredTrigger?: DeferredTrigger;
   /**
+   * `rootMargin` of the observer behind `deferredTrigger: "intersection"`.
+   * Read in the browser, so the same "must run in client-loaded code" caveat
+   * as `deferredTrigger` applies. Only `@decocms/tanstack` reads it.
+   * @default "300px"
+   */
+  deferredRootMargin?: string;
+  /**
    * Fold threshold: sections at or above this flat index are DEFERRED
    * (rendered as a skeleton and loaded on scroll), so their resolved props are
    * not serialized into the SSR hydration payload. Sections below it stay
@@ -229,6 +240,7 @@ export function setAsyncRenderingConfig(config?: {
   alwaysEager?: string[];
   respectCmsLazy?: boolean;
   deferredTrigger?: DeferredTrigger;
+  deferredRootMargin?: string;
   botAwareSeo?: boolean;
 }): void {
   const existing = getAsyncConfig();
@@ -237,6 +249,8 @@ export function setAsyncRenderingConfig(config?: {
     respectCmsLazy: config?.respectCmsLazy ?? existing?.respectCmsLazy ?? true,
     deferredTrigger:
       config?.deferredTrigger ?? existing?.deferredTrigger ?? DEFAULT_DEFERRED_TRIGGER,
+    deferredRootMargin:
+      config?.deferredRootMargin ?? existing?.deferredRootMargin ?? DEFAULT_DEFERRED_ROOT_MARGIN,
     foldThreshold: config?.foldThreshold ?? existing?.foldThreshold ?? DEFAULT_FOLD_THRESHOLD,
     alwaysEager: merged,
     botAwareSeo: config?.botAwareSeo ?? existing?.botAwareSeo ?? false,
