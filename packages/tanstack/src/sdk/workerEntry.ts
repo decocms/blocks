@@ -3115,6 +3115,26 @@ export function createDecoWorkerEntry(
       } as RequestInit);
     }
 
+    // Helper: run `start` once `resp`'s body has been fully handed to the client
+    // (or the client went away). Kept alive with waitUntil, so `start` may itself
+    // call ctx.waitUntil.
+    function afterBodySent(resp: Response, start: () => void): Response {
+      if (!resp.body) {
+        start();
+        return resp;
+      }
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      ctx.waitUntil(
+        resp.body
+          .pipeTo(writable)
+          .catch(() => {
+            // client disconnected — still refresh the entry
+          })
+          .finally(start),
+      );
+      return new Response(readable, resp);
+    }
+
     // Helper: background revalidation (fetch origin, store result)
     function revalidateInBackground() {
       ctx.waitUntil(
@@ -3169,8 +3189,15 @@ export function createDecoWorkerEntry(
       if (ageSec < edgeConfig.fresh + edgeConfig.swr) {
         // STALE-HIT within SWR window — serve stale, revalidate in background
         recordCacheMetric(true, profile, "STALE-HIT", "edge");
-        revalidateInBackground();
-        return dressResponse(cached, "STALE-HIT", { "X-Cache-Age": String(Math.round(ageSec)) });
+        // Revalidate only after the stale body has gone out. The re-render runs
+        // on this same isolate: started before the return, its SSR (hundreds of
+        // ms of CPU) interleaves with delivering the stale document — and with
+        // any site-side HTMLRewriter on it — so the visitor the stale entry was
+        // meant to serve fast waits on the render anyway.
+        return afterBodySent(
+          dressResponse(cached, "STALE-HIT", { "X-Cache-Age": String(Math.round(ageSec)) }),
+          revalidateInBackground,
+        );
       }
 
       // Past SWR window but still in cache (within SIE window) — keep reference

@@ -115,6 +115,9 @@ describe("tracking params never poison the edge cache", () => {
     clockOffsetMs = INSIDE_SWR_MS;
     const stale = await worker.fetch(page("/produtos?gclid=POISON42"), bindings, ctx);
     expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    // Revalidation starts once the stale body has been delivered.
+    expect(origin.fetch).toHaveBeenCalledTimes(1);
+    await stale.text();
     await flush();
 
     // The background render must see the clean URL. Rendering the tracked one
@@ -151,6 +154,8 @@ describe("tracking params never poison the edge cache", () => {
     // cleaning the URL alone would render (and store) the tracked page.
     const stale = await worker.fetch(sfn("/produtos?gclid=POISON42"), bindings, ctx);
     expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    // Revalidation starts once the stale body has been delivered.
+    await stale.text();
     await flush();
 
     clockOffsetMs = INSIDE_SWR_MS + 1_000;
@@ -246,6 +251,8 @@ describe("POST server fn: tracked pageUrl converges on one key and is never stor
       ctx,
     );
     expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    // Revalidation starts once the stale body has been delivered.
+    await stale.text();
     await flush();
 
     // Refreshed rather than discarded: a third request HITs without a third
