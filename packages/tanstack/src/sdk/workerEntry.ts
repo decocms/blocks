@@ -3117,8 +3117,15 @@ export function createDecoWorkerEntry(
 
     // Helper: background revalidation (fetch origin, store result)
     function revalidateInBackground() {
+      // In a context of its own: nested in the visitor's, everything that
+      // renders the entry would read the tracked request through
+      // `RequestContext.request` while rendering the clean URL, and stamp the
+      // visitor's campaign params into the shared document.
+      const revalidation = revalidationRequest();
       ctx.waitUntil(
-        Promise.resolve(serverEntry.fetch(revalidationRequest(), env, ctx))
+        Promise.resolve(
+          RequestContext.fork(revalidation, () => serverEntry.fetch(revalidation, env, ctx)),
+        )
           .then((origin) => {
             // Never overwrite a good entry with a degraded 200 (a critical
             // section failed) — that would poison the cache. Leave the stale
