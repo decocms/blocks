@@ -3,6 +3,7 @@
 import { setBlocks } from "@decocms/blocks/cms";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
 import { type CacheKVNamespace, createKVCacheStorage } from "@decocms/blocks/sdk/cacheStorage";
+import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDecoWorkerEntry } from "./workerEntry";
 
@@ -130,6 +131,37 @@ describe("tracking params never poison the edge cache", () => {
     expect(next.headers.get("X-Cache")).toBe("HIT");
     expect(await next.text()).not.toContain("POISON42");
     expect(origin.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("revalidates in the clean request's context, not the tracked visitor's", async () => {
+    // A renderer that reads the URL from `RequestContext` instead of from the
+    // request it was handed — a section loader, a commerce wrapper. Measured on
+    // a production storefront: the PLP's "next page" link of the shared entry
+    // carried the gclid/utm_source of the ad visitor who triggered the refresh.
+    const origin = {
+      fetch: vi.fn(
+        async () =>
+          new Response(`<html>context ${RequestContext.current?.request.url}</html>`, {
+            headers: { "content-type": "text/html" },
+          }),
+      ),
+    };
+    const bindings = env();
+    const worker = createDecoWorkerEntry(origin, options);
+
+    await worker.fetch(page("/produtos"), bindings, ctx);
+    await flush();
+
+    clockOffsetMs = INSIDE_SWR_MS;
+    const stale = await worker.fetch(page("/produtos?gclid=POISON42"), bindings, ctx);
+    expect(stale.headers.get("X-Cache")).toBe("STALE-HIT");
+    await flush();
+
+    clockOffsetMs = INSIDE_SWR_MS + 1_000;
+    const next = await worker.fetch(page("/produtos"), bindings, ctx);
+    expect(next.headers.get("X-Cache")).toBe("HIT");
+    expect(origin.fetch).toHaveBeenCalledTimes(2);
+    expect(await next.text()).toBe("<html>context https://shop.test/produtos</html>");
   });
 
   it("revalidates a stale GET server fn from the clean payload", async () => {

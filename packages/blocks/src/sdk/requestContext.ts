@@ -149,6 +149,29 @@ export const RequestContext = {
   },
 
   /**
+   * Run `fn` in a context of its own for `request`, carrying over the current
+   * context's bag.
+   *
+   * For work a request starts on behalf of another URL and that outlives it —
+   * the edge cache's background revalidation renders the CLEAN URL of the entry
+   * it refreshes while the visitor's tracked request is still the current one.
+   * Under plain nesting, `RequestContext.request` kept answering the visitor's
+   * URL (`?gclid=…&utm_source=…`) to everything that rendered the entry, and
+   * `RequestContext.signal`/`fetch` followed the visitor's connection instead of
+   * `request`'s. The bag is copied, not shared: the app middleware state it
+   * holds was computed for the same headers, and writes made by the forked work
+   * stay in it.
+   */
+  fork<T>(request: Request, fn: () => T): T {
+    const parentBag = storage.getStore()?.bag;
+    return RequestContext.run(request, () => {
+      const ctx = storage.getStore();
+      if (ctx && parentBag) for (const [key, value] of parentBag) ctx.bag.set(key, value);
+      return fn();
+    });
+  },
+
+  /**
    * Get the current request context, or null if not in a request scope.
    */
   get current(): RequestContextData | null {
