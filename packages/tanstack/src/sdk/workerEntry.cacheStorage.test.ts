@@ -76,15 +76,45 @@ describe("worker cache storage injection", () => {
     await flush();
   });
 
-  it("a CMS publish serves the previous revision as STALE-HIT and refreshes it in background", async () => {
+  const versionedOrigin = () => {
     let n = 0;
-    const origin = {
+    return {
       fetch: vi.fn(
         async () => new Response(`page v${++n}`, { headers: { "content-type": "text/html" } }),
       ),
     };
+  };
+  const purgeAll = () =>
+    new Request("https://shop.test/_cache/purge", {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    });
+
+  it("by default (invalidate) a CMS publish starts the HTML cache cold", async () => {
+    for (const extra of [
+      {},
+      { DECO_HTML_CACHE_ON_PUBLISH: "invalidate" },
+      { DECO_HTML_CACHE_ON_PUBLISH: "yes" },
+    ]) {
+      setBlocks({});
+      const origin = versionedOrigin();
+      const worker = createDecoWorkerEntry(origin, options);
+      const bindings = { ...env(), ...extra };
+      await worker.fetch(request(), bindings, ctx);
+      await flush();
+      setBlocks({ published: { __resolveType: "x" } });
+      const after = await worker.fetch(request(), bindings, ctx);
+      expect(after.headers.get("x-cache")).toBe("MISS");
+      expect(after.headers.has("x-deco-revision")).toBe(false);
+      await flush();
+    }
+  });
+
+  it("DECO_HTML_CACHE_ON_PUBLISH=stale serves the previous revision as STALE-HIT and refreshes it in background", async () => {
+    const origin = versionedOrigin();
     const worker = createDecoWorkerEntry(origin, options);
-    const bindings = env();
+    const bindings = { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" };
     expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("MISS");
     await flush();
     expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
@@ -100,6 +130,52 @@ describe("worker cache storage injection", () => {
     expect(await refreshed.text()).toBe("page v2");
     expect(origin.fetch).toHaveBeenCalledTimes(2);
     await flush();
+  });
+
+  it('POST /_cache/purge {"all": true} starts every HTML entry cold through cache:html-version', async () => {
+    __resetKvHydrationStateForTests();
+    const origin = versionedOrigin();
+    const worker = createDecoWorkerEntry(origin, options);
+    const DECO_KV = makeKV();
+    const bindings = { ...env(), DECO_KV, DECO_HTML_CACHE_ON_PUBLISH: "stale" };
+    await worker.fetch(request(), bindings, ctx);
+    await flush();
+    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+
+    const purged = await worker.fetch(purgeAll(), bindings, ctx);
+    expect(purged.status).toBe(200);
+    const { version } = (await purged.json()) as { version: string };
+    expect(await DECO_KV.get("cache:html-version")).toBe(version);
+
+    const after = await worker.fetch(request(), bindings, ctx);
+    expect(after.headers.get("x-cache")).toBe("MISS");
+    expect(await after.text()).toBe("page v2");
+    await flush();
+
+    // Another isolate (another colo) adopts the version on its next read of the key.
+    __resetKvHydrationStateForTests();
+    const other = createDecoWorkerEntry(origin, options);
+    expect((await other.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+    await flush();
+  });
+
+  it('{"all": true} is refused without the stale mode or without DECO_KV', async () => {
+    const worker = createDecoWorkerEntry(versionedOrigin(), options);
+    expect((await worker.fetch(purgeAll(), env(), ctx)).status).toBe(400);
+    const noKv = await worker.fetch(
+      purgeAll(),
+      { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" },
+      ctx,
+    );
+    expect(noKv.status).toBe(501);
+    const unauthorized = new Request("https://shop.test/_cache/purge", {
+      method: "POST",
+      body: JSON.stringify({ all: true }),
+    });
+    expect(
+      (await worker.fetch(unauthorized, { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" }, ctx))
+        .status,
+    ).toBe(401);
   });
 
   it("uses the same adapter for loader results and isolates authenticated requests", async () => {
@@ -183,7 +259,11 @@ describe("worker cache storage injection", () => {
   });
 
   it("invalidate or unset keeps fetch results per build", async () => {
-    for (const extra of [{}, { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" }, { DECO_DATA_CACHE_ON_DEPLOY: "yes" }]) {
+    for (const extra of [
+      {},
+      { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" },
+      { DECO_DATA_CACHE_ON_DEPLOY: "yes" },
+    ]) {
       const { worker, upstream } = fetchWorker();
       const bindings = { ...env(), ...extra };
       await worker.fetch(request("/a"), bindings, ctx);
