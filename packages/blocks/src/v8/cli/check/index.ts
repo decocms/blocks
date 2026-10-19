@@ -22,6 +22,8 @@ import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
+import { EXPERIMENT_TYPE } from "../../experiments/experiment.ts";
+import { validateExperiment } from "../../experiments/manifest.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
 import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
@@ -675,9 +677,27 @@ class Checker {
         );
       }
       this.checkBlock(ctx, entry, "", null);
+      this.checkExperiment(ctx, entry);
     }
     problems.push(...this.routeProblems());
     return problems;
+  }
+
+  /**
+   * A saved `experiment` against the A/B rules the schema cannot express:
+   * the analytics charset, at least two arms, unique ids, and no arm on
+   * weight 0.
+   *
+   * These are errors rather than warnings because each one means the test
+   * cannot produce a usable result, and none of them fails at run time — the
+   * page renders, events arrive, and the experiment measures nothing. CI is
+   * the last place anyone is looking.
+   */
+  private checkExperiment(ctx: Context, entry: Record<string, Json>): void {
+    if (this.underlyingType(entry.__resolveType as string).type !== EXPERIMENT_TYPE) return;
+    for (const error of validateExperiment(entry)) {
+      this.report(ctx, error.code.startsWith("KEY_") ? "key" : "variants", error.message);
+    }
   }
 
   private routeProblems(): Problem[] {

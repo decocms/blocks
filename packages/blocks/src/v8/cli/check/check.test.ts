@@ -847,3 +847,70 @@ describe("the CMS settings block", () => {
     ]);
   });
 });
+
+/**
+ * A/B experiments are content, so the rules that make an experiment able to
+ * produce a result are checked here — none of them fails at run time, where
+ * the page renders and the test quietly measures nothing.
+ */
+describe("experiments", () => {
+  const ab = (props: Record<string, unknown>) => ({ __resolveType: "experiment", ...props });
+  const halves = [
+    { id: "control", weight: 50 },
+    { id: "variant", weight: 50 },
+  ];
+
+  it("passes a well-formed experiment", () => {
+    expect(run({ Banner: ab({ key: "sem-banner", variants: halves }) })).toEqual([]);
+  });
+
+  it("fails an arm on weight 0, the split that ran at 100% in production", () => {
+    expect(
+      lines(
+        run({
+          Banner: ab({
+            key: "sem-banner",
+            variants: [
+              { id: "control", weight: 0 },
+              { id: "variant", weight: 100 },
+            ],
+          }),
+        }),
+      ),
+    ).toEqual([
+      'Banner.json variants: Arm 1 ("control") has weight 0, so no visitor is ever assigned to it ' +
+        "and the remaining arms take all the traffic. That is a rollout, not an experiment — " +
+        "remove the arm, or give it a share.",
+    ]);
+  });
+
+  it("fails an uppercase key, which analytics drops without rejecting the event", () => {
+    const out = lines(run({ Banner: ab({ key: "bannerXPTO", variants: halves }) }));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("key: ");
+    expect(out[0]).toContain("would look healthy and record nothing");
+  });
+
+  it("fails a single-arm experiment and duplicated arm ids", () => {
+    expect(
+      lines(run({ Banner: ab({ key: "t", variants: [{ id: "only", weight: 100 }] }) })),
+    ).toEqual(["Banner.json variants: An experiment needs at least 2 arms; one arm is a rollout."]);
+    expect(
+      lines(
+        run({
+          Banner: ab({
+            key: "t",
+            variants: [
+              { id: "same", weight: 50 },
+              { id: "same", weight: 50 },
+            ],
+          }),
+        }),
+      ),
+    ).toEqual(['Banner.json variants: Arm 2: the id "same" is used twice.']);
+  });
+
+  it("leaves other block types alone", () => {
+    expect(run({ HomePage: page([hero]) })).toEqual([]);
+  });
+});

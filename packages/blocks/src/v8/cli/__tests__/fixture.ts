@@ -162,6 +162,14 @@ export interface Rendered { component: string; props: unknown }
 export const shelf = (props: { heading: Rendered; rows: Rendered[] }) => <div>{props.rows.length}</div>;
 export const post = (props: Post) => props;
 export const menu = (props: Menu) => props;
+/** The shape of \`@decocms/blocks/experiments\`' block, declared locally: the fixture has no dependency on the package. */
+export interface ExperimentProps {
+  key: string;
+  name?: string;
+  enabled?: boolean;
+  variants?: { id: string; weight: number; role?: "control" | "treatment"; description?: string }[];
+}
+export const experiment = (props: ExperimentProps) => props;
 export const footer = (props: { menu: Menu; enabled: boolean; label: string }) => <footer />;
 `,
   "src/vault.tsx": `
@@ -182,7 +190,7 @@ export const vault = (props: VaultProps) => <div>{props.label}</div>;
 import type { Blocks } from "../src/deco";
 import Hero from "../src/hero";
 import { vault } from "../src/vault";
-import { catalogProduct, productList, productCard, weekday, greeting, descriptor, shelf, post, menu, footer } from "../src/blocks";
+import { catalogProduct, productList, productCard, weekday, greeting, descriptor, shelf, post, menu, footer, experiment } from "../src/blocks";
 
 export default {
   hero: Hero,
@@ -197,6 +205,7 @@ export default {
   menu,
   footer,
   vault,
+  experiment,
   "site/sections/Hero.tsx": Hero,
 } satisfies Blocks;
 `,
