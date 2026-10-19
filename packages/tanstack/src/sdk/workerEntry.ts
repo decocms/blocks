@@ -105,7 +105,14 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
-import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
+import {
+  bumpHtmlCacheVersion,
+  ensureBlocksHydrated,
+  getDataCacheVersion,
+  getHtmlCacheVersion,
+  maybePollRevision,
+  readPublishedRevision,
+} from "./kvHydration";
 import { lookupExactRedirect } from "./kvRedirects";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
@@ -120,6 +127,12 @@ import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationR
  * `getBuildHash()` below.
  */
 declare const __DECO_BUILD_HASH__: string | undefined;
+
+/**
+ * Cache-key version that survives CMS-only commits (fast deploy) — see
+ * `codeTreeHash` in the vite plugin. Empty when unavailable.
+ */
+declare const __DECO_CACHE_VERSION__: string | undefined;
 
 /**
  * The five canonical cache-decision strings stamped on the `X-Cache`
@@ -449,6 +462,40 @@ export interface DecoWorkerEntryOptions {
    * ```
    */
   dataCacheOnDeployEnv?: string | false;
+
+  /**
+   * Environment variable choosing what a CMS publish does to the HTML and
+   * `/_serverFn` response cache:
+   *
+   *   - `"invalidate"` (or unset — the default): keyed by build and CMS
+   *     revision. Every publish (and, with fast deploy, every CMS commit)
+   *     starts the whole cache cold. Today's behaviour.
+   *   - `"stale"`: the revision leaves the key. Each entry records the revision
+   *     it was rendered with (`X-Deco-Revision`); after a publish, entries from
+   *     another revision are served as STALE-HIT and re-rendered in background,
+   *     never as a fresh HIT. The build part of the key ignores the decofile
+   *     (`__DECO_CACHE_VERSION__`), so a CMS-only commit keeps it too; a code
+   *     change still starts cold (new client chunks).
+   *
+   * With `"stale"`, the first visitor of each page after a publish sees the
+   * previous content once, while it refreshes. To drop everything instead
+   * (wrong price, content that must disappear now), `POST /_cache/purge` with
+   * `{"all": true}` — it writes a new `cache:html-version` in DECO_KV and every
+   * colo misses within ~70s (one poll + KV edge cache). `DECO_HTML_CACHE_PURGE` set to a new
+   * value does the same through a deploy.
+   *
+   * Loader results (`cachedLoader`) stay keyed by revision in both modes.
+   * Any other value falls back to `"invalidate"`.
+   *
+   * @default "DECO_HTML_CACHE_ON_PUBLISH"
+   *
+   * @example
+   * ```jsonc
+   * // wrangler.jsonc
+   * "vars": { "DECO_HTML_CACHE_ON_PUBLISH": "stale" }
+   * ```
+   */
+  htmlCacheOnPublishEnv?: string | false;
 
   /**
    * Security headers appended to every SSR response (HTML pages).
@@ -1226,6 +1273,7 @@ export function createDecoWorkerEntry(
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
     dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
+    htmlCacheOnPublishEnv = "DECO_HTML_CACHE_ON_PUBLISH",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
     cspMode = "report-only",
@@ -1492,6 +1540,27 @@ export function createDecoWorkerEntry(
     if (cacheVersionEnv === false) return "";
     const fromEnv = (env[cacheVersionEnv] as string) || "";
     if (fromEnv) return fromEnv;
+    // With `DECO_HTML_CACHE_ON_PUBLISH=stale`: survives CMS-only commits (same
+    // code, same chunks) — see `codeTreeHash` in the vite plugin. Falls back to
+    // the commit when the plugin couldn't compute it.
+    if (
+      staleOnPublish(env) &&
+      typeof __DECO_CACHE_VERSION__ !== "undefined" &&
+      __DECO_CACHE_VERSION__
+    ) {
+      return __DECO_CACHE_VERSION__;
+    }
+    return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
+  }
+
+  /**
+   * Like `getBuildHash`, but always the commit (or the env override): what
+   * `X-Cache-Version` reports, so a response can still be matched to a SHA.
+   */
+  function getDeployHash(env: Record<string, unknown>): string {
+    if (cacheVersionEnv === false) return "";
+    const fromEnv = (env[cacheVersionEnv] as string) || "";
+    if (fromEnv) return fromEnv;
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
   }
 
@@ -1707,6 +1776,8 @@ export function createDecoWorkerEntry(
   // -- Purge handler ----------------------------------------------------------
 
   interface PurgeRequestBody {
+    /** Every HTML/serverFn entry, in every colo — needs `DECO_HTML_CACHE_ON_PUBLISH=stale`. */
+    all?: boolean;
     paths?: string[];
     countries?: string[];
     /** Sales channels to include in segment combos. Defaults to ["1"]. */
@@ -1767,9 +1838,30 @@ export function createDecoWorkerEntry(
       return new Response("Invalid JSON body", { status: 400 });
     }
 
+    // Global purge: a new namespace version, read by every isolate within one
+    // poll. Deleting keys can't do this — `caches.default` is per colo, so a
+    // delete only reaches the colo that ran it.
+    if (body.all === true) {
+      if (!staleOnPublish(env)) {
+        return new Response(
+          `{"all": true} needs ${htmlCacheOnPublishEnv || "DECO_HTML_CACHE_ON_PUBLISH"}=stale ` +
+            "(in invalidate mode every publish or deploy already starts the cache cold)",
+          { status: 400 },
+        );
+      }
+      const version = await bumpHtmlCacheVersion(env);
+      if (!version) {
+        return new Response("Global purge needs the DECO_KV binding", { status: 501 });
+      }
+      kvHtmlVersion = version;
+      return Response.json({ purged: "all", version });
+    }
+
     const paths = body.paths;
     if (!Array.isArray(paths) || paths.length === 0) {
-      return new Response('Body must include "paths": ["/", "/page"]', { status: 400 });
+      return new Response('Body must include "paths": ["/", "/page"] or "all": true', {
+        status: 400,
+      });
     }
 
     const geoVariants = body.countries ?? [];
@@ -1905,12 +1997,89 @@ export function createDecoWorkerEntry(
           : undefined;
       storage = native ? createWebCacheStorage(native, new URL(request.url).origin) : null;
     }
+    // With `stale`, the CMS revision is NOT part of the namespace: with fast
+    // deploy every publish changes it, and keying on it orphaned the whole
+    // cache on each publish (PDP MISS 95%+ for hours on sites that publish
+    // every 10-30 min). Entries carry the revision they were rendered with
+    // instead, and a mismatch is served as STALE-HIT + background revalidation
+    // — see `isCurrentRevision`. The build hash stays: a new build can mean new
+    // client chunks, and stale HTML pointing at deleted chunks 404s. The purge
+    // version is what `{"all": true}` bumps.
+    const origin = new URL(request.url).origin;
+    // Unknown purge version (first KV read failed): no cache at all rather than
+    // a guess — "" is the namespace from before the first global purge.
+    if (staleOnPublish(env) && kvHtmlVersion === null) return null;
     return storage
       ? createResponseCache(
           storage,
-          JSON.stringify([new URL(request.url).origin, getBuildHash(env), getRevision()]),
+          JSON.stringify(
+            staleOnPublish(env)
+              ? [origin, getBuildHash(env), htmlPurgeVersion(env)]
+              : [origin, getBuildHash(env), getRevision()],
+          ),
         )
       : null;
+  }
+
+  function staleOnPublish(env: Record<string, unknown>): boolean {
+    return !!htmlCacheOnPublishEnv && env[htmlCacheOnPublishEnv] === "stale";
+  }
+
+  // Isolate-wide, refreshed from DECO_KV at the top of every request (see
+  // `getHtmlCacheVersion`) — the same value for every request of the isolate.
+  let kvHtmlVersion: string | null = "";
+  const htmlPurgeVersion = (env: Record<string, unknown>) =>
+    `html:${(env.DECO_HTML_CACHE_PURGE as string) ?? ""}:${kvHtmlVersion}`;
+
+  const REVISION_HEADER = "X-Deco-Revision";
+  const revisionTag = () => getRevision() ?? "";
+
+  /**
+   * Records `rev` — the revision captured BEFORE the render, not the one at
+   * store time: a poll can swap the decofile mid-render (cold PLPs take
+   * seconds), and stamping the newer revision would turn old content into a
+   * fresh HIT. A stale stamp only costs one more revalidation.
+   */
+  function stampRevision(headers: Headers, env: Record<string, unknown>, rev: string): void {
+    if (staleOnPublish(env)) headers.set(REVISION_HEADER, rev);
+  }
+
+  /**
+   * Whether a revalidation rendered at `rev` may overwrite `cached`. Only
+   * matters when they disagree: revisions are content hashes, so an isolate
+   * that hasn't polled the publish yet can't tell its revision is the OLDER
+   * one, and would put old content back under the new entry — for every
+   * isolate that wakes after the publish. Ask KV which one is published.
+   */
+  async function mayReplace(
+    cached: Response | undefined,
+    env: Record<string, unknown>,
+    rev: string,
+  ): Promise<boolean> {
+    if (!staleOnPublish(env) || !cached) return true;
+    const stored = cached.headers.get(REVISION_HEADER);
+    if (stored === null || stored === rev) return true;
+    return (await readPublishedRevision(env)) === rev;
+  }
+
+  /**
+   * A revalidation that says the page is gone (404/410 — an unpublished page;
+   * CMS redirects are answered before the cache) drops the entry: otherwise,
+   * with `stale`, the old 200 keeps being served for the whole SWR window.
+   * Only these two: the revalidation runs with the triggering visitor's headers,
+   * and statuses a client can provoke with them (3xx from a cookie, 400/401/403)
+   * would let anyone evict shared entries. 5xx/429 keep it (stale-if-error).
+   */
+  const dropsEntry = (status: number, env: Record<string, unknown>) =>
+    staleOnPublish(env) && (status === 404 || status === 410);
+
+  /**
+   * With `stale`, an entry from another CMS revision may be served stale, never
+   * as a fresh HIT. With `invalidate` the revision is in the key, so every entry
+   * found is current.
+   */
+  function isCurrentRevision(cached: Response, env: Record<string, unknown>): boolean {
+    return !staleOnPublish(env) || cached.headers.get(REVISION_HEADER) === revisionTag();
   }
 
   // -- Admin route handler ---------------------------------------------------
@@ -2349,6 +2518,8 @@ export function createDecoWorkerEntry(
       const preserveData = !!dataCacheOnDeployEnv && env[dataCacheOnDeployEnv] === "preserve";
       // Purge without a deploy: bump `cache:data-version` in DECO_KV.
       const kvDataVersion = preserveData && storage ? await getDataCacheVersion(env, ctx) : "";
+      // Global HTML purge without a deploy: bump `cache:html-version` in DECO_KV.
+      if (staleOnPublish(env)) kvHtmlVersion = await getHtmlCacheVersion(env, ctx);
       // Everything but the version is shared by the build and data scopes.
       // Revision is left out of `variant`: build-scoped stores add it below, while
       // preserved fetch data skips it — a raw upstream response does not depend on
@@ -2819,9 +2990,10 @@ export function createDecoWorkerEntry(
         const storedAt = Number(sfnCached.headers.get("X-Deco-Stored-At") || "0");
         const ageSec = storedAt > 0 ? (Date.now() - storedAt) / 1000 : Infinity;
 
-        if (ageSec < sfnEdge.fresh) {
+        if (ageSec < sfnEdge.fresh && isCurrentRevision(sfnCached, env)) {
           recordCacheMetric(true, sfnProfile, "HIT", "edge");
           const out = new Response(sfnCached.body, sfnCached);
+          out.headers.delete(REVISION_HEADER);
           const hdrs = cacheHeaders(sfnProfile);
           for (const [k, v] of Object.entries(hdrs)) out.headers.set(k, v);
           out.headers.set("X-Cache", "HIT");
@@ -2844,17 +3016,22 @@ export function createDecoWorkerEntry(
                   ? canonicalizeServerFnPayloadForCacheKey(body, [])
                   : body;
                 const bgReq = new Request(request, { body: bgBody, method: "POST" });
+                const bgRev = revisionTag();
                 const bgOrigin = await serverEntry.fetch(bgReq, env, ctx);
-                if (
+                if (serverFnCache && dropsEntry(bgOrigin.status, env)) {
+                  await serverFnCache.delete(sfnCacheKey);
+                } else if (
                   bgOrigin.status === 200 &&
                   bgOrigin.headers.get("X-Deco-Cacheable") === "true" &&
                   !bgOrigin.headers.has("set-cookie") &&
-                  serverFnCache
+                  serverFnCache &&
+                  (await mayReplace(sfnCached, env, bgRev))
                 ) {
                   const ttl = sfnEdge.fresh + Math.max(sfnEdge.swr, sfnEdge.sie);
                   const toStore = bgOrigin.clone();
                   toStore.headers.set("Cache-Control", `public, max-age=${ttl}`);
                   toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+                  stampRevision(toStore.headers, env, bgRev);
                   toStore.headers.delete("CDN-Cache-Control");
                   toStore.headers.delete("X-Deco-Cacheable");
                   await serverFnCache.put(sfnCacheKey, toStore);
@@ -2865,6 +3042,7 @@ export function createDecoWorkerEntry(
             })(),
           );
           const out = new Response(sfnCached.body, sfnCached);
+          out.headers.delete(REVISION_HEADER);
           const hdrs = cacheHeaders(sfnProfile);
           for (const [k, v] of Object.entries(hdrs)) out.headers.set(k, v);
           out.headers.set("X-Cache", "STALE-HIT");
@@ -2876,6 +3054,7 @@ export function createDecoWorkerEntry(
 
       // Cache MISS — fetch origin with the body we already read
       recordCacheMetric(false, sfnProfile, "MISS", "edge");
+      const sfnRev = revisionTag();
       const origin = await serverEntry.fetch(originClone, env, ctx);
 
       // Only cache responses explicitly marked as cacheable by the handler
@@ -2904,6 +3083,7 @@ export function createDecoWorkerEntry(
           const toStore = origin.clone();
           toStore.headers.set("Cache-Control", `public, max-age=${ttl}`);
           toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+          stampRevision(toStore.headers, env, sfnRev);
           toStore.headers.delete("CDN-Cache-Control");
           toStore.headers.delete("X-Deco-Cacheable");
           ctx.waitUntil(
@@ -3001,6 +3181,7 @@ export function createDecoWorkerEntry(
       extra?: Record<string, string>,
     ): Response {
       const out = new Response(resp.body, resp);
+      out.headers.delete(REVISION_HEADER);
       const hdrs = cacheHeaders(profile);
       for (const [k, v] of Object.entries(hdrs)) out.headers.set(k, v);
 
@@ -3050,7 +3231,7 @@ export function createDecoWorkerEntry(
       out.headers.set("X-Cache", xCache);
       out.headers.set("X-Cache-Profile", profile);
       if (segment) out.headers.set("X-Cache-Segment", hashSegment(segment));
-      const headerVersion = getBuildHash(env);
+      const headerVersion = getDeployHash(env);
       if (headerVersion) out.headers.set("X-Cache-Version", headerVersion);
       if (extra) for (const [k, v] of Object.entries(extra)) out.headers.set(k, v);
       appendResourceHints(out);
@@ -3060,13 +3241,14 @@ export function createDecoWorkerEntry(
     // Helper: store a response in Cache API with the full retention window.
     // Callers own the tracking decision: a response is storable iff it was
     // rendered from the clean URL this `cacheKey` represents.
-    function storeInCache(resp: Response) {
+    function storeInCache(resp: Response, rev: string) {
       if (!cache) return;
       try {
         const storageTtl = edgeConfig.fresh + Math.max(edgeConfig.swr, edgeConfig.sie);
         const toStore = resp.clone();
         toStore.headers.set("Cache-Control", `public, max-age=${storageTtl}`);
         toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+        stampRevision(toStore.headers, env, rev);
         toStore.headers.delete("CDN-Cache-Control");
         ctx.waitUntil(
           withTracing("deco.cache.store", () => cache.put(cacheKey, toStore), {
@@ -3116,21 +3298,29 @@ export function createDecoWorkerEntry(
     }
 
     // Helper: background revalidation (fetch origin, store result)
-    function revalidateInBackground() {
+    function revalidateInBackground(stale: Response) {
+      const rev = revisionTag();
       ctx.waitUntil(
         Promise.resolve(serverEntry.fetch(revalidationRequest(), env, ctx))
-          .then((origin) => {
+          .then(async (origin) => {
+            if (cache && dropsEntry(origin.status, env)) {
+              await cache.delete(cacheKey);
+              return;
+            }
             // Never overwrite a good entry with a degraded 200 (a critical
             // section failed) — that would poison the cache. Leave the stale
             // entry in place until a healthy revalidation succeeds.
             if (origin.status === 200 && origin.headers.get("X-Deco-Degraded") !== "true") {
               // Only cache if response has no cookies or only safe cookies.
               // Strip safe cookies from the cached copy.
-              if (hasOnlySafeCookies(origin, safeCookieSet)) {
+              if (
+                hasOnlySafeCookies(origin, safeCookieSet) &&
+                (await mayReplace(stale, env, rev))
+              ) {
                 const cleanOrigin = origin.headers.has("set-cookie")
                   ? stripSafeCookiesForCache(origin, safeCookieSet)
                   : origin;
-                storeInCache(cleanOrigin);
+                storeInCache(cleanOrigin, rev);
               }
             }
           })
@@ -3160,7 +3350,7 @@ export function createDecoWorkerEntry(
       const ageMs = storedAt > 0 ? Date.now() - storedAt : Infinity;
       const ageSec = ageMs / 1000;
 
-      if (ageSec < edgeConfig.fresh) {
+      if (ageSec < edgeConfig.fresh && isCurrentRevision(cached, env)) {
         // FRESH HIT — serve immediately
         recordCacheMetric(true, profile, "HIT", "edge");
         return dressResponse(cached, "HIT");
@@ -3169,7 +3359,7 @@ export function createDecoWorkerEntry(
       if (ageSec < edgeConfig.fresh + edgeConfig.swr) {
         // STALE-HIT within SWR window — serve stale, revalidate in background
         recordCacheMetric(true, profile, "STALE-HIT", "edge");
-        revalidateInBackground();
+        revalidateInBackground(cached);
         return dressResponse(cached, "STALE-HIT", { "X-Cache-Age": String(Math.round(ageSec)) });
       }
 
@@ -3179,6 +3369,7 @@ export function createDecoWorkerEntry(
 
     // Cache MISS or past SWR window — fetch from origin
     recordCacheMetric(false, profile, "MISS", "edge");
+    const renderRev = revisionTag();
     let origin: Response;
     try {
       origin = await serverEntry.fetch(request, env, ctx);
@@ -3295,7 +3486,7 @@ export function createDecoWorkerEntry(
       : origin;
     // This render saw the tracked URL and embedded it — never store it under
     // the clean key. The next clean visitor fills the entry.
-    if (!skipStoreTracking) storeInCache(cacheOrigin);
+    if (!skipStoreTracking) storeInCache(cacheOrigin, renderRev);
     return dressResponse(
       origin,
       "MISS",

@@ -62,8 +62,8 @@ const G = globalThis as unknown as {
     kvHydration?: Promise<void> | null;
     kvHydrationStartedAt?: number;
     kvLastPolledAt?: number;
-    dataVersion?: string | null;
-    dataVersionAt?: number;
+    /** Version keys read from DECO_KV (`cache:data-version`, `cache:html-version`). */
+    kvVersions?: Record<string, { value: string | null; at: number }>;
   };
 };
 if (!G.__deco) G.__deco = {};
@@ -311,50 +311,113 @@ async function pollRevisionOnce(kv: KVNamespace, deploymentId: string): Promise<
  * every isolate within one poll — no deploy. */
 export const DATA_CACHE_VERSION_KEY = "cache:data-version";
 
-/** Deadline for one `cache:data-version` read. Calibration knob. */
+/** KV key holding the HTML/serverFn response-cache version, used only with
+ * `DECO_HTML_CACHE_ON_PUBLISH=stale`. A new value (written by `POST
+ * /_cache/purge {"all":true}`, or by the control-plane) starts every colo's
+ * response cache cold within ~70s (see `getKvVersion`) — the global purge, since a `delete` on
+ * `caches.default` only reaches the colo that ran it. */
+export const HTML_CACHE_VERSION_KEY = "cache:html-version";
+
+/** Deadline for one version-key read. Calibration knob. */
 export const DATA_VERSION_TIMEOUT_MS = 1_000;
 
+/** Races a KV read against `DATA_VERSION_TIMEOUT_MS`; `fallback` on error or timeout. */
+function timeboxed<T>(read: Promise<T>, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    read.catch(() => fallback),
+    new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), DATA_VERSION_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /**
- * Current `DATA_CACHE_VERSION_KEY` value, or "" without a `DECO_KV` binding.
- * The first call per isolate awaits the read (so a cold isolate never reads
- * purged keys); after that the cached value is returned and refreshed in the
- * background every `POLL_INTERVAL_MS`. A failed or slow read (over
- * `DATA_VERSION_TIMEOUT_MS`) keeps the last value. Only resolved strings are
- * kept, never a pending read: a `DECO_KV.get` that never settles would otherwise
- * hold every later request of the isolate.
+ * Current value of a version key in `DECO_KV`: "" without the binding or when
+ * the key is absent, `null` when it is unknown (the isolate's first read
+ * failed or took over `DATA_VERSION_TIMEOUT_MS`, and no later read has
+ * succeeded yet). The first call per isolate awaits the read (so a cold
+ * isolate never reads purged keys); after that the cached value is returned
+ * and refreshed in the background every `POLL_INTERVAL_MS`, keeping the last
+ * value on failure. Only resolved values are kept, never a pending read: a
+ * `DECO_KV.get` that never settles would otherwise hold every later request.
+ *
+ * A new value reaches every colo within one poll plus KV's own edge cache
+ * (`get` without `cacheTtl` = 60s): up to ~70s.
  */
-export async function getDataCacheVersion(env: Env, ctx?: ExecutionContextLike): Promise<string> {
+async function getKvVersion(
+  env: Env,
+  key: string,
+  ctx?: ExecutionContextLike,
+): Promise<string | null> {
   const kv = getKV(env);
   if (!kv) return "";
-  const d = G.__deco!;
-  const read = (prev: string): Promise<string> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    return Promise.race([
-      kv.get(DATA_CACHE_VERSION_KEY).then(
-        (v) => v ?? "",
-        () => prev,
-      ),
-      new Promise<string>((resolve) => {
-        timer = setTimeout(() => resolve(prev), DATA_VERSION_TIMEOUT_MS);
-      }),
-    ]).finally(() => clearTimeout(timer));
-  };
-  if (d.dataVersion == null) {
-    d.dataVersionAt = Date.now();
-    d.dataVersion = await read("");
-    return d.dataVersion;
+  G.__deco!.kvVersions ??= {};
+  const versions = G.__deco!.kvVersions;
+  const read = (prev: string | null) =>
+    timeboxed(
+      kv.get(key).then((v) => v ?? ""),
+      prev,
+    );
+  const known = versions[key];
+  if (!known) {
+    const at = Date.now();
+    const value = await read(null);
+    versions[key] = { value, at };
+    return value;
   }
-  const current = d.dataVersion;
-  if (Date.now() - (d.dataVersionAt ?? 0) >= POLL_INTERVAL_MS) {
-    d.dataVersionAt = Date.now();
+  if (Date.now() - known.at >= POLL_INTERVAL_MS) {
+    known.at = Date.now();
     // Background refresh: requests keep the current value meanwhile.
-    const swap = read(current).then((v) => {
-      d.dataVersion = v;
+    const swap = read(known.value).then((v) => {
+      known.value = v;
     });
     if (ctx?.waitUntil) ctx.waitUntil(swap);
     else void swap.catch(() => {});
   }
-  return current;
+  return known.value;
+}
+
+/** Current `DATA_CACHE_VERSION_KEY` — see `getKvVersion`. Unknown reads as "". */
+export async function getDataCacheVersion(env: Env, ctx?: ExecutionContextLike): Promise<string> {
+  return (await getKvVersion(env, DATA_CACHE_VERSION_KEY, ctx)) ?? "";
+}
+
+/**
+ * Current `HTML_CACHE_VERSION_KEY` — see `getKvVersion`. `null` (unknown) must
+ * not be read as "": "" is the namespace from before the first global purge,
+ * still holding what that purge was meant to drop.
+ */
+export function getHtmlCacheVersion(env: Env, ctx?: ExecutionContextLike): Promise<string | null> {
+  return getKvVersion(env, HTML_CACHE_VERSION_KEY, ctx);
+}
+
+/**
+ * Writes a new `HTML_CACHE_VERSION_KEY` and adopts it in this isolate at once
+ * (other isolates follow — see `getKvVersion`). `null` without `DECO_KV`.
+ */
+export async function bumpHtmlCacheVersion(env: Env): Promise<string | null> {
+  const kv = getKV(env);
+  if (!kv) return null;
+  const value = `p${Date.now().toString(36)}`;
+  await kv.put(HTML_CACHE_VERSION_KEY, value);
+  G.__deco!.kvVersions ??= {};
+  G.__deco!.kvVersions[HTML_CACHE_VERSION_KEY] = { value, at: Date.now() };
+  return value;
+}
+
+/**
+ * The decofile revision currently published, read from KV (the small
+ * `index:revision:<id>` key, not the snapshot). Without fast deploy the
+ * decofile ships in the bundle, so the isolate's own revision is the current
+ * one. `null` when it can't be known (read failed or timed out).
+ */
+export async function readPublishedRevision(env: Env): Promise<string | null> {
+  if (!isFastDeployEnabled(env)) return getRevision();
+  const kv = getKV(env);
+  const deploymentId = getDeploymentId(env);
+  if (!kv || !deploymentId) return getRevision();
+  return timeboxed(new KVBlockSource(kv, deploymentId).getRevision(), null);
 }
 
 /** Test-only: reset the isolate-level hydration flags. */
@@ -363,6 +426,5 @@ export function __resetKvHydrationStateForTests(): void {
   G.__deco!.kvHydration = null;
   G.__deco!.kvHydrationStartedAt = 0;
   G.__deco!.kvLastPolledAt = 0;
-  G.__deco!.dataVersion = null;
-  G.__deco!.dataVersionAt = 0;
+  G.__deco!.kvVersions = {};
 }
