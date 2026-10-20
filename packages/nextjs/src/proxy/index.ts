@@ -18,10 +18,14 @@
  * is rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
  * routes).
+ *
+ * The proxy measures no requests: it runs before Next routes and renders the
+ * page. `http.server.request.duration` comes from Next's own request span
+ * (`register` from `@decocms/nextjs/instrumentation`).
  */
 import type { CMS } from "@decocms/blocks";
 import { type NextRequest, NextResponse } from "next/server.js";
-import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
+import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX, draftResponseHeaders } from "../draft.ts";
 import {
   allowedDraft,
   draftCookie,
@@ -50,8 +54,7 @@ export interface DraftDecision {
   setCookie: string | null;
 }
 
-/** The URL prefix a drafted request is rewritten onto (`app/%5Fdraft/[[...path]]`). */
-export const DRAFT_ROUTE_PREFIX = "/_draft";
+export { DRAFT_ROUTE_PREFIX } from "../draft.ts";
 
 const INERT: DraftDecision = Object.freeze({ pointer: null, setCookie: null });
 

@@ -4,7 +4,7 @@
 //
 // Ranges between the packages:
 // - A package that builds on @decocms/blocks takes it as a peer dependency
-//   with a caret range ("^8.4.0"), so a site has one blocks copy and a blocks
+//   with a caret range (e.g. "^8.5.0"), so a site has one blocks copy and a blocks
 //   patch release never installs a second one next to an app or a binding.
 //   The range is written by hand and left as is here: raise its floor when a
 //   package starts using a newer blocks API.

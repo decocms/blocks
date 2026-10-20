@@ -43,6 +43,15 @@ describe("v8 core bundle", () => {
     ).not.toMatch(/node:|require\(/);
   });
 
+  it("@decocms/blocks/metrics bundles for a workerd target with no Node built-ins and no React", () => {
+    const output = bundle(
+      ["--platform=neutral", "--conditions=workerd,worker,browser"],
+      "metrics.ts",
+    );
+    expect(output).not.toMatch(/node:|require\(|react/);
+    expect(output).toContain("http.server.request.duration");
+  });
+
   it("@decocms/blocks/image bundles for a browser and a workerd target with no Node built-ins and no React", () => {
     for (const args of [
       ["--platform=browser"],

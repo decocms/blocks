@@ -492,4 +492,47 @@ describe("sending", () => {
     vi.useRealTimers();
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
   });
+
+  it("on Workers with no hook yet, batches go to waitUntil, never to a timer that won't fire", async () => {
+    // Workers run no timers once the response is done: a batch scheduled on
+    // `setTimeout` never left and kept the pipeline "scheduled" for good, so
+    // a site whose first measurement came before any other background work
+    // (no hosted release check) sent nothing at all.
+    delete (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK];
+    const queued: Promise<unknown>[] = [];
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void queued.push(promise));
+    vi.doMock("cloudflare:workers", () => ({ waitUntil }));
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" });
+    vi.resetModules();
+    try {
+      const timers = vi.spyOn(globalThis, "setTimeout");
+      const { fetch } = collector();
+      const cms = await import("./cms");
+      const instrumented = await import("./fetch");
+      cms.createCMS({
+        blocks: docsBlocks(),
+        content: docsSnapshot(),
+        telemetry: { endpoint: ENDPOINT },
+      });
+      const workerUpstream = instrumented.createInstrumentedFetch({
+        provider: "acme-search",
+        fetch: async () => new Response("{}", { status: 200 }),
+      });
+      await workerUpstream("https://search.example/q");
+      await vi.waitFor(() => expect(waitUntil).toHaveBeenCalled());
+      await Promise.all(queued.splice(0));
+      expect(timers).not.toHaveBeenCalledWith(expect.any(Function), 10_000);
+      // The batch is younger than 10 s: it stays pending, and the next
+      // request's measurement, a window later, sends it.
+      expect(fetch).not.toHaveBeenCalled();
+      clock += 10_000;
+      await workerUpstream("https://search.example/q");
+      await vi.waitFor(() => expect(queued.length).toBeGreaterThan(0));
+      await Promise.all(queued.splice(0));
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.doUnmock("cloudflare:workers");
+      vi.resetModules();
+    }
+  });
 });

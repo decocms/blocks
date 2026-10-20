@@ -2,7 +2,7 @@
 
 Deco CMS for any [Next.js](https://nextjs.org) App Router app. It makes no hosting assumptions: no CDN, ISR or platform behaviour is built in. It is a set of small helpers your site calls from its own proxy, layout, pages and `next.config`.
 
-Peers: `@decocms/blocks` (same version), `next` 16, `react` 19.
+Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@opentelemetry/api` (see [Request metric](#request-metric)).
 
 | Import | What it is for |
 | --- | --- |
@@ -10,6 +10,7 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19.
 | `@decocms/nextjs/server` | Draft previews in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
 | `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
+| `@decocms/nextjs/instrumentation` | `register`, the `instrumentation.ts` hook that records `http.server.request.duration` from Next's own request span, and `serverRequestSpanProcessor()` for a site with its own OpenTelemetry SDK. |
 | `@decocms/nextjs/image-loader` | `createDecoImageLoader(imageUrl)`: a next/image loader over an `ImageUrl` from `@decocms/blocks/image`. |
 
 `createCMS` reads `NODE_ENV` to decide dev mode, so `next dev` never swaps the hosted release in over your local content; nothing needs passing. `createCMS({ dev })` still overrides it when a site needs to.
@@ -88,6 +89,27 @@ module.exports = withDeco({ images: { loader: "custom", loaderFile: "./src/image
 ```
 
 `withDeco` puts v7's two draft header rules before your own (a `?__draft=` query, or the draft cookie: no-store, `Vary: Cookie`, noindex) and adds Studio's origins to `allowedDevOrigins`. Each can be turned off: `withDeco(config, { draftHeaders: false, studioOrigins: false })`. Next sets `Cache-Control` and `Vary` itself on dynamic pages, so only `X-Robots-Tag` is sure to arrive from these rules; the proxy's `applyDraft` sets all three on the responses it makes.
+
+## Request metric
+
+```ts
+// src/instrumentation.ts (or instrumentation.ts at the root, next to app/)
+export { register } from "@decocms/nextjs/instrumentation";
+```
+
+Next.js already measures every request it serves: one root span per request (`BaseServer.handleRequest`) that ends with the status, the method and the route's template. `register` gives Next a tracer provider whose only job is that span: when it ends, the request goes to the CMS's telemetry as `http.server.request.duration` (through `recordServerRequest` from `@decocms/blocks/metrics`) (seconds, the same buckets as the upstream clients' `http.client.request.duration`), next to everything else `createCMS` sends. No span is exported anywhere, and every other span Next asks for is a shared non-recording one. With no telemetry destination (no `token` and no `endpoint`) nothing is recorded.
+
+| Label | Value |
+| --- | --- |
+| `http.route` | Next's route template: `/[[...path]]`, `/blog`, `/_draft/[[...path]]`. An RSC request counts under its page's route. `unmatched` when Next names none (an Edge route under `next start`) |
+| `http.request.method` | `GET`, `POST`, …; any other is `_OTHER` |
+| `status_class` | `2xx` … `5xx`; a request that threw is `5xx` |
+| `cache` | `DRAFT` for a draft render (the proxy forwarded `x-deco-draft`, or the request was rewritten onto `/_draft`), otherwise `BYPASS`: Next decides its own cache (`x-nextjs-cache`) on the response, which the span never sees |
+
+- `@opentelemetry/api` is an optional peer: `register` uses the same copy Next does (yours when installed, else Next's compiled one) and does nothing if neither loads.
+- **Your own OpenTelemetry setup** (`@vercel/otel`, `NodeSDK`): only one tracer provider can be registered, so `register` leaves yours alone and logs how to combine them. Add the processor to yours instead: `registerOTel({ serviceName, spanProcessors: ["auto", serverRequestSpanProcessor()] })`.
+- **The proxy**: under `next start` Next runs the proxy through a request span of its own; that one is not counted, and the request the proxy hands on is. A response the proxy makes itself (a redirect, a 404 for a direct `/_draft` hit) never reaches a page and is not counted.
+- **Edge runtime**: `register` does nothing there. Under `next start` an Edge route is still measured by the Node.js server that serves it (`unmatched`, no template); on a host that runs Edge functions on their own, nothing measures them.
 
 ## Images
 

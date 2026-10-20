@@ -29,6 +29,9 @@ export const DRAFT_COOKIE = "__deco_draft";
  */
 export const DRAFT_HEADER = "x-deco-draft";
 
+/** The URL prefix a drafted request is rewritten onto (`app/%5Fdraft/[[...path]]`). */
+export const DRAFT_ROUTE_PREFIX = "/_draft";
+
 /**
  * The response headers of a page rendered from a draft: never stored by a
  * browser or a CDN (`Cache-Control: no-store, private`, `Vary: Cookie`) and

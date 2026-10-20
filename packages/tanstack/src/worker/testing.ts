@@ -107,3 +107,32 @@ export function html(body = "<p>ok</p>", headers: Record<string, string> = {}): 
     headers: { "content-type": "text/html; charset=utf-8", ...headers },
   });
 }
+
+export interface MetricPoint {
+  name: string;
+  labels: Record<string, unknown>;
+  seconds: number;
+}
+
+const TELEMETRY_SINK = Symbol.for("decocms.blocks.telemetry");
+
+/**
+ * Stands in for the CMS's telemetry pipeline (the process's sink, where a
+ * `createCMS` with telemetry puts its own): records each histogram. `measuring`
+ * false is telemetry with `metrics: false`.
+ */
+export function recordMetrics(options: { measuring?: boolean; throws?: boolean } = {}) {
+  const points: MetricPoint[] = [];
+  (globalThis as Record<symbol, unknown>)[TELEMETRY_SINK] = {
+    measuring: () => options.measuring ?? true,
+    histogram: (name: string, labels: Record<string, unknown>, seconds: number) => {
+      if (options.throws) throw new Error("sink failed");
+      points.push({ name, labels, seconds });
+    },
+  };
+  return points;
+}
+
+export function removeMetrics(): void {
+  delete (globalThis as Record<symbol, unknown>)[TELEMETRY_SINK];
+}

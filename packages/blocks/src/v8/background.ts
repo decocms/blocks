@@ -101,7 +101,12 @@ export function later(ms: number, callback: () => void): void {
   timer?.unref?.();
 }
 
-/** Whether a host installed a background hook (then batches go out after each response). */
+/**
+ * Whether background work runs after each response: a host installed a hook,
+ * or this is Cloudflare Workers, where `runInBackground` installs the
+ * platform's `waitUntil` as the hook on its first call. Workers run no timers
+ * once a response is done, so there a caller must never fall back to `later`.
+ */
 export function hasBackgroundHook(): boolean {
-  return typeof (globalThis as BackgroundGlobals)[BACKGROUND_HOOK] === "function";
+  return typeof (globalThis as BackgroundGlobals)[BACKGROUND_HOOK] === "function" || onWorkers();
 }
