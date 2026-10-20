@@ -53,6 +53,11 @@
 			"source": "./src/v8/image.ts",
 			"default": "./dist/v8/image.js"
 		},
+		"./metrics": {
+			"types": "./dist/v8/metrics.d.ts",
+			"source": "./src/v8/metrics.ts",
+			"default": "./dist/v8/metrics.js"
+		},
 		"./preview": {
 			"types": "./dist/v8/preview/index.d.ts",
 			"source": "./src/v8/preview/index.ts",

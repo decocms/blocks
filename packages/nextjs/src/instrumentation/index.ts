@@ -11,7 +11,7 @@
  *
  * `register()`, the site's `instrumentation.ts` hook, registers a provider
  * whose only job is that span: when it ends, the request is recorded with
- * `recordServerRequest` from `@decocms/blocks/fetch`, into the CMS's
+ * `recordServerRequest` from `@decocms/blocks/metrics`, into the CMS's
  * telemetry in the same process. No span is exported anywhere and every other
  * span Next.js asks for is a shared non-recording one. With no
  * `@opentelemetry/api` reachable, on the Edge runtime, or when another
@@ -29,7 +29,7 @@
  * the span never sees.
  */
 
-import { recordServerRequest } from "@decocms/blocks/fetch";
+import { recordServerRequest } from "@decocms/blocks/metrics";
 import type {
   Context,
   ContextManager,
@@ -93,7 +93,8 @@ function recordRequestSpan(
   const code = Number(attributes["http.status_code"]);
   // Next sets the status before the span ends; a request that threw is a 5xx whatever it says.
   const status = errored && !(code >= 500) ? 500 : code || 500;
-  recordServerRequest({
+  // Never rejects; the span's route is already a string, so nothing to wait for.
+  void recordServerRequest({
     route,
     method: String(attributes["http.method"] ?? ""),
     status,

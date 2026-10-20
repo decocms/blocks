@@ -17,12 +17,12 @@
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - `http.server.request.duration` for every request, to the CMS's telemetry
- *   (`recordServerRequest` from `@decocms/blocks/fetch`), labelled with the route's template, the
+ *   (`recordServerRequest` from `@decocms/blocks/metrics`), labelled with the route's template, the
  *   method, the status class, the cache decision and the device; nothing
  *   when the CMS has no telemetry.
  */
 import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
-import { measuringServerRequests, recordServerRequest } from "@decocms/blocks/fetch";
+import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
 import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import { CSEG_PARAM, DEGRADED_HEADER, PAGE_STATUS_HEADER } from "../shared.ts";
@@ -369,7 +369,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   }
 
   // The release's page templates, for `http.route`: read once per revision,
-  // and only while telemetry is measuring.
+  // and only while telemetry is measuring (`recordServerRequest` calls the
+  // route function only then).
   let metricRoutes: { revision: string; pages: Promise<Route[]> } | undefined;
 
   async function routeTemplate(url: URL): Promise<string | undefined> {
@@ -396,7 +397,11 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return match.kind === "match" ? match.entry.path : undefined;
   }
 
-  /** Records the request (`http.server.request.duration`); the route is found after the response. */
+  /**
+   * Records the request (`http.server.request.duration`). The route is a
+   * function, found after the response and only while telemetry measures:
+   * with telemetry off `recordServerRequest` resolves without calling it.
+   */
   function measure(
     request: Request,
     ctx: ExecutionContextLike,
@@ -406,26 +411,22 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     served: Served | undefined,
   ): void {
     try {
-      if (!measuringServerRequests()) return;
-      const url = new URL(request.url);
-      const base = {
-        method: request.method,
-        status,
-        cache,
-        device: detectDevice(request.headers.get("user-agent") ?? ""),
-        seconds,
-      };
-      const fixed = served?.redirect ? REDIRECT_ROUTE : fixedRoute(url.pathname);
-      // The site's own `routes` answer has no template the worker knows.
-      if (fixed !== null || served?.routed) {
-        recordServerRequest({ ...base, route: fixed ?? undefined });
-        return;
-      }
       ctx.waitUntil(
-        routeTemplate(url).then(
-          (route) => recordServerRequest({ ...base, route }),
-          () => recordServerRequest(base),
-        ),
+        recordServerRequest({
+          route: () => {
+            if (served?.redirect) return REDIRECT_ROUTE;
+            const url = new URL(request.url);
+            const fixed = fixedRoute(url.pathname);
+            if (fixed !== null) return fixed;
+            // The site's own `routes` answer has no template the worker knows.
+            return served?.routed ? undefined : routeTemplate(url);
+          },
+          method: request.method,
+          status,
+          cache,
+          device: detectDevice(request.headers.get("user-agent") ?? ""),
+          seconds,
+        }),
       );
     } catch {
       // A metric never breaks a response.

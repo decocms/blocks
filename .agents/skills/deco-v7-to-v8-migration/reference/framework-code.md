@@ -40,7 +40,7 @@ v8 keeps the framework layer in two bindings, released with `@decocms/blocks` at
   // providers: [vtexCatalog(), shopifyCdn(), nuvemshop, decoCdn({ domain, quality, sources: "all" })]
   ```
 - **Draft names and Studio's origins**: `DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`, `draftResponseHeaders`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin` come from the root, `@decocms/tanstack` (not from `@decocms/blocks`); the script moves them.
-- **Cache metrics**: the worker records `http.server.request.duration` (route template, method, status class, cache decision, device) in the CMS's telemetry by itself; v7's `DECO_METRICS` writes have no writer, and `onCache` (hit/miss/bypass, page type, duration) is the hook to send them anywhere else (`telemetry.md`).
+- **Cache metrics**: the worker records `http.server.request.duration` (route template, method, status class, cache decision, device) in the CMS's telemetry by itself (`recordServerRequest` from `@decocms/blocks/metrics`, the bindings' API; the site imports nothing); v7's `DECO_METRICS` writes have no writer, and `onCache` (hit/miss/bypass, page type, duration) is the hook to send them anywhere else (`telemetry.md`).
 
 ## Next.js (`@decocms/nextjs`)
 

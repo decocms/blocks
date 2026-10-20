@@ -97,7 +97,7 @@ module.exports = withDeco({ images: { loader: "custom", loaderFile: "./src/image
 export { register } from "@decocms/nextjs/instrumentation";
 ```
 
-Next.js already measures every request it serves: one root span per request (`BaseServer.handleRequest`) that ends with the status, the method and the route's template. `register` gives Next a tracer provider whose only job is that span: when it ends, the request goes to the CMS's telemetry as `http.server.request.duration` (seconds, the same buckets as the upstream clients' `http.client.request.duration`), next to everything else `createCMS` sends. No span is exported anywhere, and every other span Next asks for is a shared non-recording one. With no telemetry destination (no `token` and no `endpoint`) nothing is recorded.
+Next.js already measures every request it serves: one root span per request (`BaseServer.handleRequest`) that ends with the status, the method and the route's template. `register` gives Next a tracer provider whose only job is that span: when it ends, the request goes to the CMS's telemetry as `http.server.request.duration` (through `recordServerRequest` from `@decocms/blocks/metrics`) (seconds, the same buckets as the upstream clients' `http.client.request.duration`), next to everything else `createCMS` sends. No span is exported anywhere, and every other span Next asks for is a shared non-recording one. With no telemetry destination (no `token` and no `endpoint`) nothing is recorded.
 
 | Label | Value |
 | --- | --- |
