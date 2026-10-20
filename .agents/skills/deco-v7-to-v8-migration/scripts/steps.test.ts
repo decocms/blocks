@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
 import { decofileEntries, moveContent } from "./content";
-import { copyExperimentIds } from "./experiments";
 import { siteBlocksVersion } from "./framework";
 import { BINDING_NAMES, MOVES, rewriteImports, V8_API, v7ImageUrl } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
@@ -160,35 +159,6 @@ describe("legacy type names", () => {
     expect(saved.sections[0].variants[0].rule.__resolveType).toBe("website/matchers/always.ts");
     expect(saved.sections[1].__resolveType).toBe("date");
     expect(report.done.map((n) => n.subject)).toEqual(["Home.json"]);
-  });
-});
-
-describe("experiments", () => {
-  it("copies the random matcher's saved name into multivariate's experiment", () => {
-    const variants = [
-      { rule: { __resolveType: "Test AB" }, value: "B" },
-      { rule: { __resolveType: "website/matchers/always.ts" }, value: "A" },
-    ];
-    site({
-      ".deco/blocks/Test%20AB.json": { __resolveType: "website/matchers/random.ts", traffic: 0.5 },
-      ".deco/blocks/Home.json": {
-        ...home,
-        sections: [
-          { __resolveType: "website/flags/multivariate.ts", variants },
-          { __resolveType: "multivariate", experiment: "kept", variants },
-          { __resolveType: "website/flags/multivariate.ts", variants: [variants[1]] },
-        ],
-      },
-    });
-    const report = createReport();
-    copyExperimentIds(root, report);
-    const saved = JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks/Home.json"), "utf8"));
-    expect(saved.sections.map((s: { experiment?: string }) => s.experiment)).toEqual([
-      "Test AB",
-      "kept",
-      undefined,
-    ]);
-    expect(report.done).toHaveLength(1);
   });
 });
 

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * The codemods onto `@decocms/compat-v7`, one by one: the imports, `ctx.device`,
- * the section-loader registration, the matchers and their cohort, the view
+ * the section-loader registration, the matchers, the view
  * registry and the image URL wiring.
  */
 import fs from "node:fs";
@@ -16,7 +16,6 @@ import {
   compatCommerceSpecifier,
   rewriteDeviceReadsIn,
 } from "./compat";
-import { copyExperimentIds } from "./experiments";
 import { imageModule, writeImageUrl } from "./imageModule";
 import { rewriteImports } from "./imports";
 import { v7Matcher } from "./matchers";
@@ -417,10 +416,6 @@ describe("matchers", () => {
     expect(report.manual.map((n) => n.subject)).toContain(
       "website/matchers/environment.ts (in Home.json)",
     );
-    // No random: nothing about the cookie.
-    expect(
-      report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)")?.message,
-    ).not.toContain("commitSegmentCookie");
 
     fs.rmSync(root, { recursive: true, force: true });
     site(content);
@@ -432,23 +427,21 @@ describe("matchers", () => {
     ).toContain("@decocms/compat-v7/matchers");
   });
 
-  it("gives saved random matchers their name as cohort on a binding, keeping one already set", () => {
-    const files = {
-      ".deco/blocks/Test%20AB.json": { __resolveType: "website/matchers/random.ts", traffic: 0.5 },
-      ".deco/blocks/Kept.json": { __resolveType: "website/matchers/random", cohort: "old" },
-    };
-    site({ "package.json": TANSTACK, ...files });
+  it("never registers v7's random matcher: the binding owns deco_segment", () => {
+    site({
+      "package.json": TANSTACK,
+      ".deco/blocks/Home.json": {
+        __resolveType: "website/pages/Page.tsx",
+        path: "/",
+        sections: [{ __resolveType: "website/matchers/random.ts", traffic: 0.5 }],
+      },
+    });
     const report = createReport();
-    copyExperimentIds(root, report);
-    expect(JSON.parse(read(".deco/blocks/Test%20AB.json")).cohort).toBe("Test AB");
-    expect(JSON.parse(read(".deco/blocks/Kept.json")).cohort).toBe("old");
-    expect(report.done.map((n) => n.subject)).toEqual(["Test%20AB.json"]);
-
-    // Without a binding the matcher isn't registered, so the field would fail deco check.
-    fs.rmSync(root, { recursive: true, force: true });
-    site(files);
-    copyExperimentIds(root, createReport());
-    expect(JSON.parse(read(".deco/blocks/Test%20AB.json")).cohort).toBeUndefined();
+    writeBlockMap(root, report);
+    expect(read(".deco/index.ts")).not.toContain("matchers.random");
+    expect(
+      report.manual.find((n) => n.subject.startsWith("website/matchers/random.ts"))?.message,
+    ).toContain("Experiments");
   });
 });
 

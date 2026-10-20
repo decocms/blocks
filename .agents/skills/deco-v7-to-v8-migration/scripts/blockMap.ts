@@ -341,17 +341,16 @@ export function writeBlockMap(
       message: `run the section loaders as v7 ran its registered ones: after the page resolved, call loadSections(sections, request, pageUrl) on every section of the page, the site's globals included, and render what it returns${framework === "tanstack" ? "; in the page's server function, pass the page's URL (the request is the server-function call on a client-side navigation)" : framework === "nextjs" ? "; on Next.js build the request from next/headers at the page's URL" : ""}. When degraded isn't empty, send X-Deco-Degraded: 1 and don't cache the page, as v7 did`,
     });
   }
-  if (matchers.size > 0) reportMatchers(framework!, new Set(matchers.values()), report);
+  if (matchers.size > 0) reportMatchers(framework!, report);
   return { vendored };
 }
 
 /** What the site wires around v7's matchers, by binding. */
-function reportMatchers(framework: Framework, used: Set<string>, report: Report): void {
-  const random = used.has("random");
+function reportMatchers(framework: Framework, report: Report): void {
   const message =
     framework === "tanstack"
-      ? `call matchPage(href) from .deco/index.ts in the page's server function before resolving the page${random ? ", then commitSegmentCookie() from @decocms/compat-v7/tanstack/server once its blocks resolved (await them: the cookie is a response header), and give createDecoWorker segment: (request) => ({ ...cohortSegment(request) }), so the sticky A/B groups (latest 7.x) keep their cookie and their own cached page" : ""}`
-      : `forward the page's URL in proxy.ts with pageUrlRequestHeaders from @decocms/compat-v7/nextjs/proxy, so the matchers read the page${random ? ", and render <SegmentCookie /> from @decocms/compat-v7/nextjs/server as the page's last child, so the sticky A/B groups (latest 7.x) keep their cookie" : ""}`;
+      ? "call matchPage(href) from .deco/index.ts in the page's server function before resolving the page"
+      : "forward the page's URL in proxy.ts with pageUrlRequestHeaders from @decocms/compat-v7/nextjs/proxy, so the matchers read the page";
   report.manual.push({ step: "block map", subject: "v7 matchers (.deco/index.ts)", message });
 }
 

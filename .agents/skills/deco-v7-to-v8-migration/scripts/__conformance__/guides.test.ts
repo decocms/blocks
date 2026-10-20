@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeBlockMap } from "../blockMap";
-import { copyExperimentIds } from "../experiments";
+import { migrateRandomMatchers } from "../experiments";
 import { createReport, formatReport } from "../report";
 
 let root: string;
@@ -64,8 +64,12 @@ describe("telemetry and analytics", () => {
         },
       },
     });
-    copyExperimentIds(dir, createReport());
+    migrateRandomMatchers(dir, createReport());
     const home = JSON.parse(fs.readFileSync(path.join(dir, ".deco/blocks/Home.json"), "utf8"));
     expect(home.sections.experiment).toBe("HeroTest");
+    expect(home.sections.variants[0].rule).toEqual({
+      __resolveType: "experiment",
+      name: "HeroTest",
+    });
   });
 });

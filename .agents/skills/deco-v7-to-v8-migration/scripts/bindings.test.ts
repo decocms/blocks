@@ -441,7 +441,7 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(open).toContain(
       "const { sections, degraded } = await loadSections(resolved.flat(), request, url);",
     );
-    expect(open).toContain("commitSegmentCookie(request);");
+    expect(open).not.toContain("SegmentCookie");
     expect(open).toContain("device: requestDevice(request)");
     expect(read("src/page.functions.ts")).toContain(
       ".handler(({ data }) => openPage(data.href, getRequest()));",
@@ -528,23 +528,29 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(map).toContain(
       '"website/matchers/device.ts": (props: matchers.DeviceProps) => matchers.device(props, matcherInput()),',
     );
-    expect(map).toContain(
-      '"website/matchers/random.ts": (props: matchers.RandomProps) => matchers.random(props, matcherInput()),',
-    );
+    // v7's random matcher became the built-in A/B test: the binding owns deco_segment.
+    expect(map).not.toContain("matchers.random");
     expect(map).toContain('import { sectionLoaders } from "../src/setup/section-loaders";');
     // 7.64.3 ran nested sections' loaders only directly in a prop.
     expect(map).toContain('nested: "direct",');
-    // The saved random matcher keeps v7's cookie key: its saved name.
-    expect(JSON.parse(read(".deco/blocks/Hero%20test.json"))).toEqual({
-      __resolveType: "website/matchers/random.ts",
-      traffic: 0.3,
-      cohort: "Hero test",
+    // The saved random matcher is now an experiment under v7's cookie key: its saved name.
+    expect(fs.existsSync(path.join(root, ".deco/blocks/Hero%20test.json"))).toBe(false);
+    expect(JSON.parse(read(".deco/blocks/Experiments.json"))).toEqual({
+      __resolveType: "experiments",
+      "Hero test": 30,
+    });
+    const home = JSON.parse(read(".deco/blocks/pages-home.json"));
+    expect(home.sections[0].experiment).toBe("Hero test");
+    expect(home.sections[0].variants[0].rule).toEqual({
+      __resolveType: "experiment",
+      name: "Hero test",
     });
     expect(read("src/views.ts")).toContain('"site/sections/Hero.tsx": hero,');
     const matchersNote = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)");
     expect(matchersNote?.message).toContain("matchPage(href)");
-    expect(matchersNote?.message).toContain("commitSegmentCookie()");
-    expect(matchersNote?.message).toContain("cohortSegment(request)");
+    expect(matchersNote?.message).not.toContain("SegmentCookie");
+    // The worker assigns the visitors: nothing to wire by hand.
+    expect(report.manual.some((n) => n.subject === "Experiments")).toBe(false);
   });
 
   it("type-checks against the v8 packages", () => {
@@ -614,7 +620,7 @@ describe("a v7 Next.js site on the v8 binding", () => {
     expect(read("src/cms.ts")).toContain("contentClient(cms)");
     const page = read("src/app/[[...slug]]/page.tsx");
     expect(page).toContain("await bindDraft(cms, { searchParams: query });");
-    expect(page).toContain("<SegmentCookie />");
+    expect(page).not.toContain("SegmentCookie");
     expect(page).not.toContain("createDecoPage");
     expect(read("src/open-page.server.ts")).toContain(
       "await loadSections(resolved.flat(), request, url)",
@@ -626,8 +632,9 @@ describe("a v7 Next.js site on the v8 binding", () => {
     const map = read(".deco/index.ts");
     expect(map).toContain('import { matcherContext } from "@decocms/compat-v7/nextjs/server";');
     expect(map).toContain(
-      '"website/matchers/random.ts": async (props: matchers.RandomProps) => matchers.random(props, await matcherContext()),',
+      '"website/matchers/device.ts": async (props: matchers.DeviceProps) => matchers.device(props, await matcherContext()),',
     );
+    expect(map).not.toContain("matchers.random");
     expect(map).not.toContain("tanstack");
     // The latest 7.x walks nested sections at any depth: runSectionLoaders' default.
     expect(map).not.toContain("nested:");
@@ -636,7 +643,9 @@ describe("a v7 Next.js site on the v8 binding", () => {
     );
     const note = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)")?.message;
     expect(note).toContain("pageUrlRequestHeaders");
-    expect(note).toContain("<SegmentCookie />");
+    expect(note).not.toContain("SegmentCookie");
+    // The proxy assigns the visitors: the report says how.
+    expect(report.manual.find((n) => n.subject === "Experiments")?.message).toContain("draftProxy");
     // Next.js images go through its image loader: no src/imageUrl.ts.
     expect(fs.existsSync(path.join(root, "src/imageUrl.ts"))).toBe(false);
   });
