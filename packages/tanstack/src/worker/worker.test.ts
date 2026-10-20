@@ -856,7 +856,7 @@ describe("http.server.request.duration", () => {
     ]);
   });
 
-  it("paths the worker knows get fixed templates; a redirect gets its source", async () => {
+  it("paths the worker knows get fixed templates; every CMS redirect is one route", async () => {
     const points = recordMetrics();
     const { get } = setup({}, (request) =>
       new URL(request.url).pathname.startsWith("/assets/")
@@ -874,8 +874,20 @@ describe("http.server.request.duration", () => {
       ["/deco/_liveness", "GET", "2xx"],
       ["/assets/*", "GET", "2xx"],
       ["/_serverFn/*", "POST", "2xx"],
-      ["/old-shoes", "GET", "3xx"],
+      ["redirect", "GET", "3xx"],
       ["unmatched", "GET", "4xx"],
+    ]);
+  });
+
+  it("an upstream's X-Cache never counts: only the worker's own cache decides", async () => {
+    const points = recordMetrics();
+    const { get } = setup({
+      routes: () =>
+        new Response("proxied", { headers: { "X-Cache": "HIT", "content-type": "text/plain" } }),
+    });
+    await get("/api/proxied");
+    expect(labels(points).map((l) => [l["http.route"], l.cache])).toEqual([
+      ["unmatched", "BYPASS"],
     ]);
   });
 
@@ -930,6 +942,32 @@ describe("http.server.request.duration", () => {
     await get("/red-shoes/p");
     await get("/");
     expect(pageLists).toBe(1);
+  });
+
+  it("a failed page read is tried again on the next request", async () => {
+    const points = recordMetrics();
+    const cms = storeCMS();
+    const forRelease = cms.forRelease.bind(cms);
+    let fail = true;
+    cms.forRelease = () => {
+      const client = forRelease();
+      return {
+        ...client,
+        revision: () => client.revision(),
+        resolve: client.resolve.bind(client),
+        list: (type: string, options?: object) => {
+          if (type === "page" && fail) {
+            fail = false;
+            return Promise.reject(new Error("store down"));
+          }
+          return client.list(type, options);
+        },
+      } as ReturnType<typeof forRelease>;
+    };
+    const { get } = setup({ cms });
+    await get("/blue-shoes/p");
+    await get("/blue-shoes/p");
+    expect(points.map((p) => p.labels["http.route"])).toEqual(["unmatched", "/:slug/p"]);
   });
 
   it("costs nothing with telemetry off: no point, and the pages are never listed", async () => {

@@ -180,18 +180,26 @@ function fixedRoute(pathname: string): string | null {
   return prefix ? `${prefix}*` : null;
 }
 
-/** A redirect's source path (`from` without its query), as a route `matchRoute` can match. */
-function redirectRoute(redirect: unknown): Route | null {
-  const r = redirect as { from?: unknown; redirect?: { from?: unknown } } | null;
-  const from = r?.from ?? r?.redirect?.from;
-  if (typeof from !== "string" || !from.startsWith("/")) return null;
-  const path = from.split("?")[0] || "/";
-  return { name: path, path };
-}
+/**
+ * `http.route` of a CMS redirect. One value for all of them: a redirect's
+ * source is usually one exact URL (a site may carry thousands), so labelling
+ * each would make the metric's cardinality the size of the redirect list.
+ */
+const REDIRECT_ROUTE = "redirect";
 
-/** The cache label of `http.server.request.duration`. */
-function cacheLabel(response: Response, draft: boolean): "HIT" | "MISS" | "BYPASS" | "DRAFT" {
+/**
+ * The cache label of `http.server.request.duration`: the worker's own
+ * decision. A response that never went through the edge cache (no cache
+ * profile: a redirect, the site's `routes`, an asset) is `BYPASS` whatever
+ * `X-Cache` an upstream put on it.
+ */
+function cacheLabel(
+  response: Response,
+  draft: boolean,
+  served: { profile?: unknown } | undefined,
+): "HIT" | "MISS" | "BYPASS" | "DRAFT" {
   if (draft) return "DRAFT";
+  if (!served?.profile) return "BYPASS";
   const xCache = response.headers.get("X-Cache");
   if (xCache === "HIT" || xCache === "STALE-HIT" || xCache === "STALE-ERROR") return "HIT";
   return xCache === "MISS" ? "MISS" : "BYPASS";
@@ -360,32 +368,31 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return releaseRedirects.list;
   }
 
-  // The release's page and redirect templates, for `http.route`: read once per
-  // revision, and only while telemetry is measuring.
-  let metricRoutes:
-    | { revision: string; table: Promise<{ pages: Route[]; redirects: Route[] }> }
-    | undefined;
+  // The release's page templates, for `http.route`: read once per revision,
+  // and only while telemetry is measuring.
+  let metricRoutes: { revision: string; pages: Promise<Route[]> } | undefined;
 
-  async function routeTemplate(url: URL, redirected: boolean): Promise<string | undefined> {
+  async function routeTemplate(url: URL): Promise<string | undefined> {
     const client = cms.forRelease();
     const revision = await client.revision();
     let routes = metricRoutes;
     if (routes?.revision !== revision) {
-      const table = (async () => {
-        const [pages] = await client.list<{ path?: unknown }>("page");
-        const redirects = await redirectsFor(null);
-        return {
-          pages: (pages ?? []).flatMap((p) =>
+      const pages = client
+        .list<{ path?: unknown }>("page")
+        .then(([list]) =>
+          (list ?? []).flatMap((p) =>
             typeof p?.path === "string" ? [{ name: p.path, path: p.path }] : [],
           ),
-          redirects: redirects.flatMap((r) => redirectRoute(r) ?? []),
-        };
-      })();
-      routes = { revision, table };
-      metricRoutes = routes;
+        );
+      const entry = { revision, pages };
+      metricRoutes = entry;
+      routes = entry;
+      // A failed read is tried again on the next request, not kept for the revision.
+      pages.catch(() => {
+        if (metricRoutes === entry) metricRoutes = undefined;
+      });
     }
-    const { pages, redirects } = await routes.table;
-    const match = matchRoute(url, { routes: redirected ? redirects : pages });
+    const match = matchRoute(url, { routes: await routes.pages });
     return match.kind === "match" ? match.entry.path : undefined;
   }
 
@@ -408,14 +415,14 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
         device: detectDevice(request.headers.get("user-agent") ?? ""),
         seconds,
       };
-      const fixed = served?.redirect ? null : fixedRoute(url.pathname);
+      const fixed = served?.redirect ? REDIRECT_ROUTE : fixedRoute(url.pathname);
       // The site's own `routes` answer has no template the worker knows.
       if (fixed !== null || served?.routed) {
         recordServerRequest({ ...base, route: fixed ?? undefined });
         return;
       }
       ctx.waitUntil(
-        routeTemplate(url, served?.redirect === true).then(
+        routeTemplate(url).then(
           (route) => recordServerRequest({ ...base, route }),
           () => recordServerRequest(base),
         ),
@@ -767,7 +774,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
         ctx,
         (performance.now() - clock) / 1000,
         response.status,
-        cacheLabel(response, draft),
+        cacheLabel(response, draft, served),
         served,
       );
       return response;
