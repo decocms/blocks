@@ -11,9 +11,8 @@
 /**
  * The request header carrying the experiments this visitor is in. The proxy
  * removes any copy that arrives from outside (`draftRequestHeaders`) and sets
- * it only on a request of the release when the release has experiments; a
- * draft never carries one (a preview shows the control, plus the variants
- * its pointer forces).
+ * it only when the content the request renders (the release, or a draft) has
+ * experiments.
  */
 export const ASSIGNMENTS_HEADER = "x-deco-assignments";
 

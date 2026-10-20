@@ -36,6 +36,7 @@ afterEach(() => {
   uninstallCache();
   removeMetrics();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 function setup(
@@ -587,13 +588,22 @@ describe("A/B tests: the visitor's assignments", () => {
     expect(await (await routed.get("/hats", forged)).text()).toBe("none");
   });
 
-  it("a draft never writes deco_segment and hands the app no assignments", async () => {
-    const { get, entry } = setup({ cms: withTests({ "buy-button": 100 }) });
+  it("a draft is assigned from the draft's Experiments, and never writes deco_segment", async () => {
+    // The draft adds a test the release doesn't have.
+    const draft = {
+      set: { Experiments: { __resolveType: "experiments", "buy-button": 100 } },
+      delete: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(draft)),
+    );
+    const { get, entry } = setup({ cms: withTests({ "hero-copy": 0 }) });
     const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, {
-      headers: { "x-deco-assignments": "buy-button" },
+      headers: { "x-deco-assignments": "hero-copy" },
     });
     expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(POINTER);
-    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("buy-button");
     expect(segmentCookies(res)).toEqual([]);
   });
 

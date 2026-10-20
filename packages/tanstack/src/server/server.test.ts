@@ -28,14 +28,16 @@ describe("contentClient", () => {
     expect((await contentClient(cms, page()).resolve("BuyButton"))[0]).toBe("old");
   });
 
-  it("the release's client gets them; a draft's gets none (the control, plus forced variants)", () => {
+  it("the release's client and a draft's both get them (a draft's also shows its forced variants)", () => {
     const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
     contentClient(cms as never, page({ "x-deco-assignments": "a,b%2Cc" }));
     expect(cms.forRelease).toHaveBeenLastCalledWith({ assignments: { a: true, "b,c": true } });
     contentClient(cms as never, page());
     expect(cms.forRelease).toHaveBeenLastCalledWith();
     contentClient(cms as never, page({ "x-deco-draft": POINTER, "x-deco-assignments": "a" }));
-    expect(cms.forDraft).toHaveBeenCalledWith(POINTER);
+    expect(cms.forDraft).toHaveBeenLastCalledWith(POINTER, { assignments: { a: true } });
+    contentClient(cms as never, page({ "x-deco-draft": POINTER }));
+    expect(cms.forDraft).toHaveBeenLastCalledWith(POINTER);
   });
 });
 

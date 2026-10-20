@@ -117,6 +117,21 @@ describe("the experiment matcher", () => {
     expect(await title(cms.forRelease({ assignments }))).toBe("New button");
   });
 
+  it("exp-12: false for a name the client's Experiments block doesn't have, even when the assignments say true", async () => {
+    const cms = createCMS({ blocks: docsBlocks(), content: snapshotWith({ "hero-copy": 50 }) });
+    expect(await title(cms.forRelease({ assignments: { "buy-button": true } }))).toBe("Old");
+  });
+
+  it("exp-13: with no Experiments block, or one of another type, every experiment rule is false", async () => {
+    const none = createCMS({ blocks: docsBlocks(), content: snapshotWith(undefined) });
+    expect(await title(none.forRelease({ assignments: { "buy-button": true } }))).toBe("Old");
+    resetForTests();
+    const other = snapshotWith(undefined);
+    other.blocks.Experiments = { __resolveType: "seo", "buy-button": 50 };
+    const cms = createCMS({ blocks: docsBlocks(), content: other });
+    expect(await title(cms.forRelease({ assignments: { "buy-button": true } }))).toBe("Old");
+  });
+
   it("exp-09: a block map's own `experiment` replaces the built-in, as for every built-in", async () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), experiment: () => true },
@@ -143,6 +158,19 @@ describe("drafts", () => {
     const { assignments } = assign(experiments);
     expect(await title(cms.forDraft(pointer, { assignments }))).toBe("New button");
     expect(await title(cms.forDraft(pointer))).toBe("Old");
+  });
+
+  it("exp-14: a draft client reads Experiments from the draft: a test only in the draft is on in its preview and off on the release", async () => {
+    const studio = fakeStudio();
+    vi.stubGlobal("fetch", vi.fn(studio.fetch));
+    const release = snapshotWith(undefined);
+    const cms = createCMS({ blocks: docsBlocks(), content: release });
+    const pointer = studio.draft({
+      set: { Experiments: { __resolveType: "experiments", "buy-button": 50 } },
+    });
+    const assignments = { "buy-button": true };
+    expect(await title(cms.forDraft(pointer, { assignments }))).toBe("New button");
+    expect(await title(cms.forRelease({ assignments }))).toBe("Old");
   });
 
   it("exp-11: forDraft still takes the pointer alone; the options are optional", () => {

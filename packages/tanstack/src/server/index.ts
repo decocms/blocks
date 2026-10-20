@@ -6,7 +6,8 @@
  * allowlist), and handed to the app in the `x-deco-draft` request header; the
  * worker removes any copy that arrives from outside. These read that header.
  * The visitor's A/B assignments arrive the same way, on `x-deco-assignments`
- * (set by the worker for the release; never for a draft).
+ * (set by the worker from the `Experiments` block of the release or draft
+ * the request renders).
  */
 import type { Client, CMS } from "@decocms/blocks";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
@@ -20,9 +21,8 @@ export function requestDraft(request: Request = getRequest()): string | null {
 
 /**
  * The visitor's A/B assignments the worker decided for `request` (the
- * experiments they are in), or `null` when it decided none: a draft, a
- * release without experiments, or a request that didn't come through
- * `createDecoWorker`.
+ * experiments they are in), or `null` when it decided none: content without
+ * experiments, or a request that didn't come through `createDecoWorker`.
  */
 export function requestAssignments(
   request: Request = getRequest(),
@@ -32,16 +32,16 @@ export function requestAssignments(
 }
 
 /**
- * The content client for a request: its draft's, or the release's with the
+ * The content client for a request: its draft's, or the release's, with the
  * visitor's A/B assignments, so the built-in `experiment` matcher answers for
- * this visitor. A draft's client gets none: its `experiment` rules are
- * `false` (the control) and the variants its pointer forces show. Without
- * `request`, the request being served (`getRequest()`).
+ * this visitor (a draft's client also shows the variants its pointer
+ * forces). Without `request`, the request being served (`getRequest()`).
  */
 export function contentClient(cms: CMS, request: Request = getRequest()): Client {
   const pointer = requestDraft(request);
-  if (pointer) return cms.forDraft(pointer);
   const assignments = requestAssignments(request);
+  if (pointer)
+    return assignments === null ? cms.forDraft(pointer) : cms.forDraft(pointer, { assignments });
   return assignments === null ? cms.forRelease() : cms.forRelease({ assignments });
 }
 
