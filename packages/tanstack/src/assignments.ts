@@ -9,9 +9,8 @@
 /**
  * The request header carrying the experiments this visitor is in. The worker
  * removes any copy that arrives from outside and sets it only on a page or
- * server-function request of the release when the release has experiments;
- * a draft never carries one (a preview shows the control, plus the variants
- * its pointer forces).
+ * server-function request whose content (the release, or a draft) has
+ * experiments.
  */
 export const ASSIGNMENTS_HEADER = "x-deco-assignments";
 

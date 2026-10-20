@@ -114,12 +114,12 @@ describe("A/B tests: the assignments the proxy forwarded", () => {
     expect(await buyButton()).toBe("old");
   });
 
-  it("a draft's client gets none: the control, plus the variants its pointer forces", async () => {
+  it("a draft's client gets them too, with the variants its pointer forces", async () => {
     const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
     serve({ ...cookie, "x-deco-assignments": "buy-button" });
     expect(await bindDraft(withTests())).toBe(true);
     contentClient(cms as never);
-    expect(cms.forDraft).toHaveBeenCalledWith(POINTER);
+    expect(cms.forDraft).toHaveBeenCalledWith(POINTER, { assignments: { "buy-button": true } });
     expect(cms.forRelease).not.toHaveBeenCalled();
   });
 

@@ -226,16 +226,28 @@ describe("A/B tests: the visitor's assignments", () => {
     });
   });
 
-  it("a draft: no assignments and never the visitor's cookie", async () => {
+  it("a draft: assigned for the draft's Experiments, and never the visitor's cookie", async () => {
     const cms = { experiments: vi.fn(async () => ({ "buy-button": 100 })) };
-    expect(await decideAssignments(cms, visit(), { pointer: POINTER, setCookie: null })).toEqual({
-      assignments: null,
-      setCookie: null,
-    });
-    expect(cms.experiments).not.toHaveBeenCalled();
-    const res = await draftProxy(withTests({ "buy-button": 100 }))(draftLink());
-    expect(segmentCookies(res)).toEqual([]);
-    expect(forwarded(res, "x-deco-assignments")).toBe(null);
+    const d = await decideAssignments(cms, visit(), { pointer: POINTER, setCookie: null });
+    expect({ ...d.assignments }).toEqual({ "buy-button": true });
+    expect(d.setCookie).toBe(null);
+    expect(cms.experiments).toHaveBeenCalledWith(POINTER);
+    // The draft adds a test the release doesn't have; the rewrite forwards it.
+    const draft = {
+      set: { Experiments: { __resolveType: "experiments", "buy-button": 100 } },
+      delete: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(draft)),
+    );
+    try {
+      const res = await draftProxy(withTests({ "hero-copy": 0 }))(draftLink());
+      expect(segmentCookies(res)).toEqual([]);
+      expect(forwarded(res, "x-deco-assignments")).toBe("buy-button");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("http (local development) gets a cookie without Secure; x-forwarded-proto wins", async () => {

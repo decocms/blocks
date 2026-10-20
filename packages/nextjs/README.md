@@ -33,7 +33,7 @@ export async function proxy(request: NextRequest) {
   const assignments = await decideAssignments(proxyCms, request, draft);
   const headers = assignmentRequestHeaders(draftRequestHeaders(request, draft), assignments);
   const response =
-    rewriteToDraftRoute(request, draft) ?? NextResponse.next({ request: { headers } });
+    rewriteToDraftRoute(request, draft, assignments) ?? NextResponse.next({ request: { headers } });
   return applyAssignments(applyDraft(response, draft), assignments);
 }
 
@@ -51,7 +51,7 @@ Published pages stay static: the proxy sends only drafted requests to the draft 
 
 ### A/B tests
 
-A/B tests are content: the `Experiments` block (each test's name and the percentage of visitors in it) and the `experiment` matcher in a block's variants. On a request of the release, `decideAssignments` runs `assign` from `@decocms/blocks/experiments` over the release's `Experiments` block and the visitor's `deco_segment` cookie; `assignmentRequestHeaders` forwards the result on `x-deco-assignments` (`draftRequestHeaders` always removes a copy sent from outside), and `applyAssignments` sets the cookie only when the visitor's assignments changed. With no experiments in the release, nothing is forwarded and no cookie is set. A draft gets no assignments and never writes the cookie: a preview shows the control, plus the variants Studio forces in its link. On the page, `bindDraft` binds the forwarded assignments (it reads the request only when the release has experiments) and `contentClient(cms)` passes them to the release's client, where the `experiment` matcher reads them. A page that should vary per visitor has to render per request.
+A/B tests are content: the `Experiments` block (each test's name and the percentage of visitors in it) and the `experiment` matcher in a block's variants. On each request, `decideAssignments` runs `assign` from `@decocms/blocks/experiments` over the `Experiments` block of the content it renders (the release, or the draft) and the visitor's `deco_segment` cookie; `assignmentRequestHeaders` forwards the result on `x-deco-assignments` (`draftRequestHeaders` always removes a copy sent from outside), and `applyAssignments` sets the cookie only when the visitor's assignments changed. With no experiments, nothing is forwarded and no cookie is set. A draft is assigned for the draft's `Experiments`, so a test created in a draft runs in its preview, and never writes the cookie; the variants Studio forces in its link still apply. On the page, `bindDraft` binds the forwarded assignments (on the release it reads the request only when the release has experiments) and `contentClient(cms)` passes them to the client, where the `experiment` matcher reads them. A page that should vary per visitor has to render per request.
 
 ### Draft hosts
 

@@ -16,12 +16,13 @@
  * and `applyAssignments` on the response); a site without one exports
  * `draftProxy(...)`.
  *
- * A/B tests: the proxy decides the visitor's assignments for the release's
- * `Experiments` block (`assign` from `@decocms/blocks/experiments`), forwards
+ * A/B tests: the proxy decides the visitor's assignments for the
+ * `Experiments` block of the release or the draft it serves (`assign` from `@decocms/blocks/experiments`), forwards
  * them on `x-deco-assignments` (a copy from outside is always removed) for
  * `bindDraft` and `contentClient`, and stores them in the `deco_segment`
- * cookie when they changed. A draft writes no cookie and forwards none: a
- * preview shows the control, plus the variants its pointer forces.
+ * cookie when they changed. A draft's assignments are for the draft's
+ * `Experiments` block, so a test created in a draft runs in its preview, and
+ * a draft never writes the cookie.
  *
  * Statically rendered pages can't read a draft, so a drafted request to one
  * is rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
@@ -113,8 +114,8 @@ export function draftRequestHeaders(
 /** The visitor's A/B assignments for one request. */
 export interface AssignmentDecision {
   /**
-   * The experiments of the release and whether the visitor is in each;
-   * `null` for a draft or a release without experiments (nothing forwarded).
+   * The experiments of the release, or of the draft, and whether the visitor
+   * is in each; `null` when there are none (nothing forwarded).
    */
   assignments: Assignments | null;
   /** The `deco_segment` `Set-Cookie`, when the visitor's assignments changed. */
@@ -131,23 +132,24 @@ function isHttps(request: NextRequest | Request): boolean {
 }
 
 /**
- * The visitor's assignments for the release's `Experiments` block, read from
- * and written back to the `deco_segment` cookie. Nothing for a draft (a
- * preview never writes the visitor's cookie) or when the release has no
- * experiments.
+ * The visitor's assignments for the `Experiments` block of the content the
+ * request renders (the draft's, so a test created in a draft runs in its
+ * preview, or the release's), read from the `deco_segment` cookie and
+ * written back when they changed. A draft never writes the cookie. Nothing
+ * when there are no experiments.
  */
 export async function decideAssignments(
   cms: Pick<CMS, "experiments">,
   request: NextRequest | Request,
   draft: DraftDecision,
 ): Promise<AssignmentDecision> {
-  if (draft.pointer !== null) return UNASSIGNED;
-  const experiments = await cms.experiments();
+  const experiments = await cms.experiments(draft.pointer ?? undefined);
   if (Object.keys(experiments).length === 0) return UNASSIGNED;
   const { assignments, segment, changed } = assign(experiments, readSegment(request));
+  const write = changed && draft.pointer === null;
   return {
     assignments,
-    setCookie: changed ? segmentCookie(segment, { secure: isHttps(request) }) : null,
+    setCookie: write ? segmentCookie(segment, { secure: isHttps(request) }) : null,
   };
 }
 
@@ -177,19 +179,23 @@ export function isDraftRoutePath(pathname: string): boolean {
 
 /**
  * The rewrite of a drafted request onto the draft route, keeping its path and
- * forwarding the pointer; `null` when the request isn't drafted or is already
+ * forwarding the pointer and, when given, the visitor's assignments
+ * (`decideAssignments`); `null` when the request isn't drafted or is already
  * on the draft route.
  */
 export function rewriteToDraftRoute(
   request: NextRequest,
   decision: DraftDecision,
+  assignments: AssignmentDecision = UNASSIGNED,
 ): NextResponse | null {
   if (!decision.pointer) return null;
   const url = request.nextUrl.clone();
   if (isDraftRoutePath(url.pathname)) return null;
   url.pathname = `${DRAFT_ROUTE_PREFIX}${url.pathname}`;
   return NextResponse.rewrite(url, {
-    request: { headers: draftRequestHeaders(request, decision) },
+    request: {
+      headers: assignmentRequestHeaders(draftRequestHeaders(request, decision), assignments),
+    },
   });
 }
 
@@ -229,7 +235,7 @@ export function draftProxy(
   return async (request) => {
     const decision = await decideDraft(cms, request, policy);
     const assignments = await decideAssignments(cms, request, decision);
-    const rewritten = rewrite(request) ? rewriteToDraftRoute(request, decision) : null;
+    const rewritten = rewrite(request) ? rewriteToDraftRoute(request, decision, assignments) : null;
     const response =
       rewritten ??
       NextResponse.next({

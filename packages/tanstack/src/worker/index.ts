@@ -16,9 +16,10 @@
  *   every other response tells the CDN `no-store`, at one exit.
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
- * - A/B tests: on a page or server-function request of the release, the
- *   visitor's assignments for the release's `Experiments` block (`assign`
- *   from `@decocms/blocks/experiments`), handed to the app on
+ * - A/B tests: on a page or server-function request, the visitor's
+ *   assignments for the `Experiments` block of the content it renders (the
+ *   release's, or the draft's), through `assign` from
+ *   `@decocms/blocks/experiments`, handed to the app on
  *   `x-deco-assignments` (`contentClient` reads it) and stored in the
  *   `deco_segment` cookie when they changed. A draft writes no cookie.
  * - `http.server.request.duration` for every request, to the CMS's telemetry
@@ -465,26 +466,25 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
 
   /**
    * The visitor's assignments for a page or server-function request: the
-   * release's `Experiments` block through `assign`, on `x-deco-assignments`
-   * for the app, and the cookie when they changed. Nothing when the release
-   * has no experiments (no header, no cookie) or the request renders a draft:
-   * a preview shows the control, plus the variants its pointer forces, and
-   * never writes the visitor's cookie.
+   * `Experiments` block of the content it renders (the release, or the
+   * draft, so a test created in a draft runs in its preview) through
+   * `assign`, on `x-deco-assignments` for the app, and the cookie when they
+   * changed. Nothing when there are no experiments (no header, no cookie). A
+   * draft never writes the visitor's cookie.
    */
   async function assignVisitor(
     request: Request,
     draft: string | null,
   ): Promise<{ request: Request; segmentCookie?: string }> {
-    if (draft !== null) return { request };
     // TanStack Start's own build files render no content.
     if (BYPASS_PATHS.some((p) => new URL(request.url).pathname.startsWith(p))) return { request };
-    const experiments = await cms.experiments();
+    const experiments = await cms.experiments(draft ?? undefined);
     if (Object.keys(experiments).length === 0) return { request };
     const { assignments, segment, changed } = assign(experiments, readSegment(request));
     const headers = new Headers(request.headers);
     headers.set(ASSIGNMENTS_HEADER, encodeAssignments(assignments));
     const assigned = new Request(request, { headers });
-    if (!changed) return { request: assigned };
+    if (!changed || draft !== null) return { request: assigned };
     const secure = new URL(request.url).protocol === "https:";
     return { request: assigned, segmentCookie: segmentCookie(segment, { secure }) };
   }
