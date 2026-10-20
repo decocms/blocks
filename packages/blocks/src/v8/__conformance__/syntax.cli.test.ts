@@ -28,10 +28,12 @@ const BUILT_INS = [
   "never",
   "date",
   "experiment",
+  "schedule",
   "page",
   "redirect",
   "cms-settings",
   "experiments",
+  "schedules",
   "secret",
 ];
 
@@ -215,7 +217,7 @@ describe("the .deco folder", () => {
 });
 
 describe("deco schema", () => {
-  it("blocks-13/builtin-01: all eleven built-ins are in the schema, even with an empty block map", async () => {
+  it("blocks-13/builtin-01: all thirteen built-ins are in the schema, even with an empty block map", async () => {
     const empty = createFixture({ ".deco/index.ts": "export default {};\n" });
     try {
       const { code, out } = await deco(["schema"], empty.root);

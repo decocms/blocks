@@ -1,5 +1,5 @@
 /**
- * The forms of the eleven built-in blocks (spec: built-in-blocks, and the types
+ * The forms of the thirteen built-in blocks (spec: built-in-blocks, and the types
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
@@ -14,10 +14,12 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   never: "matchers",
   date: "matchers",
   experiment: "matchers",
+  schedule: "matchers",
   page: "pages",
   redirect: "redirects",
   "cms-settings": "content",
   experiments: "content",
+  schedules: "content",
   secret: "loaders",
 };
 
@@ -40,6 +42,11 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
     description: "True for the visitors in an A/B test of the Experiments block",
     icon: "flask",
   },
+  schedule: {
+    title: "Campaign",
+    description: "True during a campaign's dates in the Schedules block",
+    icon: "calendar-event",
+  },
   page: { title: "Page", description: "A page at a URL" },
   redirect: { title: "Redirect", description: "Sends one URL to another" },
   "cms-settings": {
@@ -53,6 +60,12 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
       "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone): the saved block named Experiments",
     icon: "flask",
   },
+  schedules: {
+    title: "Campaigns",
+    description:
+      "Campaign dates: each name with its start and end, the saved block named Schedules",
+    icon: "calendar-event",
+  },
   secret: { title: "Secret", description: "An encrypted value, decrypted on the server" },
 };
 
@@ -63,6 +76,26 @@ const ALLOCATION = {
   description: "0 turns the test off, 100 shows it to everyone",
   minimum: 0,
   maximum: 100,
+};
+
+/** The form of each campaign in the `schedules` block: one window, both bounds optional. */
+const CAMPAIGN_DATES = {
+  type: "object",
+  title: "Campaign dates",
+  properties: {
+    start: {
+      type: "string",
+      format: "date-time",
+      title: "Start",
+      description: "The campaign runs from this moment on (empty: since always)",
+    },
+    end: {
+      type: "string",
+      format: "date-time",
+      title: "End",
+      description: "The campaign stops at this moment (empty: never)",
+    },
+  },
 };
 
 function resolveTypeProperty(key: string) {
@@ -156,6 +189,21 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
           },
         },
       };
+    case "schedule":
+      return {
+        type: "object",
+        required: ["name"],
+        properties: {
+          name: {
+            type: "string",
+            title: "Campaign",
+            description: "A name in the Schedules block",
+          },
+        },
+      };
+    case "schedules":
+      // Like experiments: every key but __resolveType is a campaign (see builtInDefinition).
+      return { type: "object", properties: {} };
     case "experiments":
       // The names are the content: every key but __resolveType is one (see builtInDefinition).
       return { type: "object", properties: {} };
@@ -277,6 +325,7 @@ export function builtInDefinition(name: string, ctx: BuiltInContext): any {
     description: docs.description,
     ...(docs.icon ? { icon: docs.icon } : {}),
     ...(name === "experiments" ? { additionalProperties: ALLOCATION } : {}),
+    ...(name === "schedules" ? { additionalProperties: CAMPAIGN_DATES } : {}),
   });
 }
 

@@ -27,6 +27,7 @@ import {
   EXPERIMENTS_BLOCK,
   EXPERIMENTS_TYPE,
 } from "../../builtins/experiments.ts";
+import { SCHEDULE_MATCHER, SCHEDULES_BLOCK, SCHEDULES_TYPE } from "../../builtins/schedules.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
 import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
@@ -401,12 +402,29 @@ class Checker {
     return new Set(Object.keys(entry).filter((key) => key !== "__resolveType"));
   }
 
+  /** The names in the `Schedules` block, or null when there is no such block. */
+  private scheduleNames(): Set<string> | null {
+    const entry = own(this.saved.blocks, SCHEDULES_BLOCK);
+    if (!isBlock(entry) || entry.__resolveType !== SCHEDULES_TYPE) return null;
+    return new Set(Object.keys(entry).filter((key) => key !== "__resolveType"));
+  }
+
   /**
    * The experiment a rule reads: the `name` of a built-in `experiment` block,
    * inline or through a saved block (whose `name` the rule may override).
    */
   private experimentRuleName(rule: Json): string | undefined {
-    if (!isBlock(rule) || !this.isOwnBuiltIn(EXPERIMENT_MATCHER)) return undefined;
+    return this.namedRule(rule, EXPERIMENT_MATCHER);
+  }
+
+  /**
+   * The `name` a rule passes to the built-in `matcher` (`experiment` or
+   * `schedule`), inline or through a saved block (whose `name` the rule may
+   * override); undefined for any other rule, or when the block map replaces
+   * the built-in.
+   */
+  private namedRule(rule: Json, matcher: string): string | undefined {
+    if (!isBlock(rule) || !this.isOwnBuiltIn(matcher)) return undefined;
     let type: string | null = this.canonicalType(rule.__resolveType);
     let name: unknown = rule.name;
     if (type === null) {
@@ -415,7 +433,27 @@ class Checker {
       type = this.canonicalType(saved.__resolveType);
       name = "name" in rule ? rule.name : saved.name;
     }
-    return type === EXPERIMENT_MATCHER && typeof name === "string" ? name : undefined;
+    return type === matcher && typeof name === "string" ? name : undefined;
+  }
+
+  /** Each campaign of the `Schedules` block whose end isn't after its start. */
+  private checkScheduleWindows(ctx: Context, entry: Record<string, Json>): void {
+    for (const key of Object.keys(entry).sort()) {
+      if (key === "__resolveType") continue;
+      const window = entry[key];
+      if (!isObject(window)) continue;
+      const { start, end } = window as Record<string, unknown>;
+      if (typeof start !== "string" || typeof end !== "string") continue;
+      const from = Date.parse(start);
+      const until = Date.parse(end);
+      if (Number.isNaN(from) || Number.isNaN(until) || until > from) continue;
+      this.report(
+        ctx,
+        joinPath("", `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}/end`),
+        `the campaign "${key}" ends before it starts, so it never runs: set an end after the start`,
+        "warning",
+      );
+    }
   }
 
   private report(
@@ -615,6 +653,19 @@ class Checker {
         }
         return;
       }
+      case SCHEDULE_MATCHER: {
+        this.checkProps(ctx, block, path, true);
+        const name = this.namedRule(block, SCHEDULE_MATCHER);
+        if (name !== undefined && !this.scheduleNames()?.has(name)) {
+          this.report(
+            ctx,
+            joinPath(path, "/name"),
+            `no campaign "${name}" in the "${SCHEDULES_BLOCK}" block: this rule is always false`,
+            "warning",
+          );
+        }
+        return;
+      }
       default:
         this.checkProps(ctx, block, path, true);
     }
@@ -773,6 +824,32 @@ class Checker {
           "warning",
         );
       }
+      if (name === SCHEDULES_BLOCK && this.isOwnBuiltIn(SCHEDULES_TYPE)) {
+        if (entry.__resolveType !== SCHEDULES_TYPE) {
+          this.report(
+            ctx,
+            "",
+            `"${SCHEDULES_BLOCK}" is the name of the campaigns block (type "${SCHEDULES_TYPE}"); ` +
+              "this one is ignored as campaigns, so rename it",
+            "warning",
+          );
+        } else {
+          this.checkScheduleWindows(ctx, entry);
+        }
+      }
+      if (
+        name !== SCHEDULES_BLOCK &&
+        this.canonicalType(entry.__resolveType) === SCHEDULES_TYPE &&
+        this.isOwnBuiltIn(SCHEDULES_TYPE)
+      ) {
+        this.report(
+          ctx,
+          "",
+          `the campaigns are read only from the saved block "${SCHEDULES_BLOCK}"; ` +
+            `this "${SCHEDULES_TYPE}" block is never read, so move its campaigns there`,
+          "warning",
+        );
+      }
       this.checkBlock(ctx, entry, "", null);
     }
     problems.push(...this.builtInOverrides());
@@ -782,20 +859,20 @@ class Checker {
 
   /**
    * A block map entry named after a built-in replaces it, schema included.
-   * Deliberate for most (a migrated site's own `page`), but `experiment` and
-   * `experiments` were free names before they were built in, so a site that
-   * registered its own A/B matcher under them now hides the built-in by
-   * accident.
+   * Deliberate for most (a migrated site's own `page`), but `experiment`,
+   * `experiments`, `schedule` and `schedules` were free names before they
+   * were built in, so a site that registered its own block under them now
+   * hides the built-in by accident.
    */
   private builtInOverrides(): Problem[] {
     const problems: Problem[] = [];
-    for (const name of [EXPERIMENT_MATCHER, EXPERIMENTS_TYPE]) {
+    for (const name of [EXPERIMENT_MATCHER, EXPERIMENTS_TYPE, SCHEDULE_MATCHER, SCHEDULES_TYPE]) {
       if (this.siteNamespaceOf(name) === undefined) continue;
       problems.push({
         file: ".deco/schema.gen.json",
         path: name,
         severity: "warning",
-        message: `the block map defines "${name}", which replaces the built-in A/B block of that name; rename it to use the built-in`,
+        message: `the block map defines "${name}", which replaces the built-in block of that name; rename it to use the built-in`,
       });
     }
     return problems;

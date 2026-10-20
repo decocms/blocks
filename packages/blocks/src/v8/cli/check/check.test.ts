@@ -948,7 +948,107 @@ describe("the experiments block and the experiment matcher", () => {
       namespace: "site",
     };
     expect(lines(checkContent(own, saved({})))).toEqual([
-      '.deco/schema.gen.json warning experiment: the block map defines "experiment", which replaces the built-in A/B block of that name; rename it to use the built-in',
+      '.deco/schema.gen.json warning experiment: the block map defines "experiment", which replaces the built-in block of that name; rename it to use the built-in',
+    ]);
+  });
+});
+
+describe("the schedules block and the schedule matcher", () => {
+  const window = { start: "2026-11-27T00:00:00-03:00", end: "2026-11-30T00:00:00-03:00" };
+  const schedules = { __resolveType: "schedules", "black-friday": window, launch: {} };
+  const rule = (name: string) => ({ __resolveType: "schedule", name });
+  const banner = (ruleBlock: unknown) => ({
+    __resolveType: "multivariate",
+    variants: [
+      { rule: ruleBlock, value: { __resolveType: "lazy", value: [hero] } },
+      { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
+    ],
+  });
+
+  it("passes a Schedules block of campaign dates and rules naming its campaigns", () => {
+    expect(
+      run({ Schedules: schedules, HomePage: page(banner(rule("black-friday")) as never) }),
+    ).toEqual([]);
+  });
+
+  it("reports a campaign bound that isn't a date-time", () => {
+    const out = lines(
+      run({ Schedules: { __resolveType: "schedules", sale: { start: "tomorrow" } } }),
+    );
+    expect(out.some((line) => line.startsWith("Schedules.json sale.start:"))).toBe(true);
+  });
+
+  it("warns about a Schedules block of another type, which is ignored as campaigns", () => {
+    expect(lines(run({ Schedules: hero }))).toEqual([
+      'Schedules.json warning "Schedules" is the name of the campaigns block (type "schedules"); this one is ignored as campaigns, so rename it',
+    ]);
+  });
+
+  it("warns about a schedules block saved under another name, which is never read", () => {
+    expect(lines(run({ Schedules: schedules, MoreDates: { ...schedules } }))).toEqual([
+      'MoreDates.json warning the campaigns are read only from the saved block "Schedules"; this "schedules" block is never read, so move its campaigns there',
+    ]);
+  });
+
+  it("warns about a rule naming a campaign the Schedules block doesn't have", () => {
+    expect(lines(run({ Schedules: schedules, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning name: no campaign "gone" in the "Schedules" block: this rule is always false',
+    ]);
+    // With no Schedules block at all, every schedule rule is always false.
+    expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
+      'Rule.json warning name: no campaign "black-friday" in the "Schedules" block: this rule is always false',
+    ]);
+    // A saved rule is followed to the campaign it reads.
+    expect(
+      lines(
+        run({
+          Schedules: schedules,
+          SaleRule: rule("gone"),
+          Banner: banner({ __resolveType: "SaleRule" }),
+        }),
+      ),
+    ).toEqual([
+      'SaleRule.json warning name: no campaign "gone" in the "Schedules" block: this rule is always false',
+    ]);
+  });
+
+  it("warns about a campaign whose end isn't after its start", () => {
+    expect(
+      lines(
+        run({
+          Schedules: {
+            __resolveType: "schedules",
+            backwards: { start: window.end, end: window.start },
+            empty: { start: window.start, end: window.start },
+            "half off": { start: window.end, end: window.start },
+            fine: window,
+          },
+        }),
+      ),
+    ).toEqual([
+      'Schedules.json warning backwards.end: the campaign "backwards" ends before it starts, so it never runs: set an end after the start',
+      'Schedules.json warning empty.end: the campaign "empty" ends before it starts, so it never runs: set an end after the start',
+      'Schedules.json warning ["half off"].end: the campaign "half off" ends before it starts, so it never runs: set an end after the start',
+    ]);
+  });
+
+  it("schedules and schedule are reserved names", () => {
+    expect(lines(run({ schedules: { ...schedules } }))).toContain(
+      'schedules.json saved block "schedules" has the name of a built-in block',
+    );
+    expect(lines(run({ Schedules: schedules, schedule: rule("launch") }))).toContain(
+      'schedule.json saved block "schedule" has the name of a built-in block',
+    );
+  });
+
+  it("warns when the block map defines schedule or schedules, which replaces the built-in", () => {
+    const own = structuredClone(meta);
+    own.manifest.blocks.matchers.schedule = {
+      ...own.manifest.blocks.matchers.schedule,
+      namespace: "site",
+    };
+    expect(lines(checkContent(own, saved({})))).toEqual([
+      '.deco/schema.gen.json warning schedule: the block map defines "schedule", which replaces the built-in block of that name; rename it to use the built-in',
     ]);
   });
 });

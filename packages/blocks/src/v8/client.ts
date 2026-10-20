@@ -2,6 +2,7 @@
  * A client: one revision, loaded on first use and read for the rest of its
  * life, plus a memo of block results. Create one per request.
  */
+import { withSchedules } from "./builtins/schedules.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
 import { isBlock } from "./json.ts";
 import { Resolver } from "./resolver.ts";
@@ -21,7 +22,10 @@ interface ClientOptions {
   /** Loads this client's snapshot; called at most once. */
   load: () => Promise<Snapshot>;
   blocks: Blocks;
-  /** The built-ins, with this CMS's `secret`. */
+  /**
+   * The built-ins, with this CMS's `secret`. Their `schedule` is bound to
+   * the loaded snapshot's `Schedules` block when the client loads.
+   */
   builtIns: Readonly<Blocks>;
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
@@ -107,7 +111,7 @@ export class CMSClient implements Client {
         resolver: new Resolver({
           snapshot,
           blocks: this.#options.blocks,
-          builtIns: this.#options.builtIns,
+          builtIns: withSchedules(this.#options.builtIns, snapshot),
           onCollision: this.#options.onCollision,
           onBlock: this.#options.telemetry?.block,
         }),
