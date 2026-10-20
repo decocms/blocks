@@ -8,7 +8,7 @@
  */
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
-import { EXPERIMENT_MATCHER, experimentMatcher, readExperiments } from "./builtins/experiments.ts";
+import { assignedNames, readExperiments } from "./builtins/experiments.ts";
 import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
@@ -271,21 +271,15 @@ class CMSInstance {
   }
 
   /**
-   * A client. With assignments, its built-ins hold an `experiment` matcher of
-   * its own, so one request's assignments never reach another's client.
+   * A client. Its assignments are its own, copied here, so one request's
+   * assignments never reach another's client.
    */
   #client(blocks: Blocks, load: () => Promise<Snapshot>, options?: ClientOptions): Client {
-    const assignments = options?.assignments;
     return new CMSClient({
       load,
       blocks,
-      builtIns:
-        assignments === undefined
-          ? this.#builtIns
-          : Object.freeze({
-              ...this.#builtIns,
-              [EXPERIMENT_MATCHER]: experimentMatcher(assignments),
-            }),
+      builtIns: this.#builtIns,
+      assignments: assignedNames(options?.assignments),
       onCollision: (name) => this.#warnCollision(name),
       telemetry: this.#telemetry?.forClient(),
     });
