@@ -17,12 +17,12 @@
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - `http.server.request.duration` for every request, to the CMS's telemetry
- *   (`@decocms/blocks/metrics`), labelled with the route's template, the
+ *   (`recordServerRequest` from `@decocms/blocks/fetch`), labelled with the route's template, the
  *   method, the status class, the cache decision and the device; nothing
  *   when the CMS has no telemetry.
  */
 import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
-import { measuringServerRequests, recordServerRequest } from "@decocms/blocks/metrics";
+import { measuringServerRequests, recordServerRequest } from "@decocms/blocks/fetch";
 import { runInScope } from "@decocms/tanstack/scope";
 import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import { CSEG_PARAM, DEGRADED_HEADER, PAGE_STATUS_HEADER } from "../shared.ts";

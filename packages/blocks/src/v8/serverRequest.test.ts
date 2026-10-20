@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * `@decocms/blocks/metrics`: `http.server.request.duration` as it leaves for
+ * `recordServerRequest` (`@decocms/blocks/fetch`): `http.server.request.duration` as it leaves for
  * the collector (name, unit, buckets, labels), its normalized labels, and
  * that it costs nothing and never throws with telemetry off.
  */
@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetForTests } from "./cms";
-import { measuringServerRequests, recordServerRequest } from "./metrics";
+import { measuringServerRequests, recordServerRequest } from "./fetch";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry";
 
 const ENDPOINT = "https://otel.example.com";
@@ -159,18 +159,17 @@ describe("telemetry off", () => {
   });
 });
 
-describe("the ./metrics subpath", () => {
-  it("package.json maps it to the source and the build", () => {
+describe("the ./fetch subpath", () => {
+  it("holds the server request metric next to the instrumented fetch; there is no ./metrics", async () => {
     const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf-8"));
-    expect(pkg.exports["./metrics"]).toEqual({
-      types: "./dist/v8/metrics.d.ts",
-      source: "./src/v8/metrics.ts",
-      default: "./dist/v8/metrics.js",
+    expect(pkg.exports["./metrics"]).toBeUndefined();
+    expect(pkg.exports["./fetch"]).toEqual({
+      types: "./dist/v8/fetch.d.ts",
+      source: "./src/v8/fetch.ts",
+      default: "./dist/v8/fetch.js",
     });
-  });
-
-  it("exports the recorder and its guard, nothing else", async () => {
-    expect(Object.keys(await import("./metrics.ts")).sort()).toEqual([
+    expect(Object.keys(await import("./fetch.ts")).sort()).toEqual([
+      "createInstrumentedFetch",
       "measuringServerRequests",
       "recordServerRequest",
     ]);

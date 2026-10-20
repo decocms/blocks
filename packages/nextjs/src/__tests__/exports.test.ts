@@ -8,6 +8,9 @@
  *   `next/headers`: the proxy bundle stays small and never reaches a block map.
  * - `/image-loader` (the `loaderFile`, in every client bundle) is pure: no
  *   Node built-in, no CMS, no React.
+ * - `/instrumentation` (bundled into `instrumentation.ts` for both runtimes)
+ *   loads no React, no CMS and no Node built-in, and `@opentelemetry/api`
+ *   only when `register()` runs.
  * - The request's draft lives in React's `cache()` (`server/slot.ts`), not in
  *   `AsyncLocalStorage`, so no subpath needs a per-runtime conditional export.
  */
@@ -112,6 +115,20 @@ describe("module graphs", () => {
     expect(inputs.every((i) => i.includes("image-loader/") || i.endsWith("v8/image.ts"))).toBe(
       true,
     );
+  });
+
+  it("/instrumentation: no React, no CMS, no Node built-in; OpenTelemetry's API loaded at run time", () => {
+    const { inputs, output } = bundle("instrumentation/index.ts", [
+      "--platform=neutral",
+      "--main-fields=module,main",
+      "--external:@opentelemetry/api",
+      "--external:next",
+      "--external:next/*",
+    ]);
+    expect(inputs.filter((i) => /node_modules\/(react|react-dom)\//.test(i))).toEqual([]);
+    expect(inputs.some((i) => /v8\/(cms|resolver|content)\.ts$/.test(i))).toBe(false);
+    expect(output).not.toMatch(/["'`]node:|next\/server|next\/headers/);
+    expect(output).toMatch(/import\(\s*"@opentelemetry\/api"\s*\)/);
   });
 
   it("the root components never load next/headers", () => {

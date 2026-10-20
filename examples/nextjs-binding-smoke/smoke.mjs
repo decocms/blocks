@@ -1,14 +1,18 @@
 // The header matrix against the built app on `next start`: run `bun run build && bun run smoke`.
 // A local draft server answers the draft pointer (a loopback host, which the CMS accepts by
-// default), so the draft route renders real draft content. Exits non-zero on any difference.
+// default), so the draft route renders real draft content. A local OTLP sink receives the CMS's
+// telemetry, where src/instrumentation.ts records http.server.request.duration from Next's request
+// spans. Exits non-zero on any difference.
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { gunzipSync } from "node:zlib";
 
 const PORT = Number(process.env.SMOKE_PORT ?? 8821);
 const DRAFT_PORT = PORT + 1;
+const OTLP_PORT = PORT + 2;
 const BASE = `http://127.0.0.1:${PORT}`;
 const POINTER = `127.0.0.1:${DRAFT_PORT}/draft@v1`;
 const DECO_HOST = { "x-forwarded-host": "binding-smoke.deco.site" };
@@ -22,12 +26,36 @@ const draftServer = createServer((req, res) => {
 });
 await new Promise((resolve) => draftServer.listen(DRAFT_PORT, "127.0.0.1", resolve));
 
+// http.server.request.duration's data points, as the CMS sends them (OTLP/HTTP JSON, gzipped).
+const requests = [];
+const otlp = createServer((req, res) => {
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    if (req.url === "/v1/metrics") {
+      let body = Buffer.concat(chunks);
+      if (req.headers["content-encoding"] === "gzip") body = gunzipSync(body);
+      for (const { scopeMetrics } of JSON.parse(body.toString()).resourceMetrics)
+        for (const { metrics } of scopeMetrics)
+          for (const metric of metrics.filter((m) => m.name === "http.server.request.duration"))
+            for (const point of metric.histogram.dataPoints)
+              requests.push({
+                ...Object.fromEntries(point.attributes.map((a) => [a.key, a.value.stringValue])),
+                count: Number(point.count),
+                sum: point.sum,
+              });
+    }
+    res.writeHead(200, { "content-type": "application/json" }).end("{}");
+  });
+});
+await new Promise((resolve) => otlp.listen(OTLP_PORT, "127.0.0.1", resolve));
+
 // No -H 127.0.0.1: Next's request URL names a loopback host "localhost", so with that bind
 // a rewrite's origin differs from the server's and Next proxies it as an external URL.
 const server = spawn("npx", ["next", "start", "-p", String(PORT)], {
   stdio: ["ignore", "pipe", "pipe"],
   detached: true,
-  env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+  env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", SMOKE_OTLP_ENDPOINT: `http://127.0.0.1:${OTLP_PORT}` },
 });
 let log = "";
 server.stdout.on("data", (d) => (log += d));
@@ -112,6 +140,47 @@ try {
   const direct = await get("/_draft/summer-shirt/p", { ...DECO_HOST, ...COOKIE });
   check("the draft route is reachable only through the proxy", direct.res.status === 404, direct.res.status);
 
+  // http.server.request.duration: one point per request Next served, labelled with its route template.
+  const failing = await get("/smoke/fail");
+  check("a failing page is a 500", failing.res.status === 500, failing.res.status);
+  const missing = await get("/no/such/page");
+  check("an unknown path is a 404", missing.res.status === 404, missing.res.status);
+  const edge = await get("/smoke/edge");
+  check("an Edge route answers", edge.res.status === 200, edge.res.status);
+  // The CMS sends metrics every 10 s.
+  for (let i = 0; i < 60 && !requests.some((r) => r["http.route"] === "/smoke/fail"); i++) await sleep(500);
+  const count = (labels) =>
+    requests
+      .filter((r) => Object.entries(labels).every(([k, v]) => r[k] === v))
+      .reduce((n, r) => n + r.count, 0);
+  check(
+    // The published page, ?__draft=off, the host outside the allowlist and the forged header.
+    "pages count under their route template",
+    count({ "http.route": "/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 4 &&
+      count({ "http.route": "/blog", status_class: "2xx" }) >= 1,
+    JSON.stringify(requests),
+  );
+  check("a 404 counts under the page that answered it", count({ "http.route": "/[[...path]]", status_class: "4xx" }) === 1);
+  check("a 5xx counts under its page", count({ "http.route": "/smoke/fail", status_class: "5xx" }) === 1);
+  check(
+    "a draft render is DRAFT, on the draft route",
+    count({ "http.route": "/_draft/[[...path]]", status_class: "2xx", cache: "DRAFT" }) === 2 &&
+      count({ cache: "DRAFT" }) === 2,
+    JSON.stringify(requests.filter((r) => r.cache === "DRAFT")),
+  );
+  check(
+    // The proxy runs through a handleRequest of its own, which is not counted; an Edge route has no
+    // route template on the Node server's span.
+    "the proxy's own runs are not requests; only the Edge route is unmatched",
+    count({ "http.route": "unmatched" }) === 1,
+    JSON.stringify(requests.filter((r) => r["http.route"] === "unmatched")),
+  );
+  check(
+    "every point is a known method with a duration",
+    requests.length > 0 && requests.every((r) => r["http.request.method"] === "GET" && r.sum > 0 && r.sum < 30 * r.count),
+    JSON.stringify(requests),
+  );
+
   // The proxy bundle holds no block map: no section component, no React. (Block names do appear:
   // the proxy's CMS handle carries the content, which names each block's type.)
   const entry = readFileSync(".next/server/middleware.js", "utf-8");
@@ -131,6 +200,7 @@ try {
     process.kill(-server.pid, "SIGTERM");
   } catch {}
   draftServer.close();
+  otlp.close();
 }
 
 if (failures.length) {

@@ -184,7 +184,12 @@ describe("AR-02 fetch, analytics and secrets live on their own subpaths", () => 
   });
 
   it("each subpath exports exactly the documented runtime names", () => {
-    expect(Object.keys(fetchModule)).toEqual(["createInstrumentedFetch"]);
+    // /fetch holds blocks' HTTP request metrics: the client's instrumented fetch and the server's recorder.
+    expect(Object.keys(fetchModule).sort()).toEqual([
+      "createInstrumentedFetch",
+      "measuringServerRequests",
+      "recordServerRequest",
+    ]);
     expect(Object.keys(analyticsModule).sort()).toEqual(["AnalyticsScript", "track"]);
     expect(Object.keys(secretsModule)).toEqual(["encryptSecret"]);
   });

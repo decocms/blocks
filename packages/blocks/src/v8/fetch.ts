@@ -1,13 +1,26 @@
 /**
- * `@decocms/blocks/fetch`: the instrumented fetch every upstream client uses.
- * See /next/upstream-clients and /next/api-reference#createinstrumentedfetch-options.
+ * `@decocms/blocks/fetch`: blocks' HTTP request metrics, client and server,
+ * on the CMS's telemetry in the same process (OpenTelemetry's recommended
+ * buckets, in seconds). See /next/upstream-clients, /next/telemetry and
+ * /next/api-reference#createinstrumentedfetch-options.
  *
- * Each request is timed until its response headers arrive and measured once
- * (`http.client.request.duration`), with `provider`, `operation`,
- * `status_class`, `cached` and `retries` labels, however many retries it
- * took. Measurements go to the CMS in the same process, and nowhere when it
- * has no telemetry destination. Nothing about a request's body, headers or
- * query string is recorded.
+ * - `createInstrumentedFetch`: the instrumented fetch every upstream client
+ *   uses. Each request is timed until its response headers arrive and
+ *   measured once (`http.client.request.duration`), with `provider`,
+ *   `operation`, `status_class`, `cached` and `retries` labels, however many
+ *   retries it took. Nothing about a request's body, headers or query string
+ *   is recorded.
+ * - `recordServerRequest` and `measuringServerRequests`: the site's own
+ *   request metric, `http.server.request.duration`, which the framework
+ *   bindings record (`createDecoWorker` in `@decocms/tanstack`, `register`
+ *   from `@decocms/nextjs/instrumentation`), labelled `http.route`,
+ *   `http.request.method`, `status_class`, `cache` and, when the binding
+ *   knows it, `device`. Every label is normalized to a short list of values
+ *   so the metric stays low-cardinality whatever the binding passes.
+ *
+ * With no telemetry destination (no `token` and no `endpoint`, or
+ * `metrics: false` in the content) nothing is recorded, and nothing here ever
+ * throws into a request because of a metric.
  */
 import { currentTelemetry, describe, newTraceId } from "./telemetry.ts";
 
@@ -130,4 +143,92 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
 function isAbort(error: unknown): boolean {
   const name = (error as { name?: unknown } | null)?.name;
   return name === "AbortError" || name === "TimeoutError";
+}
+
+// ---------------------------------------------------------------------------
+// http.server.request.duration
+// ---------------------------------------------------------------------------
+
+/** The metric's name. */
+const SERVER_REQUEST_DURATION = "http.server.request.duration";
+
+/** OpenTelemetry's well-known methods; anything else is `_OTHER`. */
+const METHODS = new Set([
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "DELETE",
+  "CONNECT",
+  "OPTIONS",
+  "TRACE",
+  "PATCH",
+]);
+const CACHE = new Set(["HIT", "MISS", "BYPASS", "DRAFT"]);
+const DEVICES = new Set(["mobile", "tablet", "desktop"]);
+const MAX_ROUTE = 200;
+
+/** One request a binding served. */
+interface ServerRequest {
+  /**
+   * The matched route's template (`/`, `/:slug/p`, `/_serverFn/*`), never
+   * the request's path. Missing or empty: `"unmatched"`.
+   */
+  route?: string;
+  /** The request's method; one OpenTelemetry doesn't know is `_OTHER`. */
+  method: string;
+  /** The response's status; a request that threw is a 500. */
+  status: number;
+  /** The binding's own cache decision; anything else is `BYPASS`. */
+  cache: "HIT" | "MISS" | "BYPASS" | "DRAFT";
+  /** `mobile`, `tablet` or `desktop`; left out otherwise. */
+  device?: string;
+  /** From the request to the response's headers. */
+  seconds: number;
+}
+
+/**
+ * Whether a request recorded now would be kept: a binding asks before work
+ * it does only for the metric (finding the route), so that work costs
+ * nothing with telemetry off.
+ */
+export function measuringServerRequests(): boolean {
+  try {
+    return currentTelemetry()?.measuring() === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Records one served request as `http.server.request.duration`. Never throws. */
+export function recordServerRequest(request: ServerRequest): void {
+  try {
+    const telemetry = currentTelemetry();
+    if (telemetry === undefined || !telemetry.measuring()) return;
+    const seconds = Number(request.seconds);
+    if (!Number.isFinite(seconds) || seconds < 0) return;
+    const method = String(request.method ?? "").toUpperCase();
+    const status = Number(request.status);
+    const route =
+      typeof request.route === "string" && request.route !== ""
+        ? request.route.slice(0, MAX_ROUTE)
+        : "unmatched";
+    const device = typeof request.device === "string" ? request.device : "";
+    telemetry.histogram(
+      SERVER_REQUEST_DURATION,
+      {
+        "http.route": route,
+        "http.request.method": METHODS.has(method) ? method : "_OTHER",
+        status_class:
+          Number.isInteger(status) && status >= 100 && status <= 599
+            ? `${Math.floor(status / 100)}xx`
+            : "5xx",
+        cache: CACHE.has(request.cache) ? request.cache : "BYPASS",
+        ...(DEVICES.has(device) ? { device } : {}),
+      },
+      seconds,
+    );
+  } catch {
+    // A metric never breaks a request.
+  }
 }
