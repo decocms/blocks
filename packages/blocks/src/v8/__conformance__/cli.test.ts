@@ -1990,14 +1990,16 @@ describe("studio-compatibility.mdx", () => {
       expect.arrayContaining(["everything", "asyncSection", "promoBanner", "productCard"]),
     );
     expect(Object.keys(g.matchers)).toEqual(
-      expect.arrayContaining(["isWeekend", "always", "never", "date"]),
+      expect.arrayContaining(["isWeekend", "always", "never", "date", "experiment"]),
     );
     expect(Object.keys(g.loaders)).toEqual(
       expect.arrayContaining(["catalogProduct", "syncProduct", "greeting", "multivariate", "lazy"]),
     );
     expect(Object.keys(g.pages)).toEqual(expect.arrayContaining(["page", "post"]));
     expect(Object.keys(g.redirects)).toContain("redirect");
-    expect(Object.keys(g.content)).toEqual(expect.arrayContaining(["seo", "hero", "cms-settings"]));
+    expect(Object.keys(g.content)).toEqual(
+      expect.arrayContaining(["seo", "hero", "cms-settings", "experiments"]),
+    );
   });
 
   it("sc-02: a render-descriptor-returning function is a section", async () => {
