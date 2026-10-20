@@ -43,6 +43,11 @@
 			"source": "./src/v8/cli/index.ts",
 			"default": "./dist/v8/cli/index.js"
 		},
+		"./experiments": {
+			"types": "./dist/v8/experiments.d.ts",
+			"source": "./src/v8/experiments.ts",
+			"default": "./dist/v8/experiments.js"
+		},
 		"./fetch": {
 			"types": "./dist/v8/fetch.d.ts",
 			"source": "./src/v8/fetch.ts",

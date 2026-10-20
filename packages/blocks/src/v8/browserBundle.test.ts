@@ -53,6 +53,20 @@ describe("v8 core bundle", () => {
     }
   });
 
+  it("@decocms/blocks/experiments bundles for a browser and a workerd target with no Node built-ins, no React and no CMS runtime", () => {
+    for (const args of [
+      ["--platform=browser"],
+      ["--platform=neutral", "--conditions=workerd,worker,browser"],
+    ]) {
+      const output = bundle(args, "experiments.ts");
+      expect(output).not.toMatch(/node:|require\(|react/);
+      // The decision is the same function on both sides, so it must not drag
+      // the CMS in: a browser pays for the bucketing alone.
+      expect(output).not.toContain("createCMS");
+      expect(output).toContain("assign");
+    }
+  });
+
   it("@decocms/blocks/preview bundles for a browser with no server code: only its own files, the draft names and React (no Studio origin list)", () => {
     for (const args of [
       ["--platform=browser"],
