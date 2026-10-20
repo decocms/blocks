@@ -8,6 +8,8 @@ import {
   createKVCacheStorage,
   createMemoryCacheStorage,
   createWebCacheStorage,
+  tieredCacheStorage,
+  timeBoxedCacheStorage,
 } from "./cacheStorage";
 import { RequestContext } from "./requestContext";
 import { createResponseCache } from "./responseCache";
@@ -267,4 +269,122 @@ it("bounds SWR separately from stale-if-error and stops serving at the final TTL
     vi.advanceTimersByTime(150);
     await expect(loader({})).rejects.toThrow("origin down");
   });
+});
+
+it("KV only encodes a value to size it when it could exceed the limit", async () => {
+  const kv = fakeKV();
+  const encode = vi.spyOn(TextEncoder.prototype, "encode");
+  await createKVCacheStorage(kv).set("k", "small", Date.now() + 60_000);
+  // hashCacheKey encodes the key; the value itself must not be encoded again.
+  expect(
+    encode.mock.calls.filter(([s]) => typeof s === "string" && s.includes("small")),
+  ).toHaveLength(0);
+  encode.mockRestore();
+});
+
+function binaryKV() {
+  const kv = fakeKV();
+  const bin = new Map<string, Uint8Array>();
+  return Object.assign(kv, {
+    bin,
+    get: vi.fn(async (key: string, type?: string) =>
+      type === "arrayBuffer"
+        ? (bin.get(key)?.slice().buffer ?? null)
+        : (kv.values.get(key) ?? null),
+    ),
+    put: vi.fn(
+      async (key: string, value: string | Uint8Array, _opts: { expirationTtl: number }) => {
+        if (typeof value === "string") kv.values.set(key, value);
+        else bin.set(key, value.slice());
+      },
+    ),
+    delete: vi.fn(async (key: string) => {
+      kv.values.delete(key);
+      bin.delete(key);
+    }),
+  });
+}
+
+for (const [name, make] of [
+  ["memory", () => createMemoryCacheStorage()],
+  ["KV", () => createKVCacheStorage(binaryKV())],
+  ["Web Cache API", () => createWebCacheStorage(fakeWebCache(), "https://site.test")],
+  [
+    "tiered + time-boxed",
+    () =>
+      tieredCacheStorage(
+        createWebCacheStorage(fakeWebCache(), "https://site.test"),
+        timeBoxedCacheStorage(createKVCacheStorage(binaryKV())),
+      ),
+  ],
+] as const) {
+  it(`${name}: bytes response cache round-trips status, headers and body`, async () => {
+    const storage = make();
+    const cache = createResponseCache(storage, "site:build", { bytes: true });
+    const req = new Request("https://site.test/plp");
+    const body = new Uint8Array(300_000).map((_, i) => i % 251);
+    await cache.put(
+      req,
+      new Response(body, {
+        status: 203,
+        headers: { "cache-control": "public, max-age=60", "x-deco-stored-at": "123" },
+      }),
+    );
+    const response = await cache.match(req);
+    expect(response?.status).toBe(203);
+    expect(response?.headers.get("x-deco-stored-at")).toBe("123");
+    expect(new Uint8Array(await response!.arrayBuffer())).toEqual(body);
+    // The string format never sees a bytes entry, and delete clears it.
+    expect(await createResponseCache(storage, "site:build").match(req)).toBeUndefined();
+    await cache.delete(req);
+    expect(await cache.match(req)).toBeUndefined();
+  });
+}
+
+it("bytes response cache enforces the logical expiry the storage may outlive", async () => {
+  vi.useFakeTimers();
+  const cache = createResponseCache(createKVCacheStorage(binaryKV()), "s", { bytes: true });
+  const req = new Request("https://site.test/");
+  await cache.put(req, new Response("x", { headers: { "cache-control": "public, max-age=5" } }));
+  expect(await cache.match(req)).toBeDefined();
+  vi.advanceTimersByTime(6_000); // KV keeps it for its 60 s minimum TTL
+  expect(await cache.match(req)).toBeUndefined();
+});
+
+it("bytes flag falls back to the string format when the storage has no bytes methods", async () => {
+  const kv = fakeKV();
+  const storage: CacheStorage = createKVCacheStorage(kv);
+  const plain: CacheStorage = { get: storage.get, set: storage.set, delete: storage.delete };
+  const cache = createResponseCache(plain, "s", { bytes: true });
+  const req = new Request("https://site.test/");
+  await cache.put(
+    req,
+    new Response("hello", { headers: { "cache-control": "public, max-age=60" } }),
+  );
+  expect(await (await cache.match(req))?.text()).toBe("hello");
+  expect([...kv.values.values()][0]).toContain('\\"body\\"');
+});
+
+it("time-boxed storage reports a miss when a bytes read never settles", async () => {
+  vi.useFakeTimers();
+  const hung: CacheStorage = {
+    ...createMemoryCacheStorage(),
+    getBytes: () => new Promise(() => {}),
+    setBytes: async () => {},
+  };
+  const onTimeout = vi.fn();
+  const read = timeBoxedCacheStorage(hung, { timeoutMs: 100, onTimeout }).getBytes!("k");
+  vi.advanceTimersByTime(100);
+  expect(await read).toBeNull();
+  expect(onTimeout).toHaveBeenCalledWith("get");
+});
+
+it("tiered storage backfills a bytes value found only in the shared tier", async () => {
+  const colo = createMemoryCacheStorage();
+  const shared = createMemoryCacheStorage();
+  await shared.setBytes!("k", new Uint8Array([1, 2]), Date.now() + 60_000);
+  const tiered = run(colo, "s", () => tieredCacheStorage(colo, shared, { backfillTtlMs: 1_000 }));
+  expect(await run(colo, "s", () => tiered.getBytes!("k"))).toEqual(new Uint8Array([1, 2]));
+  await flush();
+  expect(await colo.getBytes!("k")).toEqual(new Uint8Array([1, 2]));
 });
