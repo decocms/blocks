@@ -69,9 +69,13 @@ export interface CachedLoaderOptions {
  * into single-flight dedup (concurrent identical calls in one render collapse to
  * one upstream call — the #339 N+1 fix). `cacheKey` computes the dedup identity
  * from `(props, req)`; returning `null` means "do not dedup, run fresh".
+ *
+ * `default` receives the Fresh-style `ctx` (AppContext) as its 3rd argument
+ * when the caller has one (e.g. `/deco/invoke`). `ctx` never takes part in the
+ * dedup key — same as deco, where the cache key is derived from props/req only.
  */
 export interface LoaderModule<TProps = any, TResult = any> {
-  default: (props: TProps, req?: Request) => Promise<TResult>;
+  default: (props: TProps, req?: Request, ctx?: any) => Promise<TResult>;
   cache?: CachePolicy | { maxAge: number };
   cacheKey?: (props: TProps, req?: Request) => string | null;
 }
@@ -488,11 +492,13 @@ const moduleInflight = new Map<string, Promise<unknown>>();
  * `RequestContext.current` — both execute inside the same AsyncLocalStorage
  * scope. `cacheKey` returning `null`, or `req` being unavailable when `cacheKey`
  * needs it, falls back to running fresh / keying on `JSON.stringify(props)`.
+ * An optional `ctx` is forwarded untouched to `mod.default` and is NOT part of
+ * the key: joiners of an in-flight call share the owner's result.
  */
 export function createCachedLoaderFromModule<TProps, TResult>(
   name: string,
   mod: LoaderModule<TProps, TResult>,
-): (props: TProps, req?: Request) => Promise<TResult> {
+): (props: TProps, req?: Request, ctx?: any) => Promise<TResult> {
   const policy: CachePolicy =
     typeof mod.cache === "string"
       ? mod.cache
@@ -507,7 +513,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
 
   const cacheKeyFn = mod.cacheKey;
 
-  const dedupedFn = (props: TProps, req?: Request): Promise<TResult> => {
+  const dedupedFn = (props: TProps, req?: Request, ctx?: any): Promise<TResult> => {
     const request = req ?? RequestContext.current?.request ?? undefined;
 
     let keyPart: string | null;
@@ -520,7 +526,7 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     }
 
     // Explicit null → the loader declared this call uncacheable: run fresh.
-    if (keyPart === null) return mod.default(props, req);
+    if (keyPart === null) return mod.default(props, req, ctx);
 
     const key = cache.key(`${BUILD}::${name}::${keyPart}`);
     const existing = moduleInflight.get(key) as Promise<TResult> | undefined;
@@ -529,11 +535,11 @@ export function createCachedLoaderFromModule<TProps, TResult>(
       // cancelled never settles — evict it and run again (see `joinInflight`).
       return joinInflight(existing, () => {
         releaseSlot(moduleInflight, key, existing);
-        return dedupedFn(props, req);
+        return dedupedFn(props, req, ctx);
       });
     }
 
-    const promise: Promise<TResult> = Promise.resolve(mod.default(props, req)).finally(() => {
+    const promise: Promise<TResult> = Promise.resolve(mod.default(props, req, ctx)).finally(() => {
       releaseSlot(moduleInflight, key, promise);
     });
     return publishInflight(moduleInflight, key, promise);
@@ -551,13 +557,15 @@ export function createCachedLoaderFromModule<TProps, TResult>(
 export function createLoaderEntry<TProps = any, TResult = any>(
   name: string,
   importFn: () => Promise<LoaderModule<TProps, TResult>>,
-): (props: TProps, req?: Request) => Promise<TResult> {
+): (props: TProps, req?: Request, ctx?: any) => Promise<TResult> {
   // Memoize the import+build PROMISE (not the resolved wrapper) so concurrent
   // first-calls — exactly the N-sections-per-render case — share one import
   // instead of racing into N. Reset on failure so a transient import error can
   // retry rather than poisoning the entry forever.
-  let wrappedPromise: Promise<(props: TProps, req?: Request) => Promise<TResult>> | undefined;
-  return (props: TProps, req?: Request): Promise<TResult> => {
+  let wrappedPromise:
+    | Promise<(props: TProps, req?: Request, ctx?: any) => Promise<TResult>>
+    | undefined;
+  return (props: TProps, req?: Request, ctx?: any): Promise<TResult> => {
     if (!wrappedPromise) {
       wrappedPromise = importFn()
         .then((mod) => createCachedLoaderFromModule(name, mod))
@@ -566,7 +574,7 @@ export function createLoaderEntry<TProps = any, TResult = any>(
           throw err;
         });
     }
-    return wrappedPromise.then((wrapped) => wrapped(props, req));
+    return wrappedPromise.then((wrapped) => wrapped(props, req, ctx));
   };
 }
 

@@ -206,4 +206,48 @@ describe("createLoaderEntry — lazy import + wrap", () => {
     await entry({ a: 1 });
     expect(fn).toHaveBeenCalledTimes(2);
   });
+  it("forwards the Fresh-style ctx (3rd arg) to a no-store loader", async () => {
+    const fn = vi.fn(async (_props: unknown, _req?: Request, ctx?: any) => ctx?.cms?.id);
+    const entry = createLoaderEntry("site/loaders/ctx-plain", async () => ({ default: fn }));
+    const req = new Request("https://store.example/");
+    const ctx = { cms: { id: "cms-1" } };
+
+    await expect(entry({ a: 1 }, req, ctx)).resolves.toBe("cms-1");
+    expect(fn).toHaveBeenCalledWith({ a: 1 }, req, ctx);
+  });
+
+  it("forwards ctx to a SWR loader without making it part of the dedup key", async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    const fn = vi.fn(async (_props: unknown, _req?: Request, ctx?: any) => {
+      await gate;
+      return ctx?.storeConfig?.name;
+    });
+    const entry = createLoaderEntry("site/loaders/ctx-swr", async () => ({
+      default: fn,
+      cache: "stale-while-revalidate" as const,
+    }));
+    const req = new Request("https://store.example/");
+    const ctxA = { storeConfig: { name: "a" } };
+    const ctxB = { storeConfig: { name: "b" } };
+
+    // Same props, different ctx objects: still one upstream call (deco parity —
+    // ctx never enters the cache key), and the owner's ctx reaches the loader.
+    const p1 = entry({ a: 1 }, req, ctxA);
+    const p2 = entry({ a: 1 }, req, ctxB);
+    resolve();
+    await expect(Promise.all([p1, p2])).resolves.toEqual(["a", "a"]);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith({ a: 1 }, req, ctxA);
+  });
+
+  it("still works for 2-arg callers (ctx undefined)", async () => {
+    const fn = vi.fn(async (_props: unknown, _req?: Request, ctx?: any) => ctx);
+    const entry = createLoaderEntry("site/loaders/ctx-legacy", async () => ({
+      default: fn,
+      cache: "stale-while-revalidate" as const,
+    }));
+    await expect(entry({ a: 1 })).resolves.toBeUndefined();
+    expect(fn).toHaveBeenCalledWith({ a: 1 }, undefined, undefined);
+  });
 });
