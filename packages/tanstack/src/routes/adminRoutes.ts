@@ -30,6 +30,7 @@
  */
 import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/blocks-admin";
 import { withTracing } from "@decocms/blocks/middleware/observability";
+import { createIsomorphicFn } from "@tanstack/react-start";
 
 function invokeAttrs(request: Request): Record<string, string | boolean> {
   const url = new URL(request.url);
@@ -74,57 +75,73 @@ function optionsHandler(ctx: { request: Request }): Response {
 // mutates whatever object createFileRoute is handed (injects id/path), so a
 // shared exported literal bricks dev HMR (see module doc above). Sites get
 // fresh copies via the *RouteConfig() factories below.
+//
+// Each config is built by an isomorphic fn that is invoked ONCE at module
+// init: the `.server()` impl is the real `{ server: { handlers } }`, the
+// `.client()` impl is `{}`. TanStack Start's compiler removes the `.server()`
+// body (and, via DCE, the handler imports it alone referenced — blocks-admin
+// invoke/meta/render/resolvePreview, the CMS resolver, schema registry…) from
+// the CLIENT bundle. A route's `server.handlers` are not dropped by the
+// compiler when they arrive through a factory call like
+// `createFileRoute(p)(decoMetaRouteConfig())`, so without this the whole admin
+// protocol ships to every visitor's browser.
 // ---------------------------------------------------------------------------
 
 /** Base config for `/deco/meta` — serves JSON Schema + manifest. */
-const decoMetaRoute = {
-  server: {
-    handlers: {
-      GET: withCors(({ request }) =>
-        withTracing("deco.admin.meta", async () => handleMeta(request)),
-      ),
-      OPTIONS: optionsHandler,
+const decoMetaRoute = createIsomorphicFn()
+  .server(() => ({
+    server: {
+      handlers: {
+        GET: withCors(({ request }) =>
+          withTracing("deco.admin.meta", async () => handleMeta(request)),
+        ),
+        OPTIONS: optionsHandler,
+      },
     },
-  },
-};
+  }))
+  .client(() => ({}))();
 
 /** Base config for `/deco/render` — section/page preview in iframe. */
-const decoRenderRoute = {
-  server: {
-    handlers: {
-      GET: withCors(({ request }) =>
-        withTracing(
-          "deco.admin.render",
-          () => Promise.resolve(handleRender(request)),
-          renderAttrs(request),
+const decoRenderRoute = createIsomorphicFn()
+  .server(() => ({
+    server: {
+      handlers: {
+        GET: withCors(({ request }) =>
+          withTracing(
+            "deco.admin.render",
+            () => Promise.resolve(handleRender(request)),
+            renderAttrs(request),
+          ),
         ),
-      ),
-      POST: withCors(({ request }) =>
-        withTracing(
-          "deco.admin.render",
-          () => Promise.resolve(handleRender(request)),
-          renderAttrs(request),
+        POST: withCors(({ request }) =>
+          withTracing(
+            "deco.admin.render",
+            () => Promise.resolve(handleRender(request)),
+            renderAttrs(request),
+          ),
         ),
-      ),
-      OPTIONS: optionsHandler,
+        OPTIONS: optionsHandler,
+      },
     },
-  },
-};
+  }))
+  .client(() => ({}))();
 
 /** Base config for `/deco/invoke/$` — loader/action execution. */
-const decoInvokeRoute = {
-  server: {
-    handlers: {
-      GET: withCors(({ request }) =>
-        withTracing("deco.admin.invoke", () => handleInvoke(request), invokeAttrs(request)),
-      ),
-      POST: withCors(({ request }) =>
-        withTracing("deco.admin.invoke", () => handleInvoke(request), invokeAttrs(request)),
-      ),
-      OPTIONS: optionsHandler,
+const decoInvokeRoute = createIsomorphicFn()
+  .server(() => ({
+    server: {
+      handlers: {
+        GET: withCors(({ request }) =>
+          withTracing("deco.admin.invoke", () => handleInvoke(request), invokeAttrs(request)),
+        ),
+        POST: withCors(({ request }) =>
+          withTracing("deco.admin.invoke", () => handleInvoke(request), invokeAttrs(request)),
+        ),
+        OPTIONS: optionsHandler,
+      },
     },
-  },
-};
+  }))
+  .client(() => ({}))();
 
 // ---------------------------------------------------------------------------
 // Factories — dev-HMR-safe route configs (fresh object per call)
