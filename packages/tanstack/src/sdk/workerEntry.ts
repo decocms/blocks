@@ -1186,6 +1186,69 @@ function pageJsonCorsHeaders(
   return {}; // origin not allow-listed → no CORS headers
 }
 
+// ---------------------------------------------------------------------------
+// Stale-while-revalidate: one background render per entry, after the stale body
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a claimed revalidation blocks the next one for the same entry. A
+ * render that neither settles nor fails (its I/O cancelled under it) must not
+ * pin the entry stale for the rest of the SWR window.
+ */
+const REVALIDATION_CLAIM_MS = 30_000;
+
+/**
+ * Claims the background revalidation of a cache entry in this isolate: the
+ * returned function hands back a `release`, or `null` when one is already
+ * running. Every STALE-HIT used to start its own full re-render: a stale page
+ * that several visitors asked for at once was rendered once per visitor, on the
+ * same single-threaded isolate, so each of them waited on all of those renders.
+ * One refresh per entry is what deco's own loader cache does
+ * (`revalidationLocker` + `bgFlights`).
+ */
+function createRevalidationClaims(
+  claimMs = REVALIDATION_CLAIM_MS,
+): (key: string) => (() => void) | null {
+  const claims = new Map<string, number>();
+  return (key) => {
+    const now = Date.now();
+    const since = claims.get(key);
+    if (since !== undefined && now - since < claimMs) return null;
+    claims.set(key, now);
+    return () => {
+      if (claims.get(key) === now) claims.delete(key);
+    };
+  };
+}
+
+/**
+ * Runs `start` once `resp`'s body has been fully handed to the client (or the
+ * client went away). The re-render runs on the same isolate: started before the
+ * return, its SSR (hundreds of ms of CPU) interleaves with delivering the stale
+ * response, so the visitor the stale entry was meant to serve fast waits on the
+ * render anyway. Kept alive with `waitUntil`, so `start` may itself call it.
+ */
+function afterBodySent(
+  resp: Response,
+  start: () => void,
+  waitUntil: (promise: Promise<unknown>) => void,
+): Response {
+  if (!resp.body) {
+    start();
+    return resp;
+  }
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  waitUntil(
+    resp.body
+      .pipeTo(writable)
+      .catch(() => {
+        // Client disconnected — still refresh the entry.
+      })
+      .finally(start),
+  );
+  return new Response(readable, resp);
+}
+
 /**
  * Creates a Cloudflare Worker fetch handler that wraps a TanStack Start
  * server entry with intelligent edge caching.
@@ -1200,6 +1263,7 @@ export function createDecoWorkerEntry(
     ctx: WorkerExecutionContext,
   ): Promise<Response>;
 } {
+  const claimRevalidation = createRevalidationClaims();
   // `/live/_meta` reads the admin schema from the `ASSETS` binding when the
   // build published it as a static asset (`decoVitePlugin({ metaAsset: true })`).
   // Registered here so no site has to remember a setup call; inert for builds
@@ -2831,46 +2895,55 @@ export function createDecoWorkerEntry(
 
         if (ageSec < sfnEdge.fresh + sfnEdge.swr) {
           recordCacheMetric(true, sfnProfile, "STALE-HIT", "edge");
-          // Stale-while-revalidate: serve stale, refresh in background
-          ctx.waitUntil(
-            (async () => {
-              try {
-                // Revalidate from the canonical body, for the same reason the
-                // HTML path revalidates from the clean URL: the entry is keyed
-                // on it, and a render from the tracked body embeds that landing
-                // URL. Rendering the tracked body would only be discarded,
-                // leaving the entry stale for the rest of the SWR window.
-                const bgBody = sfnCarriesTracking
-                  ? canonicalizeServerFnPayloadForCacheKey(body, [])
-                  : body;
-                const bgReq = new Request(request, { body: bgBody, method: "POST" });
-                const bgOrigin = await serverEntry.fetch(bgReq, env, ctx);
-                if (
-                  bgOrigin.status === 200 &&
-                  bgOrigin.headers.get("X-Deco-Cacheable") === "true" &&
-                  !bgOrigin.headers.has("set-cookie") &&
-                  serverFnCache
-                ) {
-                  const ttl = sfnEdge.fresh + Math.max(sfnEdge.swr, sfnEdge.sie);
-                  const toStore = bgOrigin.clone();
-                  toStore.headers.set("Cache-Control", `public, max-age=${ttl}`);
-                  toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
-                  toStore.headers.delete("CDN-Cache-Control");
-                  toStore.headers.delete("X-Deco-Cacheable");
-                  await serverFnCache.put(sfnCacheKey, toStore);
+          // Stale-while-revalidate: serve stale, refresh in background — once
+          // per entry, after the stale body went out (see `afterBodySent`).
+          // Client-side navigation reaches every page through here.
+          const revalidate = (release: () => void) =>
+            ctx.waitUntil(
+              (async () => {
+                try {
+                  // Revalidate from the canonical body, for the same reason the
+                  // HTML path revalidates from the clean URL: the entry is keyed
+                  // on it, and a render from the tracked body embeds that landing
+                  // URL. Rendering the tracked body would only be discarded,
+                  // leaving the entry stale for the rest of the SWR window.
+                  const bgBody = sfnCarriesTracking
+                    ? canonicalizeServerFnPayloadForCacheKey(body, [])
+                    : body;
+                  const bgReq = new Request(request, { body: bgBody, method: "POST" });
+                  const bgOrigin = await serverEntry.fetch(bgReq, env, ctx);
+                  if (
+                    bgOrigin.status === 200 &&
+                    bgOrigin.headers.get("X-Deco-Cacheable") === "true" &&
+                    !bgOrigin.headers.has("set-cookie") &&
+                    serverFnCache
+                  ) {
+                    const ttl = sfnEdge.fresh + Math.max(sfnEdge.swr, sfnEdge.sie);
+                    const toStore = bgOrigin.clone();
+                    toStore.headers.set("Cache-Control", `public, max-age=${ttl}`);
+                    toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
+                    toStore.headers.delete("CDN-Cache-Control");
+                    toStore.headers.delete("X-Deco-Cacheable");
+                    await serverFnCache.put(sfnCacheKey, toStore);
+                  }
+                } catch {
+                  /* background revalidation failed */
                 }
-              } catch {
-                /* background revalidation failed */
-              }
-            })(),
-          );
+              })().finally(release),
+            );
           const out = new Response(sfnCached.body, sfnCached);
           const hdrs = cacheHeaders(sfnProfile);
           for (const [k, v] of Object.entries(hdrs)) out.headers.set(k, v);
           out.headers.set("X-Cache", "STALE-HIT");
           out.headers.set("X-Cache-Profile", sfnProfile);
           out.headers.set("X-Cache-Age", String(Math.round(ageSec)));
-          return out;
+          const release = claimRevalidation(sfnCacheKey.url);
+          if (!release) return out;
+          return afterBodySent(
+            out,
+            () => revalidate(release),
+            (p) => ctx.waitUntil(p),
+          );
         }
       }
 
@@ -3060,7 +3133,7 @@ export function createDecoWorkerEntry(
     // Helper: store a response in Cache API with the full retention window.
     // Callers own the tracking decision: a response is storable iff it was
     // rendered from the clean URL this `cacheKey` represents.
-    function storeInCache(resp: Response) {
+    function storeInCache(resp: Response): Promise<unknown> | undefined {
       if (!cache) return;
       try {
         const storageTtl = edgeConfig.fresh + Math.max(edgeConfig.swr, edgeConfig.sie);
@@ -3068,12 +3141,12 @@ export function createDecoWorkerEntry(
         toStore.headers.set("Cache-Control", `public, max-age=${storageTtl}`);
         toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
         toStore.headers.delete("CDN-Cache-Control");
-        ctx.waitUntil(
-          withTracing("deco.cache.store", () => cache.put(cacheKey, toStore), {
-            "cache.profile": profile,
-            "cache.kind": "html",
-          }),
-        );
+        const stored = withTracing("deco.cache.store", () => cache.put(cacheKey, toStore), {
+          "cache.profile": profile,
+          "cache.kind": "html",
+        });
+        ctx.waitUntil(stored);
+        return stored;
       } catch {
         // Cache API unavailable
       }
@@ -3115,28 +3188,8 @@ export function createDecoWorkerEntry(
       } as RequestInit);
     }
 
-    // Helper: run `start` once `resp`'s body has been fully handed to the client
-    // (or the client went away). Kept alive with waitUntil, so `start` may itself
-    // call ctx.waitUntil.
-    function afterBodySent(resp: Response, start: () => void): Response {
-      if (!resp.body) {
-        start();
-        return resp;
-      }
-      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-      ctx.waitUntil(
-        resp.body
-          .pipeTo(writable)
-          .catch(() => {
-            // client disconnected — still refresh the entry
-          })
-          .finally(start),
-      );
-      return new Response(readable, resp);
-    }
-
     // Helper: background revalidation (fetch origin, store result)
-    function revalidateInBackground() {
+    function revalidateInBackground(release: () => void) {
       ctx.waitUntil(
         Promise.resolve(serverEntry.fetch(revalidationRequest(), env, ctx))
           .then((origin) => {
@@ -3150,13 +3203,14 @@ export function createDecoWorkerEntry(
                 const cleanOrigin = origin.headers.has("set-cookie")
                   ? stripSafeCookiesForCache(origin, safeCookieSet)
                   : origin;
-                storeInCache(cleanOrigin);
+                return storeInCache(cleanOrigin);
               }
             }
           })
           .catch(() => {
             // Background revalidation failed — stale entry stays until SIE expires
-          }),
+          })
+          .finally(release),
       );
     }
 
@@ -3189,14 +3243,16 @@ export function createDecoWorkerEntry(
       if (ageSec < edgeConfig.fresh + edgeConfig.swr) {
         // STALE-HIT within SWR window — serve stale, revalidate in background
         recordCacheMetric(true, profile, "STALE-HIT", "edge");
-        // Revalidate only after the stale body has gone out. The re-render runs
-        // on this same isolate: started before the return, its SSR (hundreds of
-        // ms of CPU) interleaves with delivering the stale document — and with
-        // any site-side HTMLRewriter on it — so the visitor the stale entry was
-        // meant to serve fast waits on the render anyway.
+        const stale = dressResponse(cached, "STALE-HIT", {
+          "X-Cache-Age": String(Math.round(ageSec)),
+        });
+        const release = claimRevalidation(cacheKey.url);
+        // Already refreshing in this isolate: serve stale and leave it be.
+        if (!release) return stale;
         return afterBodySent(
-          dressResponse(cached, "STALE-HIT", { "X-Cache-Age": String(Math.round(ageSec)) }),
-          revalidateInBackground,
+          stale,
+          () => revalidateInBackground(release),
+          (p) => ctx.waitUntil(p),
         );
       }
 
