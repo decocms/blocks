@@ -169,8 +169,13 @@ export class TelemetryPipeline {
     };
   }
 
+  /** Whether a histogram recorded now would be kept (telemetry and metrics on). */
+  measuring(): boolean {
+    return this.#settings.enabled && this.#settings.metrics;
+  }
+
   histogram(name: string, attributes: Attributes, seconds: number): void {
-    if (!this.#settings.enabled || !this.#settings.metrics) return;
+    if (!this.measuring()) return;
     const key = `${name}\u0000${JSON.stringify(attributes)}`;
     let histogram = this.#histograms.get(key);
     if (histogram === undefined) {

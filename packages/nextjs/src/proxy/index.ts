@@ -18,6 +18,13 @@
  * is rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
  * routes).
+ *
+ * The proxy records no `http.server.request.duration` (the metric
+ * `createDecoWorker` records for TanStack sites): it runs before Next routes
+ * and renders the page, returns before the page's status is known, and its
+ * `after()` callbacks run when the proxy returns, not when the page's
+ * response ends, so a duration or status measured here would be the proxy's,
+ * not the visitor's.
  */
 import type { CMS } from "@decocms/blocks";
 import { type NextRequest, NextResponse } from "next/server.js";

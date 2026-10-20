@@ -21,7 +21,7 @@ export default createDecoWorker({
 });
 ```
 
-Always on: `/deco/_liveness`; 404 for v7's admin paths; Studio may frame the site (`frame-ancestors`, no `X-Frame-Options`) and the security headers; drafts (the host allowlist, the draft cookie, never cached, `noindex`); the CMS redirects; an edge cache keyed on the build, the content revision, the device and your `segment`, with stale-while-revalidate and stale-if-error; CDN caching of client-side navigation data under a checked `__cseg` token; one `Set-Cookie` per cookie; `x-page-status`.
+Always on: `/deco/_liveness`; 404 for v7's admin paths; Studio may frame the site (`frame-ancestors`, no `X-Frame-Options`) and the security headers; drafts (the host allowlist, the draft cookie, never cached, `noindex`); the CMS redirects; an edge cache keyed on the build, the content revision, the device and your `segment`, with stale-while-revalidate and stale-if-error; CDN caching of client-side navigation data under a checked `__cseg` token; one `Set-Cookie` per cookie; `x-page-status`; and `http.server.request.duration` for every request, in the CMS's telemetry (nothing without a `token` or an `endpoint`), labelled `http.route` (the content's page or redirect template, a fixed one such as `/_serverFn/*` or `/assets/*`, otherwise `unmatched`), `http.request.method`, `status_class`, `cache` (`HIT`, `MISS`, `BYPASS` or `DRAFT`) and `device`.
 
 Options, each for a value a site needs to change: `csp`, `segment`, `cacheProfiles`, `safeCookies`, `purgeToken`, `preload`, `previewHosts`, `routes` and `onCache`.
 
