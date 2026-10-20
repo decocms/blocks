@@ -2,6 +2,7 @@
  * A client: one revision, loaded on first use and read for the rest of its
  * life, plus a memo of block results. Create one per request.
  */
+import { withExperiments } from "./builtins/experiments.ts";
 import { withSchedules } from "./builtins/schedules.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
 import { isBlock } from "./json.ts";
@@ -27,6 +28,12 @@ interface ClientOptions {
    * the loaded snapshot's `Schedules` block when the client loads.
    */
   builtIns: Readonly<Blocks>;
+  /**
+   * The tests the visitor is in (`{ assignments }`, copied). The built-in
+   * `experiment` matcher answers from them and from the loaded snapshot's
+   * `Experiments` block, so a draft client reads the draft's tests.
+   */
+  assignments?: ReadonlySet<string>;
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
 }
@@ -111,7 +118,10 @@ export class CMSClient implements Client {
         resolver: new Resolver({
           snapshot,
           blocks: this.#options.blocks,
-          builtIns: withSchedules(this.#options.builtIns, snapshot),
+          builtIns: withSchedules(
+            withExperiments(this.#options.builtIns, snapshot, this.#options.assignments),
+            snapshot,
+          ),
           onCollision: this.#options.onCollision,
           onBlock: this.#options.telemetry?.block,
         }),

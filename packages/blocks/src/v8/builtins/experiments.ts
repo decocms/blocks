@@ -11,8 +11,8 @@
  *   reach the matcher per client, `cms.forRelease({ assignments })` or
  *   `cms.forDraft(pointer, { assignments })`: the core has no request scope.
  */
-import { isPlainObject } from "../json.ts";
-import type { BlockFunction, Client, Snapshot } from "../types.ts";
+import { isPlainObject, own } from "../json.ts";
+import type { BlockFunction, Blocks, Client, Snapshot } from "../types.ts";
 
 /** The well-known saved block that holds the experiments, and its built-in type. */
 export const EXPERIMENTS_BLOCK = "Experiments";
@@ -31,25 +31,67 @@ interface ExperimentProps {
 }
 
 /**
- * The `experiment` matcher of one client: `true` when the assignments it was
- * created with put the visitor in `name`. An unknown name, or a client
- * created without assignments, gives `false`. The assignments are copied, so
- * a caller changing its object later changes no client.
+ * The names a client's assignments put the visitor in, copied when the
+ * client is created, so a caller changing its object later changes no
+ * client. `undefined` without assignments.
+ */
+export function assignedNames(
+  assignments: Readonly<Record<string, boolean>> | undefined,
+): ReadonlySet<string> | undefined {
+  if (!isPlainObject(assignments)) return undefined;
+  const inside = new Set<string>();
+  for (const name of Object.keys(assignments)) {
+    if (assignments[name] === true) inside.add(name);
+  }
+  return inside;
+}
+
+/** Whether `name` is a test in the snapshot's `Experiments` block (of the built-in type). */
+function hasExperiment(snapshot: Snapshot, name: string): boolean {
+  const entry = own(snapshot.blocks, EXPERIMENTS_BLOCK);
+  return (
+    isPlainObject(entry) &&
+    entry.__resolveType === EXPERIMENTS_TYPE &&
+    name !== "__resolveType" &&
+    Object.hasOwn(entry, name)
+  );
+}
+
+/**
+ * The `experiment` matcher of one client: `true` when its assignments put
+ * the visitor in `name` and `name` is a test in the `Experiments` block of
+ * the snapshot the client reads (the release's, or a draft's). An unknown
+ * name, no `Experiments` block (or one of another type) and a client created
+ * without assignments all give `false`.
  */
 export function experimentMatcher(
-  assignments: Readonly<Record<string, boolean>> | undefined,
+  inside: ReadonlySet<string> | undefined,
+  snapshot: Snapshot | undefined,
 ): BlockFunction {
-  const inside = new Set<string>();
-  if (isPlainObject(assignments)) {
-    for (const name of Object.keys(assignments)) {
-      if (assignments[name] === true) inside.add(name);
-    }
-  }
-  return ({ name }: ExperimentProps = {}): boolean => typeof name === "string" && inside.has(name);
+  return ({ name }: ExperimentProps = {}): boolean =>
+    typeof name === "string" &&
+    inside !== undefined &&
+    snapshot !== undefined &&
+    inside.has(name) &&
+    hasExperiment(snapshot, name);
 }
 
 /** `experiment` with no assignments: every rule is `false`. */
-export const experiment = experimentMatcher(undefined);
+export const experiment = experimentMatcher(undefined, undefined);
+
+/**
+ * The built-ins of a client reading `snapshot` with the visitor's
+ * assignments: `experiment` bound to both. Without assignments, or with a
+ * built-ins table without `experiment`, they are returned as is.
+ */
+export function withExperiments(
+  builtIns: Readonly<Blocks>,
+  snapshot: Snapshot,
+  inside: ReadonlySet<string> | undefined,
+): Readonly<Blocks> {
+  if (inside === undefined || own(builtIns, EXPERIMENT_MATCHER) === undefined) return builtIns;
+  return Object.freeze({ ...builtIns, [EXPERIMENT_MATCHER]: experimentMatcher(inside, snapshot) });
+}
 
 /**
  * The experiments a snapshot holds: the `Experiments` block, resolved with
