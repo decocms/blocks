@@ -847,3 +847,108 @@ describe("the CMS settings block", () => {
     ]);
   });
 });
+
+describe("the experiments block and the experiment matcher", () => {
+  const experiments = { __resolveType: "experiments", "buy-button": 50, "hero-copy": 0 };
+  const rule = (name: string) => ({ __resolveType: "experiment", name });
+  const test = (experiment: string | undefined, ruleName: string) => ({
+    __resolveType: "multivariate",
+    ...(experiment === undefined ? {} : { experiment }),
+    variants: [
+      { rule: rule(ruleName), value: { __resolveType: "lazy", value: [hero] } },
+      { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
+    ],
+  });
+
+  it("passes an Experiments block of whole percentages and rules naming its tests", () => {
+    expect(
+      run({ Experiments: experiments, HomePage: page(test("buy-button", "buy-button") as never) }),
+    ).toEqual([]);
+  });
+
+  it("reports an allocation that is not a whole percentage from 0 to 100", () => {
+    const out = lines(
+      run({ Experiments: { __resolveType: "experiments", a: 101, b: -1, c: 10.5, d: "50" } }),
+    );
+    for (const name of ["a", "b", "c", "d"]) {
+      expect(
+        out.some((line) => line.startsWith(`Experiments.json ${name}:`)),
+        name,
+      ).toBe(true);
+    }
+    expect(out.every((line) => !line.includes("warning"))).toBe(true); // errors
+  });
+
+  it("warns about an Experiments block of another type, which is ignored as experiments", () => {
+    expect(lines(run({ Experiments: hero }))).toEqual([
+      'Experiments.json warning "Experiments" is the name of the experiments block (type "experiments"); this one is ignored as experiments, so rename it',
+    ]);
+  });
+
+  it("warns about an experiments block saved under another name, which is never read", () => {
+    expect(lines(run({ Experiments: experiments, MoreTests: { ...experiments } }))).toEqual([
+      'MoreTests.json warning the experiments are read only from the saved block "Experiments"; this "experiments" block is never read, so move its tests there',
+    ]);
+  });
+
+  it("warns about a rule naming a test the Experiments block doesn't have", () => {
+    expect(lines(run({ Experiments: experiments, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning name: no experiment "gone" in the "Experiments" block: this rule is always false',
+    ]);
+    // With no Experiments block at all, every experiment rule is always false.
+    expect(lines(run({ Rule: rule("buy-button") }))).toEqual([
+      'Rule.json warning name: no experiment "buy-button" in the "Experiments" block: this rule is always false',
+    ]);
+  });
+
+  it("warns when a variants block's experiment isn't the test its rule reads", () => {
+    expect(
+      lines(
+        run({ Experiments: experiments, HomePage: page(test("hero-copy", "buy-button") as never) }),
+      ),
+    ).toEqual([
+      'HomePage.json warning sections.variants[0].rule: this rule reads the experiment "buy-button", but the block\'s experiment is "hero-copy": its results are kept under "hero-copy"',
+    ]);
+    // A saved rule is followed to the test it reads.
+    expect(
+      lines(
+        run({
+          Experiments: experiments,
+          BuyButtonRule: rule("buy-button"),
+          Banner: {
+            __resolveType: "multivariate",
+            experiment: "hero-copy",
+            variants: [
+              {
+                rule: { __resolveType: "BuyButtonRule" },
+                value: { __resolveType: "lazy", value: "plain" },
+              },
+            ],
+          },
+        }),
+      ),
+    ).toEqual([
+      'Banner.json warning variants[0].rule: this rule reads the experiment "buy-button", but the block\'s experiment is "hero-copy": its results are kept under "hero-copy"',
+    ]);
+  });
+
+  it("experiments and experiment are reserved names", () => {
+    expect(lines(run({ experiments: { ...experiments } }))).toContain(
+      'experiments.json saved block "experiments" has the name of a built-in block',
+    );
+    expect(lines(run({ Experiments: experiments, experiment: rule("buy-button") }))).toContain(
+      'experiment.json saved block "experiment" has the name of a built-in block',
+    );
+  });
+
+  it("warns when the block map defines experiment or experiments, which replaces the built-in", () => {
+    const own = structuredClone(meta);
+    own.manifest.blocks.matchers.experiment = {
+      ...own.manifest.blocks.matchers.experiment,
+      namespace: "site",
+    };
+    expect(lines(checkContent(own, saved({})))).toEqual([
+      '.deco/schema.gen.json warning experiment: the block map defines "experiment", which replaces the built-in A/B block of that name; rename it to use the built-in',
+    ]);
+  });
+});

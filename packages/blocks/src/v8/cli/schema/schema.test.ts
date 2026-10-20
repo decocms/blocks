@@ -282,21 +282,32 @@ describe("interchangeable blocks", () => {
 });
 
 describe("built-ins and aliases", () => {
-  it("adds the nine built-ins", () => {
+  it("adds the eleven built-ins", () => {
     for (const name of [
       "lazy",
       "multivariate",
       "always",
       "never",
       "date",
+      "experiment",
       "page",
       "redirect",
       "cms-settings",
+      "experiments",
       "secret",
     ]) {
       expect(def(name), name).toBeDefined();
     }
     expect(def("redirect").required).toEqual(["__resolveType", "from", "to", "permanent"]);
+    // Every key of the experiments block but __resolveType is a test: a whole percentage.
+    expect(def("experiments").additionalProperties).toMatchObject({
+      type: "integer",
+      minimum: 0,
+      maximum: 100,
+    });
+    expect(def("experiment").required).toEqual(["__resolveType", "name"]);
+    expect(meta.manifest.blocks.content.experiments).toBeDefined();
+    expect(meta.manifest.blocks.matchers.experiment).toBeDefined();
     expect(def("page").properties.sections.anyOf[0]).toEqual({
       type: "array",
       title: "Sections",

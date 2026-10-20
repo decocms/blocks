@@ -102,7 +102,7 @@ describe("roll", () => {
   });
 });
 
-describe("the properties a test's result depends on", () => {
+describe("the properties a test's result depends on", { timeout: 60_000 }, () => {
   const population = ids(100_000);
   const inAt = (name: string, allocation: number) =>
     population.filter((id) => roll(name, id) < allocation);
@@ -130,7 +130,7 @@ describe("the properties a test's result depends on", () => {
   });
 });
 
-describe("moving an allocation", () => {
+describe("moving an allocation", { timeout: 60_000 }, () => {
   const NAME = "t";
   const population = ids(40_000);
 

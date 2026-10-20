@@ -49,6 +49,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "BlockFunction",
     "Blocks",
     "Client",
+    "ClientOptions",
     "CMS",
     "CMSError",
     "CMSSettings",

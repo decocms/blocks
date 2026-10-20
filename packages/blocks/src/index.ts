@@ -6,6 +6,7 @@ export {
   type BlockFunction,
   type Blocks,
   type Client,
+  type ClientOptions,
   type CMS,
   type CMSError,
   type CMSSettings,

@@ -8,6 +8,7 @@
  */
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
+import { EXPERIMENT_MATCHER, experimentMatcher, readExperiments } from "./builtins/experiments.ts";
 import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
@@ -34,6 +35,7 @@ import {
 import type {
   Blocks,
   Client,
+  ClientOptions,
   CMS,
   CMSConfig,
   EffectiveSettings,
@@ -106,16 +108,44 @@ class CMSInstance {
     this.#builtIns = Object.freeze({ ...builtIns, secret });
   }
 
-  forRelease(blocks: Blocks): Client {
+  forRelease(blocks: Blocks, options?: ClientOptions): Client {
     this.#scheduleUpdate();
     const telemetry = this.#telemetry;
-    if (telemetry === undefined) return this.#client(blocks, () => this.#store.release());
-    return this.#client(blocks, () =>
-      this.#store.release().then(async (snapshot) => {
-        telemetry.useRelease(snapshot);
-        await this.#followTelemetrySettings(blocks, telemetry, snapshot);
-        return snapshot;
-      }),
+    if (telemetry === undefined) {
+      return this.#client(blocks, () => this.#store.release(), options);
+    }
+    return this.#client(
+      blocks,
+      () =>
+        this.#store.release().then(async (snapshot) => {
+          telemetry.useRelease(snapshot);
+          await this.#followTelemetrySettings(blocks, telemetry, snapshot);
+          return snapshot;
+        }),
+      options,
+    );
+  }
+
+  /**
+   * The `Experiments` block of the release, or of the draft a pointer names
+   * (with the variants it forces), resolved with this handle's block map.
+   */
+  async experiments(blocks: Blocks, pointer?: string): Promise<Record<string, number>> {
+    let snapshot: Snapshot;
+    try {
+      snapshot = await (pointer === undefined ? this.#store.release() : this.#draft(pointer));
+    } catch {
+      return Object.create(null) as Record<string, number>;
+    }
+    return readExperiments(
+      snapshot,
+      () =>
+        new CMSClient({
+          load: () => Promise.resolve(snapshot),
+          blocks,
+          builtIns: this.#builtIns,
+          onCollision: (name) => this.#warnCollision(name),
+        }),
     );
   }
 
@@ -147,12 +177,17 @@ class CMSInstance {
    * pointer, which names no draft). A draft client is a production client
    * reading a draft pointer, so it schedules the release check like any other.
    */
-  forDraft(blocks: Blocks, pointer: string): Client {
+  forDraft(blocks: Blocks, pointer: string, options?: ClientOptions): Client {
     this.#scheduleUpdate();
-    const load = () => this.#store.draft(pointer);
+    return this.#client(blocks, () => this.#draft(pointer), options);
+  }
+
+  /** The draft a pointer names, with the variants it forces. */
+  #draft(pointer: string): Promise<Snapshot> {
+    const load = this.#store.draft(pointer);
     const variants = parseDraftPointer(pointer)?.variants;
-    if (variants === undefined) return this.#client(blocks, load);
-    return this.#client(blocks, () => load().then((snapshot) => forceVariants(snapshot, variants)));
+    if (variants === undefined) return load;
+    return load.then((snapshot) => forceVariants(snapshot, variants));
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -235,11 +270,22 @@ class CMSInstance {
     if (last?.snapshot !== snapshot) await read;
   }
 
-  #client(blocks: Blocks, load: () => Promise<Snapshot>): Client {
+  /**
+   * A client. With assignments, its built-ins hold an `experiment` matcher of
+   * its own, so one request's assignments never reach another's client.
+   */
+  #client(blocks: Blocks, load: () => Promise<Snapshot>, options?: ClientOptions): Client {
+    const assignments = options?.assignments;
     return new CMSClient({
       load,
       blocks,
-      builtIns: this.#builtIns,
+      builtIns:
+        assignments === undefined
+          ? this.#builtIns
+          : Object.freeze({
+              ...this.#builtIns,
+              [EXPERIMENT_MATCHER]: experimentMatcher(assignments),
+            }),
       onCollision: (name) => this.#warnCollision(name),
       telemetry: this.#telemetry?.forClient(),
     });
@@ -292,12 +338,16 @@ class CMSHandle implements CMS {
     return this.#instance;
   }
 
-  forRelease(): Client {
-    return this.#instance.forRelease(this.#blocks);
+  forRelease(options: ClientOptions = {}): Client {
+    return this.#instance.forRelease(this.#blocks, options);
   }
 
-  forDraft(pointer: string): Client {
-    return this.#instance.forDraft(this.#blocks, pointer);
+  forDraft(pointer: string, options: ClientOptions = {}): Client {
+    return this.#instance.forDraft(this.#blocks, pointer, options);
+  }
+
+  experiments(pointer?: string): Promise<Record<string, number>> {
+    return this.#instance.experiments(this.#blocks, pointer);
   }
 
   update(): Promise<{ updated: boolean }> {

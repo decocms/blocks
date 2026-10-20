@@ -14,6 +14,7 @@ export type {
   BlockFunction,
   Blocks,
   Client,
+  ClientOptions,
   CMS,
   CMSError,
   CMSSettings,

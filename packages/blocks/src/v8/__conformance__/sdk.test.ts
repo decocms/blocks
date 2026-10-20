@@ -156,6 +156,7 @@ const DOCUMENTED_ROOT_TYPES = [
   "CMSError",
   "CMS",
   "Client",
+  "ClientOptions",
   "ListOptions",
   "TelemetryConfig",
 ];
@@ -230,7 +231,7 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
   type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
-  type CMSSettings, type EffectiveSettings, type RequestLike } from "@decocms/blocks";
+  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions } from "@decocms/blocks";
 import type { ReactNode } from "react";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -251,14 +252,17 @@ createCMS({ blocks, content, telemetry: { site: "s", token: "t" } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<keyof CMS, "forRelease" | "forDraft" | "experiments" | "update" | "settings" | "draftPointer" | "draftCookie">>();
 assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
 assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
-assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
+assert<Equal<CMS["forDraft"], (pointer: string, options?: ClientOptions) => Client>>();
+assert<Equal<CMS["forRelease"], (options?: ClientOptions) => Client>>();
+assert<Equal<CMS["experiments"], (pointer?: string) => Promise<Record<string, number>>>>();
+assert<Equal<ClientOptions, { assignments?: Readonly<Record<string, boolean>> }>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<keyof Client, "resolve" | "list" | "revision">>();
 assert<Equal<Client["revision"], () => Promise<string>>>();

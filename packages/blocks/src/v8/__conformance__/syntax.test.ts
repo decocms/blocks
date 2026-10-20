@@ -55,9 +55,11 @@ const BUILT_INS = [
   "always",
   "never",
   "date",
+  "experiment",
   "page",
   "redirect",
   "cms-settings",
+  "experiments",
   "secret",
 ];
 
@@ -269,7 +271,7 @@ describe("blocks", () => {
     expect(error?.code).toBe("UNKNOWN_BLOCK");
   });
 
-  it("blocks-13/builtin-01: exactly nine built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
+  it("blocks-13/builtin-01: exactly eleven built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
     expect(Object.keys(builtIns).sort()).toEqual([...BUILT_INS].sort());
     const client = clientWith({});
     for (const name of BUILT_INS) {

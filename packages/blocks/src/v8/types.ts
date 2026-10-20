@@ -323,16 +323,35 @@ export interface Client {
   revision(): Promise<string>;
 }
 
+/** What one client is created with. */
+export interface ClientOptions {
+  /**
+   * The visitor's A/B assignments (`assign(...).assignments` from
+   * `@decocms/blocks/experiments`), read by the built-in `experiment`
+   * matcher. They belong to this client alone and are copied when it is
+   * created; without them, every `experiment` rule is `false`.
+   */
+  assignments?: Readonly<Record<string, boolean>>;
+}
+
 export interface CMS {
   /** A client reading the current release. */
-  forRelease(): Client;
+  forRelease(options?: ClientOptions): Client;
   /**
    * A client reading the draft a pointer names: its changes, fetched from a
    * draft host (`*.decocms.com` and loopback by default;
    * `createCMS({ preview: { draftHosts } })` replaces the list), over this
    * server's production content.
    */
-  forDraft(pointer: string): Client;
+  forDraft(pointer: string, options?: ClientOptions): Client;
+  /**
+   * The experiments (the saved block `Experiments`, of the built-in type
+   * `experiments`): each name with its allocation, 0–100. Read from the
+   * release, or with a pointer from that draft, so a test created in a draft
+   * runs in its preview. `{}` when there is none; never rejects. Pass it to
+   * `assign` from `@decocms/blocks/experiments`.
+   */
+  experiments(pointer?: string): Promise<Record<string, number>>;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
   /**

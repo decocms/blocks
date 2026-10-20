@@ -22,12 +22,14 @@ function client(blocks: Blocks = docsBlocks(), content: Snapshot = docsSnapshot(
 const lazyValue = (value: unknown) => ({ __resolveType: "lazy", value });
 
 describe("the built-in list", () => {
-  it("has the nine documented names", () => {
+  it("has the eleven documented names", () => {
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "always",
         "cms-settings",
         "date",
+        "experiment",
+        "experiments",
         "lazy",
         "multivariate",
         "never",
@@ -46,6 +48,8 @@ describe("the built-in list", () => {
       "always",
       "never",
       "date",
+      "experiment",
+      "experiments",
       "multivariate",
       "lazy",
       "secret",
