@@ -16,7 +16,7 @@
 
 import { clearDraftCache, loadBlocks, setBlocks } from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearInvokeHandlers, handleInvoke, registerInvokeHandlers } from "./invoke";
 
 const COOKIE_A = "checkout.vtex.com__orderFormId=of-123; Path=/; HttpOnly";
@@ -252,5 +252,101 @@ describe("handleInvoke — malformed JSON body", () => {
     const res = await handleInvoke(post("{not json", {}));
     expect(res.status).toBe(200);
     expect(seen).toEqual([{}]);
+  });
+});
+
+describe("handleInvoke — Fresh-style ctx (3rd arg)", () => {
+  beforeEach(() => clearInvokeHandlers());
+  afterEach(() => clearInvokeHandlers());
+
+  const CMS_STATE = { navigation: ["/a", "/b"] };
+
+  function runWithAppState(request: Request) {
+    return RequestContext.run(request, () => {
+      RequestContext.setBag("app:cms:state", CMS_STATE);
+      return handleInvoke(request);
+    });
+  }
+
+  it("hands single invokes a ctx whose app state reads the RequestContext bag", async () => {
+    const seen: Record<string, unknown> = {};
+    registerInvokeHandlers({
+      "site/loaders/nav": async (_props: unknown, _req: Request, ctx?: any) => {
+        seen.appState = ctx?.getAppState("cms");
+        seen.sameHeaders = ctx?.response.headers === RequestContext.responseHeaders;
+        return { nav: ctx?.cms?.navigation, device: ctx?.device };
+      },
+    });
+
+    const response = await runWithAppState(makeInvokeRequest("site/loaders/nav"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ nav: ["/a", "/b"], device: "desktop" });
+    expect(seen).toEqual({ appState: CMS_STATE, sameHeaders: true });
+  });
+
+  it("hands every batch entry the ctx", async () => {
+    registerInvokeHandlers({
+      "site/loaders/nav": async (_props: unknown, _req: Request, ctx?: any) => ctx?.cms?.navigation,
+      "site/actions/ticket": async (props: { id: string }, _req: Request, ctx?: any) => ({
+        id: props.id,
+        hasCms: ctx?.cms === CMS_STATE,
+      }),
+    });
+
+    const response = await runWithAppState(
+      makeBatchRequest({
+        nav: { __resolveType: "site/loaders/nav" },
+        "site/actions/ticket": { id: "t1" },
+      }),
+    );
+    expect(await response.json()).toEqual({
+      nav: ["/a", "/b"],
+      "site/actions/ticket": { id: "t1", hasCms: true },
+    });
+  });
+
+  it("runs ctx.invoke.<path>(props) in process — no self-fetch — with the same ctx", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    registerInvokeHandlers({
+      // Registered with the `.ts` suffix only: the proxy must tolerate it.
+      "site/loaders/inner.ts": async (props: { q: string }, req: Request, ctx?: any) => ({
+        q: props.q,
+        path: new URL(req.url).pathname,
+        nav: ctx?.cms?.navigation,
+      }),
+      "site/loaders/outer": async (_props: unknown, _req: Request, ctx?: any) =>
+        ctx.invoke.site.loaders.inner({ q: "x" }),
+    });
+
+    const single = await runWithAppState(makeInvokeRequest("site/loaders/outer"));
+    expect(await single.json()).toEqual({
+      q: "x",
+      path: "/deco/invoke/site/loaders/outer",
+      nav: ["/a", "/b"],
+    });
+
+    const batch = await runWithAppState(makeBatchRequest({ "site/loaders/outer": {} }));
+    expect((await batch.json())["site/loaders/outer"]).toMatchObject({ q: "x", nav: ["/a", "/b"] });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("keeps ctx.invoke non-thenable and rejects unknown keys", async () => {
+    let invokeProxy: any;
+    registerInvokeHandlers({
+      "site/loaders/probe": async (_props: unknown, _req: Request, ctx?: any) => {
+        invokeProxy = ctx.invoke;
+        await expect(ctx.invoke.site.loaders.missing({})).rejects.toThrow(
+          "invoke(site/loaders/missing) failed: handler not found",
+        );
+        return {};
+      },
+    });
+
+    const response = await runWithAppState(makeInvokeRequest("site/loaders/probe"));
+    expect(response.status).toBe(200);
+    expect(invokeProxy.then).toBeUndefined();
+    expect(invokeProxy.site.loaders.then).toBeUndefined();
   });
 });

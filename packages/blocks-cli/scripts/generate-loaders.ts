@@ -10,10 +10,13 @@
  *
  * Each loader/action file that exports a default function gets a generated
  * entry like:
- *   "site/loaders/SAP/getUser": async (props, request) => {
+ *   "site/loaders/SAP/getUser": async (props, request, ctx) => {
  *     const mod = await import("../../loaders/SAP/getUser");
- *     return mod.default(props, request);
+ *     return mod.default(props, request, ctx);
  *   },
+ *
+ * `ctx` is the Fresh-style AppContext `/deco/invoke` builds per request, so
+ * migrated `(props, req, ctx)` loaders/actions keep reading `ctx.<app>`.
  *
  * Both keyed with and without `.ts` suffix for CMS block compatibility.
  *
@@ -211,12 +214,12 @@ if (hasLoaderEntries) {
   lines.push("");
 }
 lines.push(
-  "export const siteLoaders: Record<string, (props: any, request?: Request) => Promise<any>> = {",
+  "export const siteLoaders: Record<string, (props: any, request?: Request, ctx?: any) => Promise<any>> = {",
 );
 
 // Cast the dynamic-import default to `any` so legacy 3-arg
-// `(props, req, ctx)` Fresh/Deno loaders still type-check. Any ctx-dependent
-// path in the loader body throws at runtime and must be refactored.
+// `(props, req, ctx)` Fresh/Deno loaders still type-check. `ctx` is forwarded
+// as-is; callers without one (CMS resolution) pass `undefined`.
 for (const entry of entries) {
   if (entry.kind === "loader") {
     // Both alias keys share the same dedup namespace (the non-.ts name) so a
@@ -228,13 +231,13 @@ for (const entry of entries) {
       `  "${entry.key}.ts": createLoaderEntry("${entry.key}", () => import("${entry.importPath}")),`,
     );
   } else {
-    lines.push(`  "${entry.key}": async (props: any, request?: Request) => {`);
+    lines.push(`  "${entry.key}": async (props: any, request?: Request, ctx?: any) => {`);
     lines.push(`    const mod = await import("${entry.importPath}");`);
-    lines.push("    return (mod.default as any)(props, request);");
+    lines.push("    return (mod.default as any)(props, request, ctx);");
     lines.push("  },");
-    lines.push(`  "${entry.key}.ts": async (props: any, request?: Request) => {`);
+    lines.push(`  "${entry.key}.ts": async (props: any, request?: Request, ctx?: any) => {`);
     lines.push(`    const mod = await import("${entry.importPath}");`);
-    lines.push("    return (mod.default as any)(props, request);");
+    lines.push("    return (mod.default as any)(props, request, ctx);");
     lines.push("  },");
   }
 }

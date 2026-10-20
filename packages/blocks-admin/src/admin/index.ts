@@ -16,6 +16,7 @@ export {
 export { corsHeaders, isAdminOrLocalhost, registerAdminOrigin, registerAdminOrigins } from "./cors";
 export { handleDecofileRead, handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 export {
+  buildInvokeContext,
   clearInvokeHandlers,
   handleInvoke,
   type InvokeAction,
