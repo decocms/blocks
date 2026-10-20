@@ -14,6 +14,8 @@ import {
   type MemoryCache,
   POINTER,
   recordingEntry,
+  recordMetrics,
+  removeMetrics,
   snapshot,
   TestContext,
   testCMS,
@@ -32,6 +34,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   uninstallCache();
+  removeMetrics();
   vi.useRealTimers();
 });
 
@@ -769,5 +772,231 @@ describe("onCache", () => {
       },
     });
     expect((await get("/")).status).toBe(200);
+  });
+});
+
+describe("http.server.request.duration", () => {
+  /** The test store with a product template next to the home page and its redirect. */
+  function storeCMS() {
+    const content = snapshot({ previewHosts: ["store.example.com"] });
+    (content.blocks as Record<string, unknown>).Product = {
+      __resolveType: "page",
+      path: "/:slug/p",
+      sections: [],
+    };
+    return testCMS(content);
+  }
+
+  const labels = (points: ReturnType<typeof recordMetrics>) => points.map((p) => p.labels);
+
+  it("a page: the content's route template, method, status class, cache decision and device", async () => {
+    const points = recordMetrics();
+    const { get } = setup({ cms: storeCMS() });
+    await get("/blue-shoes/p");
+    await get("/blue-shoes/p", { ua: PHONE_UA });
+    await get("/red-shoes/p");
+    await get("/");
+    expect(points.every((p) => p.name === "http.server.request.duration")).toBe(true);
+    expect(points.every((p) => p.seconds >= 0 && p.seconds < 5)).toBe(true);
+    expect(labels(points)).toEqual([
+      {
+        "http.route": "/:slug/p",
+        "http.request.method": "GET",
+        status_class: "2xx",
+        cache: "MISS",
+        device: "desktop",
+      },
+      {
+        "http.route": "/:slug/p",
+        "http.request.method": "GET",
+        status_class: "2xx",
+        cache: "MISS",
+        device: "mobile",
+      },
+      {
+        "http.route": "/:slug/p",
+        "http.request.method": "GET",
+        status_class: "2xx",
+        cache: "MISS",
+        device: "desktop",
+      },
+      {
+        "http.route": "/",
+        "http.request.method": "GET",
+        status_class: "2xx",
+        cache: "MISS",
+        device: "desktop",
+      },
+    ]);
+  });
+
+  it("a cached page is a HIT; a stale copy served counts as a HIT too", async () => {
+    vi.useFakeTimers({ now: T0, toFake: ["Date"] });
+    const points = recordMetrics();
+    const { get } = setup();
+    await get("/");
+    await get("/");
+    vi.setSystemTime(T0 + 1_000_000);
+    expect((await get("/")).headers.get("x-cache")).toBe("STALE-HIT");
+    expect(points.map((p) => p.labels.cache)).toEqual(["MISS", "HIT", "HIT"]);
+  });
+
+  it("never the raw path: a path no template matches is unmatched", async () => {
+    const points = recordMetrics();
+    const { get } = setup({ cms: storeCMS() }, () => new Response("nope", { status: 404 }));
+    await get("/some/visitor/typed/this?q=1");
+    expect(labels(points)).toEqual([
+      {
+        "http.route": "unmatched",
+        "http.request.method": "GET",
+        status_class: "4xx",
+        cache: "BYPASS",
+        device: "desktop",
+      },
+    ]);
+  });
+
+  it("paths the worker knows get fixed templates; every CMS redirect is one route", async () => {
+    const points = recordMetrics();
+    const { get } = setup({}, (request) =>
+      new URL(request.url).pathname.startsWith("/assets/")
+        ? new Response("x", { headers: { "content-type": "text/javascript" } })
+        : html(),
+    );
+    await get("/deco/_liveness");
+    await get("/assets/main-AbCdEf123.js");
+    await get("/_serverFn/abc", { method: "POST", body: "{}" });
+    await get("/old-shoes");
+    await get("/live/_meta");
+    expect(
+      labels(points).map((l) => [l["http.route"], l["http.request.method"], l.status_class]),
+    ).toEqual([
+      ["/deco/_liveness", "GET", "2xx"],
+      ["/assets/*", "GET", "2xx"],
+      ["/_serverFn/*", "POST", "2xx"],
+      ["redirect", "GET", "3xx"],
+      ["unmatched", "GET", "4xx"],
+    ]);
+  });
+
+  it("an upstream's X-Cache never counts: only the worker's own cache decides", async () => {
+    const points = recordMetrics();
+    const { get } = setup({
+      routes: () =>
+        new Response("proxied", { headers: { "X-Cache": "HIT", "content-type": "text/plain" } }),
+    });
+    await get("/api/proxied");
+    expect(labels(points).map((l) => [l["http.route"], l.cache])).toEqual([
+      ["unmatched", "BYPASS"],
+    ]);
+  });
+
+  it("an unknown method is _OTHER; a draft is DRAFT", async () => {
+    const points = recordMetrics();
+    const { get } = setup();
+    await get("/", { method: "PROPFIND" });
+    await get(`/?__draft=${encodeURIComponent(POINTER)}`);
+    expect(labels(points).map((l) => [l["http.request.method"], l.cache])).toEqual([
+      ["_OTHER", "BYPASS"],
+      ["GET", "DRAFT"],
+    ]);
+  });
+
+  it("a request that throws is a 5xx, and the error still reaches the runtime", async () => {
+    const points = recordMetrics();
+    const { get, ctx } = setup({}, () => {
+      throw new Error("render failed");
+    });
+    await expect(get("/")).rejects.toThrow("render failed");
+    await ctx.settle();
+    expect(labels(points)).toEqual([
+      {
+        "http.route": "/",
+        "http.request.method": "GET",
+        status_class: "5xx",
+        cache: "BYPASS",
+        device: "desktop",
+      },
+    ]);
+  });
+
+  it("reads the release's pages once per revision", async () => {
+    recordMetrics();
+    const cms = storeCMS();
+    const forRelease = cms.forRelease.bind(cms);
+    let pageLists = 0;
+    cms.forRelease = () => {
+      const client = forRelease();
+      return {
+        ...client,
+        revision: () => client.revision(),
+        resolve: client.resolve.bind(client),
+        list: (type: string, options?: object) => {
+          if (type === "page") pageLists++;
+          return client.list(type, options);
+        },
+      } as ReturnType<typeof forRelease>;
+    };
+    const { get } = setup({ cms });
+    await get("/blue-shoes/p");
+    await get("/red-shoes/p");
+    await get("/");
+    expect(pageLists).toBe(1);
+  });
+
+  it("a failed page read is tried again on the next request", async () => {
+    const points = recordMetrics();
+    const cms = storeCMS();
+    const forRelease = cms.forRelease.bind(cms);
+    let fail = true;
+    cms.forRelease = () => {
+      const client = forRelease();
+      return {
+        ...client,
+        revision: () => client.revision(),
+        resolve: client.resolve.bind(client),
+        list: (type: string, options?: object) => {
+          if (type === "page" && fail) {
+            fail = false;
+            return Promise.reject(new Error("store down"));
+          }
+          return client.list(type, options);
+        },
+      } as ReturnType<typeof forRelease>;
+    };
+    const { get } = setup({ cms });
+    await get("/blue-shoes/p");
+    await get("/blue-shoes/p");
+    expect(points.map((p) => p.labels["http.route"])).toEqual(["unmatched", "/:slug/p"]);
+  });
+
+  it("costs nothing with telemetry off: no point, and the pages are never listed", async () => {
+    for (const off of [() => removeMetrics(), () => recordMetrics({ measuring: false })]) {
+      off();
+      const cms = storeCMS();
+      const forRelease = cms.forRelease.bind(cms);
+      const listed: string[] = [];
+      cms.forRelease = () => {
+        const client = forRelease();
+        return {
+          revision: () => client.revision(),
+          resolve: client.resolve.bind(client),
+          list: (type: string, options?: object) => {
+            listed.push(type);
+            return client.list(type, options);
+          },
+        } as ReturnType<typeof forRelease>;
+      };
+      const { get } = setup({ cms });
+      expect((await get("/blue-shoes/p")).status).toBe(200);
+      expect(listed).not.toContain("page");
+    }
+  });
+
+  it("a sink that throws never breaks the response", async () => {
+    recordMetrics({ throws: true });
+    const { get } = setup({ cms: storeCMS() });
+    expect((await get("/blue-shoes/p")).status).toBe(200);
+    expect((await get("/deco/_liveness")).status).toBe(200);
   });
 });

@@ -169,8 +169,13 @@ export class TelemetryPipeline {
     };
   }
 
+  /** Whether a histogram recorded now would be kept (telemetry and metrics on). */
+  measuring(): boolean {
+    return this.#settings.enabled && this.#settings.metrics;
+  }
+
   histogram(name: string, attributes: Attributes, seconds: number): void {
-    if (!this.#settings.enabled || !this.#settings.metrics) return;
+    if (!this.measuring()) return;
     const key = `${name}\u0000${JSON.stringify(attributes)}`;
     let histogram = this.#histograms.get(key);
     if (histogram === undefined) {
@@ -378,7 +383,9 @@ export class TelemetryPipeline {
       });
       return;
     }
-    // With a host hook (Workers: after the response, in ctx.waitUntil),
+    // With a host hook, or on Workers (whose timers never fire once the
+    // response is done, so `later` would leave #scheduled stuck and the
+    // isolate would never send again): after the response, in waitUntil,
     // a batch goes out once it's FLUSH_MS old; a younger one stays pending
     // and a later request's measurement schedules it again.
     runInBackground(() => {

@@ -16,8 +16,13 @@
  *   every other response tells the CDN `no-store`, at one exit.
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
+ * - `http.server.request.duration` for every request, to the CMS's telemetry
+ *   (`recordServerRequest` from `@decocms/blocks/metrics`), labelled with the route's template, the
+ *   method, the status class, the cache decision and the device; nothing
+ *   when the CMS has no telemetry.
  */
-import { type CMS, matchRoute, type Redirect } from "@decocms/blocks";
+import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
+import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
 import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import { CSEG_PARAM, DEGRADED_HEADER, PAGE_STATUS_HEADER } from "../shared.ts";
@@ -164,6 +169,41 @@ const TRACKING_PARAMS = new Set([
 const DEFAULT_SAFE_COOKIES = ["_deco_bucket"];
 const STORED_AT = "X-Deco-Stored-At";
 const DECISIONS = new Set<string>(["HIT", "STALE-HIT", "STALE-ERROR", "MISS", "BYPASS"]);
+/** Paths the worker (or TanStack Start) serves under a fixed template, for `http.route`. */
+const FIXED_ROUTES = [LIVENESS_PATH, PURGE_PATH];
+const PREFIX_ROUTES = ["/_serverFn/", "/_server/", "/_build/", "/assets/", "/fonts/"];
+
+/** The template of a path the worker knows without the content, or `null`. */
+function fixedRoute(pathname: string): string | null {
+  if (FIXED_ROUTES.includes(pathname)) return pathname;
+  const prefix = PREFIX_ROUTES.find((p) => pathname.startsWith(p));
+  return prefix ? `${prefix}*` : null;
+}
+
+/**
+ * `http.route` of a CMS redirect. One value for all of them: a redirect's
+ * source is usually one exact URL (a site may carry thousands), so labelling
+ * each would make the metric's cardinality the size of the redirect list.
+ */
+const REDIRECT_ROUTE = "redirect";
+
+/**
+ * The cache label of `http.server.request.duration`: the worker's own
+ * decision. A response that never went through the edge cache (no cache
+ * profile: a redirect, the site's `routes`, an asset) is `BYPASS` whatever
+ * `X-Cache` an upstream put on it.
+ */
+function cacheLabel(
+  response: Response,
+  draft: boolean,
+  served: { profile?: unknown } | undefined,
+): "HIT" | "MISS" | "BYPASS" | "DRAFT" {
+  if (draft) return "DRAFT";
+  if (!served?.profile) return "BYPASS";
+  const xCache = response.headers.get("X-Cache");
+  if (xCache === "HIT" || xCache === "STALE-HIT" || xCache === "STALE-ERROR") return "HIT";
+  return xCache === "MISS" ? "MISS" : "BYPASS";
+}
 
 const isHtml = (r: Response) => (r.headers.get("content-type") ?? "").includes("text/html");
 
@@ -328,6 +368,71 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return releaseRedirects.list;
   }
 
+  // The release's page templates, for `http.route`: read once per revision,
+  // and only while telemetry is measuring (`recordServerRequest` calls the
+  // route function only then).
+  let metricRoutes: { revision: string; pages: Promise<Route[]> } | undefined;
+
+  async function routeTemplate(url: URL): Promise<string | undefined> {
+    const client = cms.forRelease();
+    const revision = await client.revision();
+    let routes = metricRoutes;
+    if (routes?.revision !== revision) {
+      const pages = client
+        .list<{ path?: unknown }>("page")
+        .then(([list]) =>
+          (list ?? []).flatMap((p) =>
+            typeof p?.path === "string" ? [{ name: p.path, path: p.path }] : [],
+          ),
+        );
+      const entry = { revision, pages };
+      metricRoutes = entry;
+      routes = entry;
+      // A failed read is tried again on the next request, not kept for the revision.
+      pages.catch(() => {
+        if (metricRoutes === entry) metricRoutes = undefined;
+      });
+    }
+    const match = matchRoute(url, { routes: await routes.pages });
+    return match.kind === "match" ? match.entry.path : undefined;
+  }
+
+  /**
+   * Records the request (`http.server.request.duration`). The route is a
+   * function, found after the response and only while telemetry measures:
+   * with telemetry off `recordServerRequest` resolves without calling it.
+   */
+  function measure(
+    request: Request,
+    ctx: ExecutionContextLike,
+    seconds: number,
+    status: number,
+    cache: "HIT" | "MISS" | "BYPASS" | "DRAFT",
+    served: Served | undefined,
+  ): void {
+    try {
+      ctx.waitUntil(
+        recordServerRequest({
+          route: () => {
+            if (served?.redirect) return REDIRECT_ROUTE;
+            const url = new URL(request.url);
+            const fixed = fixedRoute(url.pathname);
+            if (fixed !== null) return fixed;
+            // The site's own `routes` answer has no template the worker knows.
+            return served?.routed ? undefined : routeTemplate(url);
+          },
+          method: request.method,
+          status,
+          cache,
+          device: detectDevice(request.headers.get("user-agent") ?? ""),
+          seconds,
+        }),
+      );
+    } catch {
+      // A metric never breaks a response.
+    }
+  }
+
   async function findRedirect(url: URL, pointer: string | null): Promise<Response | null> {
     try {
       const redirects = await redirectsFor(pointer);
@@ -345,6 +450,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     profile?: CacheProfileName;
     /** Answered by the site's `routes`: not this app's page, so no `preload` hints. */
     routed?: true;
+    /** A CMS redirect. */
+    redirect?: true;
   }
 
   async function handle(
@@ -390,7 +497,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       !BYPASS_PATHS.some((p) => url.pathname.startsWith(p))
     ) {
       const redirect = await findRedirect(url, draft);
-      if (redirect) return { response: redirect };
+      if (redirect) return { response: redirect, redirect: true };
     }
 
     if (options.routes) {
@@ -584,64 +691,93 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return { response: dress(resp, "MISS"), profile: profileName };
   }
 
+  async function serve(
+    incoming: Request,
+    env: Env,
+    ctx: ExecutionContextLike,
+    started: number,
+  ): Promise<{ response: Response; served: Served; draft: boolean }> {
+    let decision: { pointer: string | null; setCookie: string | null } = {
+      pointer: null,
+      setCookie: null,
+    };
+    try {
+      decision = await decideDraft(cms, incoming, policy);
+    } catch {
+      // The settings didn't load: the request gets the release.
+    }
+    // The page reads the draft from this header; a copy from outside never counts.
+    let request = incoming;
+    if (incoming.headers.has(DRAFT_HEADER) || decision.pointer !== null) {
+      const headers = new Headers(incoming.headers);
+      headers.delete(DRAFT_HEADER);
+      if (decision.pointer !== null) headers.set(DRAFT_HEADER, decision.pointer);
+      request = new Request(incoming, { headers });
+    }
+
+    const served = await handle(request, env, ctx, decision.pointer);
+    const draft = decision.pointer !== null;
+    let response = served.response;
+    // A WebSocket upgrade passes through untouched.
+    if (response.status === 101) return { response, served, draft };
+    response = mutable(response);
+
+    // CDN-Cache-Control is decided here, at the single exit: a response the
+    // worker didn't cache, or that no branch gave one, tells the CDN no-store.
+    if (
+      response.headers.get("X-Cache") === "BYPASS" ||
+      !response.headers.has("CDN-Cache-Control")
+    ) {
+      response.headers.set("CDN-Cache-Control", "no-store");
+    }
+    if (decision.setCookie) response.headers.append("Set-Cookie", decision.setCookie);
+    dedupeSetCookies(response);
+    if (isHtml(response)) {
+      for (const [k, v] of Object.entries(securityHeaders)) {
+        if (!response.headers.has(k)) response.headers.set(k, v);
+      }
+      if (!served.routed) {
+        for (const link of preloadLinks) response.headers.append("Link", link);
+      }
+    }
+
+    if (served.profile && options.onCache) {
+      const xCache = response.headers.get("X-Cache") ?? "BYPASS";
+      try {
+        options.onCache({
+          profile: served.profile,
+          decision: (DECISIONS.has(xCache) ? xCache : "BYPASS") as CacheDecision,
+          ms: Date.now() - started,
+          status: response.status,
+        });
+      } catch {
+        // A metrics hook never breaks a response.
+      }
+    }
+    return { response, served, draft };
+  }
+
   return {
     async fetch(incoming, env, ctx) {
       const started = Date.now();
-      let decision: { pointer: string | null; setCookie: string | null } = {
-        pointer: null,
-        setCookie: null,
-      };
+      const clock = performance.now();
+      let result: Awaited<ReturnType<typeof serve>>;
       try {
-        decision = await decideDraft(cms, incoming, policy);
-      } catch {
-        // The settings didn't load: the request gets the release.
+        result = await serve(incoming, env, ctx, started);
+      } catch (error) {
+        // The runtime answers a thrown request with a 500.
+        measure(incoming, ctx, (performance.now() - clock) / 1000, 500, "BYPASS", undefined);
+        throw error;
       }
-      // The page reads the draft from this header; a copy from outside never counts.
-      let request = incoming;
-      if (incoming.headers.has(DRAFT_HEADER) || decision.pointer !== null) {
-        const headers = new Headers(incoming.headers);
-        headers.delete(DRAFT_HEADER);
-        if (decision.pointer !== null) headers.set(DRAFT_HEADER, decision.pointer);
-        request = new Request(incoming, { headers });
-      }
-
-      const served = await handle(request, env, ctx, decision.pointer);
-      let response = served.response;
-      if (response.status === 101) return response; // a WebSocket upgrade passes through untouched
-      response = mutable(response);
-
-      // CDN-Cache-Control is decided here, at the single exit: a response the
-      // worker didn't cache, or that no branch gave one, tells the CDN no-store.
-      if (
-        response.headers.get("X-Cache") === "BYPASS" ||
-        !response.headers.has("CDN-Cache-Control")
-      ) {
-        response.headers.set("CDN-Cache-Control", "no-store");
-      }
-      if (decision.setCookie) response.headers.append("Set-Cookie", decision.setCookie);
-      dedupeSetCookies(response);
-      if (isHtml(response)) {
-        for (const [k, v] of Object.entries(securityHeaders)) {
-          if (!response.headers.has(k)) response.headers.set(k, v);
-        }
-        if (!served.routed) {
-          for (const link of preloadLinks) response.headers.append("Link", link);
-        }
-      }
-
-      if (served.profile && options.onCache) {
-        const xCache = response.headers.get("X-Cache") ?? "BYPASS";
-        try {
-          options.onCache({
-            profile: served.profile,
-            decision: (DECISIONS.has(xCache) ? xCache : "BYPASS") as CacheDecision,
-            ms: Date.now() - started,
-            status: response.status,
-          });
-        } catch {
-          // A metrics hook never breaks a response.
-        }
-      }
+      const { response, served, draft } = result;
+      measure(
+        incoming,
+        ctx,
+        (performance.now() - clock) / 1000,
+        response.status,
+        cacheLabel(response, draft, served),
+        served,
+      );
       return response;
     },
   };
