@@ -169,6 +169,30 @@ it("retains non-JSON values locally without silently corrupting them in KV", asy
   });
 });
 
+it("serializes a cached value once per write and not at all on a storage hit", async () => {
+  const storage = createKVCacheStorage(fakeKV());
+  const value = { items: [{ id: 1 }, { id: 2 }] };
+  const stringify = vi.spyOn(JSON, "stringify");
+  const ofValue = () =>
+    stringify.mock.calls.filter(([v]) => v === value || (v as { value?: unknown })?.value === value)
+      .length;
+  const writer = createCacheStore<typeof value>("once");
+  await run(storage, "site", async () => {
+    writer.set(writer.key("k"), value, Date.now() + 60_000);
+    await flush();
+  });
+  expect(ofValue()).toBe(1);
+  stringify.mockClear();
+  const reader = createCacheStore<typeof value>("once");
+  const hit = await run(storage, "site", () => reader.read(reader.key("k")));
+  expect(hit).toEqual(value);
+  // Sizing the memory tier reuses the raw text it just parsed.
+  expect(
+    stringify.mock.calls.filter(([v]) => (v as { items?: unknown })?.items !== undefined),
+  ).toHaveLength(0);
+  stringify.mockRestore();
+});
+
 it("deduplicates a cold loader through slow storage and survives a memory wipe", async () => {
   const storage = createKVCacheStorage(fakeKV());
   const fn = vi.fn(async () => ({ product: 42 }));
