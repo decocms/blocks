@@ -3,8 +3,11 @@ import { NextRequest, NextResponse } from "next/server.js";
 import { describe, expect, it, vi } from "vitest";
 import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
 import {
+  applyAssignments,
   applyDraft,
+  assignmentRequestHeaders,
   DRAFT_ROUTE_PREFIX,
+  decideAssignments,
   decideDraft,
   draftProxy,
   draftRequestHeaders,
@@ -181,5 +184,91 @@ describe("draftProxy", () => {
     expect(res.headers.has("x-middleware-rewrite")).toBe(false);
     expect(forwarded(res, "x-deco-draft")).toBe(null);
     expect(res.headers.has("x-robots-tag")).toBe(false);
+  });
+});
+
+describe("A/B tests: the visitor's assignments", () => {
+  const withTests = (experiments: Record<string, number>) =>
+    testCMS(snapshot({ previewHosts: ["shop.example.com"], experiments }));
+  const release = { pointer: null, setCookie: null };
+  const visit = (headers: Record<string, string> = {}, url = "https://shop.example.com/shoes") =>
+    new NextRequest(url, { headers });
+  const segmentCookies = (res: Response) =>
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+
+  it("a first visit: the release's assignments and the deco_segment cookie", async () => {
+    const d = await decideAssignments(
+      withTests({ "buy-button": 100, "hero-copy": 0 }),
+      visit(),
+      release,
+    );
+    expect({ ...d.assignments }).toEqual({ "buy-button": true, "hero-copy": false });
+    expect(d.setCookie).toMatch(
+      /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/,
+    );
+  });
+
+  it("the cookie is written only when the assignments change", async () => {
+    const cms = withTests({ "buy-button": 100 });
+    const first = await decideAssignments(cms, visit(), release);
+    const cookie = (first.setCookie as string).split(";")[0] as string;
+    const again = await decideAssignments(cms, visit({ cookie }), release);
+    expect({ ...again.assignments }).toEqual({ "buy-button": true });
+    expect(again.setCookie).toBe(null);
+    const res = applyAssignments(NextResponse.next(), again);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("with no experiments: nothing forwarded, no cookie, the release never assigned", async () => {
+    expect(await decideAssignments(testCMS(), visit(), release)).toEqual({
+      assignments: null,
+      setCookie: null,
+    });
+  });
+
+  it("a draft: no assignments and never the visitor's cookie", async () => {
+    const cms = { experiments: vi.fn(async () => ({ "buy-button": 100 })) };
+    expect(await decideAssignments(cms, visit(), { pointer: POINTER, setCookie: null })).toEqual({
+      assignments: null,
+      setCookie: null,
+    });
+    expect(cms.experiments).not.toHaveBeenCalled();
+    const res = await draftProxy(withTests({ "buy-button": 100 }))(draftLink());
+    expect(segmentCookies(res)).toEqual([]);
+    expect(forwarded(res, "x-deco-assignments")).toBe(null);
+  });
+
+  it("http (local development) gets a cookie without Secure; x-forwarded-proto wins", async () => {
+    const cms = withTests({ "buy-button": 100 });
+    const local = await decideAssignments(cms, visit({}, "http://localhost:3000/"), release);
+    expect(local.setCookie).not.toContain("Secure");
+    const behind = visit({ "x-forwarded-proto": "https" }, "http://localhost:3000/");
+    expect((await decideAssignments(cms, behind, release)).setCookie).toContain("Secure");
+  });
+
+  it("forwards them on x-deco-assignments; a forged copy is always removed", async () => {
+    const forged = visit({ "x-deco-assignments": "buy-button" });
+    expect(draftRequestHeaders(forged, release).has("x-deco-assignments")).toBe(false);
+    const none = await decideAssignments(testCMS(), forged, release);
+    expect(
+      assignmentRequestHeaders(draftRequestHeaders(forged, release), none).has(
+        "x-deco-assignments",
+      ),
+    ).toBe(false);
+    const off = await decideAssignments(withTests({ "buy-button": 0 }), forged, release);
+    expect(
+      assignmentRequestHeaders(draftRequestHeaders(forged, release), off).get("x-deco-assignments"),
+    ).toBe("");
+  });
+
+  it("draftProxy: forwards the assignments and sets the cookie once", async () => {
+    const proxy = draftProxy(withTests({ "buy-button": 100 }));
+    const res = await proxy(visit({ "x-deco-assignments": "forged" }));
+    expect(forwarded(res, "x-deco-assignments")).toBe("buy-button");
+    const [cookie, ...more] = segmentCookies(res);
+    expect(more).toEqual([]);
+    const again = await proxy(visit({ cookie: (cookie as string).split(";")[0] as string }));
+    expect(segmentCookies(again)).toEqual([]);
+    expect(forwarded(again, "x-deco-assignments")).toBe("buy-button");
   });
 });

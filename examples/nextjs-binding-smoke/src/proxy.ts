@@ -1,5 +1,8 @@
 import {
+  applyAssignments,
   applyDraft,
+  assignmentRequestHeaders,
+  decideAssignments,
   decideDraft,
   draftRequestHeaders,
   isDraftRoutePath,
@@ -13,11 +16,17 @@ export async function proxy(request: NextRequest) {
   // The draft route is reached only through the rewrite below.
   if (isDraftRoutePath(request.nextUrl.pathname)) return new NextResponse("Not found", { status: 404 });
   const draft = await decideDraft(proxyCms, request, preview);
+  // The visitor's A/B assignments for the release's Experiments block (none for a draft).
+  const assignments = await decideAssignments(proxyCms, request, draft);
   // Published pages are static, so a drafted request renders on the dynamic draft route.
   const response =
     rewriteToDraftRoute(request, draft) ??
-    NextResponse.next({ request: { headers: draftRequestHeaders(request, draft) } });
-  return applyDraft(response, draft);
+    NextResponse.next({
+      request: {
+        headers: assignmentRequestHeaders(draftRequestHeaders(request, draft), assignments),
+      },
+    });
+  return applyAssignments(applyDraft(response, draft), assignments);
 }
 
 export const config = { matcher: ["/((?!_next/|favicon.ico).*)"] };

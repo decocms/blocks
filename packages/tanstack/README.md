@@ -29,9 +29,13 @@ Options, each for a value a site needs to change: `csp`, `segment`, `cacheProfil
 
 A draft link (`?__draft=`) previews where v7 allowed it: on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. A site that declares no hosts previews only on those two, not on every host. `previewHosts: [...]` replaces the declared list with exact hosts (`["localhost:5173"]` for local development), as v7's `DECO_ALLOWED_PREVIEW_HOSTS` did; `previewHosts: "none"` turns previews off on every host. The worker passes the accepted draft to the app in the `x-deco-draft` request header: read it with `contentClient(cms)` from `@decocms/tanstack/server`.
 
+### A/B tests
+
+A/B tests are content: the `Experiments` block (each test's name and the percentage of visitors in it) and the `experiment` matcher in a block's variants. On every page and server-function request of the release, the worker runs `assign` from `@decocms/blocks/experiments` over the release's `Experiments` block and the visitor's `deco_segment` cookie, hands the result to the app on `x-deco-assignments` (removing any copy sent from outside), and sets the cookie only when the visitor's assignments changed. With no experiments in the release there is no header and no cookie. A draft gets no assignments and never writes the cookie: a preview shows the control, plus the variants Studio forces in its link. `contentClient(cms)` passes the assignments to the release's client, where the `experiment` matcher reads them; `requestAssignments()` returns them for a site's own code.
+
 ### Names and Studio's origins
 
-The root export holds what the worker, `/server` and `DecoDocument` share, for a site's own code: the draft names (`DRAFT_PARAM` `__draft`, `DRAFT_COOKIE` `__deco_draft`, `DRAFT_HEADER` `x-deco-draft`), `draftResponseHeaders(pointer)` (`no-store, private`, `Vary: Cookie`, `noindex`), and Studio's origins: `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` (what the worker's `frame-ancestors` starts from) and `isStudioOrigin`. `DecoDocument` passes `STUDIO_ORIGINS` to the Studio bridge.
+The root export holds what the worker, `/server` and `DecoDocument` share, for a site's own code: the draft names (`DRAFT_PARAM` `__draft`, `DRAFT_COOKIE` `__deco_draft`, `DRAFT_HEADER` `x-deco-draft`), `ASSIGNMENTS_HEADER` (`x-deco-assignments`), `draftResponseHeaders(pointer)` (`no-store, private`, `Vary: Cookie`, `noindex`), and Studio's origins: `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` (what the worker's `frame-ancestors` starts from) and `isStudioOrigin`. `DecoDocument` passes `STUDIO_ORIGINS` to the Studio bridge.
 
 ```ts
 import { DRAFT_HEADER, STUDIO_ORIGINS } from "@decocms/tanstack";

@@ -18,10 +18,17 @@
  * The host check is the proxy's (`decideDraft`), repeated here with the same
  * options, so a route the proxy doesn't match, or a forged `x-deco-draft`,
  * still gets the release on a host that may not preview.
+ *
+ * On the release, `bindDraft` also binds the visitor's A/B assignments the
+ * proxy forwarded (`x-deco-assignments`, from `decideAssignments`), and only
+ * when the release has experiments, so a page with no test running stays
+ * static. `contentClient` hands them to the release's client, where the
+ * built-in `experiment` matcher reads them; a draft's client gets none.
  */
 
 import type { Client, CMS } from "@decocms/blocks";
 import { headers } from "next/headers.js";
+import { ASSIGNMENTS_HEADER, decodeAssignments } from "../assignments.ts";
 import { DRAFT_HEADER, DRAFT_PARAM } from "../draft.ts";
 import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
@@ -46,12 +53,31 @@ function firstParam(searchParams: SearchParams | undefined, key: string): string
  * Binds the request's draft, if any: the page's own `?__draft=` first (`off`
  * leaves preview), then the pointer the proxy forwarded on `x-deco-draft`,
  * then the draft cookie, each on a host the options allow. Returns whether a
- * draft was bound. With previews off on every host it returns `false`
- * without reading the request, so a static page stays static.
+ * draft was bound. Without one, binds the visitor's A/B assignments the proxy
+ * forwarded, when the release has experiments. With previews off on every
+ * host and no experiments it returns `false` without reading the request, so
+ * a static page stays static.
  */
 export async function bindDraft(
-  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
+  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease" | "experiments">,
   options: BindDraftOptions = {},
+): Promise<boolean> {
+  if (await bindDraftPointer(cms, options)) return true;
+  await bindAssignments(cms);
+  return false;
+}
+
+/** The visitor's assignments the proxy forwarded, when the release has experiments. */
+async function bindAssignments(cms: Pick<CMS, "experiments">): Promise<void> {
+  const experiments = await cms.experiments();
+  if (Object.keys(experiments).length === 0) return;
+  const value = (await headers()).get(ASSIGNMENTS_HEADER);
+  if (value !== null) draftSlot().assignments = decodeAssignments(value);
+}
+
+async function bindDraftPointer(
+  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
+  options: BindDraftOptions,
 ): Promise<boolean> {
   const { searchParams, ...policy } = options;
   if (!(await isDraftPreviewEnabled(cms, policy))) return false;
@@ -68,10 +94,12 @@ export async function bindDraft(
 }
 
 /**
- * The content client for this request: the draft `bindDraft` bound, or the
- * release.
+ * The content client for this request: the draft `bindDraft` bound (its
+ * `experiment` rules `false`, the variants its pointer forces shown), or the
+ * release with the visitor's A/B assignments `bindDraft` bound.
  */
 export function contentClient(cms: Pick<CMS, "forDraft" | "forRelease">): Client {
-  const pointer = activeDraftPointer();
-  return pointer ? cms.forDraft(pointer) : cms.forRelease();
+  const { pointer, assignments } = draftSlot();
+  if (pointer) return cms.forDraft(pointer);
+  return assignments === null ? cms.forRelease() : cms.forRelease({ assignments });
 }

@@ -4,13 +4,28 @@ import { type Blocks, type CMS, createCMS, type Snapshot } from "@decocms/blocks
 /** A pointer that parses (Studio's draft API on a decocms.com host). */
 export const POINTER = "studio.decocms.com/api/acme/decofile/mcp/main?token=t@v1";
 
-/** A release with a page and, when given, the `CMS` block's preview hosts. */
-export function snapshot(options: { previewHosts?: string[] } = {}): Snapshot {
+/**
+ * A release with a page, a block that varies on the `buy-button` test and,
+ * when given, the `CMS` block's preview hosts and the `Experiments` block.
+ */
+export function snapshot(
+  options: { previewHosts?: string[]; experiments?: Record<string, number> } = {},
+): Snapshot {
   const blocks: Record<string, unknown> = {
     Home: { __resolveType: "page", path: "/", sections: [] },
+    BuyButton: {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "experiment", name: "buy-button" }, value: "new" },
+        { rule: { __resolveType: "always" }, value: "old" },
+      ],
+    },
   };
   if (options.previewHosts) {
     blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
+  }
+  if (options.experiments) {
+    blocks.Experiments = { __resolveType: "experiments", ...options.experiments };
   }
   return { revision: "rev-1", blocks } as Snapshot;
 }

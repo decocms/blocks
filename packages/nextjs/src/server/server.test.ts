@@ -96,3 +96,39 @@ describe("contentClient", () => {
     expect(cms.forDraft).toHaveBeenCalledWith(POINTER);
   });
 });
+
+describe("A/B tests: the assignments the proxy forwarded", () => {
+  const withTests = () =>
+    testCMS(snapshot({ previewHosts: ["shop.example.com"], experiments: { "buy-button": 50 } }));
+  const buyButton = async () => (await contentClient(withTests()).resolve("BuyButton"))[0];
+
+  it("reach the experiment matcher through bindDraft and contentClient", async () => {
+    serve({ "x-deco-assignments": "buy-button" });
+    expect(await bindDraft(withTests())).toBe(false);
+    expect(await buyButton()).toBe("new");
+    serve({ "x-deco-assignments": "" });
+    await bindDraft(withTests());
+    expect(await buyButton()).toBe("old");
+    serve({});
+    await bindDraft(withTests());
+    expect(await buyButton()).toBe("old");
+  });
+
+  it("a draft's client gets none: the control, plus the variants its pointer forces", async () => {
+    const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
+    serve({ ...cookie, "x-deco-assignments": "buy-button" });
+    expect(await bindDraft(withTests())).toBe(true);
+    contentClient(cms as never);
+    expect(cms.forDraft).toHaveBeenCalledWith(POINTER);
+    expect(cms.forRelease).not.toHaveBeenCalled();
+  });
+
+  it("a release with no experiments never reads the header, so a static page stays static", async () => {
+    serve({ "x-deco-assignments": "buy-button" });
+    expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
+    expect(request.reads).toBe(0);
+    const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
+    contentClient(cms as never);
+    expect(cms.forRelease).toHaveBeenCalledWith();
+  });
+});

@@ -4,5 +4,6 @@
  * that sets its own headers, a CSP it writes itself). No imports, no state:
  * safe in every bundle.
  */
+export { ASSIGNMENTS_HEADER } from "./assignments.ts";
 export { DRAFT_COOKIE, DRAFT_HEADER, DRAFT_PARAM, draftResponseHeaders } from "./draft.ts";
 export { isStudioOrigin, STUDIO_FRAME_ANCESTORS, STUDIO_ORIGINS } from "./studio.ts";

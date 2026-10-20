@@ -5,9 +5,12 @@
  * The draft a request renders is decided once, by `createDecoWorker` (its host
  * allowlist), and handed to the app in the `x-deco-draft` request header; the
  * worker removes any copy that arrives from outside. These read that header.
+ * The visitor's A/B assignments arrive the same way, on `x-deco-assignments`
+ * (set by the worker for the release; never for a draft).
  */
 import type { Client, CMS } from "@decocms/blocks";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
+import { ASSIGNMENTS_HEADER, decodeAssignments } from "../assignments.ts";
 import { DRAFT_HEADER } from "../draft.ts";
 
 /** The draft `request` renders (checked by the worker), or `null` for the release. */
@@ -16,12 +19,30 @@ export function requestDraft(request: Request = getRequest()): string | null {
 }
 
 /**
- * The content client for a request: its draft's, or the release's. Without
+ * The visitor's A/B assignments the worker decided for `request` (the
+ * experiments they are in), or `null` when it decided none: a draft, a
+ * release without experiments, or a request that didn't come through
+ * `createDecoWorker`.
+ */
+export function requestAssignments(
+  request: Request = getRequest(),
+): Record<string, boolean> | null {
+  const value = request.headers.get(ASSIGNMENTS_HEADER);
+  return value === null ? null : decodeAssignments(value);
+}
+
+/**
+ * The content client for a request: its draft's, or the release's with the
+ * visitor's A/B assignments, so the built-in `experiment` matcher answers for
+ * this visitor. A draft's client gets none: its `experiment` rules are
+ * `false` (the control) and the variants its pointer forces show. Without
  * `request`, the request being served (`getRequest()`).
  */
 export function contentClient(cms: CMS, request: Request = getRequest()): Client {
   const pointer = requestDraft(request);
-  return pointer ? cms.forDraft(pointer) : cms.forRelease();
+  if (pointer) return cms.forDraft(pointer);
+  const assignments = requestAssignments(request);
+  return assignments === null ? cms.forRelease() : cms.forRelease({ assignments });
 }
 
 /** True when the browser called a server function over HTTP; false while a document renders. */

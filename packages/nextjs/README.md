@@ -6,8 +6,8 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 
 | Import | What it is for |
 | --- | --- |
-| `@decocms/nextjs/proxy` | Draft previews in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, or `draftProxy` for a site with no proxy of its own. No React and no block map. |
-| `@decocms/nextjs/server` | Draft previews in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
+| `@decocms/nextjs/proxy` | Draft previews and A/B assignments in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideAssignments`, `assignmentRequestHeaders`, `applyAssignments`, or `draftProxy` for a site with no proxy of its own. No React and no block map. |
+| `@decocms/nextjs/server` | Draft previews and A/B assignments in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
 | `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/instrumentation` | `register`, the `instrumentation.ts` hook that records `http.server.request.duration` from Next's own request span, and `serverRequestSpanProcessor()` for a site with its own OpenTelemetry SDK. |
@@ -30,10 +30,11 @@ export const proxyCms = createCMS({ blocks: {}, ...cmsConfig }); // no block map
 export async function proxy(request: NextRequest) {
   if (isDraftRoutePath(request.nextUrl.pathname)) return new NextResponse(null, { status: 404 });
   const draft = await decideDraft(proxyCms, request, preview);
+  const assignments = await decideAssignments(proxyCms, request, draft);
+  const headers = assignmentRequestHeaders(draftRequestHeaders(request, draft), assignments);
   const response =
-    rewriteToDraftRoute(request, draft) ??
-    NextResponse.next({ request: { headers: draftRequestHeaders(request, draft) } });
-  return applyDraft(response, draft);
+    rewriteToDraftRoute(request, draft) ?? NextResponse.next({ request: { headers } });
+  return applyAssignments(applyDraft(response, draft), assignments);
 }
 
 // src/app/%5Fdraft/[[...path]]/page.tsx: the dynamic draft route (a literal `_draft` folder never routes)
@@ -47,6 +48,10 @@ export default async function DraftPage({ params, searchParams }) {
 ```
 
 Published pages stay static: the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted pointer on `x-deco-draft` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A root layout that reads content calls `bindDraft(cms, preview)` too: it reads the forwarded header.
+
+### A/B tests
+
+A/B tests are content: the `Experiments` block (each test's name and the percentage of visitors in it) and the `experiment` matcher in a block's variants. On a request of the release, `decideAssignments` runs `assign` from `@decocms/blocks/experiments` over the release's `Experiments` block and the visitor's `deco_segment` cookie; `assignmentRequestHeaders` forwards the result on `x-deco-assignments` (`draftRequestHeaders` always removes a copy sent from outside), and `applyAssignments` sets the cookie only when the visitor's assignments changed. With no experiments in the release, nothing is forwarded and no cookie is set. A draft gets no assignments and never writes the cookie: a preview shows the control, plus the variants Studio forces in its link. On the page, `bindDraft` binds the forwarded assignments (it reads the request only when the release has experiments) and `contentClient(cms)` passes them to the release's client, where the `experiment` matcher reads them. A page that should vary per visitor has to render per request.
 
 ### Draft hosts
 
@@ -79,7 +84,7 @@ It renders a `<meta>` that React places in the `<head>`, so the page's own marku
 
 ## Names and Studio's origins
 
-For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `DRAFT_HEADER` (`x-deco-draft`), `draftResponseHeaders(pointer)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
+For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `DRAFT_HEADER` (`x-deco-draft`), `ASSIGNMENTS_HEADER` (`x-deco-assignments`), `draftResponseHeaders(pointer)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
 
 ## next.config
 

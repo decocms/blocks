@@ -46,14 +46,34 @@ export class TestContext implements ExecutionContextLike {
   }
 }
 
-/** A release with a page, a redirect and, when given, the `CMS` block's preview hosts. */
-export function snapshot(options: { revision?: string; previewHosts?: string[] } = {}): Snapshot {
+/**
+ * A release with a page, a redirect, a block that varies on the `buy-button`
+ * test and, when given, the `CMS` block's preview hosts and the `Experiments`
+ * block.
+ */
+export function snapshot(
+  options: {
+    revision?: string;
+    previewHosts?: string[];
+    experiments?: Record<string, number>;
+  } = {},
+): Snapshot {
   const blocks: Record<string, unknown> = {
     Home: { __resolveType: "page", path: "/", sections: [] },
     "Old shoes": { __resolveType: "redirect", from: "/old-shoes", to: "/shoes", permanent: true },
+    BuyButton: {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "experiment", name: "buy-button" }, value: "new" },
+        { rule: { __resolveType: "always" }, value: "old" },
+      ],
+    },
   };
   if (options.previewHosts) {
     blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
+  }
+  if (options.experiments) {
+    blocks.Experiments = { __resolveType: "experiments", ...options.experiments };
   }
   return { revision: options.revision ?? "rev-1", blocks } as Snapshot;
 }

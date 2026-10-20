@@ -521,6 +521,99 @@ describe("drafts", () => {
   });
 });
 
+describe("A/B tests: the visitor's assignments", () => {
+  const withTests = (experiments: Record<string, number>) =>
+    testCMS(snapshot({ previewHosts: ["store.example.com"], experiments }));
+  const segmentCookies = (res: Response) =>
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const cookieValue = (setCookie: string) => setCookie.split(";")[0] as string;
+
+  it("a first visit: the app gets the assignments, the response sets deco_segment", async () => {
+    const { get, entry } = setup({ cms: withTests({ "buy-button": 100, "hero-copy": 0 }) });
+    const res = await get("/");
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("buy-button");
+    const [cookie, ...more] = segmentCookies(res);
+    expect(more).toEqual([]);
+    expect(cookie).toMatch(/^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/);
+  });
+
+  it("the cookie is written only when the assignments change", async () => {
+    const { get, entry } = setup({ cms: withTests({ "buy-button": 100 }) });
+    const first = segmentCookies(await get("/shoes"));
+    expect(first).toHaveLength(1);
+    const again = await get("/shoes", { headers: { cookie: cookieValue(first[0] as string) } });
+    expect(segmentCookies(again)).toEqual([]);
+    expect(entry.served.at(-1)?.headers.get("x-deco-assignments")).toBe("buy-button");
+  });
+
+  it("a new visitor served from the cache still gets their cookie; the stored copy has none", async () => {
+    const { get, entry } = setup({ cms: withTests({ "buy-button": 50 }) });
+    await get("/");
+    const hit = await get("/");
+    expect(hit.headers.get("x-cache")).toBe("HIT");
+    expect(entry.served).toHaveLength(1);
+    expect(segmentCookies(hit)).toHaveLength(1);
+    for (const stored of cache.entries.values())
+      expect(stored.headers.has("set-cookie")).toBe(false);
+  });
+
+  it("server-function calls are assigned too", async () => {
+    const { get, entry } = setup({ cms: withTests({ "buy-button": 100 }) }, () =>
+      Response.json({}),
+    );
+    const res = await get("/_serverFn/abc", { method: "POST" });
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("buy-button");
+    expect(segmentCookies(res)).toHaveLength(1);
+  });
+
+  it("with no experiments: no header, no cookie", async () => {
+    const { get, entry } = setup();
+    const res = await get("/");
+    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("an x-deco-assignments header from outside never reaches the app", async () => {
+    const forged = { headers: { "x-deco-assignments": "buy-button" } };
+    const none = setup();
+    await none.get("/", forged);
+    expect(none.entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
+    const off = setup({ cms: withTests({ "buy-button": 0 }) });
+    await off.get("/shoes", forged);
+    expect(off.entry.served[0]?.headers.get("x-deco-assignments")).toBe("");
+    const routed = setup({
+      routes: (request) => html(request.headers.get("x-deco-assignments") ?? "none"),
+    });
+    expect(await (await routed.get("/hats", forged)).text()).toBe("none");
+  });
+
+  it("a draft never writes deco_segment and hands the app no assignments", async () => {
+    const { get, entry } = setup({ cms: withTests({ "buy-button": 100 }) });
+    const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, {
+      headers: { "x-deco-assignments": "buy-button" },
+    });
+    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(POINTER);
+    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("assets and the liveness check are never assigned", async () => {
+    const { get, entry } = setup(
+      { cms: withTests({ "buy-button": 100 }) },
+      () => new Response("x", { headers: { "content-type": "text/javascript" } }),
+    );
+    expect(segmentCookies(await get("/assets/main-AbCdEf12.js"))).toEqual([]);
+    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
+    expect(segmentCookies(await get("/deco/_liveness"))).toEqual([]);
+  });
+
+  it("over plain http (local development) the cookie isn't Secure", async () => {
+    const { get } = setup({ cms: withTests({ "buy-button": 100 }) });
+    const [cookie] = segmentCookies(await get("http://localhost:5173/"));
+    expect(cookie).not.toContain("Secure");
+  });
+});
+
 describe("the draft host allowlist (v7's, in the worker)", () => {
   const link = (host: string) => `https://${host}/?__draft=${encodeURIComponent(POINTER)}`;
 

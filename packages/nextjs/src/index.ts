@@ -12,6 +12,7 @@
  * - `StudioPage`: rendered inside each CMS page, `<StudioPage pathTemplate={page.path} />`,
  *   tells the bridge which page "." opens (the root layout doesn't re-render per page).
  * - `DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`, `draftResponseHeaders`,
+ *   `ASSIGNMENTS_HEADER`,
  *   `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS`, `isStudioOrigin`: for a site
  *   that needs them in its own code (a route that sets its own headers, a CSP
  *   it writes itself). The package's own copy: it never imports
@@ -23,6 +24,7 @@
  */
 
 export { DraftBadge, StudioPage, type StudioPageInfo } from "@decocms/blocks/preview";
+export { ASSIGNMENTS_HEADER } from "./assignments.ts";
 export {
   DraftPreviewIndicator,
   type DraftPreviewIndicatorProps,

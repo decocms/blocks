@@ -10,9 +10,18 @@
  * export const proxyCms = createCMS({ blocks: {}, ...cmsConfig });
  * ```
  *
- * A site with a proxy of its own calls the pieces (`decideDraft`, then
- * `draftRequestHeaders` on the request it forwards, then `applyDraft` on the
- * response); a site without one exports `draftProxy(...)`.
+ * A site with a proxy of its own calls the pieces (`decideDraft` and
+ * `decideAssignments`, then `draftRequestHeaders` and
+ * `assignmentRequestHeaders` on the request it forwards, then `applyDraft`
+ * and `applyAssignments` on the response); a site without one exports
+ * `draftProxy(...)`.
+ *
+ * A/B tests: the proxy decides the visitor's assignments for the release's
+ * `Experiments` block (`assign` from `@decocms/blocks/experiments`), forwards
+ * them on `x-deco-assignments` (a copy from outside is always removed) for
+ * `bindDraft` and `contentClient`, and stores them in the `deco_segment`
+ * cookie when they changed. A draft writes no cookie and forwards none: a
+ * preview shows the control, plus the variants its pointer forces.
  *
  * Statically rendered pages can't read a draft, so a drafted request to one
  * is rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
@@ -24,7 +33,9 @@
  * (`register` from `@decocms/nextjs/instrumentation`).
  */
 import type { CMS } from "@decocms/blocks";
+import { type Assignments, assign, readSegment, segmentCookie } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
+import { ASSIGNMENTS_HEADER, encodeAssignments } from "../assignments.ts";
 import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX, draftResponseHeaders } from "../draft.ts";
 import {
   allowedDraft,
@@ -43,7 +54,7 @@ export {
   requestLike,
 } from "../drafts.ts";
 
-/** What the proxy needs from the CMS: the site's declared preview hosts and their check. */
+/** What the draft decision needs from the CMS: the site's declared preview hosts and their check. */
 export type CMSHandle = Pick<CMS, "draftPointer" | "settings" | "forRelease">;
 
 /** What the proxy does with a request's draft state. */
@@ -85,16 +96,78 @@ export async function decideDraft(
  * The request headers to forward: the accepted pointer on `x-deco-draft`, so
  * the root layout can bind the draft on the same request (a layout gets no
  * `searchParams`, and on a draft link the cookie is only on the response).
- * A copy that arrives from outside is always removed.
+ * A copy that arrives from outside is always removed, and so is any
+ * `x-deco-assignments` (`assignmentRequestHeaders` sets the proxy's own).
  */
 export function draftRequestHeaders(
   request: NextRequest | Request,
   decision: DraftDecision,
 ): Headers {
   const headers = new Headers(request.headers);
+  headers.delete(ASSIGNMENTS_HEADER);
   if (decision.pointer) headers.set(DRAFT_HEADER, decision.pointer);
   else headers.delete(DRAFT_HEADER);
   return headers;
+}
+
+/** The visitor's A/B assignments for one request. */
+export interface AssignmentDecision {
+  /**
+   * The experiments of the release and whether the visitor is in each;
+   * `null` for a draft or a release without experiments (nothing forwarded).
+   */
+  assignments: Assignments | null;
+  /** The `deco_segment` `Set-Cookie`, when the visitor's assignments changed. */
+  setCookie: string | null;
+}
+
+const UNASSIGNED: AssignmentDecision = Object.freeze({ assignments: null, setCookie: null });
+
+/** Whether the visitor asked over https (`x-forwarded-proto` first, as a host in front reports it). */
+function isHttps(request: NextRequest | Request): boolean {
+  const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  if (forwarded) return forwarded === "https";
+  return new URL(request.url).protocol === "https:";
+}
+
+/**
+ * The visitor's assignments for the release's `Experiments` block, read from
+ * and written back to the `deco_segment` cookie. Nothing for a draft (a
+ * preview never writes the visitor's cookie) or when the release has no
+ * experiments.
+ */
+export async function decideAssignments(
+  cms: Pick<CMS, "experiments">,
+  request: NextRequest | Request,
+  draft: DraftDecision,
+): Promise<AssignmentDecision> {
+  if (draft.pointer !== null) return UNASSIGNED;
+  const experiments = await cms.experiments();
+  if (Object.keys(experiments).length === 0) return UNASSIGNED;
+  const { assignments, segment, changed } = assign(experiments, readSegment(request));
+  return {
+    assignments,
+    setCookie: changed ? segmentCookie(segment, { secure: isHttps(request) }) : null,
+  };
+}
+
+/**
+ * The forwarded headers with the visitor's assignments on
+ * `x-deco-assignments`, for `bindDraft` and `contentClient`. Pass it the
+ * headers `draftRequestHeaders` gave, which already removed a copy from
+ * outside.
+ */
+export function assignmentRequestHeaders(headers: Headers, decision: AssignmentDecision): Headers {
+  const out = new Headers(headers);
+  if (decision.assignments === null) out.delete(ASSIGNMENTS_HEADER);
+  else out.set(ASSIGNMENTS_HEADER, encodeAssignments(decision.assignments));
+  return out;
+}
+
+/** The `deco_segment` cookie on the response, when the visitor's assignments changed. */
+export function applyAssignments<R extends Response>(response: R, decision: AssignmentDecision): R {
+  if (decision.setCookie) response.headers.append("set-cookie", decision.setCookie);
+  return response;
 }
 
 /** Whether `pathname` is on the draft route: a site answers a direct hit there with its 404. */
@@ -145,20 +218,25 @@ export interface DraftProxyOptions extends PreviewPolicy {
 }
 
 /**
- * The whole draft flow for a site with no proxy of its own:
- * `export const proxy = draftProxy(proxyCms, { site: "my-store" })`.
+ * The whole draft flow, and the visitor's A/B assignments, for a site with no
+ * proxy of its own: `export const proxy = draftProxy(proxyCms, { site: "my-store" })`.
  */
 export function draftProxy(
-  cms: CMSHandle,
+  cms: CMSHandle & Pick<CMS, "experiments">,
   options: DraftProxyOptions = {},
 ): (request: NextRequest) => Promise<NextResponse> {
   const { rewrite = () => true, ...policy } = options;
   return async (request) => {
     const decision = await decideDraft(cms, request, policy);
+    const assignments = await decideAssignments(cms, request, decision);
     const rewritten = rewrite(request) ? rewriteToDraftRoute(request, decision) : null;
     const response =
       rewritten ??
-      NextResponse.next({ request: { headers: draftRequestHeaders(request, decision) } });
-    return applyDraft(response, decision);
+      NextResponse.next({
+        request: {
+          headers: assignmentRequestHeaders(draftRequestHeaders(request, decision), assignments),
+        },
+      });
+    return applyAssignments(applyDraft(response, decision), assignments);
   };
 }

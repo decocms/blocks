@@ -16,14 +16,21 @@
  *   every other response tells the CDN `no-store`, at one exit.
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
+ * - A/B tests: on a page or server-function request of the release, the
+ *   visitor's assignments for the release's `Experiments` block (`assign`
+ *   from `@decocms/blocks/experiments`), handed to the app on
+ *   `x-deco-assignments` (`contentClient` reads it) and stored in the
+ *   `deco_segment` cookie when they changed. A draft writes no cookie.
  * - `http.server.request.duration` for every request, to the CMS's telemetry
  *   (`recordServerRequest` from `@decocms/blocks/metrics`), labelled with the route's template, the
  *   method, the status class, the cache decision and the device; nothing
  *   when the CMS has no telemetry.
  */
 import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
+import { assign, readSegment, segmentCookie } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
+import { ASSIGNMENTS_HEADER, encodeAssignments } from "../assignments.ts";
 import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import { CSEG_PARAM, DEGRADED_HEADER, PAGE_STATUS_HEADER } from "../shared.ts";
 import {
@@ -452,6 +459,34 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     routed?: true;
     /** A CMS redirect. */
     redirect?: true;
+    /** The visitor's `deco_segment` cookie, when their assignments changed. */
+    segmentCookie?: string;
+  }
+
+  /**
+   * The visitor's assignments for a page or server-function request: the
+   * release's `Experiments` block through `assign`, on `x-deco-assignments`
+   * for the app, and the cookie when they changed. Nothing when the release
+   * has no experiments (no header, no cookie) or the request renders a draft:
+   * a preview shows the control, plus the variants its pointer forces, and
+   * never writes the visitor's cookie.
+   */
+  async function assignVisitor(
+    request: Request,
+    draft: string | null,
+  ): Promise<{ request: Request; segmentCookie?: string }> {
+    if (draft !== null) return { request };
+    // TanStack Start's own build files render no content.
+    if (BYPASS_PATHS.some((p) => new URL(request.url).pathname.startsWith(p))) return { request };
+    const experiments = await cms.experiments();
+    if (Object.keys(experiments).length === 0) return { request };
+    const { assignments, segment, changed } = assign(experiments, readSegment(request));
+    const headers = new Headers(request.headers);
+    headers.set(ASSIGNMENTS_HEADER, encodeAssignments(assignments));
+    const assigned = new Request(request, { headers });
+    if (!changed) return { request: assigned };
+    const secure = new URL(request.url).protocol === "https:";
+    return { request: assigned, segmentCookie: segmentCookie(segment, { secure }) };
   }
 
   async function handle(
@@ -515,6 +550,22 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       return { response: resp };
     }
 
+    const assigned = await assignVisitor(request, draft);
+    const served = await page(assigned.request, env, ctx, draft, url);
+    return assigned.segmentCookie === undefined
+      ? served
+      : { ...served, segmentCookie: assigned.segmentCookie };
+  }
+
+  /** A page or server-function request: the edge cache, then the app. */
+  async function page(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContextLike,
+    draft: string | null,
+    url: URL,
+  ): Promise<Served> {
+    const method = request.method;
     const profileName = profileOf(url);
     const profile = profiles[profileName];
     const segment = segmentOf(request);
@@ -706,11 +757,17 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     } catch {
       // The settings didn't load: the request gets the release.
     }
-    // The page reads the draft from this header; a copy from outside never counts.
+    // The page reads the draft and the assignments from these headers; a copy
+    // from outside never counts.
     let request = incoming;
-    if (incoming.headers.has(DRAFT_HEADER) || decision.pointer !== null) {
+    if (
+      incoming.headers.has(DRAFT_HEADER) ||
+      incoming.headers.has(ASSIGNMENTS_HEADER) ||
+      decision.pointer !== null
+    ) {
       const headers = new Headers(incoming.headers);
       headers.delete(DRAFT_HEADER);
+      headers.delete(ASSIGNMENTS_HEADER);
       if (decision.pointer !== null) headers.set(DRAFT_HEADER, decision.pointer);
       request = new Request(incoming, { headers });
     }
@@ -731,6 +788,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       response.headers.set("CDN-Cache-Control", "no-store");
     }
     if (decision.setCookie) response.headers.append("Set-Cookie", decision.setCookie);
+    if (served.segmentCookie) response.headers.append("Set-Cookie", served.segmentCookie);
     dedupeSetCookies(response);
     if (isHtml(response)) {
       for (const [k, v] of Object.entries(securityHeaders)) {
