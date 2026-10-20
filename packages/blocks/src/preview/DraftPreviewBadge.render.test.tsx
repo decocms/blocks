@@ -39,9 +39,12 @@ describe("DraftPreviewBadge (render)", () => {
       expect(container.textContent).toContain("Preview mode");
     });
 
-    it("embeds the deco mark inline (no external asset that could 404 on a consumer site)", () => {
-      act(() => {
+    it("embeds the deco mark inline (no external asset that could 404 on a consumer site)", async () => {
+      // The mark is code-split (a ~21KB base64 PNG kept out of every published
+      // bundle) and loads once the badge reveals, so let that import settle.
+      await act(async () => {
         root.render(<DraftPreviewBadge pointer="acme.vtex.app@v1" />);
+        await import("./decoMark");
       });
       expect(container.innerHTML).toContain("data:image/png;base64,");
     });
