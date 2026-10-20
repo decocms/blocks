@@ -155,6 +155,54 @@ describe("saved random matchers", () => {
     });
   });
 
+  it("keeps every test already in Experiments, whatever its value", () => {
+    const variant = { __resolveType: "multivariate", variants: [] };
+    site({
+      "package.json": TANSTACK,
+      ".deco/blocks/Experiments.json": { __resolveType: "experiments", Odd: variant },
+      ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
+    });
+    migrateRandomMatchers(root, createReport());
+    expect(read(".deco/blocks/Experiments.json")).toEqual({
+      __resolveType: "experiments",
+      Odd: variant,
+      "Hero test": 50,
+    });
+  });
+
+  it("running it again changes nothing", () => {
+    site({
+      "package.json": NEXTJS,
+      ".deco/blocks/Test%20AB%200%2C5.json": {
+        __resolveType: "website/matchers/random.ts",
+        traffic: 0.5,
+      },
+      ".deco/blocks/Home.json": page([
+        {
+          __resolveType: "website/flags/multivariate.ts",
+          variants: [
+            { rule: { __resolveType: "Test AB 0,5" }, value: hero("B") },
+            {
+              rule: { __resolveType: "website/matchers/random.ts", traffic: 0.2 },
+              value: hero("C"),
+            },
+          ],
+        },
+      ]),
+    });
+    migrateRandomMatchers(root, createReport());
+    const dir = path.join(root, ".deco", "blocks");
+    const snapshot = () =>
+      Object.fromEntries(
+        fs.readdirSync(dir).map((f) => [f, fs.readFileSync(path.join(dir, f), "utf8")]),
+      );
+    const before = snapshot();
+    const again = createReport();
+    migrateRandomMatchers(root, again);
+    expect(snapshot()).toEqual(before);
+    expect(again).toEqual(createReport());
+  });
+
   it("leaves everything when another block is saved as Experiments, and says why", () => {
     const files = {
       "package.json": TANSTACK,

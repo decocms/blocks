@@ -96,9 +96,10 @@ export function migrateRandomMatchers(root: string, report: Report): void {
     });
     return;
   }
-  const experiments: Record<string, number> = Object.create(null);
+  // Every test already saved is kept as is: this only adds.
+  const experiments: Record<string, unknown> = Object.create(null);
   for (const [key, value] of Object.entries(existing ?? {})) {
-    if (key !== "__resolveType" && typeof value === "number") experiments[key] = value;
+    if (key !== "__resolveType") experiments[key] = value;
   }
   const added: string[] = [];
   const add = (name: string, percent: number) => {
@@ -185,7 +186,7 @@ export function migrateRandomMatchers(root: string, report: Report): void {
  */
 function inlineNames(
   inline: JsonObject[],
-  experiments: Record<string, number>,
+  experiments: Record<string, unknown>,
   add: (name: string, percent: number) => void,
   report: Report,
 ): Map<number, string> {
