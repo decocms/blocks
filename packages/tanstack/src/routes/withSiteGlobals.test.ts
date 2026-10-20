@@ -108,6 +108,31 @@ describe("withSiteGlobals", () => {
       expect(mockedResolvePageSections).toHaveBeenCalledTimes(1);
     });
 
+    it("a joiner recovers when the first request's flight never settles (owner cancelled)", async () => {
+      // Keyed by path, so every render of a URL joins the first one. On Workers
+      // a cancelled owner request never settles its flight; without a bound of
+      // the joiner's own, that URL hung for the life of the isolate.
+      vi.useFakeTimers();
+      try {
+        mockedLoadBlocks.mockReturnValue({
+          site: { global: [{ __resolveType: "Analytics" }] },
+        });
+        const resolved = [{ component: "A.tsx", props: {}, key: "k0" }];
+        mockedResolvePageSections
+          .mockImplementationOnce(() => new Promise(() => {}))
+          .mockResolvedValue(resolved);
+
+        void resolveSiteGlobals({ path: "/s" } as never); // owner — abandoned
+        const joiner = resolveSiteGlobals({ path: "/s" } as never);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        await expect(joiner).resolves.toMatchObject({ resolvedSections: resolved });
+        expect(mockedResolvePageSections).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("caches across calls within TTL", async () => {
       mockedLoadBlocks.mockReturnValue({
         site: { global: [{ __resolveType: "Analytics" }] },
@@ -130,10 +155,7 @@ describe("withSiteGlobals", () => {
       const ctx = { path: "/farm-etc" } as any;
       await resolveSiteGlobals(ctx);
 
-      expect(mockedResolvePageSections).toHaveBeenCalledWith(
-        [{ __resolveType: "Alert" }],
-        ctx,
-      );
+      expect(mockedResolvePageSections).toHaveBeenCalledWith([{ __resolveType: "Alert" }], ctx);
     });
 
     it("caches per path — different routes don't share a matched variant", async () => {
@@ -208,12 +230,7 @@ describe("withSiteGlobals", () => {
 
   describe("dedupeGlobals", () => {
     it("returns empty when globals is empty", () => {
-      expect(
-        dedupeGlobals(
-          [],
-          [{ component: "Header.tsx", props: {}, key: "p0" }],
-        ),
-      ).toEqual([]);
+      expect(dedupeGlobals([], [{ component: "Header.tsx", props: {}, key: "p0" }])).toEqual([]);
     });
 
     it("drops globals whose component already appears in existing", () => {
@@ -221,9 +238,7 @@ describe("withSiteGlobals", () => {
         { component: "Theme.tsx", props: {}, key: "g0" },
         { component: "Session.tsx", props: {}, key: "g1" },
       ];
-      const existing = [
-        { component: "Session.tsx", props: { fromPage: true }, key: "p0" },
-      ];
+      const existing = [{ component: "Session.tsx", props: { fromPage: true }, key: "p0" }];
 
       const result = dedupeGlobals(globals, existing);
       // Session dropped (already on page); Theme kept.

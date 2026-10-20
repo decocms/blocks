@@ -28,6 +28,7 @@
 import type { MatcherContext, ResolvedSection } from "@decocms/blocks/cms";
 import { loadBlocks, onChange, resolvePageSections } from "@decocms/blocks/cms";
 import { createCacheStore, getCacheStorageContext } from "@decocms/blocks/sdk/cacheStorage";
+import { joinSlot, publishInflight, releaseSlot } from "@decocms/blocks/sdk/inflightTimeout";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,7 +134,12 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
     : cache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached;
   const inflightEntry = inflight.get(cacheKey);
-  if (inflightEntry) return inflightEntry;
+  if (inflightEntry) {
+    // Keyed by path, so every render of a URL joins the first one. Joined on
+    // this request's own timer: if that first request was cancelled its flight
+    // never settles, and without a bound the URL hangs for the isolate's life.
+    return joinSlot(inflight, cacheKey, inflightEntry, () => resolveSiteGlobals(matcherCtx));
+  }
 
   const site = readSiteBlock();
   if (!site) {
@@ -166,13 +172,10 @@ export async function resolveSiteGlobals(matcherCtx?: MatcherContext): Promise<{
       console.error("[site-globals] failed to resolve:", err);
       // Don't cache failures — let the next request retry.
       return { resolvedSections: [], rawRefs, expiresAt: 0 };
-    } finally {
-      inflight.delete(cacheKey);
     }
-  })();
+  })().finally(() => releaseSlot(inflight, cacheKey, p));
 
-  inflight.set(cacheKey, p);
-  return p;
+  return publishInflight(inflight, cacheKey, p);
 }
 
 // ---------------------------------------------------------------------------

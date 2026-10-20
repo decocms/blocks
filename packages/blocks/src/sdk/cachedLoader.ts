@@ -20,7 +20,7 @@ import {
 } from "../middleware/observability";
 import { type CacheProfileName, loaderCacheOptions } from "./cacheHeaders";
 import { cacheBackground, createCacheStore, getCacheStorageContext } from "./cacheStorage";
-import { joinInflight, withInflightTimeout } from "./inflightTimeout";
+import { joinInflight, publishInflight, releaseSlot, withInflightTimeout } from "./inflightTimeout";
 import { RequestContext } from "./requestContext";
 
 // Build-time constant injected by `decoVitePlugin()` (see @decocms/tanstack's
@@ -199,32 +199,6 @@ function evictIfNeeded() {
 }
 
 const inflightRequests = new Map<string, Promise<unknown>>();
-
-/** Free a dedup slot only while it still holds `promise` — never a newer flight. */
-function releaseSlot(map: Map<string, Promise<unknown>>, key: string, promise: Promise<unknown>) {
-  if (map.get(key) === promise) map.delete(key);
-}
-
-/**
- * Start shared work: keep it alive past its own request and publish it in the
- * dedup map.
- *
- * On Workers a Promise's subrequests belong to the request that created it.
- * When that client disconnects the runtime cancels its pending I/O, the
- * Promise never settles, and every caller that joined it would wait forever.
- * `cacheBackground` registers it with the owner's `ctx.waitUntil`, so the
- * owner's invocation stays alive until the work settles and the joiners get
- * the answer. Inert outside the worker entry (no `waitUntil` bound).
- */
-function publishInflight<T>(
-  map: Map<string, Promise<unknown>>,
-  key: string,
-  promise: Promise<T>,
-): Promise<T> {
-  cacheBackground(promise);
-  map.set(key, promise);
-  return promise;
-}
 
 function resolveOptions(
   optionsOrProfile: CachedLoaderOptions | CacheProfileName,
