@@ -124,6 +124,95 @@ describe("the properties a test's result depends on", () => {
   });
 });
 
+describe("moving an allocation", () => {
+  const NAME = "t";
+  const population = ids(40_000);
+
+  /** A cookie as it stands for a visitor already decided at `pct`. */
+  const at = (id: string, isIn: boolean, pct: number): Segment => ({
+    id,
+    active: isIn ? [NAME] : [],
+    inactiveDrawn: isIn ? [] : [NAME],
+    pct: { [NAME]: pct },
+  });
+
+  /**
+   * Walks a population through a path of allocations, counting the visitors
+   * who moved the wrong way: out of a test that grew, or into one that shrank.
+   */
+  function walk(start: Segment[], path: number[]) {
+    let segments = start;
+    let violations = 0;
+    for (const allocation of path) {
+      segments = segments.map((segment) => {
+        const wasIn = segment.active.includes(NAME);
+        const before = segment.pct[NAME] as number;
+        const result = assign({ [NAME]: allocation }, segment);
+        const isIn = result.assignments[NAME] === true;
+        if (allocation > before && wasIn && !isIn) violations++;
+        if (allocation < before && !wasIn && isIn) violations++;
+        return result.segment;
+      });
+    }
+    const share = (segments.filter((s) => s.active.includes(NAME)).length / segments.length) * 100;
+    return { share, violations };
+  }
+
+  /** A visitor v7 decided, whose id was drawn later: the roll says nothing about them. */
+  const migrated = (pct: number) =>
+    population.map((id) => at(id, roll("a v7 draw", id) < pct, pct));
+  /** A visitor this package decided: stored and roll agree by construction. */
+  const native = (pct: number) => population.map((id) => at(id, roll(NAME, id) < pct, pct));
+
+  const paths: [string, number, number[]][] = [
+    ["up", 10, [20]],
+    ["up twice", 10, [20, 50]],
+    ["down", 50, [10]],
+    ["down then up", 50, [10, 50]],
+    ["up, up, down", 10, [20, 50, 20]],
+    ["to nothing", 20, [0]],
+    ["from nothing", 0, [30]],
+  ];
+
+  for (const [label, start, path] of paths) {
+    const target = path.at(-1) as number;
+
+    it(`${label}: a visitor carried over from v7 never moves the wrong way`, () => {
+      // Monotonicity only: their share drifts, which the test below pins.
+      expect(walk(migrated(start), path).violations).toBe(0);
+    });
+
+    it(`${label}: a visitor this package decided never moves the wrong way, and the arm lands on ${target}%`, () => {
+      const { share, violations } = walk(native(start), path);
+      expect(violations).toBe(0);
+      expect(share).toBeCloseTo(target, 0);
+    });
+  }
+
+  it("gives a visitor this package decided the same arm whatever path the allocation took", () => {
+    // The clause that protects v7 cohorts must stay invisible here: a native
+    // visitor's arm is a function of their id and the allocation, nothing
+    // else. Lose that and you can no longer answer "which arm is this
+    // visitor in?" from the id alone, and a test that returns to an
+    // allocation it already used stops landing on it.
+    for (const path of [[50], [20, 50], [20, 35, 50], [20, 10, 20, 50]]) {
+      const { share, violations } = walk(native(10), path);
+      expect(share, path.join("→")).toBeCloseTo(50, 0);
+      expect(violations, path.join("→")).toBe(0);
+    }
+  });
+
+  it("holds a v7 cohort's arm steady, at a share that drifts off target until they churn", () => {
+    // The price of never moving a v7 visitor the wrong way. Their id was
+    // drawn at the migration, so there is no roll to put them back in their
+    // place: the arm can only be kept, and it comes out wider than asked for
+    // on the way up and narrower on the way down. It corrects itself as
+    // those visitors age out, and nothing else in the system pays for it.
+    expect(walk(migrated(10), [20]).share).toBeCloseTo(28, 0);
+    expect(walk(migrated(50), [10]).share).toBeCloseTo(5, 0);
+  });
+});
+
 describe("assign", () => {
   const random = seededRandom(7);
 
@@ -173,6 +262,17 @@ describe("assign", () => {
     >;
     const result = assign(experiments, undefined, random);
     expect(Object.keys(result.assignments)).toEqual(["ok"]);
+  });
+
+  it("reports the change when a name leaves because its allocation is unusable", () => {
+    // The name is still a key of the block, so counting dropped names from
+    // the block's keys would miss it: the cookie would lose the entry and
+    // `changed` would say nothing, leaving the stale one in the browser.
+    const before = assign({ a: 50, b: 50 }, undefined, random).segment;
+    expect([...before.active, ...before.inactiveDrawn]).toContain("b");
+    const after = assign({ a: 50, b: Number.NaN } as unknown as Record<string, number>, before);
+    expect([...after.segment.active, ...after.segment.inactiveDrawn]).not.toContain("b");
+    expect(after.changed).toBe(true);
   });
 
   it("never throws, whatever it is handed", () => {
@@ -228,12 +328,20 @@ describe("the v7 visitor", () => {
     ]);
   });
 
-  it("recomputes once the editor moves the allocation", () => {
+  it("keeps a v7 visitor in when the editor ramps up, roll or no roll", () => {
+    // The visitor's own roll is 84.57, so recomputing from it would throw
+    // them out of a test that just got *bigger*. Their id was drawn at the
+    // migration and has nothing to do with the draw v7 made, so the roll
+    // carries no information about them here: only the stored decision does.
     const raw = v7Cookie({ active: ["pdp-cta"], inactiveDrawn: [], pct: { "pdp-cta": 50 } });
     const segment = { ...parseSegment(raw), id: "AAAAAAAAAAAAAAAAAAAAAA" };
-    const result = assign({ "pdp-cta": 60 }, segment); // roll is 84.57
-    expect(result.assignments["pdp-cta"]).toBe(false);
-    expect(result.changed).toBe(true);
+    expect(assign({ "pdp-cta": 60 }, segment).assignments["pdp-cta"]).toBe(true);
+  });
+
+  it("keeps a v7 visitor out when the editor ramps down", () => {
+    const raw = v7Cookie({ active: [], inactiveDrawn: ["pdp-cta"], pct: { "pdp-cta": 50 } });
+    const segment = { ...parseSegment(raw), id: "AAAAAAAAAAAAAAAAAAAAAA" };
+    expect(assign({ "pdp-cta": 40 }, segment).assignments["pdp-cta"]).toBe(false);
   });
 
   it("gets an id without losing anything else", () => {
@@ -273,6 +381,21 @@ describe("the cookie", () => {
     expect(serializeSegment(a)).toBe(serializeSegment(b));
   });
 
+  it("keeps the fingerprint of v7's N-way names, which it only carries", () => {
+    // `exp` is passed through untouched, so dropping the `pct` v7 kept beside
+    // it would be a silent rewrite of data this module claims not to read.
+    const segment: Segment = {
+      id: "AAAAAAAAAAAAAAAAAAAAAA",
+      active: ["a"],
+      inactiveDrawn: [],
+      pct: { a: 50, "nway-test": 30 },
+      exp: { "nway-test": "arm-b" },
+    };
+    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(segment)}`);
+    expect(parsed.exp).toEqual({ "nway-test": "arm-b" });
+    expect(parsed.pct).toEqual({ a: 50, "nway-test": 30 });
+  });
+
   it("reads one cookie out of a header holding others", () => {
     const value = serializeSegment({ ...emptySegment(), id: "AAAAAAAAAAAAAAAAAAAAAA" });
     const parsed = parseSegment(`other=1; ${SEGMENT_COOKIE}=${value}; last=2`);
@@ -295,6 +418,40 @@ describe("the cookie", () => {
     for (let i = 0; i < 50; i++) experiments[`experiment-number-${i}`] = 50;
     const segment = assign(experiments, undefined, seededRandom(5)).segment;
     expect(serializeSegment(segment).length).toBeLessThan(2048);
+  });
+
+  it("spends the budget on the entries a roll can reproduce, keeping the ones it cannot", () => {
+    // Trimming is not free: a dropped entry is recomputed from the roll on
+    // the next request, which reproduces the decision only when the stored
+    // value already agreed with it. A cohort carried over from v7 does not,
+    // so dropping it would move that visitor to the other arm for no reason
+    // at all — the cookie merely got long. Those go last.
+    const id = "AAAAAAAAAAAAAAAAAAAAAA";
+    const segment: Segment = { id, active: [], inactiveDrawn: [], pct: {} };
+    const unrecoverable: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const name = `experiment-number-${i}`;
+      // Store the opposite of what the roll says: only v7 could have written
+      // this, and only the cookie remembers it.
+      const isIn = !(roll(name, id) < 50);
+      (isIn ? segment.active : segment.inactiveDrawn).push(name);
+      segment.pct[name] = 50;
+      unrecoverable.push(name);
+    }
+    for (let i = 0; i < 120; i++) {
+      const name = `reproducible-${i}`;
+      const isIn = roll(name, id) < 50;
+      (isIn ? segment.active : segment.inactiveDrawn).push(name);
+      segment.pct[name] = 50;
+    }
+
+    const written = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(segment)}`);
+    expect(serializeSegment(segment).length).toBeLessThanOrEqual(2048);
+    const kept = new Set([...written.active, ...written.inactiveDrawn]);
+    // Every entry the roll cannot bring back survived the trim.
+    for (const name of unrecoverable) expect(kept.has(name), name).toBe(true);
+    // And something was actually dropped, or the case proves nothing.
+    expect(kept.size).toBeLessThan(140);
   });
 
   it("never throws on a broken or hostile value, and gives an empty segment", () => {

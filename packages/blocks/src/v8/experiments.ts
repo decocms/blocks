@@ -221,25 +221,61 @@ export function parseSegment(cookies: string | null | undefined): Segment {
  */
 export function serializeSegment(segment: Segment): string {
   const active = [...segment.active].sort();
-  let inactiveDrawn = [...segment.inactiveDrawn].sort();
+  const inactiveDrawn = [...segment.inactiveDrawn].sort();
+  const dropped = new Set<string>();
 
   const encode = (): string => {
+    const stillActive = active.filter((name) => !dropped.has(name));
+    const stillInactive = inactiveDrawn.filter((name) => !dropped.has(name));
     const pct: Record<string, number> = {};
     for (const name of Object.keys(segment.pct).sort()) {
-      if (active.includes(name) || inactiveDrawn.includes(name))
-        pct[name] = segment.pct[name] as number;
+      // v7 kept a `pct` for its N-way names too, and `exp` is carried
+      // untouched, so dropping their fingerprint would silently rewrite data
+      // this module promises not to read.
+      const listed =
+        stillActive.includes(name) ||
+        stillInactive.includes(name) ||
+        (segment.exp !== undefined && Object.hasOwn(segment.exp, name));
+      if (listed) pct[name] = segment.pct[name] as number;
     }
-    const body: Record<string, unknown> = { active, inactiveDrawn, pct };
+    const body: Record<string, unknown> = {
+      active: stillActive,
+      inactiveDrawn: stillInactive,
+      pct,
+    };
     if (segment.id !== undefined) body.id = segment.id;
     if (segment.exp !== undefined) body.exp = segment.exp;
     return btoa(encodeURIComponent(JSON.stringify(body)));
   };
 
   let value = encode();
-  // Over budget: drop the experiments the visitor is out of, oldest first.
-  // They cost the most and are worth the least — the id recomputes them.
-  while (value.length > COOKIE_BUDGET && inactiveDrawn.length > 0) {
-    inactiveDrawn = inactiveDrawn.slice(1);
+  if (value.length <= COOKIE_BUDGET) return value;
+
+  // Over budget. Dropping an entry means the next `assign` recomputes it from
+  // the roll, which reproduces the decision exactly when the stored value
+  // already agrees with the roll, and silently moves the visitor to the other
+  // arm when it does not (a cohort carried over from v7, or one a ramp moved).
+  // So spend the budget in that order: the reproducible entries first, and the
+  // unrecoverable ones only if the cookie is still too big. Within each group,
+  // the visitor is out before in, and names in sorted order, so the choice is
+  // deterministic and two equal segments still give byte-equal values.
+  const { id } = segment;
+  const reproducible = (name: string): boolean => {
+    if (id === undefined) return false;
+    const pct = segment.pct[name];
+    if (typeof pct !== "number") return false;
+    return active.includes(name) === roll(name, id) < pct;
+  };
+  const lossless = (name: string) => reproducible(name);
+  const lossy = (name: string) => !reproducible(name);
+  for (const name of [
+    ...inactiveDrawn.filter(lossless),
+    ...active.filter(lossless),
+    ...inactiveDrawn.filter(lossy),
+    ...active.filter(lossy),
+  ]) {
+    if (value.length <= COOKIE_BUDGET) break;
+    dropped.add(name);
     value = encode();
   }
   return value;
@@ -278,6 +314,40 @@ export interface Assignment {
 function roundPct(allocation: number): number {
   if (!Number.isFinite(allocation)) return 0;
   return Math.round(Math.min(100, Math.max(0, allocation)));
+}
+
+/**
+ * The visitor's answer after the allocation moved, given the decision they
+ * already had: **raising an allocation never removes anyone, and lowering it
+ * never adds anyone.** A test that grows or shrinks therefore never shuffles
+ * its arms under the people already in it, which is the one thing that would
+ * make its result meaningless.
+ *
+ * Otherwise the roll decides, as it does on a first visit.
+ *
+ * For a visitor this package decided, the two clauses are not a special case
+ * at all: `stored` is `roll(name, id) < from`, so in-and-growing already
+ * implies `roll < from <= to`, and the roll would say the same. That is what
+ * keeps them exactly on the allocation and independent of the path taken to
+ * it. The clauses only ever bite for a cohort carried over from v7, whose id
+ * was drawn at the migration and whose roll therefore says nothing about the
+ * draw v7 made.
+ *
+ * The cost is on that v7 population alone, and it is a share that drifts off
+ * target until those visitors churn: after a ramp 10% → 20% the arm measures
+ * about 28%, and after 50% → 10% about 5%. The alternative — admitting them
+ * at the rate that lands on target, through a second draw per move — was
+ * built and measured, and it loses more than it buys: it makes every
+ * visitor's arm depend on the path of allocations rather than on their id,
+ * and a test returning to an allocation it already used then undershoots
+ * (20% measured at 15.5%). Correct for the visitors who are leaving, broken
+ * for the ones who are staying, so: not that.
+ */
+function decideRamp(stored: boolean, from: number, to: number): boolean | undefined {
+  if (to === from) return stored;
+  if (stored && to > from) return true;
+  if (!stored && to < from) return false;
+  return undefined;
 }
 
 /**
@@ -328,9 +398,17 @@ export function assign(
       : source.inactiveDrawn.includes(name)
         ? false
         : undefined;
-    // A decision survives only while it was made under today's allocation.
-    const value =
-      stored !== undefined && source.pct[name] === pct ? stored : roll(name, next.id) < allocation;
+    // The allocation the stored decision was made under. v7 wrote
+    // `round(traffic * 100)` here, and its own reader treated a missing or
+    // `-1` entry as "matches anything", which clamping to 0 reproduces: the
+    // decision is honoured and only a later move reconsiders it.
+    const rawFrom = source.pct[name];
+    const from =
+      typeof rawFrom === "number" && Number.isFinite(rawFrom) ? roundPct(rawFrom) : undefined;
+
+    const carried =
+      stored === undefined || from === undefined ? undefined : decideRamp(stored, from, pct);
+    const value = carried ?? roll(name, next.id) < allocation;
 
     assignments[name] = value;
     (value ? next.active : next.inactiveDrawn).push(name);
@@ -338,9 +416,15 @@ export function assign(
     if (value !== stored || source.pct[name] !== pct) changed = true;
   }
 
-  const kept = new Set(names);
+  // Whatever was not written back left the cookie, so the cookie must be
+  // rewritten. Counted from the names actually written, not from the block's
+  // keys: a name whose allocation is unusable is skipped above, and reading
+  // the block's keys here would drop it from the cookie while reporting no
+  // change, leaving the stale entry in the browser for good.
+  const kept = new Set([...next.active, ...next.inactiveDrawn]);
+  const carried = next.exp !== undefined ? Object.keys(next.exp) : [];
   for (const name of [...source.active, ...source.inactiveDrawn, ...Object.keys(source.pct)]) {
-    if (!kept.has(name)) {
+    if (!kept.has(name) && !carried.includes(name)) {
       changed = true;
       break;
     }

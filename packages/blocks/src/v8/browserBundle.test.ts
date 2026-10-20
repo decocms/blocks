@@ -10,6 +10,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createContext, runInContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +65,39 @@ describe("v8 core bundle", () => {
       // the CMS in: a browser pays for the bucketing alone.
       expect(output).not.toContain("createCMS");
       expect(output).toContain("assign");
+    }
+  });
+
+  it("@decocms/blocks/experiments computes the same rolls out of the browser and workerd bundles, with only web globals", () => {
+    // The pinned table in `experiments.test.ts` runs under Vitest, which has
+    // every Node global in scope. A visitor must get the same arm wherever
+    // the decision happens, so run the bundled artifact in a bare context
+    // holding only what a browser and workerd both give — no `process`, no
+    // `require`, no Node built-in — and compare. (Both runtimes are V8, so
+    // what this can catch is the bundle picking up a different
+    // implementation, not an engine difference.)
+    const vectors: [string, string, number][] = [
+      ["pdp-cta", "AAAAAAAAAAAAAAAAAAAAAA", 84.57],
+      ["hero-copy", "Zm9vYmFyYmF6cXV4MTIzNA", 0.93],
+      ["name@2", "0123456789abcdefghijkl", 12.89],
+      ["Buy Now Button 0,5", "__--__--__--__--__--__", 98.35],
+    ];
+
+    for (const args of [
+      ["--platform=browser"],
+      ["--platform=neutral", "--conditions=workerd,worker,browser"],
+    ]) {
+      const code = bundle([...args, "--global-name=E", "--format=iife"], "experiments.ts");
+      const sandbox = createContext({ TextEncoder, btoa, atob, crypto, Math, JSON });
+      runInContext(code, sandbox);
+      const mod = (sandbox as unknown as { E: typeof import("./experiments.ts") }).E;
+      for (const [name, id, expected] of vectors) expect(mod.roll(name, id)).toBe(expected);
+      // And the whole decision, not only the hash.
+      expect(
+        mod.assign({ "pdp-cta": 50 }, { ...mod.emptySegment(), id: vectors[0][1] }),
+      ).toMatchObject(
+        { assignments: { "pdp-cta": false } }, // roll 84.57, out at 50
+      );
     }
   });
 
