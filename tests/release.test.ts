@@ -80,6 +80,7 @@ const PEER: Record<string, string> = {
 };
 /** The first @decocms/blocks release with each subpath a package may import. */
 const BLOCKS_API_SINCE: Record<string, string> = {
+  "@decocms/blocks/experiments": "8.6.0",
   "@decocms/blocks/metrics": "8.5.0",
 };
 

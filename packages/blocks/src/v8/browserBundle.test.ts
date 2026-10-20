@@ -89,21 +89,32 @@ describe("v8 core bundle", () => {
       ["pdp-cta", "AAAAAAAAAAAAAAAAAAAAAA", 84.57],
       ["hero-copy", "Zm9vYmFyYmF6cXV4MTIzNA", 0.93],
       ["name@2", "0123456789abcdefghijkl", 12.89],
-      ["Buy Now Button 0,5", "__--__--__--__--__--__", 98.35],
+      ["Test AB 0,5", "__--__--__--__--__--__", 21.67],
     ];
 
     for (const args of [
       ["--platform=browser"],
       ["--platform=neutral", "--conditions=workerd,worker,browser"],
     ]) {
-      const code = bundle([...args, "--global-name=E", "--format=iife"], "experiments.ts");
-      const sandbox = createContext({ TextEncoder, btoa, atob, crypto, Math, JSON });
-      runInContext(code, sandbox);
-      const mod = (sandbox as unknown as { E: typeof import("./experiments.ts") }).E;
-      for (const [name, id, expected] of vectors) expect(mod.roll(name, id)).toBe(expected);
-      // And the whole decision, not only the hash.
+      const sandbox = () => createContext({ TextEncoder, btoa, atob, crypto, Math, JSON });
+      // The roll is internal (not exported by the subpath), so its own module
+      // is bundled the same way to run the table.
+      const rolls = sandbox();
+      runInContext(bundle([...args, "--global-name=B", "--format=iife"], "bucketing.ts"), rolls);
+      const bucketing = (rolls as unknown as { B: typeof import("./bucketing.ts") }).B;
+      for (const [name, id, expected] of vectors) expect(bucketing.roll(name, id)).toBe(expected);
+      // And the whole decision, through the subpath's own bundle.
+      const decisions = sandbox();
+      runInContext(
+        bundle([...args, "--global-name=E", "--format=iife"], "experiments.ts"),
+        decisions,
+      );
+      const mod = (decisions as unknown as { E: typeof import("./experiments.ts") }).E;
       expect(
-        mod.assign({ "pdp-cta": 50 }, { ...mod.emptySegment(), id: vectors[0][1] }),
+        mod.assign(
+          { "pdp-cta": 50 },
+          { active: [], inactiveDrawn: [], pct: {}, id: vectors[0][1] },
+        ),
       ).toMatchObject(
         { assignments: { "pdp-cta": false } }, // roll 84.57, out at 50
       );

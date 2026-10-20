@@ -7,21 +7,23 @@
  * implementation. A change to either table is a breaking change for every
  * visitor already allocated, never a test to update.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { murmur3_32, newId, roll } from "./bucketing.ts";
 import {
   assign,
-  emptySegment,
-  murmur3_32,
-  newId,
   parseSegment,
-  roll,
-  SEGMENT_COOKIE,
+  readSegment,
   type Segment,
   segmentCookie,
   serializeSegment,
 } from "./experiments.ts";
 
+const SEGMENT_COOKIE = "deco_segment";
+
 const utf8 = (text: string) => new TextEncoder().encode(text);
+
+const emptySegment = (): Segment => ({ active: [], inactiveDrawn: [], pct: {} });
 
 /** A deterministic `RandomBytes`, so a drawn id is reproducible in a test. */
 function seededRandom(seed: number) {
@@ -53,7 +55,11 @@ describe("murmur3_32", () => {
   });
 
   it("hashes the UTF-8 bytes, not the code units", () => {
-    expect(murmur3_32(utf8("ação"))).toBe(murmur3_32(new TextEncoder().encode("ação")));
+    // Computed with an independent implementation of the reference C code
+    // over the UTF-8 bytes 61 c3 a7 c3 a3 6f; the low bytes of the UTF-16
+    // code units (61 e7 e3 6f) hash to 0xfd40194d instead.
+    expect(murmur3_32(utf8("ação"))).toBe(0xf3b0a92b);
+    expect(murmur3_32(new Uint8Array([0x61, 0xe7, 0xe3, 0x6f]))).toBe(0xfd40194d);
   });
 });
 
@@ -234,7 +240,25 @@ describe("assign", () => {
     const id = "Zm9vYmFyYmF6cXV4MTIzNA"; // hero-copy rolls 0.93
     const segment: Segment = { ...emptySegment(), id };
     expect(assign({ "hero-copy": 1 }, segment).assignments["hero-copy"]).toBe(true);
-    expect(assign({ "hero-copy": 0.5 }, segment).assignments["hero-copy"]).toBe(false);
+    expect(assign({ "hero-copy": 0 }, segment).assignments["hero-copy"]).toBe(false);
+  });
+
+  it("rounds a fractional allocation and compares the roll with the rounded value", () => {
+    const id = "Zm9vYmFyYmF6cXV4MTIzNA"; // hero-copy rolls 0.93
+    const segment: Segment = { ...emptySegment(), id };
+    expect(assign({ "hero-copy": 0.5 }, segment).assignments["hero-copy"]).toBe(true); // 1%
+    expect(assign({ "hero-copy": 0.4 }, segment).assignments["hero-copy"]).toBe(false); // 0%
+  });
+
+  it("gives the same answer whatever path a fractional allocation took", () => {
+    // Stored at round(10.6) = 11, so a later 11 is no move at all: the
+    // visitor must be where a fresh visitor with the same id lands at 11.
+    for (const id of ids(2000)) {
+      const at11 = assign({ f: 10.6 }, { ...emptySegment(), id }).segment;
+      const then = assign({ f: 11 }, at11).assignments.f;
+      const fresh = assign({ f: 11 }, { ...emptySegment(), id }).assignments.f;
+      expect(then, id).toBe(fresh);
+    }
   });
 
   it("puts nobody in a paused experiment and everybody in a full one", () => {
@@ -308,13 +332,12 @@ describe("the v7 visitor", () => {
     expect(assign({ "pdp-cta": 50 }, segment).assignments["pdp-cta"]).toBe(true);
   });
 
-  it("honours a real v7 cohort: the saved block's name, spaces and all", () => {
+  it("honours a v7 cohort named like a saved block, spaces and comma included", () => {
     // v7's cohort is the random matcher's saved block name, so production
-    // cookies carry names this package's own naming rules would reject
-    // (`.deco/blocks/Buy Now Button 0,5.json` on montecarlo, traffic 0.5).
-    // `assign` validates no name: it only hashes them, so a migrated site
-    // keeps v7's cohort verbatim and nobody is re-rolled.
-    const cohort = "Buy Now Button 0,5";
+    // cookies carry names such as "Test AB 0,5" (traffic 0.5). `assign`
+    // validates no name: it only hashes them, so a migrated site keeps v7's
+    // cohort verbatim and nobody is re-rolled.
+    const cohort = "Test AB 0,5";
     const raw = v7Cookie({
       active: [cohort],
       inactiveDrawn: [],
@@ -342,6 +365,43 @@ describe("the v7 visitor", () => {
     const raw = v7Cookie({ active: [], inactiveDrawn: ["pdp-cta"], pct: { "pdp-cta": 50 } });
     const segment = { ...parseSegment(raw), id: "AAAAAAAAAAAAAAAAAAAAAA" };
     expect(assign({ "pdp-cta": 40 }, segment).assignments["pdp-cta"]).toBe(false);
+  });
+
+  for (const [label, pct] of [
+    ["recorded no allocation for the name", undefined],
+    ['recorded -1, v7\'s "any allocation"', -1],
+  ] as const) {
+    it(`keeps both arms where v7 put them when the cookie ${label}`, () => {
+      // v7's reader treated a missing or negative entry as valid at any
+      // allocation. Re-rolling here would flip about half of each arm.
+      for (const id of ids(400)) {
+        for (const isIn of [true, false]) {
+          const body: Record<string, unknown> = {
+            active: isIn ? ["t"] : [],
+            inactiveDrawn: isIn ? [] : ["t"],
+            pct: pct === undefined ? {} : { t: pct },
+          };
+          const segment = { ...parseSegment(v7Cookie(body)), id };
+          const result = assign({ t: 50 }, segment);
+          expect(result.assignments.t, `${id} ${isIn}`).toBe(isIn);
+          // The allocation it now holds at is recorded, so a later move is a move.
+          expect(result.segment.pct.t).toBe(50);
+        }
+      }
+    });
+  }
+
+  it("keeps the allocation v7 recorded beside an N-way name through assign", () => {
+    const raw = v7Cookie({
+      active: ["pdp-cta"],
+      inactiveDrawn: [],
+      pct: { "pdp-cta": 50, "legacy-nway": 30 },
+      exp: { "legacy-nway": "arm-b" },
+    });
+    const { segment } = assign({ "pdp-cta": 50 }, parseSegment(raw), seededRandom(4));
+    const written = parseSegment(segmentCookie(segment).split(";")[0]);
+    expect(written.exp).toEqual({ "legacy-nway": "arm-b" });
+    expect(written.pct).toEqual({ "pdp-cta": 50, "legacy-nway": 30 });
   });
 
   it("gets an id without losing anything else", () => {
@@ -502,5 +562,89 @@ describe("the cookie", () => {
     )}`;
     const result = assign({ a: 50 }, parseSegment(raw), seededRandom(9));
     expect(result.segment.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+});
+
+describe("assign's changed flag", () => {
+  it("stays false on the next request once an over-budget cookie was trimmed", () => {
+    // Trimmed entries come back from the roll; they are not a change.
+    const experiments: Record<string, number> = {};
+    for (let i = 0; i < 140; i++) experiments[`a-fairly-long-experiment-name-${i}`] = 50;
+    const first = assign(experiments, undefined, seededRandom(21));
+    const written = serializeSegment(first.segment);
+    expect(written.length).toBeLessThanOrEqual(2048);
+    const parsed = parseSegment(`${SEGMENT_COOKIE}=${written}`);
+    expect([...parsed.active, ...parsed.inactiveDrawn].length).toBeLessThan(140); // trimmed
+    const second = assign(experiments, parsed);
+    expect(second.changed).toBe(false);
+    expect(second.assignments).toEqual(first.assignments);
+  });
+
+  it("is false for the cookie it wrote itself, and true once the allocation moves", () => {
+    const first = assign({ a: 50, b: 10 }, undefined, seededRandom(22));
+    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(first.segment)}`);
+    expect(assign({ a: 50, b: 10 }, parsed).changed).toBe(false);
+    expect(assign({ a: 50, b: 20 }, parsed).changed).toBe(true);
+  });
+});
+
+describe("names and encodings that used to break", () => {
+  it("reads a percent-encoded value, as a cookie API that encodes what it writes leaves it", () => {
+    const { segment } = assign({ a: 50 }, undefined, seededRandom(23));
+    const value = serializeSegment(segment);
+    expect(value).toMatch(/=/); // base64 padding, which such an API writes as %3D
+    const parsed = parseSegment(`${SEGMENT_COOKIE}=${encodeURIComponent(value)}`);
+    expect(parsed.id).toBe(segment.id);
+    expect(assign({ a: 50 }, parsed).changed).toBe(false);
+  });
+
+  it("treats __proto__ as an ordinary name: assigned, written, read back, not rewritten", () => {
+    const experiments = JSON.parse('{"__proto__": 100}') as Record<string, number>;
+    const first = assign(experiments, undefined, seededRandom(24));
+    expect(Object.keys(first.assignments)).toEqual(["__proto__"]);
+    expect(Object.getOwnPropertyDescriptor(first.assignments, "__proto__")?.value).toBe(true);
+    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(first.segment)}`);
+    expect(parsed.active).toEqual(["__proto__"]);
+    expect(Object.hasOwn(parsed.pct, "__proto__")).toBe(true);
+    expect(assign(experiments, parsed).changed).toBe(false);
+  });
+});
+
+describe("readSegment", () => {
+  it("reads the segment from a request's Cookie header", () => {
+    const { segment } = assign({ a: 50 }, undefined, seededRandom(25));
+    const request = new Request("https://example.com/", {
+      headers: { cookie: `x=1; ${SEGMENT_COOKIE}=${serializeSegment(segment)}` },
+    });
+    expect(readSegment(request)).toEqual(parseSegment(request.headers.get("cookie")));
+    expect(readSegment(request).id).toBe(segment.id);
+  });
+
+  it("gives an empty segment for a request without the cookie", () => {
+    const parsed = readSegment(new Request("https://example.com/"));
+    expect(parsed.id).toBeUndefined();
+    expect(parsed.active).toEqual([]);
+    expect(parsed.inactiveDrawn).toEqual([]);
+  });
+});
+
+describe("the ./experiments subpath", () => {
+  it("package.json maps it to the source and the build", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf-8"));
+    expect(pkg.exports["./experiments"]).toEqual({
+      types: "./dist/v8/experiments.d.ts",
+      source: "./src/v8/experiments.ts",
+      default: "./dist/v8/experiments.js",
+    });
+  });
+
+  it("exports exactly the documented runtime names", async () => {
+    expect(Object.keys(await import("./experiments.ts")).sort()).toEqual([
+      "assign",
+      "parseSegment",
+      "readSegment",
+      "segmentCookie",
+      "serializeSegment",
+    ]);
   });
 });
