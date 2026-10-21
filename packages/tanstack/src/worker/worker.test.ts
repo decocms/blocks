@@ -550,6 +550,26 @@ describe("the edge cache keys on what the content decided", () => {
     expect(cache.entries.size).toBe(1);
   });
 
+  it("a first visit is keyed on its new visitor's side, and a hit still sets that visitor's cookie", async () => {
+    const { get, entry } = decided({ experiments: { hero: 50 } });
+    const sides = new Set<boolean>();
+    for (let i = 0; i < 12; i++) {
+      const res = await get("/", { firstVisit: true });
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+      expect(cookies).toHaveLength(1);
+      const value = (cookies[0] as string).split(";")[0]?.slice("deco_segment=".length);
+      const visitor = parseVisitor(value);
+      expect(visitor).not.toBe(null);
+      const side = assign({ hero: 50 }, visitor).hero === true;
+      expect(res.headers.get("x-cache")).toBe(sides.has(side) ? "HIT" : "MISS");
+      sides.add(side);
+    }
+    // One render per side, each keyed on the side its visitor landed on.
+    expect(entry.served).toHaveLength(sides.size);
+    const keyed = [...cache.entries.keys()].map((key) => key.includes("&__d=x%3Dhero"));
+    expect(new Set(keyed)).toEqual(sides);
+  });
+
   it("a site without experiments or campaigns keys as before", async () => {
     const { get } = setup();
     await get("/");
