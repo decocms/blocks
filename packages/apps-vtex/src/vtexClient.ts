@@ -446,10 +446,22 @@ export function createVtexClient(config: VtexClientConfig) {
             headers: { "rest-range": `resources=${args.from ?? 0}-${args.to ?? 10}` },
           },
         ),
-      create: (entity: string, document: Record<string, unknown>, options?: VtexRequestOptions) =>
+      // Master Data refuses anonymous writes, so a create goes out as the app
+      // whenever the client has credentials, the shopper's cookie left out. Its
+      // response is only the new document's ids, nothing to unmask.
+      create: (
+        entity: string,
+        document: Record<string, unknown>,
+        options: VtexRequestOptions = {},
+      ) =>
         json<{ Id: string; Href: string; DocumentId: string }>(
           url(`/api/dataentities/${encodeURIComponent(entity)}/documents`),
-          { ...options, method: "POST", body: document },
+          {
+            cookie: config.appKey && config.appToken ? undefined : options.cookie,
+            signal: options.signal,
+            method: "POST",
+            body: document,
+          },
         ),
     },
   };
