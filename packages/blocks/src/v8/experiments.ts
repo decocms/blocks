@@ -18,7 +18,7 @@
  * sorted by code unit rather than v7's `localeCompare`) plus an `id`, so a
  * visitor carried over from v7 keeps the group v7 put them in and analytics
  * keeps reading the cookie it already reads. A visitor is written once, when
- * it has no id; v7's stored decisions are read and honoured, never rewritten.
+ * it has no id; v7's stored assignments are read and honoured, never rewritten.
  */
 
 import { newId, roll } from "./bucketing.ts";
@@ -30,8 +30,8 @@ export type Experiments = Record<string, number>;
 export type Assignments = Record<string, boolean>;
 
 /**
- * Who is visiting: an id every decision is computed from, plus the decisions
- * v7 stored (`active`, `inactiveDrawn`, `pct`, `exp`), which are honoured and
+ * Who is visiting: an id every assignment is computed from, plus the
+ * assignments v7 stored (`active`, `inactiveDrawn`, `pct`, `exp`), which are honoured and
  * carried, never rewritten.
  */
 export interface Visitor {
@@ -294,13 +294,13 @@ function keptFromV7(stored: boolean, from: number, to: number): boolean | undefi
  * A visitor is in a test when their roll for it (a fixed number in [0, 100)
  * from the test's name and their id) is under its percentage, so 0 puts
  * nobody in, 100 everybody, and raising a percentage only adds people. A
- * fractional percentage is rounded. A decision v7 stored is honoured while
+ * fractional percentage is rounded. An assignment v7 stored is honoured while
  * the percentage it was made at holds (a missing or `-1` percentage, v7's
  * "any", included); once it moves, a v7 visitor in a test that grows stays
  * in and one out of a test that shrinks stays out. Without a visitor every
  * test is `false`. A visitor without an id (`""`, as a page built from a
  * cache key's assignments gives one) has no roll: it is in exactly the tests
- * its stored decisions keep it in. Entries that aren't finite numbers are
+ * its stored `active` and `pct` keep it in. Entries that aren't finite numbers are
  * left out. Pure; never throws.
  */
 export function assign(

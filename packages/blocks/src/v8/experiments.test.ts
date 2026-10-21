@@ -182,7 +182,7 @@ describe("assign", () => {
     }
   });
 
-  it("without a usable id, keeps the stored decisions and leaves every other test out", () => {
+  it("without a usable id, keeps the stored assignments and leaves every other test out", () => {
     for (const id of ["", "too-short"]) {
       const stored: Visitor = { id, active: ["in", "zero"], inactiveDrawn: ["out"], pct: {} };
       expect({ ...assign({ in: 50, out: 100, zero: 0, other: 100 }, stored) }).toEqual({
@@ -192,7 +192,7 @@ describe("assign", () => {
         other: false,
       });
     }
-    // A stored decision whose percentage moved past it is rolled, and there is no roll.
+    // A stored assignment whose percentage moved past it is rolled, and there is no roll.
     const moved: Visitor = { id: "", active: ["t"], inactiveDrawn: [], pct: { t: 50 } };
     expect(assign({ t: 20 }, moved).t).toBe(false);
   });

@@ -161,6 +161,12 @@ describe("assignedClient: a page on the assignments route renders what its path 
     const on = assignedClient(cms, seg(["buy-button"], ["sale"]));
     expect((await on!.resolve("BuyButton"))[0]).toBe("new");
     expect(on!.visitor).toMatchObject({ id: "", active: ["buy-button"], inactiveDrawn: [] });
+    // A forged path can't switch on a test nobody is in (0%), and a name the content lacks stays off.
+    const forged = assignedClient(cms, seg(["buy-button", "later"]));
+    expect({ ...(await forged!.resolve("experiments"))[0]! }).toEqual({
+      "buy-button": true,
+      later: false,
+    });
     const off = assignedClient(cms, seg([]));
     expect((await off!.resolve("BuyButton"))[0]).toBe("old");
     expect({ ...(await off!.resolve("experiments"))[0]! }).toEqual({

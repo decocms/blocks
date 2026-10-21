@@ -133,12 +133,17 @@ export function contentClient(cms: Pick<CMS, "client">): Client {
 }
 
 /**
- * The visitor a path's assignments stand for: no id of its own, in exactly
- * the tests the path names (v7's stored-decision field `active`, which
- * `assign` honours), so every visitor on that side renders the same page.
+ * The visitor a path's assignments stand for: no id of its own, in the tests
+ * the path names (v7's field `active`, which `assign` honours), so every
+ * visitor on that side renders the same page. Each is recorded at 1%, the
+ * smallest share that puts anyone in: `assign` keeps it while the test has a
+ * share and, with no id to roll, leaves it off once the test is at 0%, so a
+ * forged path can't switch on a test nobody is in.
  */
 function visitorFromAssignments(assignments: PathAssignments): Visitor {
-  return { id: "", active: [...assignments.experiments], inactiveDrawn: [], pct: {} };
+  const active = [...assignments.experiments];
+  const pct = Object.fromEntries(active.map((name) => [name, 1]));
+  return { id: "", active, inactiveDrawn: [], pct };
 }
 
 /**
@@ -147,7 +152,8 @@ function visitorFromAssignments(assignments: PathAssignments): Visitor {
  * `rewriteToAssignmentsRoute` rewrites the CMS's pages to): the current
  * release, read as `cms.client({ visitor })` with a visitor built from the
  * path's segment, so the page shows the sides of the tests its cache key
- * says and reads no request: it can be static. Campaigns are checked again
+ * says and reads no request: it can be static. A test at 0% stays off
+ * whatever the path names. Campaigns are checked again
  * at the client's moment, as on any page; the path names them only so Next
  * keeps a page apart for each set running. A test or a campaign the content
  * doesn't have (or a campaign that has ended) stays off, never an error: a

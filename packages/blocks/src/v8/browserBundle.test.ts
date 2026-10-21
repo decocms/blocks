@@ -118,13 +118,13 @@ describe("v8 core bundle", () => {
       runInContext(bundle([...args, "--global-name=B", "--format=iife"], "bucketing.ts"), rolls);
       const bucketing = (rolls as unknown as { B: typeof import("./bucketing.ts") }).B;
       for (const [name, id, expected] of vectors) expect(bucketing.roll(name, id)).toBe(expected);
-      // And the whole decision, through the subpath's own bundle.
-      const decisions = sandbox();
+      // And the whole assignment, through the subpath's own bundle.
+      const assignments = sandbox();
       runInContext(
         bundle([...args, "--global-name=E", "--format=iife"], "experiments.ts"),
-        decisions,
+        assignments,
       );
-      const mod = (decisions as unknown as { E: typeof import("./experiments.ts") }).E;
+      const mod = (assignments as unknown as { E: typeof import("./experiments.ts") }).E;
       expect(
         mod.assign(
           { "pdp-cta": 50 },
