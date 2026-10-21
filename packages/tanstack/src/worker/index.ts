@@ -46,6 +46,7 @@ import {
   PRIVATE_NO_CACHE,
   profileOf,
   resolveProfiles,
+  serverFnPagePath,
 } from "./cacheProfiles.ts";
 import { dedupeSetCookies, hasOnlySafeCookies, withoutSafeCookies } from "./cookies.ts";
 import { decisionsKey, readDecisions } from "./decisions.ts";
@@ -268,9 +269,15 @@ function appendVary(headers: Headers, value: string): void {
   }
 }
 
-/** The Cache API key of a path's purge entry: its origin and path, no query. */
+/**
+ * The Cache API key of a path's purge entry: its origin and path, no query.
+ * A server function's page load is a copy of the page it loads, so it takes
+ * that page's entry: purging `/shoes` drops its navigation data too.
+ */
 function purgeKey(url: URL): Request {
-  const key = new URL(url.pathname, url.origin);
+  const page = serverFnPagePath(url);
+  const path = page === null ? url.pathname : new URL(page, url.origin).pathname;
+  const key = new URL(path, url.origin);
   key.searchParams.set(PURGE_ENTRY_PARAM, "1");
   return new Request(key.toString(), { method: "GET" });
 }
@@ -400,17 +407,30 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     // query, a v7 visitor's stored sides) carries the generation that entry
     // held, so none is served again; the copies themselves expire unread.
     // A path's query never matters: `/shoes?page=2` is a copy of `/shoes`.
+    // A failed delete (the Cache API down, or the request's quota of Cache API
+    // calls spent: 50 on Workers Free, 1,000 on Paid) stops the purge, and the
+    // answer names the paths it didn't reach, to send again.
     const dropped = new Map<string, boolean>();
     const purged: string[] = [];
     const notCached: string[] = [];
-    for (const path of new Set(paths)) {
+    const unique = [...new Set(paths)];
+    for (const [i, path] of unique.entries()) {
       const key = purgeKey(new URL(`${origin}${path}`));
       let gone = dropped.get(key.url);
       if (gone === undefined) {
         try {
           gone = await cache.delete(key);
         } catch {
-          return new Response("Cache API unavailable", { status: 503 });
+          return Response.json(
+            {
+              purged,
+              notCached,
+              notPurged: unique.slice(i),
+              total: purged.length,
+              note: "The Cache API failed: send the notPurged paths again",
+            },
+            { status: 503 },
+          );
         }
         dropped.set(key.url, gone);
       }

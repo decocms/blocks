@@ -1074,6 +1074,45 @@ describe("purge", () => {
     });
   }
 
+  it("a purge drops the page's navigation data (its server-function page loads) too", async () => {
+    const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
+      Response.json({ ok: true }),
+    );
+    const load = (href: string) =>
+      `/_serverFn/abc?payload=${encodeURIComponent(JSON.stringify({ data: { href } }))}`;
+    for (const path of [load("/shoes"), load("/shoes?page=2"), load("/hats")]) {
+      expect((await get(path)).headers.get("x-cache")).toBe("MISS");
+      expect((await get(path)).headers.get("x-cache")).toBe("HIT");
+    }
+    const res = await worker.fetch(purgeRequest(["/shoes"]), {}, ctx);
+    expect(await res.json()).toEqual({ purged: ["/shoes"], notCached: [], total: 1 });
+    expect((await get(load("/shoes"))).headers.get("x-cache")).toBe("MISS");
+    expect((await get(load("/shoes?page=2"))).headers.get("x-cache")).toBe("MISS");
+    expect((await get(load("/hats"))).headers.get("x-cache")).toBe("HIT");
+  });
+
+  it("a failed delete (the Cache API down or its per-request quota spent) names the paths it didn't reach", async () => {
+    const { get, worker, ctx } = setup({ purgeToken: () => "secret" });
+    await get("/a");
+    await get("/b");
+    const remove = cache.delete.bind(cache);
+    let calls = 0;
+    vi.spyOn(cache, "delete").mockImplementation(async (key: Request) => {
+      if (++calls > 2) throw new Error("Too many API requests by single Worker invocation");
+      return remove(key);
+    });
+    const res = await worker.fetch(purgeRequest(["/a", "/never", "/b", "/c"]), {}, ctx);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      purged: ["/a"],
+      notCached: ["/never"],
+      notPurged: ["/b", "/c"],
+      total: 1,
+      note: "The Cache API failed: send the notPurged paths again",
+    });
+    expect((await get("/b")).headers.get("x-cache")).toBe("HIT");
+  });
+
   it("an evicted purge entry is a miss, never a stale copy", async () => {
     const { get } = setup();
     await get("/shoes");
