@@ -85,6 +85,33 @@ function resolveBuildHash() {
   return Date.now().toString(36);
 }
 
+/**
+ * Admin routes whose preflight the worker answers (`tryAdminRoute` in
+ * `sdk/workerEntry.ts`).
+ * @param {string | undefined} url
+ */
+function isAdminPreflightPath(url) {
+  const pathname = new URL(url ?? "/", "http://localhost").pathname;
+  return (
+    pathname === "/live/_meta" ||
+    pathname === "/.decofile" ||
+    (pathname.startsWith("/live/previews/") && pathname !== "/live/previews/")
+  );
+}
+
+/**
+ * The worker's preflight answer (`corsHeaders` in `@decocms/blocks-admin`).
+ * @param {string | undefined} origin
+ */
+function adminPreflightHeaders(origin) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, If-None-Match",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
 // Virtual id for meta.gen.json on the server: the real path wrapped so the id
 // does NOT end in `.json` (Vite's `vite:json` would re-parse our JS output).
 const META_GEN_PREFIX = "\0deco-meta:";
@@ -474,6 +501,23 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // Generator is loaded lazily via tsImport (same pattern as the daemon
       // below) so we don't depend on the consumer's TS loader.
       const cwd = process.cwd();
+
+      // Vite's CORS middleware ends every preflight itself and, since Vite 6,
+      // allows only localhost origins, so a cross-origin admin read that needs
+      // one (Studio's conditional `/live/_meta` through the tunnel) never
+      // reaches the worker's own answer. Vite installs it before running
+      // configureServer, hence the front of the stack rather than `use()`.
+      server.middlewares.stack.unshift({
+        route: "",
+        handle: (req, res, next) => {
+          if (req.method !== "OPTIONS" || !isAdminPreflightPath(req.url)) return next();
+          res.statusCode = 204;
+          for (const [name, value] of Object.entries(adminPreflightHeaders(req.headers.origin))) {
+            res.setHeader(name, value);
+          }
+          res.end();
+        },
+      });
       const blocksDir = path.resolve(cwd, ".deco/blocks");
       const outFile = path.resolve(cwd, ".deco/blocks.gen.ts");
       const jsonFile = outFile.replace(/\.ts$/, ".json");
@@ -525,6 +569,17 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         const result = await generateBlocks({ blocksDir, outFile, silent: true });
         mergedBlocks = result.empty ? {} : result.blocks;
         return { merged: mergedBlocks, result };
+      };
+
+      // The workerd SSR runtime's decofile reload (handleDecofileReload).
+      const postDecofileDelta = async (blocks) => {
+        const addr = server.httpServer?.address();
+        const port = typeof addr === "object" && addr ? addr.port : 5173;
+        return fetch(`http://localhost:${port}/.decofile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ blocks }),
+        });
       };
 
       // Live block edits are applied as a DELTA. The Studio daemon (or a manual
@@ -583,13 +638,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
           // POST a delta envelope ({ blocks: {...} }) so handleDecofileReload
           // merges it over the current snapshot instead of replacing the whole
           // decofile. setBlocks() runs inside the workerd SSR runtime.
-          const addr = server.httpServer?.address();
-          const port = typeof addr === "object" && addr ? addr.port : 5173;
-          const res = await fetch(`http://localhost:${port}/.decofile`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ blocks: delta }),
-          });
+          const res = await postDecofileDelta(delta);
           const ms = Date.now() - start;
           if (res.ok) {
             console.log(`[deco] applied ${keys.length}-block delta in ${ms}ms`);
@@ -723,6 +772,16 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
               if (mod) {
                 server.environments.ssr.moduleGraph.invalidateModule(mod);
               }
+              // The isolate keeps the composed schema on globalThis, which
+              // outlives the module above; only the decofile reload clears it
+              // (invalidateMetaCache). An empty delta changes no block.
+              postDecofileDelta({})
+                .then((res) => {
+                  if (!res.ok) console.warn(`[deco] meta cache invalidation failed: ${res.status}`);
+                })
+                .catch((err) => {
+                  console.warn("[deco] meta cache invalidation failed:", err?.message ?? err);
+                });
             }
             if (schemaQueued) {
               schemaQueued = false;
