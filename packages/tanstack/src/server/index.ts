@@ -2,47 +2,44 @@
  * Server-only helpers for a site's server functions and page loader. Never
  * import this from a component that ships to the browser.
  *
- * The draft a request renders is decided once, by `createDecoWorker` (its host
- * allowlist), and handed to the app in the `x-deco-draft` request header; the
- * worker removes any copy that arrives from outside. These read that header.
- * The visitor's A/B assignments arrive the same way, on `x-deco-assignments`
- * (set by the worker from the `Experiments` block of the release or draft
- * the request renders).
+ * What a request reads is decided once, by `createDecoWorker`, and handed to
+ * the app in request headers the worker removes when they arrive from
+ * outside: the version on `x-deco-draft` (a Studio link's draft or old
+ * release, after the host allowlist) and the visitor on `x-deco-visitor`
+ * (`readVisitor` from `@decocms/blocks/experiments`). These read them, and
+ * `contentClient` builds `cms.client({ visitor, version })` from them.
  */
 import type { Client, CMS } from "@decocms/blocks";
+import { parseVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import { ASSIGNMENTS_HEADER, decodeAssignments } from "../assignments.ts";
 import { DRAFT_HEADER } from "../draft.ts";
+import { VISITOR_HEADER } from "../visitor.ts";
 
-/** The draft `request` renders (checked by the worker), or `null` for the release. */
+/**
+ * The version `request` renders (a Studio link's draft pointer or release
+ * SHA, checked by the worker), or `null` for the current release.
+ */
 export function requestDraft(request: Request = getRequest()): string | null {
   return request.headers.get(DRAFT_HEADER) || null;
 }
 
 /**
- * The visitor's A/B assignments the worker decided for `request` (the
- * experiments they are in), or `null` when it decided none: content without
- * experiments, or a request that didn't come through `createDecoWorker`.
+ * The visitor the worker read for `request`, or `null` when there is none (a
+ * request that didn't come through `createDecoWorker`): every test is off.
  */
-export function requestAssignments(
-  request: Request = getRequest(),
-): Record<string, boolean> | null {
-  const value = request.headers.get(ASSIGNMENTS_HEADER);
-  return value === null ? null : decodeAssignments(value);
+export function requestVisitor(request: Request = getRequest()): Visitor | null {
+  return parseVisitor(request.headers.get(VISITOR_HEADER));
 }
 
 /**
- * The content client for a request: its draft's, or the release's, with the
- * visitor's A/B assignments, so the built-in `experiment` matcher answers for
- * this visitor (a draft's client also shows the variants its pointer
- * forces). Without `request`, the request being served (`getRequest()`).
+ * The content client for a request: `cms.client({ visitor, version })` with
+ * the visitor and the version the worker handed the app, so the built-in
+ * `split-traffic` decides this visitor's tests and a preview reads its draft
+ * or old release. Create one per request. Without `request`, the request
+ * being served (`getRequest()`).
  */
 export function contentClient(cms: CMS, request: Request = getRequest()): Client {
-  const pointer = requestDraft(request);
-  const assignments = requestAssignments(request);
-  if (pointer)
-    return assignments === null ? cms.forDraft(pointer) : cms.forDraft(pointer, { assignments });
-  return assignments === null ? cms.forRelease() : cms.forRelease({ assignments });
+  return cms.client({ visitor: requestVisitor(request), version: requestDraft(request) });
 }
 
 /** True when the browser called a server function over HTTP; false while a document renders. */

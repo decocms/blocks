@@ -21,13 +21,13 @@ import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
+import { CAMPAIGNS_BLOCK, DATE_RULE, DATE_WINDOWS_TYPE } from "../../builtins/campaigns.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
-  EXPERIMENT_MATCHER,
+  EXPERIMENT_RULE,
   EXPERIMENTS_BLOCK,
-  EXPERIMENTS_TYPE,
+  SPLIT_TRAFFIC_TYPE,
 } from "../../builtins/experiments.ts";
-import { SCHEDULE_MATCHER, SCHEDULES_BLOCK, SCHEDULES_TYPE } from "../../builtins/schedules.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
 import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
@@ -395,54 +395,38 @@ class Checker {
     return undefined;
   }
 
-  /** The names in the `Experiments` block, or null when there is no such block. */
-  private experimentNames(): Set<string> | null {
-    const entry = own(this.saved.blocks, EXPERIMENTS_BLOCK);
-    if (!isBlock(entry) || entry.__resolveType !== EXPERIMENTS_TYPE) return null;
-    return new Set(Object.keys(entry).filter((key) => key !== "__resolveType"));
-  }
-
-  /** The names in the `Schedules` block, or null when there is no such block. */
-  private scheduleNames(): Set<string> | null {
-    const entry = own(this.saved.blocks, SCHEDULES_BLOCK);
-    if (!isBlock(entry) || entry.__resolveType !== SCHEDULES_TYPE) return null;
+  /**
+   * The names in the saved block `name` (the tests of `experiments`, the
+   * campaigns of `campaigns`), or null when there is no such block of `type`.
+   */
+  private savedNames(name: string, type: string): Set<string> | null {
+    const entry = own(this.saved.blocks, name);
+    if (!isBlock(entry) || this.canonicalType(entry.__resolveType) !== type) return null;
     return new Set(Object.keys(entry).filter((key) => key !== "__resolveType"));
   }
 
   /**
-   * The experiment a rule reads: the `name` of a built-in `experiment` block,
-   * inline or through a saved block (whose `name` the rule may override).
+   * The inputs a built-in `rule` (`experiment`, `date`) gets: the block's own,
+   * inline or over the saved block it names (whose inputs it may override).
+   * Undefined for any other block, or when the block map replaces the built-in.
    */
-  private experimentRuleName(rule: Json): string | undefined {
-    return this.namedRule(rule, EXPERIMENT_MATCHER);
-  }
-
-  /**
-   * The `name` a rule passes to the built-in `matcher` (`experiment` or
-   * `schedule`), inline or through a saved block (whose `name` the rule may
-   * override); undefined for any other rule, or when the block map replaces
-   * the built-in.
-   */
-  private namedRule(rule: Json, matcher: string): string | undefined {
-    if (!isBlock(rule) || !this.isOwnBuiltIn(matcher)) return undefined;
-    let type: string | null = this.canonicalType(rule.__resolveType);
-    let name: unknown = rule.name;
-    if (type === null) {
-      const saved = own(this.saved.blocks, rule.__resolveType);
-      if (!isBlock(saved)) return undefined;
-      type = this.canonicalType(saved.__resolveType);
-      name = "name" in rule ? rule.name : saved.name;
+  private ruleInputs(block: Json, rule: string): Record<string, Json> | undefined {
+    if (!isBlock(block) || !this.isOwnBuiltIn(rule)) return undefined;
+    if (this.canonicalType(block.__resolveType) !== null) {
+      return this.canonicalType(block.__resolveType) === rule ? block : undefined;
     }
-    return type === matcher && typeof name === "string" ? name : undefined;
+    const saved = own(this.saved.blocks, block.__resolveType);
+    if (!isBlock(saved) || this.canonicalType(saved.__resolveType) !== rule) return undefined;
+    return { ...saved, ...block };
   }
 
-  /** Each campaign of the `Schedules` block whose end isn't after its start. */
-  private checkScheduleWindows(ctx: Context, entry: Record<string, Json>): void {
+  /** Each campaign of a `campaigns` block whose end isn't after its start. */
+  private checkCampaignWindows(ctx: Context, entry: Record<string, Json>): void {
     for (const key of Object.keys(entry).sort()) {
       if (key === "__resolveType") continue;
       const window = entry[key];
       if (!isObject(window)) continue;
-      const { start, end } = window as Record<string, unknown>;
+      const { start, end } = window;
       if (typeof start !== "string" || typeof end !== "string") continue;
       const from = Date.parse(start);
       const until = Date.parse(end);
@@ -639,28 +623,48 @@ class Checker {
         }
         return;
       }
-      case EXPERIMENT_MATCHER: {
+      case EXPERIMENT_RULE: {
         this.checkProps(ctx, block, path, true);
-        const name = this.experimentRuleName(block);
-        const names = this.experimentNames();
-        if (name !== undefined && !names?.has(name)) {
+        const name = this.ruleInputs(block, EXPERIMENT_RULE)?.name;
+        if (
+          typeof name === "string" &&
+          !this.savedNames(EXPERIMENTS_BLOCK, SPLIT_TRAFFIC_TYPE)?.has(name)
+        ) {
           this.report(
             ctx,
             joinPath(path, "/name"),
-            `no experiment "${name}" in the "${EXPERIMENTS_BLOCK}" block: this rule is always false`,
+            `no test "${name}" in the saved block "${EXPERIMENTS_BLOCK}": this rule is always false`,
             "warning",
           );
         }
         return;
       }
-      case SCHEDULE_MATCHER: {
-        this.checkProps(ctx, block, path, true);
-        const name = this.namedRule(block, SCHEDULE_MATCHER);
-        if (name !== undefined && !this.scheduleNames()?.has(name)) {
+      case DATE_RULE: {
+        const inputs = this.ruleInputs(block, DATE_RULE);
+        const campaign = inputs?.campaign;
+        if (inputs !== undefined && typeof campaign !== "string") {
+          const inline = "start" in inputs || "end" in inputs;
           this.report(
             ctx,
-            joinPath(path, "/name"),
-            `no campaign "${name}" in the "${SCHEDULES_BLOCK}" block: this rule is always false`,
+            path,
+            inline
+              ? "this date rule has its dates inline, so it is always false: move them into a " +
+                  `campaign of the saved block "${CAMPAIGNS_BLOCK}" and name it here (campaign)`
+              : `this date rule names no campaign, so it is always false: name a campaign of the saved block "${CAMPAIGNS_BLOCK}"`,
+            "warning",
+          );
+          // Its start and end are the old inline form: reported once, above, not as unknown fields.
+          if (inline) return;
+        }
+        this.checkProps(ctx, block, path, true);
+        if (
+          typeof campaign === "string" &&
+          !this.savedNames(CAMPAIGNS_BLOCK, DATE_WINDOWS_TYPE)?.has(campaign)
+        ) {
+          this.report(
+            ctx,
+            joinPath(path, "/campaign"),
+            `no campaign "${campaign}" in the saved block "${CAMPAIGNS_BLOCK}": this rule is always false`,
             "warning",
           );
         }
@@ -730,19 +734,6 @@ class Checker {
       if ("rule" in variant) {
         if (isBlock(variant.rule)) {
           this.checkBlock(ctx, variant.rule, joinPath(at, "/rule"), rule);
-          const ruleExperiment = this.experimentRuleName(variant.rule);
-          if (
-            typeof block.experiment === "string" &&
-            ruleExperiment !== undefined &&
-            ruleExperiment !== block.experiment
-          ) {
-            this.report(
-              ctx,
-              joinPath(at, "/rule"),
-              `this rule reads the experiment "${ruleExperiment}", but the block's experiment is "${block.experiment}": its results are kept under "${block.experiment}"`,
-              "warning",
-            );
-          }
           if (alwaysAt < 0 && this.underlyingType(variant.rule.__resolveType).type === "always") {
             alwaysAt = i;
           }
@@ -800,55 +791,28 @@ class Checker {
       }
       if (
         name === EXPERIMENTS_BLOCK &&
-        entry.__resolveType !== EXPERIMENTS_TYPE &&
-        this.isOwnBuiltIn(EXPERIMENTS_TYPE)
+        this.canonicalType(entry.__resolveType) !== SPLIT_TRAFFIC_TYPE
       ) {
         this.report(
           ctx,
           "",
-          `"${EXPERIMENTS_BLOCK}" is the name of the experiments block (type "${EXPERIMENTS_TYPE}"); ` +
-            "this one is ignored as experiments, so rename it",
+          `"${EXPERIMENTS_BLOCK}" is the saved block every experiment rule reads, of type ` +
+            `"${SPLIT_TRAFFIC_TYPE}"; with type "${entry.__resolveType}" every experiment rule is false`,
           "warning",
         );
       }
-      if (
-        name !== EXPERIMENTS_BLOCK &&
-        this.canonicalType(entry.__resolveType) === EXPERIMENTS_TYPE &&
-        this.isOwnBuiltIn(EXPERIMENTS_TYPE)
-      ) {
-        this.report(
-          ctx,
-          "",
-          `the experiments are read only from the saved block "${EXPERIMENTS_BLOCK}"; ` +
-            `this "${EXPERIMENTS_TYPE}" block is never read, so move its tests there`,
-          "warning",
-        );
-      }
-      if (name === SCHEDULES_BLOCK && this.isOwnBuiltIn(SCHEDULES_TYPE)) {
-        if (entry.__resolveType !== SCHEDULES_TYPE) {
+      if (name === CAMPAIGNS_BLOCK && this.isOwnBuiltIn(DATE_WINDOWS_TYPE)) {
+        if (this.canonicalType(entry.__resolveType) !== DATE_WINDOWS_TYPE) {
           this.report(
             ctx,
             "",
-            `"${SCHEDULES_BLOCK}" is the name of the campaigns block (type "${SCHEDULES_TYPE}"); ` +
-              "this one is ignored as campaigns, so rename it",
+            `"${CAMPAIGNS_BLOCK}" is the saved block every date rule reads, of type ` +
+              `"${DATE_WINDOWS_TYPE}"; with type "${entry.__resolveType}" every date rule is false`,
             "warning",
           );
         } else {
-          this.checkScheduleWindows(ctx, entry);
+          this.checkCampaignWindows(ctx, entry);
         }
-      }
-      if (
-        name !== SCHEDULES_BLOCK &&
-        this.canonicalType(entry.__resolveType) === SCHEDULES_TYPE &&
-        this.isOwnBuiltIn(SCHEDULES_TYPE)
-      ) {
-        this.report(
-          ctx,
-          "",
-          `the campaigns are read only from the saved block "${SCHEDULES_BLOCK}"; ` +
-            `this "${SCHEDULES_TYPE}" block is never read, so move its campaigns there`,
-          "warning",
-        );
       }
       this.checkBlock(ctx, entry, "", null);
     }
@@ -859,14 +823,14 @@ class Checker {
 
   /**
    * A block map entry named after a built-in replaces it, schema included.
-   * Deliberate for most (a migrated site's own `page`), but `experiment`,
-   * `experiments`, `schedule` and `schedules` were free names before they
-   * were built in, so a site that registered its own block under them now
-   * hides the built-in by accident.
+   * Deliberate for most (a migrated site's own `page`), but the A/B and
+   * campaign built-ins read the saved blocks `experiments` and `campaigns`:
+   * a site that registered its own `experiment`, `split-traffic`, `date` or
+   * `date-windows` (free names before, or a v7-style `date`) hides them.
    */
   private builtInOverrides(): Problem[] {
     const problems: Problem[] = [];
-    for (const name of [EXPERIMENT_MATCHER, EXPERIMENTS_TYPE, SCHEDULE_MATCHER, SCHEDULES_TYPE]) {
+    for (const name of [EXPERIMENT_RULE, SPLIT_TRAFFIC_TYPE, DATE_RULE, DATE_WINDOWS_TYPE]) {
       if (this.siteNamespaceOf(name) === undefined) continue;
       problems.push({
         file: ".deco/schema.gen.json",

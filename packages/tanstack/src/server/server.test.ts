@@ -1,11 +1,11 @@
 // @vitest-environment node
 /**
- * The app's half: `contentClient` reads what the worker decided, the draft on
- * `x-deco-draft` and the visitor's assignments on `x-deco-assignments`, and
- * the built-in `experiment` matcher answers with them.
+ * The app's half: `contentClient` reads what the worker decided, the version
+ * on `x-deco-draft` and the visitor on `x-deco-visitor`, and builds
+ * `cms.client({ visitor, version })` from them.
  */
+import { newVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { describe, expect, it, vi } from "vitest";
-import { encodeAssignments } from "../assignments.ts";
 import { POINTER, snapshot, testCMS } from "../worker/testing.ts";
 
 vi.mock("@tanstack/react-start/server", () => ({
@@ -13,50 +13,45 @@ vi.mock("@tanstack/react-start/server", () => ({
   setResponseHeader: () => {},
 }));
 
-const { contentClient, requestAssignments } = await import("./index.ts");
+const { contentClient, requestDraft, requestVisitor } = await import("./index.ts");
 
 const page = (headers: Record<string, string> = {}) =>
   new Request("https://store.example.com/", { headers });
 
 describe("contentClient", () => {
-  it("the assignments the worker decided reach the experiment matcher", async () => {
-    const cms = testCMS(snapshot({ experiments: { "buy-button": 50 } }));
-    const inside = contentClient(cms, page({ "x-deco-assignments": "buy-button" }));
-    expect((await inside.resolve("BuyButton"))[0]).toBe("new");
-    const outside = contentClient(cms, page({ "x-deco-assignments": "" }));
-    expect((await outside.resolve("BuyButton"))[0]).toBe("old");
+  it("the visitor the worker read decides the tests", async () => {
+    const cms = testCMS(snapshot({ experiments: { "buy-button": 100 } }));
+    const visitor = serializeVisitor(newVisitor());
+    const client = contentClient(cms, page({ "x-deco-visitor": visitor }));
+    expect((await client.resolve("BuyButton"))[0]).toBe("new");
+    expect(client.visitor?.id).toBe(requestVisitor(page({ "x-deco-visitor": visitor }))?.id);
+    // Without a visitor every test is off.
     expect((await contentClient(cms, page()).resolve("BuyButton"))[0]).toBe("old");
   });
 
-  it("the release's client and a draft's both get them (a draft's also shows its forced variants)", () => {
-    const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
-    contentClient(cms as never, page({ "x-deco-assignments": "a,b%2Cc" }));
-    expect(cms.forRelease).toHaveBeenLastCalledWith({ assignments: { a: true, "b,c": true } });
+  it("is cms.client({ visitor, version }) with what the worker forwarded", () => {
+    const cms = { client: vi.fn(() => "client") };
+    const visitor: Visitor = newVisitor();
+    contentClient(
+      cms as never,
+      page({ "x-deco-draft": POINTER, "x-deco-visitor": serializeVisitor(visitor) }),
+    );
+    expect(cms.client).toHaveBeenLastCalledWith({ visitor, version: POINTER });
     contentClient(cms as never, page());
-    expect(cms.forRelease).toHaveBeenLastCalledWith();
-    contentClient(cms as never, page({ "x-deco-draft": POINTER, "x-deco-assignments": "a" }));
-    expect(cms.forDraft).toHaveBeenLastCalledWith(POINTER, { assignments: { a: true } });
-    contentClient(cms as never, page({ "x-deco-draft": POINTER }));
-    expect(cms.forDraft).toHaveBeenLastCalledWith(POINTER);
+    expect(cms.client).toHaveBeenLastCalledWith({ visitor: null, version: null });
   });
 });
 
-describe("the assignments header", () => {
-  it("round-trips the names a visitor is in, whatever they hold", () => {
-    const names = { "buy-button": true, "a,b": true, "café %": true, __proto__x: true, off: false };
-    const decoded = requestAssignments(page({ "x-deco-assignments": encodeAssignments(names) }));
-    expect({ ...decoded }).toEqual({
-      "buy-button": true,
-      "a,b": true,
-      "café %": true,
-      __proto__x: true,
-    });
+describe("the forwarded headers", () => {
+  it("requestDraft reads the version on x-deco-draft (a draft pointer or a release SHA)", () => {
+    expect(requestDraft(page({ "x-deco-draft": POINTER }))).toBe(POINTER);
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    expect(requestDraft(page({ "x-deco-draft": sha }))).toBe(sha);
+    expect(requestDraft(page())).toBe(null);
   });
 
-  it("null when the worker decided none; a part that doesn't decode is skipped", () => {
-    expect(requestAssignments(page())).toBe(null);
-    expect({ ...requestAssignments(page({ "x-deco-assignments": "%E0%A4%A,ok" })) }).toEqual({
-      ok: true,
-    });
+  it("requestVisitor is null without the header or when it doesn't read", () => {
+    expect(requestVisitor(page())).toBe(null);
+    expect(requestVisitor(page({ "x-deco-visitor": "junk" }))).toBe(null);
   });
 });

@@ -50,6 +50,13 @@ export function peekRelease(source: Snapshot | Loader): Snapshot | undefined {
   return typeof peek === "function" ? peek.call(source) : undefined;
 }
 
+/**
+ * An internal hook `remoteLoader` has: a published release by its commit SHA
+ * (`sites/<site>/revisions/<sha>.json`), kept in memory once read. Rejects
+ * with `LOADER_FAILED`, never falls back to another release.
+ */
+export const READ_REVISION: unique symbol = Symbol.for("decocms.blocks.readRevision");
+
 export function isSnapshot(content: unknown): content is Snapshot {
   return (
     isPlainObject(content) &&
@@ -153,6 +160,31 @@ export class ContentStore {
         entry.views.set(base, view);
       }
       return view;
+    });
+  }
+
+  /**
+   * A published release by its commit SHA: from the source's hosted releases
+   * (`remoteLoader`, which `createCMS` builds with `site`), or the content in
+   * memory when it is that revision. Anything else is `LOADER_FAILED`, never
+   * a silent fallback to the current release.
+   */
+  revision(sha: string): Promise<Snapshot> {
+    const source = this.#source;
+    const read = isLoader(source)
+      ? (source as { [READ_REVISION]?: (sha: string) => Promise<Snapshot> })[READ_REVISION]
+      : undefined;
+    if (typeof read === "function") {
+      return read.call(source, sha).catch((error: unknown) => {
+        if (isResolutionError(error)) throw error;
+        throw errors.loaderFailed(`the release ${sha} couldn't be read`, error);
+      });
+    }
+    return this.release().then((snapshot) => {
+      if (snapshot.revision === sha) return snapshot;
+      throw errors.loaderFailed(
+        `the release ${sha} isn't available: published releases are read from hosted releases (createCMS with site)`,
+      );
     });
   }
 

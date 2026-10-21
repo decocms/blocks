@@ -19,19 +19,19 @@
  * options, so a route the proxy doesn't match, or a forged `x-deco-draft`,
  * still gets the release on a host that may not preview.
  *
- * `bindDraft` also binds the visitor's A/B assignments the proxy forwarded
- * (`x-deco-assignments`, from `decideAssignments`, which reads the
- * `Experiments` block of the draft or the release): always for a draft, and
- * for the release only when it has experiments, so a page with no test
- * running stays static. `contentClient` hands them to the client, where the
- * built-in `experiment` matcher reads them.
+ * `bindDraft` also binds the visitor the proxy forwarded (`x-deco-visitor`,
+ * from `decideVisitor`): always for a preview, and for the release only when
+ * it has a saved `experiments` block, so a page with no test stays static.
+ * `contentClient` builds `cms.client({ visitor, version })` from what it
+ * bound.
  */
 
 import type { Client, CMS } from "@decocms/blocks";
+import { parseVisitor } from "@decocms/blocks/experiments";
 import { headers } from "next/headers.js";
-import { ASSIGNMENTS_HEADER, decodeAssignments } from "../assignments.ts";
 import { DRAFT_HEADER, DRAFT_PARAM } from "../draft.ts";
 import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
+import { VISITOR_HEADER } from "../visitor.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 
 export { type PreviewPolicy, requestLike } from "../drafts.ts";
@@ -54,33 +54,51 @@ function firstParam(searchParams: SearchParams | undefined, key: string): string
  * Binds the request's draft, if any: the page's own `?__draft=` first (`off`
  * leaves preview), then the pointer the proxy forwarded on `x-deco-draft`,
  * then the draft cookie, each on a host the options allow. Returns whether a
- * draft was bound. Binds the visitor's A/B assignments the proxy forwarded
- * too: with a draft, and on the release when it has experiments. With previews off on every
- * host and no experiments it returns `false` without reading the request, so
- * a static page stays static.
+ * draft was bound. The draft may be a published release's commit SHA too
+ * (Studio's "Preview this version"). Binds the visitor the proxy forwarded
+ * too: with a preview, and on the release when it has a saved `experiments`
+ * block. With previews off on every host and no `experiments` it returns
+ * `false` without reading the request, so a static page stays static.
  */
 export async function bindDraft(
-  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease" | "experiments">,
+  cms: Pick<CMS, "readVersion" | "settings" | "forRelease">,
   options: BindDraftOptions = {},
 ): Promise<boolean> {
   if (await bindDraftPointer(cms, options)) {
-    // A draft renders per request anyway: its assignments, for its own tests.
-    await bindForwardedAssignments();
+    // A preview renders per request anyway: its visitor, for its own tests.
+    await bindForwardedVisitor();
     return true;
   }
-  const experiments = await cms.experiments();
-  if (Object.keys(experiments).length > 0) await bindForwardedAssignments();
+  if (await hasExperiments(cms)) await bindForwardedVisitor();
   return false;
 }
 
-/** The visitor's assignments the proxy forwarded on `x-deco-assignments`, if any. */
-async function bindForwardedAssignments(): Promise<void> {
-  const value = (await headers()).get(ASSIGNMENTS_HEADER);
-  if (value !== null) draftSlot().assignments = decodeAssignments(value);
+/** The visitor the proxy forwarded on `x-deco-visitor`, if any. */
+async function bindForwardedVisitor(): Promise<void> {
+  draftSlot().visitor = parseVisitor((await headers()).get(VISITOR_HEADER));
+}
+
+/**
+ * Whether the release saves an `experiments` block (the built-in
+ * `split-traffic`) with a test in it: only then does a page vary per visitor.
+ * Read from memory, unresolved; `false` when it is missing.
+ */
+async function hasExperiments(cms: Pick<CMS, "forRelease">): Promise<boolean> {
+  try {
+    const [block] = await cms.forRelease().resolve<unknown>("experiments", { run: false });
+    if (typeof block !== "object" || block === null) return false;
+    const record = block as Record<string, unknown>;
+    return (
+      record.__resolveType === "split-traffic" &&
+      Object.keys(record).some((name) => name !== "__resolveType")
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function bindDraftPointer(
-  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
+  cms: Pick<CMS, "readVersion" | "settings" | "forRelease">,
   options: BindDraftOptions,
 ): Promise<boolean> {
   const { searchParams, ...policy } = options;
@@ -98,14 +116,11 @@ async function bindDraftPointer(
 }
 
 /**
- * The content client for this request: the draft `bindDraft` bound (with the
- * variants its pointer forces), or the release, either one with the
- * visitor's A/B assignments `bindDraft` bound.
+ * The content client for this request: `cms.client({ visitor, version })`
+ * with what `bindDraft` bound, the version (a draft, an old release, or
+ * `null` for the current one) and the visitor. Create one per request.
  */
-export function contentClient(cms: Pick<CMS, "forDraft" | "forRelease">): Client {
-  const { pointer, assignments } = draftSlot();
-  if (pointer) {
-    return assignments === null ? cms.forDraft(pointer) : cms.forDraft(pointer, { assignments });
-  }
-  return assignments === null ? cms.forRelease() : cms.forRelease({ assignments });
+export function contentClient(cms: Pick<CMS, "client">): Client {
+  const { pointer, visitor } = draftSlot();
+  return cms.client({ visitor, version: pointer });
 }

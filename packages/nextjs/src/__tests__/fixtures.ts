@@ -6,7 +6,7 @@ export const POINTER = "studio.decocms.com/api/acme/decofile/mcp/main?token=t@v1
 
 /**
  * A release with a page, a block that varies on the `buy-button` test and,
- * when given, the `CMS` block's preview hosts and the `Experiments` block.
+ * when given, the `CMS` block's preview hosts and the saved `experiments` block.
  */
 export function snapshot(
   options: { previewHosts?: string[]; experiments?: Record<string, number> } = {},
@@ -25,7 +25,7 @@ export function snapshot(
     blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
   }
   if (options.experiments) {
-    blocks.Experiments = { __resolveType: "experiments", ...options.experiments };
+    blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
   }
   return { revision: "rev-1", blocks } as Snapshot;
 }

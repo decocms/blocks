@@ -68,6 +68,18 @@ try {
   const token = body.match(/window\.__DECO_CSEG="([0-9a-f]{8})"/)?.[1];
   check("the document publishes its CDN segment token", Boolean(token), "no __DECO_CSEG");
   check("data-theme=light", body.includes('data-theme="light"'));
+  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const [visitorCookie, ...moreVisitorCookies] = visitorCookies(first);
+  check(
+    "a first visit gets the visitor's cookie, once",
+    /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
+      moreVisitorCookies.length === 0,
+    first.headers.getSetCookie().join(" | "),
+  );
+  check("the visitor reaches the page's A/B test (promo-copy, 100%)", body.includes("Free shipping on every order"));
+  const returning = await get("/summer-shirt/p", { headers: { cookie: (visitorCookie ?? "").split(";")[0] } });
+  await returning.text();
+  check("a returning visitor gets no new cookie", visitorCookies(returning).length === 0, returning.headers.getSetCookie().join(" | "));
 
   const second = await get("/summer-shirt/p");
   await second.text();
@@ -122,6 +134,16 @@ try {
   check("a draft is noindex", draft.headers.get("x-robots-tag") === "noindex, nofollow");
   check("a draft is no-store", draft.headers.get("cache-control") === "no-store, private");
   check("a draft link stores its cookie", (draft.headers.get("set-cookie") ?? "").startsWith("__deco_draft="));
+  check("a preview never sends the visitor's cookie", visitorCookies(draft).length === 0, draft.headers.getSetCookie().join(" | "));
+  const oldRelease = await get(`/summer-shirt/p?__draft=${"0".repeat(40)}`);
+  await oldRelease.text();
+  check(
+    "an old release's SHA from a Studio link is a preview: no-store, its own cookie, no visitor cookie",
+    oldRelease.headers.get("cache-control") === "no-store, private" &&
+      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${"0".repeat(40)};`) &&
+      visitorCookies(oldRelease).length === 0,
+    `${oldRelease.status} ${oldRelease.headers.get("cache-control")} ${oldRelease.headers.getSetCookie().join(" | ")}`,
+  );
   check("the draft page publishes the draft for the badge", draftBody.includes("window.__DECO_DRAFT="));
 } catch (error) {
   console.error(error);

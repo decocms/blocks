@@ -54,6 +54,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "CMSError",
     "CMSSettings",
     "createCMS",
+    "currentClient",
     "DraftPointer",
     "EffectiveSettings",
     "formatDraftPointer",
@@ -78,6 +79,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Variant",
   ]),
   "@decocms/blocks/fetch": "*",
+  // Who is in which A/B test: pure helpers a site's own code may call.
+  "@decocms/blocks/experiments": "*",
   "@decocms/blocks/analytics": "*",
   "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",
@@ -115,7 +118,6 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   // The v8 bindings. Subpaths v7 never had are whole; the rest list v8's names.
   // The draft names and Studio's origins live in each binding's root, not in @decocms/blocks.
   "@decocms/tanstack": new Set([
-    "ASSIGNMENTS_HEADER",
     "DRAFT_COOKIE",
     "DRAFT_HEADER",
     "DRAFT_PARAM",
@@ -123,6 +125,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "isStudioOrigin",
     "STUDIO_FRAME_ANCESTORS",
     "STUDIO_ORIGINS",
+    "VISITOR_HEADER",
   ]),
   "@decocms/tanstack/worker": "*",
   "@decocms/tanstack/server": "*",
@@ -141,7 +144,6 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/nextjs/image-loader": "*",
   // v7's DraftPreviewIndicator kept its name but now shows what bindDraft bound: reported.
   "@decocms/nextjs": new Set([
-    "ASSIGNMENTS_HEADER",
     "DRAFT_COOKIE",
     "DRAFT_HEADER",
     "DRAFT_PARAM",
@@ -155,6 +157,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "StudioBridgeProps",
     "StudioPage",
     "StudioPageInfo",
+    "VISITOR_HEADER",
   ]),
   "@decocms/nextjs/config": new Set([
     "DECO_DRAFT_HEADERS",
@@ -517,7 +520,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/nextjs\/middleware$/,
-    "draft previews and A/B assignments in proxy.ts: decideDraft, decideAssignments, draftRequestHeaders, assignmentRequestHeaders, rewriteToDraftRoute, applyDraft and applyAssignments from @decocms/nextjs/proxy, or draftProxy",
+    "draft previews and the visitor in proxy.ts: decideDraft, decideVisitor, draftRequestHeaders, visitorRequestHeaders, rewriteToDraftRoute, applyDraft and applyVisitor from @decocms/nextjs/proxy, or draftProxy",
   ],
   [
     /^@decocms\/tanstack(\/|$)/,

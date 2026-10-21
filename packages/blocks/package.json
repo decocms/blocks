@@ -13,6 +13,35 @@
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
+	"imports": {
+		"#async-store": {
+			"node": {
+				"types": "./dist/async/node.d.ts",
+				"source": "./src/async/node.ts",
+				"default": "./dist/async/node.js"
+			},
+			"workerd": {
+				"types": "./dist/async/node.d.ts",
+				"source": "./src/async/node.ts",
+				"default": "./dist/async/node.js"
+			},
+			"bun": {
+				"types": "./dist/async/node.d.ts",
+				"source": "./src/async/node.ts",
+				"default": "./dist/async/node.js"
+			},
+			"deno": {
+				"types": "./dist/async/node.d.ts",
+				"source": "./src/async/node.ts",
+				"default": "./dist/async/node.js"
+			},
+			"default": {
+				"types": "./dist/async/default.d.ts",
+				"source": "./src/async/default.ts",
+				"default": "./dist/async/default.js"
+			}
+		}
+	},
 	"files": [
 		"bin",
 		"dist",

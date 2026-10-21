@@ -17,8 +17,16 @@ const here = dirname(fileURLToPath(import.meta.url));
 // Shell out to the esbuild binary: its JS API trips over Vitest's realm isolation.
 const esbuildBin = join(here, "../../../../node_modules/.bin/esbuild");
 
+/**
+ * Bundles `entry`. The `source` condition is always on, so the package's own
+ * conditional imports (`#async-store`) resolve to source, as in the tests.
+ */
 function bundle(args: string[], entry = "index.ts"): string {
-  return execFileSync(esbuildBin, [join(here, entry), "--bundle", "--format=esm", ...args], {
+  const conditions = args.find((arg) => arg.startsWith("--conditions="));
+  const withSource = conditions
+    ? args.map((arg) => (arg === conditions ? `--conditions=source,${arg.slice(13)}` : arg))
+    : [...args, "--conditions=source"];
+  return execFileSync(esbuildBin, [join(here, entry), "--bundle", "--format=esm", ...withSource], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -31,9 +39,16 @@ describe("v8 core bundle", () => {
     expect(output).toContain("createCMS");
   });
 
-  it("bundles for a workerd target (neutral platform, Workers conditions) with no Node built-ins", () => {
-    const output = bundle(["--platform=neutral", "--conditions=workerd,worker,browser"]);
-    expect(output).not.toMatch(/node:|require\(/);
+  it("bundles for a workerd target (neutral platform, Workers conditions) with no Node built-in but AsyncLocalStorage", () => {
+    // currentClient() survives await through `#async-store`, whose workerd
+    // condition imports node:async_hooks (Workers with nodejs_compat).
+    const output = bundle([
+      "--platform=neutral",
+      "--conditions=workerd,worker,browser",
+      "--external:node:async_hooks",
+    ]);
+    expect(output.match(/node:[\w/]+/g) ?? []).toEqual(["node:async_hooks"]);
+    expect(output).not.toMatch(/require\(/);
   });
 
   it("@decocms/blocks/fetch bundles for a browser and a workerd target with no Node built-ins", () => {
@@ -115,9 +130,7 @@ describe("v8 core bundle", () => {
           { "pdp-cta": 50 },
           { active: [], inactiveDrawn: [], pct: {}, id: vectors[0][1] },
         ),
-      ).toMatchObject(
-        { assignments: { "pdp-cta": false } }, // roll 84.57, out at 50
-      );
+      ).toMatchObject({ "pdp-cta": false }); // roll 84.57, out at 50
     }
   });
 
@@ -157,7 +170,7 @@ describe("v8 core bundle", () => {
     }
   });
 
-  it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
+  it("imports nothing at runtime but its own modules, the async store, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
     // A real file, not /dev/stdout: esbuild leaves that empty on Linux.
     const dir = mkdtempSync(join(tmpdir(), "blocks-bundle-"));
     let meta: { inputs: Record<string, unknown> };
@@ -176,7 +189,9 @@ describe("v8 core bundle", () => {
     const inputs = Object.keys(meta.inputs);
     expect(inputs.length).toBeGreaterThan(0);
     for (const input of inputs) {
-      expect(input, input).toMatch(/(^|\/)src\/(v8\/|protocol\/(canonical|ciphertext)\.ts$)/);
+      expect(input, input).toMatch(
+        /(^|\/)src\/(v8\/|async\/default\.ts$|protocol\/(canonical|ciphertext)\.ts$)/,
+      );
     }
   });
 });

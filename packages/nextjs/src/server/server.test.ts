@@ -3,6 +3,7 @@
  * The pages' half. `next/headers` is the request's headers, and React's
  * `cache()` (one slot per request in Server Components) is a slot per test.
  */
+import { newVisitor, serializeVisitor } from "@decocms/blocks/experiments";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
 
@@ -87,48 +88,58 @@ describe("bindDraft", () => {
 });
 
 describe("contentClient", () => {
-  it("the bound draft's client, else the release's", async () => {
-    const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
-    expect(contentClient(cms as never)).toBe("release");
-    serve(cookie);
+  it("cms.client({ visitor, version }) with what bindDraft bound", async () => {
+    const cms = { client: vi.fn(() => "client") };
+    expect(contentClient(cms as never)).toBe("client");
+    expect(cms.client).toHaveBeenLastCalledWith({ visitor: null, version: null });
+    const visitor = newVisitor();
+    serve({ ...cookie, "x-deco-visitor": serializeVisitor(visitor) });
     await bindDraft(testCMS());
-    expect(contentClient(cms as never)).toBe("draft");
-    expect(cms.forDraft).toHaveBeenCalledWith(POINTER);
+    contentClient(cms as never);
+    expect(cms.client).toHaveBeenLastCalledWith({ visitor, version: POINTER });
   });
 });
 
-describe("A/B tests: the assignments the proxy forwarded", () => {
+describe("the visitor the proxy forwarded", () => {
   const withTests = () =>
-    testCMS(snapshot({ previewHosts: ["shop.example.com"], experiments: { "buy-button": 50 } }));
+    testCMS(snapshot({ previewHosts: ["shop.example.com"], experiments: { "buy-button": 100 } }));
   const buyButton = async () => (await contentClient(withTests()).resolve("BuyButton"))[0];
 
-  it("reach the experiment matcher through bindDraft and contentClient", async () => {
-    serve({ "x-deco-assignments": "buy-button" });
+  it("decides the tests through bindDraft and contentClient", async () => {
+    serve({ "x-deco-visitor": serializeVisitor(newVisitor()) });
     expect(await bindDraft(withTests())).toBe(false);
     expect(await buyButton()).toBe("new");
-    serve({ "x-deco-assignments": "" });
-    await bindDraft(withTests());
-    expect(await buyButton()).toBe("old");
+    // Without a visitor every test is off.
     serve({});
     await bindDraft(withTests());
     expect(await buyButton()).toBe("old");
+    serve({ "x-deco-visitor": "junk" });
+    await bindDraft(withTests());
+    expect(await buyButton()).toBe("old");
   });
 
-  it("a draft's client gets them too, with the variants its pointer forces", async () => {
-    const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
-    serve({ ...cookie, "x-deco-assignments": "buy-button" });
-    expect(await bindDraft(withTests())).toBe(true);
+  it("a preview's client gets it too", async () => {
+    const cms = { client: vi.fn(() => "client") };
+    const visitor = newVisitor();
+    serve({ ...cookie, "x-deco-visitor": serializeVisitor(visitor) });
+    expect(await bindDraft(testCMS())).toBe(true);
     contentClient(cms as never);
-    expect(cms.forDraft).toHaveBeenCalledWith(POINTER, { assignments: { "buy-button": true } });
-    expect(cms.forRelease).not.toHaveBeenCalled();
+    expect(cms.client).toHaveBeenLastCalledWith({ visitor, version: POINTER });
+  });
+
+  it("an old release by its SHA binds like a draft", async () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    serve({ "x-deco-draft": sha });
+    expect(await bindDraft(testCMS(snapshot({ previewHosts: ["shop.example.com"] })))).toBe(true);
+    expect(activeDraftPointer()).toBe(sha);
   });
 
   it("a release with no experiments never reads the header, so a static page stays static", async () => {
-    serve({ "x-deco-assignments": "buy-button" });
+    serve({ "x-deco-visitor": serializeVisitor(newVisitor()) });
     expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
     expect(request.reads).toBe(0);
-    const cms = { forDraft: vi.fn(() => "draft"), forRelease: vi.fn(() => "release") };
+    const cms = { client: vi.fn(() => "client") };
     contentClient(cms as never);
-    expect(cms.forRelease).toHaveBeenCalledWith();
+    expect(cms.client).toHaveBeenLastCalledWith({ visitor: null, version: null });
   });
 });

@@ -13,6 +13,7 @@
  *   once (no loop), and cached pages are tagged too.
  */
 import { type CMS, createCMS, type Snapshot } from "@decocms/blocks";
+import { newVisitor, serializeVisitor } from "@decocms/blocks/experiments";
 import { createDecoWorker } from "@decocms/tanstack/worker";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { v7Loader } from "../__tests__/loadV7";
@@ -291,6 +292,9 @@ function configOf(c: Case): ABTestConfig {
   };
 }
 
+/** A visitor who has been here before (the worker sends their cookie only on a first visit). */
+const RETURNING = `deco_segment=${serializeVisitor(newVisitor())}`;
+
 describe("abTestingRoutes is v7's withABTesting", () => {
   it(
     "same responses, legacy-origin calls, worker calls and errors over 3,000 seeded requests",
@@ -458,7 +462,10 @@ describe("abTestingRoutes in createDecoWorker", () => {
     const work: Promise<unknown>[] = [];
     const ctx = { waitUntil: (p: Promise<unknown>) => void work.push(p) };
     const get = async (path: string, headers: Record<string, string> = {}) => {
-      const res = await worker.fetch(new Request(`https://${HOST}${path}`, { headers }), env, ctx);
+      // A returning visitor: the worker's own visitor cookie stays out of these bucket claims.
+      const cookie = headers.cookie ? `${headers.cookie}; ${RETURNING}` : RETURNING;
+      const init = { headers: { ...headers, cookie } };
+      const res = await worker.fetch(new Request(`https://${HOST}${path}`, init), env, ctx);
       await Promise.allSettled(work.splice(0));
       return res;
     };

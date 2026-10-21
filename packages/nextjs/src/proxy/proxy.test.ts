@@ -1,18 +1,19 @@
 // @vitest-environment node
+import { parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
 import { NextRequest, NextResponse } from "next/server.js";
 import { describe, expect, it, vi } from "vitest";
 import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
 import {
-  applyAssignments,
   applyDraft,
-  assignmentRequestHeaders,
+  applyVisitor,
   DRAFT_ROUTE_PREFIX,
-  decideAssignments,
   decideDraft,
+  decideVisitor,
   draftProxy,
   draftRequestHeaders,
   isDraftRoutePath,
   rewriteToDraftRoute,
+  visitorRequestHeaders,
 } from "./index.ts";
 
 const draftLink = (path = "/shoes", host = "shop.example.com") =>
@@ -47,7 +48,7 @@ describe("decideDraft", () => {
   it("no draft signal never asks the CMS", async () => {
     const real = testCMS();
     const cms = {
-      draftPointer: vi.fn(async () => POINTER),
+      readVersion: vi.fn(async () => POINTER),
       settings: vi.fn(() => real.settings()),
       forRelease: vi.fn(() => real.forRelease()),
     };
@@ -55,7 +56,7 @@ describe("decideDraft", () => {
       pointer: null,
       setCookie: null,
     });
-    expect(cms.draftPointer).not.toHaveBeenCalled();
+    expect(cms.readVersion).not.toHaveBeenCalled();
     expect(cms.settings).not.toHaveBeenCalled();
     expect(cms.forRelease).not.toHaveBeenCalled();
   });
@@ -187,100 +188,94 @@ describe("draftProxy", () => {
   });
 });
 
-describe("A/B tests: the visitor's assignments", () => {
-  const withTests = (experiments: Record<string, number>) =>
-    testCMS(snapshot({ previewHosts: ["shop.example.com"], experiments }));
+describe("the visitor", () => {
   const release = { pointer: null, setCookie: null };
+  const preview = { pointer: POINTER, setCookie: null };
   const visit = (headers: Record<string, string> = {}, url = "https://shop.example.com/shoes") =>
     new NextRequest(url, { headers });
   const segmentCookies = (res: Response) =>
     res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const nameValue = (setCookie: string) => setCookie.split(";")[0] as string;
 
-  it("a first visit: the release's assignments and the deco_segment cookie", async () => {
-    const d = await decideAssignments(
-      withTests({ "buy-button": 100, "hero-copy": 0 }),
-      visit(),
-      release,
-    );
-    expect({ ...d.assignments }).toEqual({ "buy-button": true, "hero-copy": false });
+  it("a first visit: a new visitor and the deco_segment cookie", () => {
+    const d = decideVisitor(visit(), release);
+    expect(d.visitor.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(d.setCookie).toMatch(
       /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/,
     );
+    expect(nameValue(d.setCookie as string)).toBe(`deco_segment=${serializeVisitor(d.visitor)}`);
   });
 
-  it("the cookie is written only when the assignments change", async () => {
-    const cms = withTests({ "buy-button": 100 });
-    const first = await decideAssignments(cms, visit(), release);
-    const cookie = (first.setCookie as string).split(";")[0] as string;
-    const again = await decideAssignments(cms, visit({ cookie }), release);
-    expect({ ...again.assignments }).toEqual({ "buy-button": true });
+  it("a returning visitor keeps their id; no cookie", () => {
+    const first = decideVisitor(visit(), release);
+    const again = decideVisitor(visit({ cookie: nameValue(first.setCookie as string) }), release);
+    expect(again.visitor.id).toBe(first.visitor.id);
     expect(again.setCookie).toBe(null);
-    const res = applyAssignments(NextResponse.next(), again);
-    expect(segmentCookies(res)).toEqual([]);
+    expect(segmentCookies(applyVisitor(NextResponse.next(), again))).toEqual([]);
   });
 
-  it("with no experiments: nothing forwarded, no cookie, the release never assigned", async () => {
-    expect(await decideAssignments(testCMS(), visit(), release)).toEqual({
-      assignments: null,
-      setCookie: null,
-    });
-  });
-
-  it("a draft: assigned for the draft's Experiments, and never the visitor's cookie", async () => {
-    const cms = { experiments: vi.fn(async () => ({ "buy-button": 100 })) };
-    const d = await decideAssignments(cms, visit(), { pointer: POINTER, setCookie: null });
-    expect({ ...d.assignments }).toEqual({ "buy-button": true });
+  it("a preview never writes the visitor's cookie", () => {
+    const d = decideVisitor(visit(), preview);
+    expect(d.visitor.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(d.setCookie).toBe(null);
-    expect(cms.experiments).toHaveBeenCalledWith(POINTER);
-    // The draft adds a test the release doesn't have; the rewrite forwards it.
-    const draft = {
-      set: { Experiments: { __resolveType: "experiments", "buy-button": 100 } },
-      delete: [],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json(draft)),
-    );
-    try {
-      const res = await draftProxy(withTests({ "hero-copy": 0 }))(draftLink());
-      expect(segmentCookies(res)).toEqual([]);
-      expect(forwarded(res, "x-deco-assignments")).toBe("buy-button");
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 
-  it("http (local development) gets a cookie without Secure; x-forwarded-proto wins", async () => {
-    const cms = withTests({ "buy-button": 100 });
-    const local = await decideAssignments(cms, visit({}, "http://localhost:3000/"), release);
+  it("http (local development) gets a cookie without Secure; x-forwarded-proto wins", () => {
+    const local = decideVisitor(visit({}, "http://localhost:3000/"), release);
     expect(local.setCookie).not.toContain("Secure");
     const behind = visit({ "x-forwarded-proto": "https" }, "http://localhost:3000/");
-    expect((await decideAssignments(cms, behind, release)).setCookie).toContain("Secure");
+    expect(decideVisitor(behind, release).setCookie).toContain("Secure");
   });
 
-  it("forwards them on x-deco-assignments; a forged copy is always removed", async () => {
-    const forged = visit({ "x-deco-assignments": "buy-button" });
-    expect(draftRequestHeaders(forged, release).has("x-deco-assignments")).toBe(false);
-    const none = await decideAssignments(testCMS(), forged, release);
-    expect(
-      assignmentRequestHeaders(draftRequestHeaders(forged, release), none).has(
-        "x-deco-assignments",
-      ),
-    ).toBe(false);
-    const off = await decideAssignments(withTests({ "buy-button": 0 }), forged, release);
-    expect(
-      assignmentRequestHeaders(draftRequestHeaders(forged, release), off).get("x-deco-assignments"),
-    ).toBe("");
+  it("forwards it on x-deco-visitor; a forged copy is always removed", () => {
+    const forged = visit({ "x-deco-visitor": "forged" });
+    expect(draftRequestHeaders(forged, release).has("x-deco-visitor")).toBe(false);
+    const d = decideVisitor(forged, release);
+    const headers = visitorRequestHeaders(draftRequestHeaders(forged, release), d);
+    expect(parseVisitor(headers.get("x-deco-visitor"))?.id).toBe(d.visitor.id);
   });
 
-  it("draftProxy: forwards the assignments and sets the cookie once", async () => {
-    const proxy = draftProxy(withTests({ "buy-button": 100 }));
-    const res = await proxy(visit({ "x-deco-assignments": "forged" }));
-    expect(forwarded(res, "x-deco-assignments")).toBe("buy-button");
+  it("draftProxy: forwards the visitor and sets the cookie once", async () => {
+    const proxy = draftProxy(testCMS());
+    const res = await proxy(visit({ "x-deco-visitor": "forged" }));
+    const visitor = parseVisitor(forwarded(res, "x-deco-visitor"));
+    expect(visitor).not.toBe(null);
     const [cookie, ...more] = segmentCookies(res);
     expect(more).toEqual([]);
-    const again = await proxy(visit({ cookie: (cookie as string).split(";")[0] as string }));
+    const again = await proxy(visit({ cookie: nameValue(cookie as string) }));
     expect(segmentCookies(again)).toEqual([]);
-    expect(forwarded(again, "x-deco-assignments")).toBe("buy-button");
+    expect(parseVisitor(forwarded(again, "x-deco-visitor"))?.id).toBe(visitor?.id);
+  });
+
+  it("draftProxy: a draft link forwards the visitor to the draft route, without the cookie", async () => {
+    const res = await draftProxy(testCMS(snapshot({ previewHosts: ["shop.example.com"] })))(
+      draftLink(),
+    );
+    expect(forwarded(res, "x-deco-draft")).toBe(POINTER);
+    expect(parseVisitor(forwarded(res, "x-deco-visitor"))).not.toBe(null);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+});
+
+describe("the version: an old release from a Studio link", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const link = (value: string, host = "shop.example.com") =>
+    new NextRequest(`https://${host}/shoes?__draft=${encodeURIComponent(value)}`);
+  const cms = () => testCMS(snapshot({ previewHosts: ["shop.example.com"] }));
+
+  it("a release SHA, with or without the preview parameters, is the version forwarded", async () => {
+    const plain = await decideDraft(cms(), link(SHA));
+    expect(plain.pointer).toBe(SHA);
+    expect(plain.setCookie).toContain(`__deco_draft=${SHA};`);
+    const at = encodeURIComponent("2026-11-28T10:00:00-03:00");
+    const version = `${SHA}?__at=${at}&__test=${encodeURIComponent("hero=off")}`;
+    expect((await decideDraft(cms(), link(version))).pointer).toBe(version);
+  });
+
+  it("on a host that may not preview, or when it doesn't parse: the current release", async () => {
+    expect((await decideDraft(cms(), link(SHA, "elsewhere.example.com"))).pointer).toBe(null);
+    expect((await decideDraft(cms(), link(SHA.slice(1)))).pointer).toBe(null);
+    expect((await decideDraft(cms(), link(`${SHA}?__at=yesterday`))).pointer).toBe(null);
+    expect((await decideDraft(cms(), link(`${SHA}?page=2`))).pointer).toBe(null);
   });
 });
