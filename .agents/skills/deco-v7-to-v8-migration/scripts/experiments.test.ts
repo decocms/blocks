@@ -1,13 +1,13 @@
 // @vitest-environment node
 /**
- * v7's random matchers → the saved block `experiments` (type `split-traffic`)
- * and `experiment` rules (./experiments.ts), on fixture sites.
+ * v7's random matchers and date rules holding their own dates are reported,
+ * never moved (./experiments.ts), on fixture sites.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { INLINE_EXPERIMENT, migrateRandomMatchers, trafficPercent } from "./experiments";
+import { RUN_AN_AB_TEST, reportTestsAndDates, SCHEDULE_A_CAMPAIGN } from "./experiments";
 import { createReport } from "./report";
 
 let root: string;
@@ -26,8 +26,14 @@ function site(files: Record<string, string | object>): string {
   return root;
 }
 
-const read = (file: string) => JSON.parse(fs.readFileSync(path.join(root, file), "utf8"));
-const exists = (file: string) => fs.existsSync(path.join(root, file));
+/** Every file under `.deco/blocks`, as written. */
+function snapshotBlocks(): Record<string, string> {
+  const dir = path.join(root, ".deco", "blocks");
+  return Object.fromEntries(
+    fs.readdirSync(dir).map((f) => [f, fs.readFileSync(path.join(dir, f), "utf8")]),
+  );
+}
+
 const page = (sections: unknown) => ({
   __resolveType: "website/pages/Page.tsx",
   name: "Home",
@@ -35,310 +41,92 @@ const page = (sections: unknown) => ({
   sections,
 });
 const hero = (title: string) => [{ __resolveType: "site/sections/Hero.tsx", title }];
+const RANDOM = { __resolveType: "website/matchers/random.ts", traffic: 0.5 };
+const WINDOW = { start: "2026-11-27T00:00:00-03:00", end: "2026-11-30T23:59:59-03:00" };
 
-describe("trafficPercent", () => {
-  it("is v7's traffic share as a whole percentage, 50 when unset", () => {
-    expect(trafficPercent(0.5)).toBe(50);
-    expect(trafficPercent(0.333)).toBe(33);
-    expect(trafficPercent(0.005)).toBe(1);
-    expect(trafficPercent(1)).toBe(100);
-    expect(trafficPercent(0)).toBe(0);
-    expect(trafficPercent(undefined)).toBe(50);
-    expect(trafficPercent("0.2")).toBe(50);
-    expect(trafficPercent(2)).toBe(100);
-    expect(trafficPercent(-1)).toBe(0);
-  });
-});
-
-describe("saved random matchers", () => {
-  it("become experiments entries and experiment rules; the saved matchers are deleted", () => {
+describe("random matchers", () => {
+  it("one line pointing at Run an A/B test, naming the files; nothing changes", () => {
     site({
       "package.json": TANSTACK,
-      ".deco/blocks/Test%20AB%200%2C5.json": {
-        __resolveType: "website/matchers/random.ts",
-        traffic: 0.5,
-      },
-      ".deco/blocks/Banner%20test.json": { __resolveType: "website/matchers/random", traffic: 0.1 },
-      ".deco/blocks/Home.json": page([
-        {
-          __resolveType: "website/flags/multivariate.ts",
-          variants: [
-            { rule: { __resolveType: "Test AB 0,5" }, value: hero("B") },
-            { rule: { __resolveType: "website/matchers/always.ts" }, value: hero("A") },
-          ],
-        },
-        {
-          __resolveType: "multivariate",
-          experiment: "kept",
-          variants: [{ rule: { __resolveType: "Banner test" }, value: hero("New") }],
-        },
-        {
-          __resolveType: "website/flags/multivariate.ts",
-          variants: [{ rule: { __resolveType: "website/matchers/always.ts" }, value: hero("A") }],
-        },
-      ]),
-      // A rule nested in v7's multi matcher.
-      ".deco/blocks/Footer.json": {
-        __resolveType: "website/flags/multivariate.ts",
-        variants: [
-          {
-            rule: {
-              __resolveType: "website/matchers/multi.ts",
-              op: "and",
-              matchers: [
-                { __resolveType: "Banner test" },
-                { __resolveType: "website/matchers/device.ts", mobile: true },
-              ],
-            },
-            value: hero("Mobile B"),
-          },
-        ],
-      },
-    });
-    const report = createReport();
-    migrateRandomMatchers(root, report);
-
-    expect(read(".deco/blocks/experiments.json")).toEqual({
-      __resolveType: "split-traffic",
-      "Banner test": 10,
-      "Test AB 0,5": 50,
-    });
-    expect(exists(".deco/blocks/Test%20AB%200%2C5.json")).toBe(false);
-    expect(exists(".deco/blocks/Banner%20test.json")).toBe(false);
-
-    const sections = read(".deco/blocks/Home.json").sections;
-    expect(sections[0].experiment).toBe("Test AB 0,5");
-    expect(sections[0].variants[0].rule).toEqual({
-      __resolveType: "experiment",
-      name: "Test AB 0,5",
-    });
-    expect(sections[0].variants[1].rule).toEqual({ __resolveType: "website/matchers/always.ts" });
-    // An experiment ID already set is kept.
-    expect(sections[1].experiment).toBe("kept");
-    expect(sections[1].variants[0].rule).toEqual({
-      __resolveType: "experiment",
-      name: "Banner test",
-    });
-    expect(sections[2].experiment).toBeUndefined();
-
-    const footer = read(".deco/blocks/Footer.json");
-    expect(footer.variants[0].rule.matchers[0]).toEqual({
-      __resolveType: "experiment",
-      name: "Banner test",
-    });
-    expect(footer.variants[0].rule.matchers[1].__resolveType).toBe("website/matchers/device.ts");
-
-    expect(report.done.map((n) => n.subject)).toEqual(
-      expect.arrayContaining([
-        "Home.json",
-        "Footer.json",
-        "Test%20AB%200%2C5.json",
-        "Banner%20test.json",
-        "experiments.json",
-      ]),
-    );
-    // TanStack's worker assigns the visitors: nothing left to do.
-    expect(report.manual).toEqual([]);
-  });
-
-  it("adds to an experiments block that exists, keeping its tests", () => {
-    site({
-      "package.json": TANSTACK,
-      ".deco/blocks/experiments.json": { __resolveType: "split-traffic", "New header": 20 },
-      ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
-    });
-    migrateRandomMatchers(root, createReport());
-    expect(read(".deco/blocks/experiments.json")).toEqual({
-      __resolveType: "split-traffic",
-      "New header": 20,
-      "Hero test": 50,
-    });
-  });
-
-  it("keeps every test already in experiments, whatever its value", () => {
-    const variant = { __resolveType: "multivariate", variants: [] };
-    site({
-      "package.json": TANSTACK,
-      ".deco/blocks/experiments.json": { __resolveType: "split-traffic", Odd: variant },
-      ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
-    });
-    migrateRandomMatchers(root, createReport());
-    expect(read(".deco/blocks/experiments.json")).toEqual({
-      __resolveType: "split-traffic",
-      Odd: variant,
-      "Hero test": 50,
-    });
-  });
-
-  it("running it again changes nothing", () => {
-    site({
-      "package.json": NEXTJS,
-      ".deco/blocks/Test%20AB%200%2C5.json": {
-        __resolveType: "website/matchers/random.ts",
-        traffic: 0.5,
-      },
-      ".deco/blocks/Home.json": page([
-        {
-          __resolveType: "website/flags/multivariate.ts",
-          variants: [
-            { rule: { __resolveType: "Test AB 0,5" }, value: hero("B") },
-            {
-              rule: { __resolveType: "website/matchers/random.ts", traffic: 0.2 },
-              value: hero("C"),
-            },
-          ],
-        },
-      ]),
-    });
-    migrateRandomMatchers(root, createReport());
-    const dir = path.join(root, ".deco", "blocks");
-    const snapshot = () =>
-      Object.fromEntries(
-        fs.readdirSync(dir).map((f) => [f, fs.readFileSync(path.join(dir, f), "utf8")]),
-      );
-    const before = snapshot();
-    const again = createReport();
-    migrateRandomMatchers(root, again);
-    expect(snapshot()).toEqual(before);
-    expect(again).toEqual(createReport());
-  });
-
-  it("leaves everything when another block is saved as experiments, and says why", () => {
-    const files = {
-      "package.json": TANSTACK,
-      ".deco/blocks/experiments.json": { __resolveType: "site/sections/Hero.tsx" },
-      ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
+      ".deco/blocks/Hero%20test.json": RANDOM,
       ".deco/blocks/Home.json": page({
         __resolveType: "website/flags/multivariate.ts",
-        variants: [{ rule: { __resolveType: "Hero test" }, value: hero("B") }],
+        variants: [
+          { rule: { __resolveType: "Hero test" }, value: hero("New") },
+          { rule: RANDOM, value: hero("Inline") },
+        ],
       }),
-    };
-    site(files);
+    });
+    const before = snapshotBlocks();
     const report = createReport();
-    migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/experiments.json")).toEqual(files[".deco/blocks/experiments.json"]);
-    expect(exists(".deco/blocks/Hero%20test.json")).toBe(true);
-    expect(read(".deco/blocks/Home.json")).toEqual(files[".deco/blocks/Home.json"]);
+    reportTestsAndDates(root, report);
+    expect(snapshotBlocks()).toEqual(before);
     expect(report.done).toEqual([]);
-    expect(report.manual[0].message).toContain("rename this block");
+    expect(report.manual).toHaveLength(1);
+    const [line] = report.manual;
+    expect(line?.subject).toBe("A/B tests");
+    expect(line?.message).toContain(RUN_AN_AB_TEST);
+    expect(line?.message).toContain("under its saved-block name");
+    expect(line?.message).toContain('"Hero%20test.json", "Home.json"');
+    expect(fs.existsSync(path.join(root, ".deco/blocks/experiments.json"))).toBe(false);
   });
-});
-
-describe("a block that would share the experiments file", () => {
-  it("on a case-insensitive disk is left alone, and the note says why", () => {
-    const files = {
-      "package.json": TANSTACK,
-      ".deco/blocks/Experiments.json": { __resolveType: "site/sections/Hero.tsx" },
-      ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
-    };
-    site(files);
-    const report = createReport();
-    migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/Experiments.json")).toEqual(files[".deco/blocks/Experiments.json"]);
-    expect(exists(".deco/blocks/Hero%20test.json")).toBe(true);
-    expect(report.done).toEqual([]);
-    expect(report.manual[0]).toMatchObject({
-      subject: "Experiments.json",
-      message: expect.stringContaining("case-insensitive"),
-    });
-  });
-});
-
-describe("inline random rules", () => {
-  const rule = (traffic?: number) => ({
-    __resolveType: "website/matchers/random.ts",
-    ...(traffic === undefined ? {} : { traffic }),
-  });
-  const flag = (r: object) => ({
-    __resolveType: "website/flags/multivariate.ts",
-    variants: [{ rule: r, value: hero("B") }],
-  });
-
-  it("with one traffic share become one experiment under v7's shared name", () => {
-    site({
-      "package.json": TANSTACK,
-      ".deco/blocks/Home.json": page([flag(rule(0.5)), flag(rule())]),
-    });
-    const report = createReport();
-    migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/experiments.json")).toEqual({
-      __resolveType: "split-traffic",
-      [INLINE_EXPERIMENT]: 50,
-    });
-    const sections = read(".deco/blocks/Home.json").sections;
-    for (const s of sections) {
-      expect(s.variants[0].rule).toEqual({ __resolveType: "experiment", name: INLINE_EXPERIMENT });
-      // v7 kept no results under an inline rule: no experiment ID is made up.
-      expect(s.experiment).toBeUndefined();
-    }
-    expect(report.manual).toEqual([]);
-  });
-
-  it("with different traffic shares become one experiment per share, reported", () => {
-    site({
-      "package.json": TANSTACK,
-      ".deco/blocks/Random%2020%25.json": {
-        __resolveType: "website/matchers/random.ts",
-        traffic: 0.2,
-      },
-      ".deco/blocks/Home.json": page([flag(rule(0.2)), flag(rule(0.5)), flag(rule(0.2))]),
-    });
-    const report = createReport();
-    migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/experiments.json")).toEqual({
-      __resolveType: "split-traffic",
-      "Random 20%": 20,
-      "Random 20% (2)": 20,
-      "Random 50%": 50,
-    });
-    const names = read(".deco/blocks/Home.json").sections.map(
-      (s: { variants: { rule: { name: string } }[] }) => s.variants[0].rule.name,
-    );
-    expect(names).toEqual(["Random 20% (2)", "Random 50%", "Random 20% (2)"]);
-    const notice = report.manual.find((n) => n.subject === "experiments")?.message;
-    expect(notice).toContain("different traffic shares");
-    expect(notice).toContain('"Random 20% (2)", "Random 50%"');
-  });
-});
-
-describe("what's left to wire", () => {
-  const files = {
-    ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
-  };
 
   it("names the proxy on Next.js", () => {
-    site({ "package.json": NEXTJS, ...files });
+    site({ "package.json": NEXTJS, ".deco/blocks/T.json": RANDOM });
     const report = createReport();
-    migrateRandomMatchers(root, report);
+    reportTestsAndDates(root, report);
     expect(report.manual.find((n) => n.subject === "experiments")?.message).toContain("draftProxy");
   });
 
   it("names readVisitor and cms.client on a site with no binding", () => {
-    site({ "package.json": { name: "site" }, ...files });
+    site({ "package.json": { name: "site" }, ".deco/blocks/T.json": RANDOM });
     const report = createReport();
-    migrateRandomMatchers(root, report);
+    reportTestsAndDates(root, report);
     const message = report.manual.find((n) => n.subject === "experiments")?.message;
     expect(message).toContain("readVisitor(request)");
     expect(message).toContain("cms.client({ visitor, version");
   });
+});
 
-  it("does nothing on a site with no random matcher, date rules included", () => {
-    const date = {
-      __resolveType: "date",
-      start: "2026-11-27T00:00:00-03:00",
-      end: "2026-11-30T23:59:59-03:00",
-    };
+describe("date rules", () => {
+  it("one line pointing at Schedule a campaign, for v7's and v8's inline dates; nothing changes", () => {
     site({
-      "package.json": NEXTJS,
+      "package.json": TANSTACK,
       ".deco/blocks/Home.json": page({
         __resolveType: "website/flags/multivariate.ts",
-        variants: [{ rule: date, value: hero("Sale") }],
+        variants: [
+          { rule: { __resolveType: "date", ...WINDOW }, value: hero("Sale") },
+          { rule: { __resolveType: "website/matchers/date.ts", ...WINDOW }, value: hero("v7") },
+        ],
+      }),
+    });
+    const before = snapshotBlocks();
+    const report = createReport();
+    reportTestsAndDates(root, report);
+    expect(snapshotBlocks()).toEqual(before);
+    expect(report.manual).toHaveLength(1);
+    expect(report.manual[0]?.subject).toBe("date rules");
+    expect(report.manual[0]?.message).toContain(SCHEDULE_A_CAMPAIGN);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/campaigns.json"))).toBe(false);
+  });
+
+  it("a date rule that names a campaign is left out", () => {
+    site({
+      "package.json": TANSTACK,
+      ".deco/blocks/Home.json": page({
+        __resolveType: "website/flags/multivariate.ts",
+        variants: [{ rule: { __resolveType: "date", campaign: "black-friday" }, value: [] }],
       }),
     });
     const report = createReport();
-    migrateRandomMatchers(root, report);
+    reportTestsAndDates(root, report);
     expect(report).toEqual(createReport());
-    expect(exists(".deco/blocks/experiments.json")).toBe(false);
-    expect(read(".deco/blocks/Home.json").sections.variants[0].rule).toEqual(date);
   });
+});
+
+it("a site with neither reports nothing", () => {
+  site({ "package.json": NEXTJS, ".deco/blocks/Home.json": page(hero("Hi")) });
+  const report = createReport();
+  reportTestsAndDates(root, report);
+  expect(report).toEqual(createReport());
 });

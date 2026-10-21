@@ -28,12 +28,3 @@ export function forEachBlock(
 export function readContent(root: string): SavedBlocks {
   return readSavedBlocks(path.join(root, ".deco", "blocks"));
 }
-
-/**
- * Another saved block whose file would be `name`'s on a case-insensitive disk
- * (macOS, Windows): writing `name` there would overwrite it.
- */
-export function savedNameClash(blocks: Record<string, unknown>, name: string): string | undefined {
-  const lower = name.toLowerCase();
-  return Object.keys(blocks).find((n) => n !== name && n.toLowerCase() === lower);
-}

@@ -536,35 +536,21 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(map).toContain(
       '"website/matchers/device.ts": (props: matchers.DeviceProps) => matchers.device(props, matcherInput()),',
     );
-    // v7's random matcher became the built-in A/B test: the binding owns deco_segment.
+    // v7's random matcher is never registered: the binding owns deco_segment.
     expect(map).not.toContain("matchers.random");
     expect(map).toContain('import { sectionLoaders } from "../src/setup/section-loaders";');
     // 7.64.3 ran nested sections' loaders only directly in a prop.
     expect(map).toContain('nested: "direct",');
-    // The saved random matcher is now an experiment under v7's cookie key: its saved name.
-    expect(fs.existsSync(path.join(root, ".deco/blocks/Hero%20test.json"))).toBe(false);
-    expect(JSON.parse(read(".deco/blocks/experiments.json"))).toEqual({
-      __resolveType: "split-traffic",
-      "Hero test": 30,
-    });
-    const home = JSON.parse(read(".deco/blocks/pages-home.json"));
-    expect(home.sections[0].experiment).toBe("Hero test");
-    expect(home.sections[0].variants[0].rule).toEqual({
-      __resolveType: "experiment",
-      name: "Hero test",
-    });
-    // v7's inline date rule is now a campaign named after its window.
-    expect(JSON.parse(read(".deco/blocks/campaigns.json"))).toEqual({
-      __resolveType: "date-windows",
-      "2020-11-27 → 2020-12-01": {
-        start: "2020-11-27T03:00:00.000Z",
-        end: "2020-12-01T03:00:00.000Z",
-      },
-    });
-    expect(home.sections[0].variants[2].rule).toEqual({
-      __resolveType: "date",
-      campaign: "2020-11-27 → 2020-12-01",
-    });
+    // The A/B test and the date window stay as they were: the report says to move them.
+    expect(fs.existsSync(path.join(root, ".deco/blocks/Hero%20test.json"))).toBe(true);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/experiments.json"))).toBe(false);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/campaigns.json"))).toBe(false);
+    expect(report.manual.find((n) => n.subject === "A/B tests")?.message).toContain(
+      "#run-an-a-b-test",
+    );
+    expect(report.manual.find((n) => n.subject === "date rules")?.message).toContain(
+      "#schedule-a-campaign",
+    );
     expect(read("src/views.ts")).toContain('"site/sections/Hero.tsx": hero,');
     const matchersNote = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)");
     expect(matchersNote?.message).toContain("matchPage(href)");
@@ -666,24 +652,14 @@ describe("a v7 Next.js site on the v8 binding", () => {
     expect(note).not.toContain("SegmentCookie");
     // The proxy reads the visitor: the report says how.
     expect(report.manual.find((n) => n.subject === "experiments")?.message).toContain("draftProxy");
-    // The A/B test and the date window are saved blocks the rules name.
-    expect(JSON.parse(read(".deco/blocks/experiments.json"))).toEqual({
-      __resolveType: "split-traffic",
-      "Hero test": 30,
-    });
-    expect(Object.keys(JSON.parse(read(".deco/blocks/campaigns.json")))).toEqual([
-      "__resolveType",
-      "2020-11-27 → 2020-12-01",
-    ]);
+    // The A/B test and the date window stay as they were, reported.
     expect(
       JSON.parse(read(".deco/blocks/pages-home.json")).sections[0].variants.map(
-        (v: { rule: unknown }) => v.rule,
+        (v: { rule: { __resolveType: string } }) => v.rule.__resolveType,
       ),
-    ).toEqual([
-      { __resolveType: "experiment", name: "Hero test" },
-      { __resolveType: "website/matchers/device.ts", mobile: true },
-      { __resolveType: "date", campaign: "2020-11-27 → 2020-12-01" },
-    ]);
+    ).toEqual(["Hero test", "website/matchers/device.ts", "date"]);
+    expect(report.manual.some((n) => n.subject === "A/B tests")).toBe(true);
+    expect(report.manual.some((n) => n.subject === "date rules")).toBe(true);
     // Next.js images go through its image loader: no src/imageUrl.ts.
     expect(fs.existsSync(path.join(root, "src/imageUrl.ts"))).toBe(false);
   });

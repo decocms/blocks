@@ -1,34 +1,15 @@
 /**
- * A/B tests (spec: /next/built-in-blocks#split-traffic). v7 ran them on its
- * random matcher; the next major runs them on content: the saved block
- * `experiments`, of the built-in type `split-traffic` (each test's name → the
- * whole percentage of visitors in it), and the built-in rule `experiment`
- * (`{ name }`). The app reads the visitor (the binding, from `deco_segment`)
- * and hands it to `cms.client({ visitor })`, so no v7 matcher writes it.
- *
- * - Each saved v7 random matcher `N` becomes `experiments[N]`, its
- *   `round(traffic * 100)`; every rule that pointed at it becomes
- *   `{ "__resolveType": "experiment", "name": N }`, and the saved matcher is
- *   deleted. v7's sticky random (latest 7.x) kept the visitor's group in
- *   `deco_segment` under the saved name, and `assign` reads those groups back,
- *   so visitors stay in their groups.
- * - v7 kept every random rule written inline under one name, its type
- *   (`website/matchers/random.ts`). When they all have one traffic share they
- *   become one experiment of that name, which keeps the visitors' groups;
- *   otherwise each share becomes its own experiment, and the report says so.
- * - v7 keyed A/B results on the saved name of the random matcher a variant's
- *   rule pointed at; the next major keys them on `multivariate`'s
- *   `experiment`, so that name is copied there (one already set is kept).
- *
- * v7's date matchers become campaigns (./campaigns.ts).
+ * A/B tests and dates. v7 ran tests on its random matcher and date windows on
+ * its date matcher; the next major keeps both in content: tests in the saved
+ * block `experiments` (type `split-traffic`) read by the `experiment` rule,
+ * date windows in the saved block `campaigns` (type `date-windows`) read by
+ * the `date` rule, which names a campaign. The script moves neither: it
+ * reports each kind once, for whoever moves them by hand, and says who hands
+ * the visitor to the client when the site has tests.
  */
-import fs from "node:fs";
-import path from "node:path";
-import { LEGACY_ALIASES } from "@decocms/blocks/cli";
-import { blockFileName, serializeBlock } from "@decocms/blocks/protocol/keys";
 import { siteFramework } from "./framework";
 import type { Report } from "./report";
-import { forEachBlock, type JsonObject, readContent, savedNameClash } from "./walk";
+import { forEachBlock, readContent } from "./walk";
 
 /** v7's random matcher, under each name v7 saved it with. */
 const RANDOM_MATCHERS = new Set([
@@ -37,186 +18,54 @@ const RANDOM_MATCHERS = new Set([
   "$live/matchers/MatchRandom.ts",
 ]);
 
-/** The name v7 kept inline random rules under in `deco_segment`. */
-export const INLINE_EXPERIMENT = "website/matchers/random.ts";
+/** A date rule: v7's names (renamed to `date` by the content step) and v8's own. */
+const DATE_RULES = new Set(["date", "website/matchers/date.ts", "$live/matchers/MatchDate.ts"]);
 
-const EXPERIMENTS_BLOCK = "experiments";
-const EXPERIMENTS_TYPE = "split-traffic";
-const EXPERIMENT_MATCHER = "experiment";
+export const RUN_AN_AB_TEST = "/next/matchers-and-variants#run-an-a-b-test";
+export const SCHEDULE_A_CAMPAIGN = "/next/matchers-and-variants#schedule-a-campaign";
 
-function isMultivariate(type: string): boolean {
-  return (
-    type === "multivariate" ||
-    (Object.hasOwn(LEGACY_ALIASES, type) && LEGACY_ALIASES[type] === "multivariate")
-  );
-}
-
-/** v7's `traffic` (0–1, 0.5 when unset) as the whole percentage `experiments` holds. */
-export function trafficPercent(traffic: unknown): number {
-  const share = typeof traffic === "number" && Number.isFinite(traffic) ? traffic : 0.5;
-  return Math.min(100, Math.max(0, Math.round(share * 100)));
-}
-
-/** Turns `node` into the `experiment` rule for `name`, in place. */
-function becomeExperiment(node: JsonObject, name: string): void {
-  for (const key of Object.keys(node)) delete node[key];
-  node.__resolveType = EXPERIMENT_MATCHER;
-  node.name = name;
-}
+const quoted = (names: Iterable<string>) =>
+  [...names]
+    .sort()
+    .map((n) => `"${n}"`)
+    .join(", ");
 
 /**
- * Moves v7's random matchers into the saved block `experiments` and
- * `experiment` rules, and copies each saved random matcher's name into the `experiment`
- * of the `multivariate` blocks whose variants point at it.
+ * Reports v7's random matchers and every date rule that still holds its own
+ * dates (no `campaign`): one "Left to do" line each, pointing at the docs.
+ * Changes no file.
  */
-export function migrateRandomMatchers(root: string, report: Report): void {
-  const blocksDir = path.join(root, ".deco", "blocks");
+export function reportTestsAndDates(root: string, report: Report): void {
   const { blocks, files } = readContent(root);
-  const saved = new Map<string, number>();
-  for (const [name, block] of Object.entries(blocks)) {
+  const tests = new Set<string>();
+  const dates = new Set<string>();
+  for (const [entry, block] of Object.entries(blocks)) {
     if (RANDOM_MATCHERS.has(block.__resolveType as string)) {
-      saved.set(name, trafficPercent(block.traffic));
+      tests.add(entry);
+      continue;
     }
-  }
-  const inline: JsonObject[] = [];
-  for (const [entry, block] of Object.entries(blocks)) {
-    if (saved.has(entry)) continue;
     forEachBlock(block, (node) => {
-      if (RANDOM_MATCHERS.has(node.__resolveType)) inline.push(node);
-    });
-  }
-  if (saved.size === 0 && inline.length === 0) return;
-
-  const existing = blocks[EXPERIMENTS_BLOCK];
-  const clash =
-    existing && existing.__resolveType !== EXPERIMENTS_TYPE
-      ? EXPERIMENTS_BLOCK
-      : savedNameClash(blocks, EXPERIMENTS_BLOCK);
-  if (clash !== undefined) {
-    report.manual.push({
-      step: "content",
-      subject: files[clash],
-      message: `"${EXPERIMENTS_BLOCK}" is the saved block every experiment rule reads (type "${EXPERIMENTS_TYPE}"), and "${clash}" takes that name${clash === EXPERIMENTS_BLOCK ? "" : " on a case-insensitive disk"}, so v7's random matchers weren't moved: rename this block, then move each random matcher into "${EXPERIMENTS_BLOCK}" (its name → round(traffic × 100)) and point its rules at { "__resolveType": "experiment", "name": … } (/next/built-in-blocks#split-traffic)`,
-    });
-    return;
-  }
-  // Every test already saved is kept as is: this only adds.
-  const experiments: Record<string, unknown> = Object.create(null);
-  for (const [key, value] of Object.entries(existing ?? {})) {
-    if (key !== "__resolveType") experiments[key] = value;
-  }
-  const added: string[] = [];
-  const add = (name: string, percent: number) => {
-    if (!(name in experiments)) {
-      experiments[name] = percent;
-      added.push(name);
-    }
-  };
-  for (const [name, percent] of [...saved].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    add(name, percent);
-  }
-  const inlineName = inlineNames(inline, experiments, add, report);
-
-  const changed = new Set<string>();
-  for (const [entry, block] of Object.entries(blocks)) {
-    if (saved.has(entry) || entry === EXPERIMENTS_BLOCK) continue;
-    forEachBlock(block, (node) => {
-      if (!isMultivariate(node.__resolveType) || node.experiment !== undefined) return;
-      const variants = Array.isArray(node.variants) ? node.variants : [];
-      const name = variants
-        .map((v) => (v as { rule?: { __resolveType?: unknown } } | null)?.rule?.__resolveType)
-        .find((t): t is string => typeof t === "string" && saved.has(t));
-      if (!name) return;
-      node.experiment = name;
-      changed.add(entry);
-      report.done.push({
-        step: "content",
-        subject: files[entry],
-        message: `set experiment "${name}" (the random matcher's saved name), so A/B results carry over`,
-      });
-    });
-    const rules = new Set<string>();
-    forEachBlock(block, (node) => {
-      if (saved.has(node.__resolveType)) {
-        rules.add(node.__resolveType);
-        becomeExperiment(node, node.__resolveType);
-      } else if (RANDOM_MATCHERS.has(node.__resolveType)) {
-        const name = inlineName.get(trafficPercent(node.traffic))!;
-        rules.add(name);
-        becomeExperiment(node, name);
+      if (RANDOM_MATCHERS.has(node.__resolveType)) tests.add(entry);
+      else if (DATE_RULES.has(node.__resolveType) && node.campaign === undefined) {
+        dates.add(entry);
       }
     });
-    if (rules.size > 0) {
-      changed.add(entry);
-      report.done.push({
-        step: "content",
-        subject: files[entry],
-        message: `random rules → the experiment matcher (${[...rules]
-          .sort()
-          .map((n) => `"${n}"`)
-          .join(", ")})`,
-      });
-    }
   }
-  for (const entry of changed) {
-    fs.writeFileSync(path.join(blocksDir, files[entry]), serializeBlock(blocks[entry]));
-  }
-  for (const name of [...saved.keys()].sort()) {
-    fs.rmSync(path.join(blocksDir, files[name]));
-    report.done.push({
-      step: "content",
-      subject: files[name],
-      message: `deleted: the random matcher is now "${name}" in ${EXPERIMENTS_BLOCK}, at ${experiments[name]}%`,
-    });
-  }
-  if (added.length > 0) {
-    const file = files[EXPERIMENTS_BLOCK] ?? blockFileName(EXPERIMENTS_BLOCK);
-    fs.writeFileSync(
-      path.join(blocksDir, file),
-      serializeBlock({ __resolveType: EXPERIMENTS_TYPE, ...experiments }),
-    );
-    report.done.push({
-      step: "content",
-      subject: file,
-      message: `the A/B tests (${added.map((n) => `"${n}" ${experiments[n]}%`).join(", ")}): each name is the one v7 kept the visitor's group under in deco_segment, so visitors keep their groups; renaming a running test re-rolls everyone`,
-    });
-  }
-  reportAssignment(root, report);
-}
-
-/**
- * The experiment each inline random rule becomes, by its percentage: v7's
- * shared name when they all agree, else one experiment per percentage.
- */
-function inlineNames(
-  inline: JsonObject[],
-  experiments: Record<string, unknown>,
-  add: (name: string, percent: number) => void,
-  report: Report,
-): Map<number, string> {
-  const percents = [...new Set(inline.map((n) => trafficPercent(n.traffic)))].sort((a, b) => a - b);
-  const names = new Map<number, string>();
-  if (percents.length === 1 && experiments[INLINE_EXPERIMENT] === undefined) {
-    names.set(percents[0], INLINE_EXPERIMENT);
-    add(INLINE_EXPERIMENT, percents[0]);
-    return names;
-  }
-  for (const percent of percents) {
-    let name = `Random ${percent}%`;
-    for (let i = 2; name in experiments; i++) {
-      name = `Random ${percent}% (${i})`;
-    }
-    names.set(percent, name);
-    add(name, percent);
-  }
-  if (percents.length > 1) {
+  if (tests.size > 0) {
     report.manual.push({
       step: "content",
-      subject: EXPERIMENTS_BLOCK,
-      message: `v7 kept every inline random rule under one name (${INLINE_EXPERIMENT}), but these used different traffic shares, so each share is now its own experiment (${percents.map((p) => `"${names.get(p)}"`).join(", ")}) and their visitors are assigned again. Rename them for the business before the release (a running test's name is its key), or save one shared test and point the rules at it`,
+      subject: "A/B tests",
+      message: `v7's random matchers (in ${quoted([...tests].map((n) => files[n] ?? n))}) weren't moved: put each test in the saved block experiments (type split-traffic) under its saved-block name, so visitors keep their groups and results carry over, and point its rules at { "__resolveType": "experiment", "name": … } (Run an A/B test, ${RUN_AN_AB_TEST})`,
+    });
+    reportAssignment(root, report);
+  }
+  if (dates.size > 0) {
+    report.manual.push({
+      step: "content",
+      subject: "date rules",
+      message: `date rules holding their own dates (in ${quoted([...dates].map((n) => files[n] ?? n))}) weren't moved and are false until they name a campaign: put each window in the saved block campaigns (type date-windows) and point the rule at { "__resolveType": "date", "campaign": … } (Schedule a campaign, ${SCHEDULE_A_CAMPAIGN})`,
     });
   }
-  return names;
 }
 
 /** Who hands the visitor to the client, by binding: without one every test is off. */
@@ -225,7 +74,7 @@ function reportAssignment(root: string, report: Report): void {
   if (framework === "tanstack") return; // createDecoWorker reads the visitor on every page request.
   report.manual.push({
     step: "content",
-    subject: EXPERIMENTS_BLOCK,
+    subject: "experiments",
     message:
       framework === "nextjs"
         ? "read the visitor in proxy.ts: draftProxy from @decocms/nextjs/proxy does it, or decideVisitor, visitorRequestHeaders and applyVisitor next to the draft calls; the catch-all page's bindDraft and contentClient(cms) then build cms.client({ visitor, version }) from it"

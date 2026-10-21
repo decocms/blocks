@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Conformance: renames-and-migrations claims about the migration tool
- * (mig-07, mig-11, mig-12). Vendoring, secrets and experiment IDs are covered
+ * (mig-07, mig-11, mig-12). Vendoring and secrets are covered
  * end to end by ../migrate.test.ts and ../steps.test.ts; this file adds the
  * tag-manager row of "Telemetry and analytics".
  */
@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeBlockMap } from "../blockMap";
-import { migrateRandomMatchers } from "../experiments";
+import { RUN_AN_AB_TEST, reportTestsAndDates } from "../experiments";
 import { createReport, formatReport } from "../report";
 
 let root: string;
@@ -47,29 +47,19 @@ describe("telemetry and analytics", () => {
     expect(text).toContain("G-XYZ789");
   });
 
-  it("mig-11: the random matcher's saved-block name becomes the A/B test's experiment ID", () => {
+  it("mig-11: the report says to keep the random matcher's saved-block name as the test's name", () => {
     const dir = site({
       "package.json": { name: "site", type: "module" },
       ".deco/blocks/HeroTest.json": {
         __resolveType: "website/matchers/random.ts",
         traffic: 0.5,
       },
-      ".deco/blocks/Home.json": {
-        __resolveType: "website/pages/Page.tsx",
-        name: "Home",
-        path: "/",
-        sections: {
-          __resolveType: "website/flags/multivariate.ts",
-          variants: [{ rule: { __resolveType: "HeroTest" }, value: [] }],
-        },
-      },
     });
-    migrateRandomMatchers(dir, createReport());
-    const home = JSON.parse(fs.readFileSync(path.join(dir, ".deco/blocks/Home.json"), "utf8"));
-    expect(home.sections.experiment).toBe("HeroTest");
-    expect(home.sections.variants[0].rule).toEqual({
-      __resolveType: "experiment",
-      name: "HeroTest",
-    });
+    const report = createReport();
+    reportTestsAndDates(dir, report);
+    const text = formatReport(report);
+    expect(text).toContain("under its saved-block name");
+    expect(text).toContain("results carry over");
+    expect(text).toContain(RUN_AN_AB_TEST);
   });
 });

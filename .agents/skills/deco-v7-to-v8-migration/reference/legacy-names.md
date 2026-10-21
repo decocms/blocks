@@ -23,7 +23,7 @@ Saved content stores type names in `__resolveType`. Treat them like database col
 |---|---|
 | `website/flags/multivariate/image.ts`, `website/flags/multivariate/message.ts`, `website/flags/multivariate/page.ts`, `$live/flags/multivariate.ts` | `website/flags/multivariate.ts` |
 | `$live/matchers/MatchAlways.ts` | `website/matchers/always.ts` |
-| `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date`, its window moved to a campaign in `campaigns` (`reference/script-steps.md`) |
+| `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date` |
 
 ## Everything else
 
