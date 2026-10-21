@@ -337,6 +337,39 @@ export interface DecoWorkerEntryOptions {
   buildSegment?: (request: Request) => SegmentKey;
 
   /**
+   * Segment for the shared DATA caches — registry loader results
+   * (`createCachedLoader`) and raw upstream responses (`createFetchCache`).
+   *
+   * By default they are scoped by `buildSegment`, the page cache's segment. That
+   * key carries what the rendered HTML varies on — device, the visitor's geo, a
+   * GPS cookie — none of which a commerce loader reads: it gets only its props,
+   * and the upstream answers by the VTEX segment (sales channel, price tables,
+   * regionalization, campaigns). Splitting the data per page segment makes each
+   * device/region pay its own upstream call for the same listing, so a page MISS
+   * on a cold isolate rarely finds the result in the colo cache. Fresh's loader
+   * cache keys an Intelligent Search listing by the VTEX segment token alone.
+   *
+   * Return only what the cached commerce data depends on; `device` may be
+   * omitted. Section loaders, resolved layouts and site globals keep the full
+   * `buildSegment` scope, since those do render per device and geo.
+   *
+   * @example
+   * ```ts
+   * dataCacheSegment: (request) => {
+   *   const vtx = extractVtexContext(request);
+   *   return {
+   *     salesChannel: vtx.salesChannel,
+   *     priceTables: vtx.segment?.priceTables ?? undefined,
+   *     regionId: vtx.regionId ?? undefined, // VTEX regionalization only
+   *   };
+   * },
+   * ```
+   */
+  dataCacheSegment?: (
+    request: Request,
+  ) => Omit<SegmentKey, "device"> & { device?: SegmentKey["device"] };
+
+  /**
    * Environment variable name holding the cache purge token.
    * Set to `false` to disable the purge endpoint.
    * @default "PURGE_TOKEN"
@@ -1281,6 +1314,7 @@ export function createDecoWorkerEntry(
     detectProfile: customDetect,
     deviceSpecificKeys = true,
     buildSegment: rawBuildSegment,
+    dataCacheSegment,
     purgeTokenEnv = "PURGE_TOKEN",
     bypassPaths,
     extraBypassPaths = [],
@@ -2429,8 +2463,25 @@ export function createDecoWorkerEntry(
         ),
         privateRequest ? crypto.randomUUID() : null,
       ];
-      const scopeFor = (version: string, revision: string | null = getRevision()) =>
-        JSON.stringify([url.origin, version, revision, ...variant]);
+      const scopeFor = (
+        version: string,
+        revision: string | null = getRevision(),
+        dims: unknown[] = variant,
+      ) => JSON.stringify([url.origin, version, revision, ...dims]);
+      // The data caches' own variant when the site narrows it (see
+      // `dataCacheSegment`). Geo is left out with the device: it only feeds the
+      // location matcher, i.e. page resolution, never a loader's props.
+      const dataSegment = dataCacheSegment?.(request);
+      const dataVariant = dataSegment
+        ? [
+            "data",
+            // A segment without `device` gets one fixed label: the same entry
+            // for every device, not a cache dimension.
+            hashSegment({ ...dataSegment, device: dataSegment.device ?? "desktop" }),
+            privateRequest ? crypto.randomUUID() : null,
+          ]
+        : variant;
+      const dataPurgeVersion = `data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}:${kvDataVersion}`;
       bindCacheStorage({
         storage,
         disabled: privateRequest || isDevMode(),
@@ -2438,7 +2489,12 @@ export function createDecoWorkerEntry(
         // Only `createFetchCache` (`fetch:*`) uses dataScope. Preserve keys it without
         // build or CMS revision; invalidate keeps today's per-build key.
         dataScope: preserveData
-          ? scopeFor(`data:${(env.DECO_DATA_CACHE_PURGE as string) ?? ""}:${kvDataVersion}`, null)
+          ? scopeFor(dataPurgeVersion, null, dataVariant)
+          : dataSegment
+            ? scopeFor(getBuildHash(env), getRevision(), dataVariant)
+            : undefined,
+        loaderScope: dataSegment
+          ? scopeFor(getBuildHash(env), getRevision(), dataVariant)
           : undefined,
         waitUntil: (work) => ctx.waitUntil(work),
       });

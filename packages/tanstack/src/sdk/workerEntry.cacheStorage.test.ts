@@ -4,11 +4,12 @@ import { setBlocks } from "@decocms/blocks/cms";
 import { clearLoaderCache, createCachedLoader } from "@decocms/blocks/sdk/cachedLoader";
 import {
   type CacheKVNamespace,
+  createCacheStore,
   createKVCacheStorage,
   getCacheStorageContext,
 } from "@decocms/blocks/sdk/cacheStorage";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFetchCache } from "@decocms/blocks/sdk/fetchCache";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetKvHydrationStateForTests, DATA_VERSION_TIMEOUT_MS } from "./kvHydration";
 
 const FETCH_KNOBS = {
@@ -17,6 +18,7 @@ const FETCH_KNOBS = {
   staleIfErrorMs: 60_000,
   inflightBackstopMs: 5_000,
 };
+
 import { createDecoWorkerEntry } from "./workerEntry";
 
 function makeKV(): CacheKVNamespace {
@@ -157,7 +159,11 @@ describe("worker cache storage injection", () => {
   });
 
   it("invalidate or unset keeps fetch results per build", async () => {
-    for (const extra of [{}, { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" }, { DECO_DATA_CACHE_ON_DEPLOY: "yes" }]) {
+    for (const extra of [
+      {},
+      { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" },
+      { DECO_DATA_CACHE_ON_DEPLOY: "yes" },
+    ]) {
       const { worker, upstream } = fetchWorker();
       const bindings = { ...env(), ...extra };
       await worker.fetch(request("/a"), bindings, ctx);
@@ -269,5 +275,105 @@ describe("worker cache storage injection", () => {
     expect(purge.status).toBe(200);
     expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("MISS");
     await flush();
+  });
+});
+
+describe("dataCacheSegment", () => {
+  // The page cache splits per device and sales channel; the data caches are
+  // narrowed to the sales channel only.
+  const segmented = {
+    ...options,
+    buildSegment: (req: Request) => ({
+      device: (req.headers.get("x-device") ?? "desktop") as "desktop" | "mobile",
+      loggedIn: false,
+      salesChannel: req.headers.get("x-sc") ?? "1",
+    }),
+  };
+  const narrowed = {
+    ...segmented,
+    dataCacheSegment: (req: Request) => ({ salesChannel: req.headers.get("x-sc") ?? "1" }),
+  };
+
+  function loaderWorker(opts: object) {
+    const upstream = vi.fn(async () => ({ n: upstream.mock.calls.length }));
+    const loader = createCachedLoader("data-segment-loader", upstream, {
+      policy: "no-cache",
+      maxAge: 60_000,
+    });
+    const worker = createDecoWorkerEntry(
+      {
+        fetch: async () =>
+          Response.json(await loader({}), { headers: { "cache-control": "no-store" } }),
+      },
+      opts,
+    );
+    return { worker, upstream };
+  }
+
+  // Each call clears the memory tier, so a hit can only come from the shared
+  // storage — i.e. a new isolate finding another segment's entry.
+  async function call(
+    worker: ReturnType<typeof loaderWorker>["worker"],
+    path: string,
+    headers: Record<string, string>,
+    bindings: Record<string, unknown>,
+  ) {
+    clearLoaderCache();
+    await worker.fetch(request(path, headers), bindings, ctx);
+    await flush();
+  }
+
+  it("shares a loader result across devices, still apart per sales channel", async () => {
+    const { worker, upstream } = loaderWorker(narrowed);
+    const bindings = env();
+    await call(worker, "/a", { "x-device": "desktop" }, bindings);
+    await call(worker, "/b", { "x-device": "mobile" }, bindings);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    await call(worker, "/c", { "x-device": "mobile", "x-sc": "2" }, bindings);
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+
+  it("without it, loader results stay per page segment", async () => {
+    const { worker, upstream } = loaderWorker(segmented);
+    const bindings = env();
+    await call(worker, "/a", { "x-device": "desktop" }, bindings);
+    await call(worker, "/b", { "x-device": "mobile" }, bindings);
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+
+  it("narrows fetch results too, and keeps build stores (sections) per device", async () => {
+    const upstream = vi.fn(async () => Response.json({ ok: true }));
+    const sections = vi.fn();
+    const worker = createDecoWorkerEntry(
+      {
+        fetch: async () => {
+          const cache = createFetchCache({ provider: "data-seg", ...FETCH_KNOBS });
+          await cache.fetchWithCache("https://upstream.test/y", upstream);
+          const store = createCacheStore<{ v: number }>("sections-under-test");
+          const key = store.key("item");
+          if ((await store.read(key)) === undefined) {
+            sections();
+            store.set(key, { v: 1 }, Date.now() + 60_000);
+          }
+          return Response.json({}, { headers: { "cache-control": "no-store" } });
+        },
+      },
+      narrowed,
+    );
+    const bindings = env();
+    await worker.fetch(request("/a", { "x-device": "desktop" }), bindings, ctx);
+    await flush();
+    await worker.fetch(request("/b", { "x-device": "mobile" }), bindings, ctx);
+    await flush();
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(sections).toHaveBeenCalledTimes(2);
+  });
+
+  it("authenticated requests stay private", async () => {
+    const { worker, upstream } = loaderWorker(narrowed);
+    const bindings = env();
+    await call(worker, "/a", {}, bindings);
+    await call(worker, "/b", { authorization: "Bearer x" }, bindings);
+    expect(upstream).toHaveBeenCalledTimes(2);
   });
 });
