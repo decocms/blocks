@@ -177,6 +177,27 @@ describe("createVtexClient", () => {
     expect(result.data).toEqual({ "secret-body": "token-123" });
   });
 
+  it("creates Master Data documents as the app, since VTEX refuses anonymous writes", async () => {
+    const { calls, fetch } = upstream();
+    const vtex = createVtexClient({ account: "store", appKey: "key", appToken: "token", fetch });
+    await vtex.masterdata.create("NL", { email: "a@b.c" }, { cookie: "VtexIdclientAutCookie=x" });
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.body).toBe('{"email":"a@b.c"}');
+    expect(header(calls[0], "x-vtex-api-appkey")).toBe("key");
+    expect(header(calls[0], "x-vtex-api-apptoken")).toBe("token");
+    expect(header(calls[0], "cookie")).toBeNull();
+
+    // Without credentials it stays the shopper's call.
+    const anonymous = upstream();
+    await createVtexClient({ account: "store", fetch: anonymous.fetch }).masterdata.create(
+      "NL",
+      { email: "a@b.c" },
+      { cookie: "VtexIdclientAutCookie=x" },
+    );
+    expect(header(anonymous.calls[0], "cookie")).toBe("VtexIdclientAutCookie=x");
+    expect(header(anonymous.calls[0], "x-vtex-api-appkey")).toBeNull();
+  });
+
   it("throws errors that carry the operation and status, never the body, URL or credentials", async () => {
     const { fetch } = upstream([400]);
     const vtex = createVtexClient({
