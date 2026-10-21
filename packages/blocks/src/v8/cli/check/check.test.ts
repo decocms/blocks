@@ -8,6 +8,7 @@ import {
   STORE_FILES,
   sealSecret,
 } from "../__tests__/fixture";
+import { BUILT_IN_BLOCKS, BUILT_IN_USES } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
 import { runCli } from "../run";
@@ -958,7 +959,7 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
       namespace: "site",
     };
     expect(lines(checkContent(own, saved({})))).toEqual([
-      '.deco/schema.gen.json warning experiment: the block map defines "experiment", which replaces the built-in block of that name; rename it to use the built-in',
+      `.deco/schema.gen.json warning experiment: the block map has its own "experiment", in place of the built-in: Studio's A/B test rules rely on it, each naming a test of the saved block experiments. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
     ]);
   });
 });
@@ -1059,8 +1060,31 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
       namespace: "site",
     };
     expect(lines(checkContent(own, saved({})))).toEqual([
-      '.deco/schema.gen.json warning date: the block map defines "date", which replaces the built-in block of that name; rename it to use the built-in',
-      '.deco/schema.gen.json warning date-windows: the block map defines "date-windows", which replaces the built-in block of that name; rename it to use the built-in',
+      `.deco/schema.gen.json warning date: the block map has its own "date", in place of the built-in: Studio's date rules rely on it, each naming a campaign of the saved block campaigns. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+      `.deco/schema.gen.json warning date-windows: the block map has its own "date-windows", in place of the built-in: the saved block campaigns relies on it, and Studio's Campaigns view edits its dates. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
     ]);
+  });
+
+  it("warns for every built-in the block map replaces, naming what relies on it", () => {
+    const own = structuredClone(meta);
+    const groups = own.manifest.blocks as Record<string, Record<string, { namespace?: string }>>;
+    const replaced: string[] = [];
+    for (const name of BUILT_IN_BLOCKS) {
+      const group = Object.values(groups).find((entries) => Object.hasOwn(entries, name));
+      expect(group, name).toBeDefined();
+      group![name] = { ...group![name], namespace: "site" };
+      replaced.push(name);
+    }
+    expect(replaced).toHaveLength(12);
+    const warnings = lines(checkContent(own, saved({})));
+    expect(warnings).toHaveLength(12);
+    for (const name of BUILT_IN_BLOCKS) {
+      expect(BUILT_IN_USES[name], name).toBeTruthy();
+      expect(warnings).toContain(
+        `.deco/schema.gen.json warning ${name}: the block map has its own "${name}", in place of the built-in: ${BUILT_IN_USES[name]}. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+      );
+    }
+    // A built-in left alone is never named.
+    expect(lines(checkContent(meta, saved({})))).toEqual([]);
   });
 });

@@ -30,7 +30,7 @@ import {
 } from "../../builtins/experiments.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
-import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
+import { BUILT_IN_BLOCKS, BUILT_IN_USES, isBuiltIn, storesPlainVariants } from "../builtins.ts";
 import { paint } from "../color.ts";
 import { readSavedBlocks, type SavedBlocks } from "../content.ts";
 import { consoleReporter, type Reporter } from "../log.ts";
@@ -823,20 +823,21 @@ class Checker {
 
   /**
    * A block map entry named after a built-in replaces it, schema included.
-   * Deliberate for most (a migrated site's own `page`), but the A/B and
-   * campaign built-ins read the saved blocks `experiments` and `campaigns`:
-   * a site that registered its own `experiment`, `split-traffic`, `date` or
-   * `date-windows` (free names before, or a v7-style `date`) hides them.
+   * Often deliberate (a site's own `page` with fields of its own), so a
+   * warning that says what relies on the built-in, never an error.
    */
   private builtInOverrides(): Problem[] {
     const problems: Problem[] = [];
-    for (const name of [EXPERIMENT_RULE, SPLIT_TRAFFIC_TYPE, DATE_RULE, DATE_WINDOWS_TYPE]) {
+    for (const name of BUILT_IN_BLOCKS) {
       if (this.siteNamespaceOf(name) === undefined) continue;
       problems.push({
         file: ".deco/schema.gen.json",
         path: name,
         severity: "warning",
-        message: `the block map defines "${name}", which replaces the built-in block of that name; rename it to use the built-in`,
+        message:
+          `the block map has its own "${name}", in place of the built-in: ` +
+          `${BUILT_IN_USES[name] ?? "Studio relies on it"}. If that's intended, keep the ` +
+          "built-in's fields; to use the built-in again, rename yours",
       });
     }
     return problems;

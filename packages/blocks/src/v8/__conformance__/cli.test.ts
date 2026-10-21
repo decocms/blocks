@@ -2025,6 +2025,29 @@ export default { page } satisfies Blocks;
     expect(pageProps).toContain("campaign");
   }, 60_000);
 
+  it("sc-05b: deco check names each built-in the block map replaces and what relies on it, as a warning", async () => {
+    const f = fixture({
+      ...STORE_FILES,
+      ".deco/index.ts": `
+import type { Blocks, Page } from "../src/deco";
+const page = (props: Page & { campaign?: string }) => props;
+const multivariate = (props: { variants: unknown[] }) => props.variants[0];
+export default { page, multivariate } satisfies Blocks;
+`,
+    });
+    expect((await deco(["schema"], f.root)).code).toBe(0);
+    const r = await deco(["check"], f.root);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(
+      `the block map has its own "page", in place of the built-in: Studio's page list and page editor rely on it. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+    );
+    expect(r.out).toContain(
+      `the block map has its own "multivariate", in place of the built-in: Studio's variants, the fields whose value changes by rule, rely on it.`,
+    );
+    // Only the two it replaced.
+    expect(r.out.match(/in place of the built-in/g)).toHaveLength(2);
+  }, 60_000);
+
   it("sc-09: a key is a type if it's in the manifest, a saved block otherwise", async () => {
     resetForTests();
     const card = (p: { t: string }) => ({ card: p.t });
