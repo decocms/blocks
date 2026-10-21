@@ -8,9 +8,9 @@ import { cms } from "./cms";
 import type { ResolvedPage, StoredPage } from "./model";
 import type { Post } from "./post";
 
-// `decisions`: the decisions route's segment. The page renders what it says (decidedClient: a
-// forged one that names a test nobody is in, or a campaign not running, is a 404). Without it, the
-// request's own client (a draft, and the visitor bindDraft bound).
+// `decisions`: the decisions route's segment. The page renders what it says (decidedClient: a test
+// nobody is in or a campaign not running stays off, and a segment the proxy never writes is a
+// 404). Without it, the request's own client (a draft, and the visitor bindDraft bound).
 export const openPage = cache(async (pathname: string, decisions?: string) => {
   const c = decisions === undefined ? await client() : await decidedClient(cms, decisions);
   if (!c) notFound();

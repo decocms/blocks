@@ -137,34 +137,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Whether the release could have made `decisions` for some visitor at this
- * moment: every test named is in the saved `experiments` with a percentage
- * that puts someone in (over 0 once rounded), and every campaign named is in
- * the saved `campaigns` and running now. A forged path can't switch on a test
- * nobody is in yet or a campaign that hasn't started.
+ * The part of `decisions` the release could have made for some visitor at
+ * this moment: the tests in the saved `experiments` with a percentage that
+ * puts someone in (over 0 once rounded) and the campaigns of the saved
+ * `campaigns` running now. Anything else is left off, never an error: a path
+ * can't switch on a test nobody is in or a campaign that hasn't started, and
+ * a path the proxy wrote just before the content or the moment moved on
+ * (a campaign that just ended, a test published to the proxy first) still
+ * renders. A 404 here would be cached under the path by Next.
  */
-async function couldDecide(
+async function possible(
   cms: Pick<CMS, "client" | "forRelease">,
   decisions: PathDecisions,
-): Promise<boolean> {
+): Promise<PathDecisions> {
+  let experiments: string[] = [];
   if (decisions.experiments.length > 0) {
-    const [raw] = await cms.forRelease().resolve<unknown>("experiments", { run: false });
-    if (!isRecord(raw) || raw.__resolveType !== "split-traffic") return false;
-    for (const name of decisions.experiments) {
-      const pct = Object.hasOwn(raw, name) ? raw[name] : undefined;
-      if (typeof pct !== "number" || !Number.isFinite(pct) || Math.round(Math.min(100, pct)) <= 0) {
-        return false;
-      }
+    const [raw, error] = await cms.forRelease().resolve<unknown>("experiments", { run: false });
+    if (error && error.code !== "NOT_FOUND") throw error;
+    if (isRecord(raw) && raw.__resolveType === "split-traffic") {
+      experiments = decisions.experiments.filter((name) => {
+        const pct = Object.hasOwn(raw, name) ? raw[name] : undefined;
+        return (
+          typeof pct === "number" && Number.isFinite(pct) && Math.round(Math.min(100, pct)) > 0
+        );
+      });
     }
   }
+  let campaigns: string[] = [];
   if (decisions.campaigns.length > 0) {
-    const [running] = await cms.client().resolve<unknown>("campaigns");
-    if (!isRecord(running)) return false;
-    for (const name of decisions.campaigns) {
-      if (!Object.hasOwn(running, name) || running[name] !== true) return false;
+    const [running, error] = await cms.client().resolve<unknown>("campaigns");
+    if (error && error.code !== "NOT_FOUND") throw error;
+    if (isRecord(running)) {
+      campaigns = decisions.campaigns.filter(
+        (name) => Object.hasOwn(running, name) && running[name] === true,
+      );
     }
   }
-  return true;
+  return { experiments, campaigns };
 }
 
 /**
@@ -173,9 +182,10 @@ async function couldDecide(
  * `rewriteToDecisionsRoute` rewrites the CMS's pages to): the current release,
  * answering `experiments` and `campaigns` from the path's segment
  * (`cms.client({ decided })`), so the page renders what its cache key says
- * and reads no request: it can be static. `null` when the segment isn't one
- * the proxy writes, or names a test nobody is in or a campaign not running
- * now: the page answers with `notFound()`.
+ * and reads no request: it can be static. A test nobody is in or a campaign
+ * not running now stays off, whatever the segment says. `null` only when the
+ * segment isn't one the proxy writes: the page answers with `notFound()`.
+ * Content that fails to load throws, so Next caches no page for it.
  *
  * ```tsx
  * export const dynamic = "force-static";
@@ -193,10 +203,5 @@ export async function decidedClient(
 ): Promise<Client | null> {
   const decisions = parseDecisionsSegment(segment);
   if (decisions === null) return null;
-  try {
-    if (!(await couldDecide(cms, decisions))) return null;
-  } catch {
-    return null;
-  }
-  return cms.client({ decided: decisions });
+  return cms.client({ decided: await possible(cms, decisions) });
 }

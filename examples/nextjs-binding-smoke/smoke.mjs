@@ -230,6 +230,11 @@ try {
     `${decisionsOf(sideA2.body)} ${sideA2.res.headers.get("x-nextjs-cache")}`,
   );
   check(
+    "the URL asked for is private, so a CDN in front can't hand one side's page to the other",
+    [sideA, sideA2, sideB].every(({ res }) => res.headers.get("cache-control") === "private, no-cache"),
+    [sideA, sideA2, sideB].map(({ res }) => res.headers.get("cache-control")).join(" / "),
+  );
+  check(
     "the visitor's id is in no path and no page",
     ![sideA, sideA2, sideB].some(({ body }, i) => body.includes([inA, inB, out][i].id)),
   );

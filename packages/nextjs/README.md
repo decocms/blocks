@@ -78,6 +78,9 @@ export async function proxy(request: NextRequest) {
     NextResponse.next({ request: { headers: visitorRequestHeaders(draftRequestHeaders(request, draft), visitor) } });
   return applyVisitor(applyDraft(response, draft), visitor);
 }
+
+// Next's own files never go through the proxy: rewritten, every script and style would be a 404.
+export const config = { matcher: ["/((?!_next/|favicon.ico).*)"] };
 ```
 
 ```tsx
@@ -95,7 +98,8 @@ export default async function Page({ params }) {
 
 - **What the segment holds**: the tests the visitor is in and the campaigns running now (`readDecisions` on the current release), as `decisionsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of decisions. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
 - **The page doesn't decide again**: `decidedClient(cms, segment)` builds `cms.client({ decided })`, whose `experiments` and `campaigns` answer from the segment. A page Next renders again later (revalidation) shows the same thing under the same path.
-- **A path can't switch a test on**: the proxy answers a direct hit on `/_decided/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `decidedClient` still returns `null` for a segment the proxy never writes, a test at 0% or not in `experiments`, or a campaign that isn't running now. A visitor can at most see the other side of a running test, as clearing their cookies would.
+- **A path can't switch a test on**: the proxy answers a direct hit on `/_decided/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `decidedClient` still keeps off a test at 0% or not in `experiments` and a campaign that isn't running now, and returns `null` (a 404) only for a segment the proxy never writes. A visitor can at most see the other side of a running test, as clearing their cookies would. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote just before a campaign ended, or before the page's server saw newly published content, still renders.
+- **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of decisions, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's static `s-maxage` under it.
 - **Drafts and previews are never rewritten here**: a drafted request goes to the dynamic draft route, so nothing from a preview lands in Next's cache.
 - **Which paths**: only the CMS's pages (`isCmsPage` above is the site's own: routes of the app's own, such as `/blog` here, render as before). `draftProxy(proxyCms, { decisions: (request) => isCmsPage(request.nextUrl.pathname) })` does the same for a site with no proxy of its own.
 

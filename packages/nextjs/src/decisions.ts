@@ -42,10 +42,13 @@ async function saves(client: Reader, type: string): Promise<boolean> {
   return (list?.length ?? 0) > 0;
 }
 
-/** The names that resolved `true` in the saved `block`, sorted; none when it is missing. */
-async function trueNames(client: Reader, spec: { block: string; type: string }): Promise<string[]> {
+/** The names that resolved `true` in the saved `block`, sorted; `null` when the content saves none. */
+async function trueNames(
+  client: Reader,
+  spec: { block: string; type: string },
+): Promise<string[] | null> {
   try {
-    if (!(await saves(client, spec.type))) return [];
+    if (!(await saves(client, spec.type))) return null;
     const [value] = await client.resolve<unknown>(spec.block);
     if (!isRecord(value)) return [];
     return Object.keys(value)
@@ -65,18 +68,33 @@ export async function readDecisions(
   cms: Pick<CMS, "client">,
   inputs: { visitor: Visitor | null; version: string | null },
 ): Promise<Decisions> {
+  return (await readDecisionsAndScope(cms, inputs)).decisions;
+}
+
+/**
+ * `readDecisions`, and whether its page can differ by them: `true` when the
+ * content saves tests or campaigns (or couldn't be read, to stay safe), so a
+ * response keyed on them must never be shared by its URL alone.
+ */
+export async function readDecisionsAndScope(
+  cms: Pick<CMS, "client">,
+  inputs: { visitor: Visitor | null; version: string | null },
+): Promise<{ decisions: Decisions; decided: boolean }> {
   const none: Decisions = { version: inputs.version, experiments: [], campaigns: [] };
   let client: Reader;
   try {
     client = cms.client({ visitor: inputs.visitor, version: inputs.version });
   } catch {
-    return none;
+    return { decisions: none, decided: true };
   }
   const [experiments, campaigns] = await Promise.all([
     trueNames(client, EXPERIMENTS),
     trueNames(client, CAMPAIGNS),
   ]);
-  return { ...none, experiments, campaigns };
+  return {
+    decisions: { ...none, experiments: experiments ?? [], campaigns: campaigns ?? [] },
+    decided: experiments !== null || campaigns !== null,
+  };
 }
 
 /**

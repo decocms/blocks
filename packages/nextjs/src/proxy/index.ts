@@ -45,7 +45,7 @@
 import type { CMS } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
-import { decisionsRoutePath, isDecisionsRoutePath, readDecisions } from "../decisions.ts";
+import { decisionsRoutePath, isDecisionsRoutePath, readDecisionsAndScope } from "../decisions.ts";
 import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX, draftResponseHeaders } from "../draft.ts";
 import {
   allowedDraft,
@@ -219,6 +219,9 @@ export function rewriteToDraftRoute(
   });
 }
 
+/** A decisions-route response's `Cache-Control` when its content has tests or campaigns. */
+const DECIDED_CACHE_CONTROL = "private, no-cache";
+
 /**
  * The rewrite of a published request onto the decisions route,
  * `/_decided/<decisions>/<path>`: the tests the visitor is in and the
@@ -231,7 +234,11 @@ export function rewriteToDraftRoute(
  * `decidedClient` from `@decocms/nextjs/server`, which answers from the path.
  *
  * `null` for a drafted request (it renders on the draft route, never cached)
- * and for a path already on the draft or decisions route. Call it only for
+ * and for a path already on the draft or decisions route. When the content
+ * saves tests or campaigns, the response is marked `Cache-Control: private,
+ * no-cache`: Next keeps one cached page per set of decisions, but the URL the
+ * visitor asked for answers by their cookie and the moment, so a CDN in front
+ * must not share it. Call it only for
  * the paths the decisions route renders (the CMS's pages), and answer a direct
  * hit on the route with a 404 (`isDecisionsRoutePath`).
  */
@@ -244,9 +251,18 @@ export async function rewriteToDecisionsRoute(
   if (draft.pointer) return null;
   const url = request.nextUrl.clone();
   if (isDraftRoutePath(url.pathname) || isDecisionsRoutePath(url.pathname)) return null;
-  const decisions = await readDecisions(cms, { visitor: visitor.visitor, version: null });
+  const { decisions, decided } = await readDecisionsAndScope(cms, {
+    visitor: visitor.visitor,
+    version: null,
+  });
   url.pathname = decisionsRoutePath(url.pathname, decisions);
-  return NextResponse.rewrite(url, { request: { headers: draftRequestHeaders(request, INERT) } });
+  const response = NextResponse.rewrite(url, {
+    request: { headers: draftRequestHeaders(request, INERT) },
+  });
+  // The URL the visitor asked for answers differently by their cookie and the moment: a
+  // shared cache in front (a CDN) must not keep Next's static `s-maxage` under it.
+  if (decided) response.headers.set("Cache-Control", DECIDED_CACHE_CONTROL);
+  return response;
 }
 
 /**

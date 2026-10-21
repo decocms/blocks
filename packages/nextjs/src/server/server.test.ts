@@ -177,11 +177,28 @@ describe("decidedClient: a page on the decisions route renders what its path say
 
   it("a forged segment can't switch on a test nobody is in, or a campaign not running", async () => {
     const cms = testCMS(content);
-    expect(await decidedClient(cms, seg(["later"]))).toBeNull();
-    expect(await decidedClient(cms, seg(["gone"]))).toBeNull();
-    expect(await decidedClient(cms, seg([], ["black-friday"]))).toBeNull();
-    expect(await decidedClient(cms, seg([], ["gone"]))).toBeNull();
+    const answers = async (segment: string) => {
+      const client = await decidedClient(cms, segment);
+      return {
+        experiments: { ...(await client!.resolve("experiments"))[0]! },
+        campaigns: { ...(await client!.resolve("campaigns"))[0]! },
+      };
+    };
+    const allOff = {
+      experiments: { "buy-button": false, later: false },
+      campaigns: { sale: false, "black-friday": false },
+    };
+    expect(await answers(seg(["later"]))).toEqual(allOff);
+    expect(await answers(seg(["gone"]))).toEqual(allOff);
+    expect(await answers(seg([], ["black-friday"]))).toEqual(allOff);
+    expect(await answers(seg([], ["gone"]))).toEqual(allOff);
+    // What the release could have decided still answers: one stale name never costs the rest.
+    expect(await answers(seg(["buy-button", "later"], ["sale", "black-friday"]))).toEqual({
+      experiments: { "buy-button": true, later: false },
+      campaigns: { sale: true, "black-friday": false },
+    });
     expect(await decidedClient(cms, "not-a-segment!")).toBeNull();
-    expect(await decidedClient(testCMS(), seg(["buy-button"]))).toBeNull(); // no experiments block
+    const bare = await decidedClient(testCMS(), seg(["buy-button"], ["sale"])); // no experiments or campaigns block
+    expect(bare).not.toBeNull();
   });
 });

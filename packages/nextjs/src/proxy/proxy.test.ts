@@ -401,6 +401,23 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
     expect(forwarded(res!, "x-deco-draft")).toBeNull();
   });
 
+  it("the URL asked for is private when the content has tests or campaigns: a CDN must not share it", async () => {
+    const req = page("/shoes", asCookie(visitorIn(true)));
+    const draft = await decideDraft(testCMS(content), req);
+    const visitor = decideVisitor(req, draft);
+    const varies = await rewriteToDecisionsRoute(testCMS(content), req, draft, visitor);
+    expect(varies!.headers.get("cache-control")).toBe("private, no-cache");
+    const campaignsOnly = testCMS(snapshot({ campaigns: { "black-friday": BF } }));
+    expect(
+      (await rewriteToDecisionsRoute(campaignsOnly, req, draft, visitor))!.headers.get(
+        "cache-control",
+      ),
+    ).toBe("private, no-cache");
+    // Content with neither answers the same to everyone: Next's own headers stay.
+    const plain = await rewriteToDecisionsRoute(testCMS(), req, draft, visitor);
+    expect(plain!.headers.get("cache-control")).toBeNull();
+  });
+
   it("a campaign starting or ending changes the path", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
