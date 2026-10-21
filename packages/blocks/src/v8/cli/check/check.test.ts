@@ -902,6 +902,43 @@ describe("the saved block experiments and the experiment rule", () => {
     ]);
   });
 
+  it("passes a section prop that takes the whole experiments block", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; experiments?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const section = (value: unknown) => ({
+        __resolveType: "hero",
+        title: "Hi",
+        experiments: value,
+      });
+      expect(
+        lines(
+          checkContent(
+            own,
+            saved({
+              experiments,
+              HomePage: page([section({ __resolveType: "experiments" })]),
+            }),
+          ),
+        ),
+      ).toEqual([]);
+      // A plain map still fits; a map of something else doesn't.
+      expect(lines(checkContent(own, saved({ HomePage: page([section({ a: true })]) })))).toEqual(
+        [],
+      );
+      expect(
+        lines(checkContent(own, saved({ HomePage: page([section({ a: "yes" })]) }))).length,
+      ).toBeGreaterThan(0);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
   it("split-traffic and experiment are reserved names; experiments is not", () => {
     expect(lines(run({ experiments, "split-traffic": { ...experiments } }))).toContain(
       'split-traffic.json saved block "split-traffic" has the name of a built-in block',
@@ -944,6 +981,26 @@ describe("the saved block campaigns and the date rule", () => {
   it("passes a campaigns block of windows and rules naming its campaigns", () => {
     expect(run({ campaigns, HomePage: page(banner(rule("black-friday")) as never) })).toEqual([]);
   });
+
+  it("passes a section prop that takes the whole campaigns block", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; campaigns?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const section = {
+        __resolveType: "hero",
+        title: "Hi",
+        campaigns: { __resolveType: "campaigns" },
+      };
+      expect(lines(checkContent(own, saved({ campaigns, HomePage: page([section]) })))).toEqual([]);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
 
   it("warns about a campaigns block of another type, which turns every date rule off", () => {
     expect(lines(run({ campaigns: hero }))).toEqual([
