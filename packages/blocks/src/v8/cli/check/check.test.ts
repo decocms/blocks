@@ -909,6 +909,43 @@ describe("the saved block experiments and the experiment rule", () => {
     ]);
   });
 
+  it("passes a section prop that takes the whole experiments block", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; experiments?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const section = (value: unknown) => ({
+        __resolveType: "hero",
+        title: "Hi",
+        experiments: value,
+      });
+      expect(
+        lines(
+          checkContent(
+            own,
+            saved({
+              experiments,
+              HomePage: page([section({ __resolveType: "experiments" })]),
+            }),
+          ),
+        ),
+      ).toEqual([]);
+      // A plain map still fits; a map of something else doesn't.
+      expect(lines(checkContent(own, saved({ HomePage: page([section({ a: true })]) })))).toEqual(
+        [],
+      );
+      expect(
+        lines(checkContent(own, saved({ HomePage: page([section({ a: "yes" })]) }))).length,
+      ).toBeGreaterThan(0);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
   it("split-traffic and experiment are reserved names; experiments is not", () => {
     expect(lines(run({ experiments, "split-traffic": { ...experiments } }))).toContain(
       'split-traffic.json saved block "split-traffic" has the name of a built-in block',
