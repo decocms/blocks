@@ -1163,6 +1163,88 @@ describe("purge", () => {
     expect((await get(load("/hats"))).headers.get("x-cache")).toBe("HIT");
   });
 
+  it("the purge's keys are the stored keys byte for byte: devices, segment parts, tests, fetch, navigation data with tracking params and __cseg", async () => {
+    const experiments = { t0: 50, t1: 50 };
+    const { get, worker, ctx } = setup(
+      {
+        cms: testCMS(snapshot({ experiments })),
+        purgeToken: () => "secret",
+        segment: (r) => ({
+          salesChannel: r.headers.get("x-sc") ?? undefined,
+          regionId: r.headers.get("x-region") ?? undefined,
+        }),
+      },
+      () => Response.json({ ok: true }),
+    );
+    const load = (href: string, fn: string, query = "") =>
+      `/_serverFn/${fn}?payload=${encodeURIComponent(JSON.stringify({ data: { href, pathname: href.split("?")[0] } }))}${query}`;
+    const visitors = Array.from({ length: 16 }, () => newVisitor());
+    const parts: RequestInit[] = [
+      {},
+      { headers: { "x-sc": "2" } },
+      { headers: { "x-sc": "2", "x-region": "south" } },
+    ];
+    const urls = [
+      "/shoes",
+      "/shoes?utm_source=mail&gclid=x",
+      load("/shoes", "abc", "&utm_medium=x"),
+      load("/shoes?skuId=9", "def", `&${CSEG_PARAM}=stale`),
+    ];
+    for (const ua of [DESKTOP_UA, PHONE_UA, TABLET_UA]) {
+      for (const init of parts) {
+        for (const v of visitors.slice(0, 4)) {
+          for (const url of urls) {
+            const headers = { ...(init.headers as Record<string, string>), ...as(v).headers };
+            await get(url, { ua, headers });
+            await get(url, { ua, headers: { ...headers, "sec-fetch-dest": "empty" } });
+          }
+        }
+      }
+    }
+    await get("/hats");
+    await get(load("/hats", "abc"));
+    const stored = cache.pageKeys().length;
+    const res = await worker.fetch(
+      purgeRequest({ paths: ["/shoes"], salesChannels: ["2"], regionIds: ["south"] }),
+      {},
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { total: number }).total).toBe(stored - 2);
+    expect(cache.pageKeys().sort()).toEqual([
+      expect.stringContaining(`${ORIGIN}/_serverFn/abc?`),
+      expect.stringContaining(`${ORIGIN}/hats?`),
+    ]);
+  });
+
+  it("page loads stored at the same moment both have their shapes kept", async () => {
+    const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
+      Response.json({ ok: true }),
+    );
+    const load = (fn: string) =>
+      `/_serverFn/${fn}?payload=${encodeURIComponent(JSON.stringify({ data: { href: "/shoes" } }))}`;
+    await Promise.all(["abc", "def", "ghi"].map((fn) => get(load(fn))));
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+    expect(((await res.json()) as { total: number }).total).toBe(3);
+    expect(cache.pageKeys()).toEqual([]);
+  });
+
+  it("a kept shape the edge cache evicted is kept again on the next page load stored", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+    const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
+      Response.json({ ok: true }),
+    );
+    const load = (href: string) =>
+      `/_serverFn/abc?payload=${encodeURIComponent(JSON.stringify({ data: { href } }))}`;
+    await get(load("/hats"));
+    await cache.delete(new Request(`${ORIGIN}/_cache/navigation-shapes`));
+    vi.setSystemTime(T0 + 10 * 60_000);
+    await get(load("/shoes"));
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+    expect(((await res.json()) as { total: number }).total).toBe(1);
+  });
+
   it("a page's request is one cache lookup: no extra entry is read", async () => {
     const { get } = setup();
     await get("/shoes");

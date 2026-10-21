@@ -195,6 +195,8 @@ const NAVIGATION_SHAPES_PATH = "/_cache/navigation-shapes";
 /** The most shapes kept: a site has one or two page loaders; this bounds a flood of made-up payloads. */
 const MAX_NAVIGATION_SHAPES = 32;
 const SHAPES_TTL = 60 * 60 * 24 * 365;
+/** How long an isolate trusts that a shape it kept is still in the list. */
+const SHAPES_RECHECK_MS = 5 * 60_000;
 /** Stand-ins for the page's path and pathname in a shape's payload. */
 const PAGE_TOKEN = "\u0000deco:page";
 const PATHNAME_TOKEN = "\u0000deco:pathname";
@@ -268,6 +270,14 @@ function appendVary(headers: Headers, value: string): void {
   else if (!current.split(",").some((v) => v.trim().toLowerCase() === value.toLowerCase())) {
     headers.set("vary", `${current}, ${value}`);
   }
+}
+
+/** A constant-time string compare, as v7's, for the purge token (its length isn't secret). */
+function sameString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 function shapesKey(origin: string): Request {
@@ -425,23 +435,40 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return new Request(key.toString(), { method: "GET" });
   }
 
-  // The navigation shapes this isolate has seen kept in the edge cache.
-  const knownShapes = new Set<string>();
+  // When this isolate last saw each navigation shape kept in the edge cache.
+  const knownShapes = new Map<string, number>();
+  // The kept list is read, added to and written back one change at a time, so
+  // two page loads stored at once don't each write a list without the other.
+  let shapesWrites: Promise<void> = Promise.resolve();
 
-  /** Adds a page load's shape to the kept list, once per isolate. */
-  async function rememberShape(cache: Cache, url: URL): Promise<void> {
+  /**
+   * Adds a page load's shape to the kept list. Checked again every
+   * `SHAPES_RECHECK_MS`, so a list the edge cache evicted (or another isolate
+   * overwrote) gets the shape back on the next page load stored.
+   */
+  function rememberShape(cache: Cache, url: URL): Promise<void> {
     const shape = navigationShape(url);
-    if (shape === null || knownShapes.has(shape)) return;
-    const shapes = await readShapes(cache, url.origin);
-    // A full list is left as it is: the shapes seen first are the site's own loaders.
-    if (!shapes.includes(shape) && shapes.length < MAX_NAVIGATION_SHAPES) {
-      shapes.push(shape);
-      await cache.put(
-        shapesKey(url.origin),
-        Response.json(shapes, { headers: { "Cache-Control": `public, max-age=${SHAPES_TTL}` } }),
-      );
-    }
-    knownShapes.add(shape);
+    if (shape === null) return Promise.resolve();
+    const seen = knownShapes.get(shape);
+    if (seen !== undefined && Date.now() - seen < SHAPES_RECHECK_MS) return Promise.resolve();
+    knownShapes.set(shape, Date.now());
+    const write = shapesWrites.then(async () => {
+      const shapes = await readShapes(cache, url.origin);
+      // A full list is left as it is: the shapes seen first are the site's own loaders.
+      if (!shapes.includes(shape) && shapes.length < MAX_NAVIGATION_SHAPES) {
+        shapes.push(shape);
+        await cache.put(
+          shapesKey(url.origin),
+          Response.json(shapes, { headers: { "Cache-Control": `public, max-age=${SHAPES_TTL}` } }),
+        );
+      }
+    });
+    shapesWrites = write.catch(() => {});
+    return write.catch((error: unknown) => {
+      // Not kept: the next page load stored tries again.
+      knownShapes.delete(shape);
+      throw error;
+    });
   }
 
   /**
@@ -476,7 +503,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
 
   async function purge(request: Request, env: Env): Promise<Response> {
     const token = options.purgeToken?.(env);
-    if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) {
+    if (!token || !sameString(request.headers.get("Authorization") ?? "", `Bearer ${token}`)) {
       return new Response("Unauthorized", { status: 401 });
     }
     let body: Record<string, unknown>;
