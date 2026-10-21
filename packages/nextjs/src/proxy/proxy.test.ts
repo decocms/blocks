@@ -272,6 +272,12 @@ describe("the version: an old release from a Studio link", () => {
     expect((await decideDraft(cms(), link(version))).pointer).toBe(version);
   });
 
+  it("a preview time typed by hand, unencoded, reads as @decocms/blocks reads it", async () => {
+    const version = `${SHA}?__at=2026-11-28T10:00:00-03:00`;
+    const typed = new NextRequest(`https://shop.example.com/shoes?__draft=${version}`);
+    expect((await decideDraft(cms(), typed)).pointer).toBe(version);
+  });
+
   it("on a host that may not preview, or when it doesn't parse: the current release", async () => {
     expect((await decideDraft(cms(), link(SHA, "elsewhere.example.com"))).pointer).toBe(null);
     expect((await decideDraft(cms(), link(SHA.slice(1)))).pointer).toBe(null);
