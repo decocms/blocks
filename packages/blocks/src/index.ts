@@ -11,6 +11,7 @@ export {
   type CMSError,
   type CMSSettings,
   createCMS,
+  currentClient,
   type DraftPointer,
   type EffectiveSettings,
   formatDraftPointer,

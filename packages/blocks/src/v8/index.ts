@@ -1,10 +1,12 @@
 /**
- * The next-major (v8) core SDK: `createCMS`, the clients, the built-in blocks,
- * `matchRoute` and the draft pointer helpers (`cms.draftPointer` and
- * `cms.draftCookie` are methods: they check the preview hosts). Re-exported from the package root, where
+ * The next-major (v8) core SDK: `createCMS`, the clients, `currentClient`,
+ * the built-in blocks, `matchRoute` and the draft pointer helpers
+ * (`cms.readVersion` and `cms.draftCookie` are methods: they check the
+ * preview hosts). Re-exported from the package root, where
  * these names are the documented ones; see /next/api-reference.
  */
 export { createCMS, resetForTests } from "./cms.ts";
+export { currentClient } from "./current.ts";
 export { formatDraftPointer, parseDraftPointer } from "./draft.ts";
 export { matchRoute } from "./matchRoute.ts";
 export { remoteLoader } from "./remoteLoader.ts";

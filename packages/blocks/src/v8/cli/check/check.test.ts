@@ -520,25 +520,18 @@ describe("names that are also Object.prototype keys", () => {
 
 describe("formats and character counts", () => {
   it("checks date and date-time values, and leaves widget formats alone", () => {
-    const date = (start: string) => ({
-      ...hero,
-      title: {
-        __resolveType: "multivariate",
-        variants: [
-          {
-            rule: { __resolveType: "date", start, end: "2026-12-31T23:59:59Z" },
-            value: { __resolveType: "lazy", value: "Sale" },
-          },
-        ],
+    const campaigns = (a: string, b: string) => ({
+      campaigns: {
+        __resolveType: "date-windows",
+        a: { start: a, end: "2026-12-31T23:59:59Z" },
+        b: { start: b, end: "2026-12-31T23:59:59Z" },
       },
     });
-    expect(lines(run({ A: date("not a date"), B: date("2026-02-30T10:00") }))).toEqual([
-      'A.json title.variants[0].rule.start: "not a date" isn\'t a valid date-time',
-      'B.json title.variants[0].rule.start: "2026-02-30T10:00" isn\'t a valid date-time',
+    expect(lines(run(campaigns("not a date", "2026-02-30T10:00")))).toEqual([
+      'campaigns.json a.start: "not a date" isn\'t a valid date-time',
+      'campaigns.json b.start: "2026-02-30T10:00" isn\'t a valid date-time',
     ]);
-    expect(run({ A: date("2026-11-27T09:00"), B: date("2026-11-27T09:00:00.000-03:00") })).toEqual(
-      [],
-    );
+    expect(run(campaigns("2026-11-27T09:00", "2026-11-27T09:00:00.000-03:00"))).toEqual([]);
     // image-uri is a widget, not a rule: any string goes.
     expect(run({ Hero: { ...hero, image: "/assets/a b.png" } })).toEqual([]);
   });
@@ -848,100 +841,80 @@ describe("the CMS settings block", () => {
   });
 });
 
-describe("the experiments block and the experiment matcher", () => {
-  const experiments = { __resolveType: "experiments", "buy-button": 50, "hero-copy": 0 };
+describe("the saved block experiments and the experiment rule", () => {
+  const experiments = { __resolveType: "split-traffic", "buy-button": 50, "hero-copy": 0 };
   const rule = (name: string) => ({ __resolveType: "experiment", name });
-  const test = (experiment: string | undefined, ruleName: string) => ({
+  const test = (ruleName: string) => ({
     __resolveType: "multivariate",
-    ...(experiment === undefined ? {} : { experiment }),
     variants: [
       { rule: rule(ruleName), value: { __resolveType: "lazy", value: [hero] } },
       { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
     ],
   });
 
-  it("passes an Experiments block of whole percentages and rules naming its tests", () => {
-    expect(
-      run({ Experiments: experiments, HomePage: page(test("buy-button", "buy-button") as never) }),
-    ).toEqual([]);
+  it("passes an experiments block of whole percentages and rules naming its tests", () => {
+    expect(run({ experiments, HomePage: page(test("buy-button") as never) })).toEqual([]);
   });
 
-  it("reports an allocation that is not a whole percentage from 0 to 100", () => {
+  it("reports a percentage that is not a whole number from 0 to 100 as an error", () => {
     const out = lines(
-      run({ Experiments: { __resolveType: "experiments", a: 101, b: -1, c: 10.5, d: "50" } }),
+      run({ experiments: { __resolveType: "split-traffic", a: 101, b: -1, c: 10.5, d: "50" } }),
     );
     for (const name of ["a", "b", "c", "d"]) {
       expect(
-        out.some((line) => line.startsWith(`Experiments.json ${name}:`)),
+        out.some((line) => line.startsWith(`experiments.json ${name}:`)),
         name,
       ).toBe(true);
     }
     expect(out.every((line) => !line.includes("warning"))).toBe(true); // errors
   });
 
-  it("warns about an Experiments block of another type, which is ignored as experiments", () => {
-    expect(lines(run({ Experiments: hero }))).toEqual([
-      'Experiments.json warning "Experiments" is the name of the experiments block (type "experiments"); this one is ignored as experiments, so rename it',
+  it("warns about an experiments block of another type, which turns every rule off", () => {
+    expect(lines(run({ experiments: hero }))).toEqual([
+      'experiments.json warning "experiments" is the saved block every experiment rule reads, of type "split-traffic"; with type "hero" every experiment rule is false',
     ]);
   });
 
-  it("warns about an experiments block saved under another name, which is never read", () => {
-    expect(lines(run({ Experiments: experiments, MoreTests: { ...experiments } }))).toEqual([
-      'MoreTests.json warning the experiments are read only from the saved block "Experiments"; this "experiments" block is never read, so move its tests there',
+  it("warns about a rule naming a test the experiments block doesn't have", () => {
+    expect(lines(run({ experiments, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
     ]);
-  });
-
-  it("warns about a rule naming a test the Experiments block doesn't have", () => {
-    expect(lines(run({ Experiments: experiments, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning name: no experiment "gone" in the "Experiments" block: this rule is always false',
-    ]);
-    // With no Experiments block at all, every experiment rule is always false.
+    // With no experiments block at all, every experiment rule is always false.
     expect(lines(run({ Rule: rule("buy-button") }))).toEqual([
-      'Rule.json warning name: no experiment "buy-button" in the "Experiments" block: this rule is always false',
+      'Rule.json warning name: no test "buy-button" in the saved block "experiments": this rule is always false',
     ]);
-  });
-
-  it("warns when a variants block's experiment isn't the test its rule reads", () => {
-    expect(
-      lines(
-        run({ Experiments: experiments, HomePage: page(test("hero-copy", "buy-button") as never) }),
-      ),
-    ).toEqual([
-      'HomePage.json warning sections.variants[0].rule: this rule reads the experiment "buy-button", but the block\'s experiment is "hero-copy": its results are kept under "hero-copy"',
-    ]);
-    // A saved rule is followed to the test it reads.
+    // A saved rule is reported once, where it is saved.
     expect(
       lines(
         run({
-          Experiments: experiments,
-          BuyButtonRule: rule("buy-button"),
+          experiments,
+          GoneRule: rule("gone"),
           Banner: {
             __resolveType: "multivariate",
-            experiment: "hero-copy",
             variants: [
-              {
-                rule: { __resolveType: "BuyButtonRule" },
-                value: { __resolveType: "lazy", value: "plain" },
-              },
+              { rule: { __resolveType: "GoneRule" }, value: { __resolveType: "lazy", value: "x" } },
             ],
           },
         }),
       ),
     ).toEqual([
-      'Banner.json warning variants[0].rule: this rule reads the experiment "buy-button", but the block\'s experiment is "hero-copy": its results are kept under "hero-copy"',
+      'GoneRule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
     ]);
   });
 
-  it("experiments and experiment are reserved names", () => {
-    expect(lines(run({ experiments: { ...experiments } }))).toContain(
-      'experiments.json saved block "experiments" has the name of a built-in block',
+  it("split-traffic and experiment are reserved names; experiments is not", () => {
+    expect(lines(run({ experiments, "split-traffic": { ...experiments } }))).toContain(
+      'split-traffic.json saved block "split-traffic" has the name of a built-in block',
     );
-    expect(lines(run({ Experiments: experiments, experiment: rule("buy-button") }))).toContain(
+    expect(lines(run({ experiments, experiment: rule("buy-button") }))).toContain(
       'experiment.json saved block "experiment" has the name of a built-in block',
+    );
+    expect(lines(run({ experiments })).some((line) => line.includes("name of a built-in"))).toBe(
+      false,
     );
   });
 
-  it("warns when the block map defines experiment or experiments, which replaces the built-in", () => {
+  it("warns when the block map defines experiment or split-traffic, which replaces the built-in", () => {
     const own = structuredClone(meta);
     own.manifest.blocks.matchers.experiment = {
       ...own.manifest.blocks.matchers.experiment,
@@ -953,102 +926,84 @@ describe("the experiments block and the experiment matcher", () => {
   });
 });
 
-describe("the schedules block and the schedule matcher", () => {
-  const window = { start: "2026-11-27T00:00:00-03:00", end: "2026-11-30T00:00:00-03:00" };
-  const schedules = { __resolveType: "schedules", "black-friday": window, launch: {} };
-  const rule = (name: string) => ({ __resolveType: "schedule", name });
-  const banner = (ruleBlock: unknown) => ({
+describe("the saved block campaigns and the date rule", () => {
+  const campaigns = {
+    __resolveType: "date-windows",
+    "black-friday": { start: "2026-11-27T00:00:00-03:00", end: "2026-12-01T23:59:59-03:00" },
+    "always-on": {},
+  };
+  const rule = (campaign: string) => ({ __resolveType: "date", campaign });
+  const banner = (r: unknown) => ({
     __resolveType: "multivariate",
     variants: [
-      { rule: ruleBlock, value: { __resolveType: "lazy", value: [hero] } },
+      { rule: r, value: { __resolveType: "lazy", value: [hero] } },
       { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
     ],
   });
 
-  it("passes a Schedules block of campaign dates and rules naming its campaigns", () => {
-    expect(
-      run({ Schedules: schedules, HomePage: page(banner(rule("black-friday")) as never) }),
-    ).toEqual([]);
+  it("passes a campaigns block of windows and rules naming its campaigns", () => {
+    expect(run({ campaigns, HomePage: page(banner(rule("black-friday")) as never) })).toEqual([]);
   });
 
-  it("reports a campaign bound that isn't a date-time", () => {
-    const out = lines(
-      run({ Schedules: { __resolveType: "schedules", sale: { start: "tomorrow" } } }),
-    );
-    expect(out.some((line) => line.startsWith("Schedules.json sale.start:"))).toBe(true);
-  });
-
-  it("warns about a Schedules block of another type, which is ignored as campaigns", () => {
-    expect(lines(run({ Schedules: hero }))).toEqual([
-      'Schedules.json warning "Schedules" is the name of the campaigns block (type "schedules"); this one is ignored as campaigns, so rename it',
+  it("warns about a campaigns block of another type, which turns every date rule off", () => {
+    expect(lines(run({ campaigns: hero }))).toEqual([
+      'campaigns.json warning "campaigns" is the saved block every date rule reads, of type "date-windows"; with type "hero" every date rule is false',
     ]);
   });
 
-  it("warns about a schedules block saved under another name, which is never read", () => {
-    expect(lines(run({ Schedules: schedules, MoreDates: { ...schedules } }))).toEqual([
-      'MoreDates.json warning the campaigns are read only from the saved block "Schedules"; this "schedules" block is never read, so move its campaigns there',
+  it("warns about a rule naming a campaign the campaigns block doesn't have", () => {
+    expect(lines(run({ campaigns, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning campaign: no campaign "gone" in the saved block "campaigns": this rule is always false',
     ]);
-  });
-
-  it("warns about a rule naming a campaign the Schedules block doesn't have", () => {
-    expect(lines(run({ Schedules: schedules, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning name: no campaign "gone" in the "Schedules" block: this rule is always false',
-    ]);
-    // With no Schedules block at all, every schedule rule is always false.
     expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
-      'Rule.json warning name: no campaign "black-friday" in the "Schedules" block: this rule is always false',
+      'Rule.json warning campaign: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
     ]);
-    // A saved rule is followed to the campaign it reads.
-    expect(
-      lines(
-        run({
-          Schedules: schedules,
-          SaleRule: rule("gone"),
-          Banner: banner({ __resolveType: "SaleRule" }),
-        }),
-      ),
-    ).toEqual([
-      'SaleRule.json warning name: no campaign "gone" in the "Schedules" block: this rule is always false',
+  });
+
+  it("warns about a date rule still written inline, or naming no campaign: it is always false", () => {
+    const inline = { __resolveType: "date", start: "2026-11-27", end: "2026-12-01" };
+    expect(lines(run({ campaigns, HomePage: page(banner(inline) as never) }))).toEqual([
+      'HomePage.json warning sections.variants[0].rule: this date rule has its dates inline, so it is always false: move them into a campaign of the saved block "campaigns" and name it here (campaign)',
+    ]);
+    expect(lines(run({ campaigns, Rule: { __resolveType: "date" } }))).toEqual([
+      'Rule.json warning this date rule names no campaign, so it is always false: name a campaign of the saved block "campaigns"',
     ]);
   });
 
   it("warns about a campaign whose end isn't after its start", () => {
-    expect(
-      lines(
-        run({
-          Schedules: {
-            __resolveType: "schedules",
-            backwards: { start: window.end, end: window.start },
-            empty: { start: window.start, end: window.start },
-            "half off": { start: window.end, end: window.start },
-            fine: window,
-          },
-        }),
-      ),
-    ).toEqual([
-      'Schedules.json warning backwards.end: the campaign "backwards" ends before it starts, so it never runs: set an end after the start',
-      'Schedules.json warning empty.end: the campaign "empty" ends before it starts, so it never runs: set an end after the start',
-      'Schedules.json warning ["half off"].end: the campaign "half off" ends before it starts, so it never runs: set an end after the start',
+    const backwards = {
+      __resolveType: "date-windows",
+      sale: { start: "2026-12-01T00:00:00Z", end: "2026-11-27T00:00:00Z" },
+      flash: { start: "2026-12-01T00:00:00Z", end: "2026-12-01T00:00:00Z" },
+    };
+    expect(lines(run({ campaigns: backwards }))).toEqual([
+      'campaigns.json warning flash.end: the campaign "flash" ends before it starts, so it never runs: set an end after the start',
+      'campaigns.json warning sale.end: the campaign "sale" ends before it starts, so it never runs: set an end after the start',
     ]);
   });
 
-  it("schedules and schedule are reserved names", () => {
-    expect(lines(run({ schedules: { ...schedules } }))).toContain(
-      'schedules.json saved block "schedules" has the name of a built-in block',
+  it("date-windows and date are reserved names; campaigns is not", () => {
+    expect(lines(run({ campaigns, "date-windows": { ...campaigns } }))).toContain(
+      'date-windows.json saved block "date-windows" has the name of a built-in block',
     );
-    expect(lines(run({ Schedules: schedules, schedule: rule("launch") }))).toContain(
-      'schedule.json saved block "schedule" has the name of a built-in block',
+    expect(lines(run({ campaigns, date: rule("black-friday") }))).toContain(
+      'date.json saved block "date" has the name of a built-in block',
+    );
+    expect(lines(run({ campaigns })).some((line) => line.includes("name of a built-in"))).toBe(
+      false,
     );
   });
 
-  it("warns when the block map defines schedule or schedules, which replaces the built-in", () => {
+  it("warns when the block map defines date or date-windows, which replaces the built-in", () => {
     const own = structuredClone(meta);
-    own.manifest.blocks.matchers.schedule = {
-      ...own.manifest.blocks.matchers.schedule,
+    own.manifest.blocks.matchers.date = { ...own.manifest.blocks.matchers.date, namespace: "site" };
+    own.manifest.blocks.content["date-windows"] = {
+      ...own.manifest.blocks.content["date-windows"],
       namespace: "site",
     };
     expect(lines(checkContent(own, saved({})))).toEqual([
-      '.deco/schema.gen.json warning schedule: the block map defines "schedule", which replaces the built-in block of that name; rename it to use the built-in',
+      '.deco/schema.gen.json warning date: the block map defines "date", which replaces the built-in block of that name; rename it to use the built-in',
+      '.deco/schema.gen.json warning date-windows: the block map defines "date-windows", which replaces the built-in block of that name; rename it to use the built-in',
     ]);
   });
 });

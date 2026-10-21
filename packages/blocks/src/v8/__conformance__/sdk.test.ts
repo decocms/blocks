@@ -126,6 +126,7 @@ function exportedNames(source: string, from: string): string[] {
 
 const DOCUMENTED_ROOT_VALUES = [
   "createCMS",
+  "currentClient",
   "formatDraftPointer",
   "matchRoute",
   "parseDraftPointer",
@@ -231,7 +232,8 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
   type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
-  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions } from "@decocms/blocks";
+  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, currentClient } from "@decocms/blocks";
+import type { Visitor } from "@decocms/blocks/experiments";
 import type { ReactNode } from "react";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -252,19 +254,24 @@ createCMS({ blocks, content, telemetry: { site: "s", token: "t" } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "experiments" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<keyof CMS, "client" | "forRelease" | "forDraft" | "update" | "settings" | "readVersion" | "draftPointer" | "draftCookie">>();
+assert<Equal<CMS["client"], (options?: ClientOptions) => Client>>();
+assert<Equal<CMS["readVersion"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
 assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
-assert<Equal<CMS["forDraft"], (pointer: string, options?: ClientOptions) => Client>>();
-assert<Equal<CMS["forRelease"], (options?: ClientOptions) => Client>>();
-assert<Equal<CMS["experiments"], (pointer?: string) => Promise<Record<string, number>>>>();
-assert<Equal<ClientOptions, { assignments?: Readonly<Record<string, boolean>> }>>();
+assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
+assert<Equal<CMS["forRelease"], () => Client>>();
+assert<Equal<ClientOptions, { visitor?: Visitor | null; version?: string | null }>>();
+assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
-assert<Equal<keyof Client, "resolve" | "list" | "revision">>();
+assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "now">>();
+assert<Equal<Client["visitor"], Visitor | null>>();
+assert<Equal<Client["version"], string | undefined>>();
+assert<Equal<Client["now"], Date>>();
 assert<Equal<Client["revision"], () => Promise<string>>>();
 declare const client: Client;
 const r1: Promise<Result<unknown>> = client.resolve("x");
@@ -1641,7 +1648,7 @@ export { views };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("RN-06 resolution never sees the request: no requestScope, no Request/signal in createCMS or Client; only the draft helpers read one", () => {
+  it("RN-06 resolution never sees the request: no requestScope, no Request/signal in createCMS or Client; only the preview helpers read one", () => {
     const r = root as Record<string, unknown>;
     expect(Object.keys(r).filter((k) => /requestScope/i.test(k))).toEqual([]);
     expect(Object.keys(v8).filter((k) => /request/i.test(k))).toEqual([]);
@@ -1656,6 +1663,7 @@ export { views };
       .split("\n")
       .filter((line) => /^\s{2}\w+\(/.test(line) && /Request|signal/.test(line));
     expect(cmsMethods.map((line) => line.trim().split("(")[0])).toEqual([
+      "readVersion",
       "draftPointer",
       "draftCookie",
     ]);

@@ -55,6 +55,10 @@
           "$ref": "#/definitions/ZGF0ZQ==",
           "namespace": "deco"
         },
+        "experiment": {
+          "$ref": "#/definitions/ZXhwZXJpbWVudA==",
+          "namespace": "deco"
+        },
         "website/matchers/always.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9hbHdheXMudHM=",
           "namespace": "website"
@@ -95,6 +99,14 @@
         },
         "cms-settings": {
           "$ref": "#/definitions/Y21zLXNldHRpbmdz",
+          "namespace": "deco"
+        },
+        "split-traffic": {
+          "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw==",
+          "namespace": "deco"
+        },
+        "date-windows": {
+          "$ref": "#/definitions/ZGF0ZS13aW5kb3dz",
           "namespace": "deco"
         }
       }
@@ -426,7 +438,7 @@
       },
       "ZGF0ZQ==": {
         "title": "date",
-        "description": "True from start until end",
+        "description": "True while a campaign of the saved block campaigns is running",
         "icon": "calendar-event",
         "type": "object",
         "required": [
@@ -440,15 +452,34 @@
             ],
             "default": "date"
           },
-          "start": {
+          "campaign": {
             "type": "string",
-            "format": "date-time",
-            "title": "Start"
+            "title": "Campaign",
+            "description": "A campaign in the saved block campaigns"
+          }
+        }
+      },
+      "ZXhwZXJpbWVudA==": {
+        "title": "experiment",
+        "description": "True for the visitors in a test of the saved block experiments",
+        "icon": "flask",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "name"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "experiment"
+            ],
+            "default": "experiment"
           },
-          "end": {
+          "name": {
             "type": "string",
-            "format": "date-time",
-            "title": "End"
+            "title": "Test",
+            "description": "A test in the saved block experiments"
           }
         }
       },
@@ -573,6 +604,67 @@
                 "default": true
               }
             }
+          }
+        }
+      },
+      "c3BsaXQtdHJhZmZpYw==": {
+        "title": "split-traffic",
+        "description": "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
+        "icon": "flask",
+        "additionalProperties": {
+          "type": "integer",
+          "title": "Visitors in (%)",
+          "description": "0 turns the test off, 100 shows it to everyone",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "split-traffic"
+            ],
+            "default": "split-traffic"
+          }
+        }
+      },
+      "ZGF0ZS13aW5kb3dz": {
+        "title": "date-windows",
+        "description": "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
+        "icon": "calendar-event",
+        "additionalProperties": {
+          "type": "object",
+          "title": "Campaign dates",
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Start",
+              "description": "The campaign runs from this moment on (empty: since always)"
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time",
+              "title": "End",
+              "description": "The campaign stops at this moment (empty: never)"
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "date-windows"
+            ],
+            "default": "date-windows"
           }
         }
       },
@@ -957,6 +1049,9 @@
           },
           {
             "$ref": "#/definitions/ZGF0ZQ=="
+          },
+          {
+            "$ref": "#/definitions/ZXhwZXJpbWVudA=="
           }
         ]
       },
@@ -990,6 +1085,12 @@
           },
           {
             "$ref": "#/definitions/Y21zLXNldHRpbmdz"
+          },
+          {
+            "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw=="
+          },
+          {
+            "$ref": "#/definitions/ZGF0ZS13aW5kb3dz"
           }
         ]
       }
