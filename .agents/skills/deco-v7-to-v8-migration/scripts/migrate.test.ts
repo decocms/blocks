@@ -360,10 +360,7 @@ describe("migrate", () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
     expect(await content({ root, reporter: quiet })).toBe(0);
     expect(check({ root, reporter: quiet })).toBe(0);
-    // The block map's own page (sections typed as the views' descriptors, as the framework guide
-    // writes it) replaces the built-in one, and deco check says so: the only line it prints.
-    expect(quiet.text).toHaveLength(1);
-    expect(quiet.text[0]).toContain('warning: page: the block map has its own "page"');
+    expect(quiet.text).toEqual([]);
     // deco schema runs the TypeScript compiler: seconds on a loaded machine.
   }, 30_000);
 

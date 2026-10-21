@@ -6,7 +6,7 @@ import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
 import { type DecoMeta, generateSchema, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
-import { stableFileId, titleCase, toBase64 } from "./typeToSchema";
+import { sectionRef, stableFileId, titleCase, toBase64 } from "./typeToSchema";
 
 const b64 = toBase64;
 const ref = (key: string) => ({ $ref: `#/definitions/${b64(key)}` });
@@ -275,6 +275,36 @@ describe("interchangeable blocks", () => {
     try {
       const { meta: m } = await generateSchema(decoPaths(fixture.root));
       expect(m.schema.definitions[b64("page")].properties.seo.anyOf).toContainEqual(ref("seo"));
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
+describe("the built-in page with a descriptor site's blocks", () => {
+  it("takes descriptor sections and SEO blocks with optional fields, and stays Studio's page", async () => {
+    const fixture = createFixture({
+      "src/blocks.ts": [
+        "export interface BlockDescriptor { component: string; props: Record<string, unknown> }",
+        "export interface PageSeo { title?: string; description?: string; canonical?: string }",
+        'export const hero = (props: { title: string }): BlockDescriptor => ({ component: "Hero", props });',
+        "export const seo = (props: PageSeo): PageSeo => props;",
+        "export const price = (props: { sku: string }): { amount: number } => ({ amount: 1 });",
+        "export const titled = (props: { n: number }): { title: number } => ({ title: props.n });",
+      ].join("\n"),
+      ".deco/index.ts": `import { hero, price, seo, titled } from "../src/blocks"; export default { hero, price, seo, titled };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const page = m.schema.definitions[b64("page")];
+      const refs = (schema: any): string[] =>
+        JSON.stringify(schema).match(/#\/definitions\/[^"]+/g) ?? [];
+      expect(m.schema.root.sections.anyOf).toContainEqual(expect.objectContaining(ref("hero")));
+      expect(refs(page.properties.sections)).toContain(sectionRef().$ref);
+      expect(page.properties.seo.anyOf).toContainEqual(ref("seo"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("price"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("titled"));
+      expect(m.manifest.blocks.pages.page).toMatchObject({ namespace: "deco" });
     } finally {
       fixture.remove();
     }

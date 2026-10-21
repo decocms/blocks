@@ -103,6 +103,7 @@ interface BlockInfo {
 
 const BUILT_IN_TYPES_SOURCE = `
 export interface Seo { title: string; description: string }
+export interface SeoFields { title?: string; description?: string }
 export interface Route { name: string; path: string }
 export interface NameStates { [name: string]: boolean }
 `;
@@ -190,6 +191,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
   });
   const builtInTypes = project.sourceFile(builtInTypesFile);
   const seoType = builtInTypes.getInterfaceType("Seo");
+  const seoFieldsType = builtInTypes.getInterfaceType("SeoFields");
   const routeType = builtInTypes.getInterfaceType("Route");
   const source = project.sourceFile(blockMap);
   const diagnostics: SchemaDiagnostic[] = [];
@@ -397,7 +399,11 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     };
   }
 
-  const seoRefs = ctx.fitting(seoType).map((key) => ({ $ref: `#/definitions/${key}` }));
+  // The page's seo field: blocks that return a Seo, or SEO fields of their own
+  // (a migrated site's all-optional PageSeo), so any site's SEO block fits it.
+  const seoRefs = candidates
+    .filter((c) => returnFits(c.returnType, seoType) || hasSeoFields(c.returnType, seoFieldsType))
+    .map((c) => ({ $ref: `#/definitions/${toBase64(c.key)}` }));
   for (const name of BUILT_IN_BLOCKS) {
     if (declared.has(name)) continue;
     const group = BUILT_IN_GROUPS[name];
@@ -487,6 +493,17 @@ function sameNamedType(a: Type, b: Type): boolean {
  * TypeScript rule (assignability of the awaited, non-null types), except for
  * weak target types, which need the same named type.
  */
+/**
+ * Whether a block returns SEO fields: an object (not a list) with a `title`
+ * or a `description`, every one of them a string when set.
+ */
+function hasSeoFields(returnType: Type, seoFields: Type): boolean {
+  const source = nonNullable(returnType);
+  if (source.isArray() || !source.isObject()) return false;
+  if (!source.getProperty("title") && !source.getProperty("description")) return false;
+  return source.isAssignableTo(seoFields);
+}
+
 function returnFits(returnType: Type, field: Type): boolean {
   const source = nonNullable(returnType);
   const target = nonNullable(field);

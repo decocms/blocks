@@ -112,10 +112,14 @@ export interface Seo {
   description: string;
 }
 
-/** The built-in `page` block, resolved: without `seo`, the site's defaults apply. */
-export interface Page extends Route {
+/**
+ * The built-in `page` block, resolved: without `seo`, the site's defaults
+ * apply. Its sections are whatever its section blocks return: React
+ * elements by default, or a site's descriptors (`Page<{ component, props }>`).
+ */
+export interface Page<Section = ReactNode> extends Route {
   seo?: Seo;
-  sections: ReactNode[];
+  sections: Section[];
 }
 
 /** The built-in `redirect` block. */

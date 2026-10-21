@@ -288,6 +288,7 @@ assert<Equal<Loader["load"], () => Promise<Snapshot>>>();
 assert<Equal<Route, { name: string; path: string }>>();
 assert<Equal<Seo, { title: string; description: string }>>();
 assert<Equal<Page, { name: string; path: string; seo?: Seo; sections: ReactNode[] }>>();
+assert<Equal<Page<{ component: string }>, { name: string; path: string; seo?: Seo; sections: { component: string }[] }>>();
 assert<Equal<Redirect, { from: string; to: string; permanent: boolean; status?: 301 | 302 | 307 | 308; discardQueryParameters?: boolean }>>();
 assert<Equal<Secret, string & { readonly __secret: true }>>();
 assert<Equal<Lazy<number>, () => Promise<number>>>();
