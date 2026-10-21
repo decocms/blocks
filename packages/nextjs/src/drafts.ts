@@ -148,7 +148,10 @@ export function isVersion(value: string): boolean {
   if (!REVISION_RE.test(q === -1 ? value : value.slice(0, q))) return false;
   if (q === -1) return true;
   // The parameters parse as a pointer's would, with nothing else in the query.
-  return parseDraftPointer(`localhost/${value.slice(q)}@${value.slice(0, q)}`)?.path === "/";
+  // Unlike a pointer's path, they may hold any character as typed (a time's
+  // `:`), as `@decocms/blocks` reads them: encoded here, they decode the same.
+  const query = value.slice(q).replace(/[^A-Za-z0-9/_.%~=&?-]/g, encodeURIComponent);
+  return parseDraftPointer(`localhost/${query}@${value.slice(0, q)}`)?.path === "/";
 }
 
 /**

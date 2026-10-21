@@ -652,6 +652,14 @@ describe("the version: an old release from a Studio link", () => {
     expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(version);
   });
 
+  it("a preview time typed by hand, unencoded, reads as @decocms/blocks reads it", async () => {
+    const version = `${SHA}?__at=2026-11-28T10:00:00-03:00`;
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${version}`, { firstVisit: true });
+    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(version);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
   it("on a host that may not preview, or when it doesn't parse, the request gets the current release", async () => {
     const { get, entry } = setup();
     await get(`https://elsewhere.example.com/?__draft=${SHA}`);
