@@ -20,6 +20,7 @@ export type {
   CMS,
   CMSError,
   CMSSettings,
+  Decided,
   DraftPointer,
   EffectiveSettings,
   Lazy,

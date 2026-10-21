@@ -13,7 +13,7 @@
  * The moment is the client's (`client.now`: a preview's time, or when the
  * client was created), read through `currentClient()` before any `await`.
  */
-import { currentClient } from "../current.ts";
+import { currentClient, decided } from "../current.ts";
 
 /** The saved block every `date` rule reads, and its built-in type. */
 export const CAMPAIGNS_BLOCK = "campaigns";
@@ -27,12 +27,18 @@ type Campaigns = Record<string, boolean>;
 
 /**
  * `date-windows`: each campaign and whether the current client's moment is
- * inside its window.
+ * inside its window. A client created with decisions (`cms.client({ decided })`)
+ * answers from them instead: `true` only for the campaigns named there.
  */
 export const dateWindows = (windows: Record<string, unknown> = {}): Campaigns => {
-  const now = currentClient().now.getTime();
+  const client = currentClient();
+  const now = client.now.getTime();
+  const earlier = decided(client);
+  const running = earlier === undefined ? undefined : new Set(earlier.campaigns);
   const out = Object.create(null) as Campaigns;
-  for (const name of Object.keys(windows)) out[name] = inside(windows[name], now);
+  for (const name of Object.keys(windows)) {
+    out[name] = running === undefined ? inside(windows[name], now) : running.has(name);
+  }
   return out;
 };
 

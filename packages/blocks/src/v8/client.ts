@@ -3,7 +3,7 @@
  * life, plus a memo of block results, and the inputs it was created with
  * (the visitor, the version, the moment it shows). Create one per request.
  */
-import { FORCED_TESTS } from "./current.ts";
+import { DECIDED, FORCED_TESTS } from "./current.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
 import type { Visitor } from "./experiments.ts";
 import { isBlock } from "./json.ts";
@@ -14,6 +14,7 @@ import type {
   Blocks,
   Client,
   CMSError,
+  Decided,
   ListOptions,
   ResolveOptions,
   Result,
@@ -34,6 +35,8 @@ interface ClientOptions {
   now?: number;
   /** The tests a preview link forces on or off, by name. */
   forcedTests?: Readonly<Record<string, boolean>>;
+  /** Decisions made earlier for this request (`cms.client({ decided })`). */
+  decided?: Decided | null;
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
 }
@@ -46,6 +49,7 @@ export class CMSClient implements Client {
   readonly #visitor: Visitor | null;
   readonly #now: number;
   readonly #forced: Readonly<Record<string, boolean>> | undefined;
+  readonly #decided: Readonly<Decided> | undefined;
   #loaded: Promise<Loaded> | undefined;
   /** The revision loaded, once it is. */
   #revision: string | undefined;
@@ -55,6 +59,7 @@ export class CMSClient implements Client {
     this.#visitor = copyVisitor(options.visitor);
     this.#now = options.now ?? Date.now();
     this.#forced = options.forcedTests && Object.freeze({ ...options.forcedTests });
+    this.#decided = copyDecided(options.decided);
   }
 
   get visitor(): Visitor | null {
@@ -67,6 +72,11 @@ export class CMSClient implements Client {
 
   get now(): Date {
     return new Date(this.#now);
+  }
+
+  /** Read by the built-ins `split-traffic` and `date-windows` (see ./current.ts). */
+  get [DECIDED](): Readonly<Decided> | undefined {
+    return this.#decided;
   }
 
   /** Read by the built-in `split-traffic` (see ./current.ts). */
@@ -206,4 +216,17 @@ function asCMSError(error: unknown): CMSError {
 function atEntry(name: string, error: unknown): unknown {
   if (!isResolutionError(error) || error.code === "CYCLE") return error;
   return new ResolutionError(error.code, error.message, [name, ...error.path], error.cause);
+}
+
+/** A frozen copy of the decisions, names only (anything else is dropped); `undefined` for none. */
+function copyDecided(value: Decided | null | undefined): Readonly<Decided> | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const names = (list: unknown): readonly string[] =>
+    Object.freeze(
+      Array.isArray(list) ? list.filter((name): name is string => typeof name === "string") : [],
+    );
+  return Object.freeze({
+    experiments: names(value.experiments),
+    campaigns: names(value.campaigns),
+  });
 }

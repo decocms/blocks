@@ -158,6 +158,7 @@ const DOCUMENTED_ROOT_TYPES = [
   "CMS",
   "Client",
   "ClientOptions",
+  "Decided",
   "ListOptions",
   "TelemetryConfig",
 ];
@@ -232,7 +233,7 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
   type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
-  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, currentClient } from "@decocms/blocks";
+  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, type Decided, currentClient } from "@decocms/blocks";
 import type { Visitor } from "@decocms/blocks/experiments";
 import type { ReactNode } from "react";
 
@@ -265,7 +266,8 @@ assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetr
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
 assert<Equal<CMS["forRelease"], () => Client>>();
-assert<Equal<ClientOptions, { visitor?: Visitor | null; version?: string | null }>>();
+assert<Equal<ClientOptions, { visitor?: Visitor | null; version?: string | null; decided?: Decided | null }>>();
+assert<Equal<Decided, { experiments: readonly string[]; campaigns: readonly string[] }>>();
 assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "now">>();
