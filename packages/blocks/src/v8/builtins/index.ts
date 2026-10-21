@@ -1,8 +1,9 @@
 import type { BlockFunction } from "../types.ts";
+import { DATE_WINDOWS_TYPE, date, dateWindows } from "./campaigns.ts";
 import { cmsSettings, page, redirect, SETTINGS_TYPE } from "./data.ts";
 import { experiment, SPLIT_TRAFFIC_TYPE, splitTraffic } from "./experiments.ts";
 import { lazy } from "./lazy.ts";
-import { always, date, never } from "./matchers.ts";
+import { always, never } from "./matchers.ts";
 import { multivariate } from "./multivariate.ts";
 import { secretBlock } from "./secret.ts";
 
@@ -21,6 +22,7 @@ export const builtIns: Readonly<Record<string, BlockFunction>> = Object.freeze({
   redirect,
   [SETTINGS_TYPE]: cmsSettings,
   [SPLIT_TRAFFIC_TYPE]: splitTraffic,
+  [DATE_WINDOWS_TYPE]: dateWindows,
   secret: secretBlock(),
 });
 

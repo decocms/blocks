@@ -1,5 +1,5 @@
 /**
- * The forms of the eleven built-in blocks (spec: built-in-blocks, and the types
+ * The forms of the twelve built-in blocks (spec: built-in-blocks, and the types
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
@@ -18,6 +18,7 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   redirect: "redirects",
   "cms-settings": "content",
   "split-traffic": "content",
+  "date-windows": "content",
   secret: "loaders",
 };
 
@@ -31,8 +32,8 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
   always: { title: "Always", description: "Always true: the fallback variant", icon: "eye" },
   never: { title: "Never", description: "Always false: hides a block", icon: "eye-off" },
   date: {
-    title: "Date and time",
-    description: "True from start until end",
+    title: "Date",
+    description: "True while a campaign of the saved block campaigns is running",
     icon: "calendar-event",
   },
   experiment: {
@@ -53,6 +54,12 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
       "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
     icon: "flask",
   },
+  "date-windows": {
+    title: "Date windows",
+    description:
+      "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
+    icon: "calendar-event",
+  },
   secret: { title: "Secret", description: "An encrypted value, decrypted on the server" },
 };
 
@@ -63,6 +70,26 @@ const ALLOCATION = {
   description: "0 turns the test off, 100 shows it to everyone",
   minimum: 0,
   maximum: 100,
+};
+
+/** The form of each campaign in a `date-windows` block: one window, both bounds optional. */
+const CAMPAIGN_DATES = {
+  type: "object",
+  title: "Campaign dates",
+  properties: {
+    start: {
+      type: "string",
+      format: "date-time",
+      title: "Start",
+      description: "The campaign runs from this moment on (empty: since always)",
+    },
+    end: {
+      type: "string",
+      format: "date-time",
+      title: "End",
+      description: "The campaign stops at this moment (empty: never)",
+    },
+  },
 };
 
 function resolveTypeProperty(key: string) {
@@ -137,11 +164,15 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
     case "never":
       return { type: "object", properties: {} };
     case "date":
+      // Not required: a rule left with inline dates is a deco check warning, not an error.
       return {
         type: "object",
         properties: {
-          start: { type: "string", format: "date-time", title: "Start" },
-          end: { type: "string", format: "date-time", title: "End" },
+          campaign: {
+            type: "string",
+            title: "Campaign",
+            description: "A campaign in the saved block campaigns",
+          },
         },
       };
     case "experiment":
@@ -157,6 +188,7 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
         },
       };
     case "split-traffic":
+    case "date-windows":
       // The names are the content: every key but __resolveType is one (see builtInDefinition).
       return { type: "object", properties: {} };
     case "page":
@@ -277,6 +309,7 @@ export function builtInDefinition(name: string, ctx: BuiltInContext): any {
     description: docs.description,
     ...(docs.icon ? { icon: docs.icon } : {}),
     ...(name === "split-traffic" ? { additionalProperties: ALLOCATION } : {}),
+    ...(name === "date-windows" ? { additionalProperties: CAMPAIGN_DATES } : {}),
   });
 }
 

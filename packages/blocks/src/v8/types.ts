@@ -64,12 +64,24 @@ export interface Loader {
 export interface DraftPointer {
   /** `host[:port]` that serves the draft's changes. */
   host: string;
-  /** Starts with `/`; opaque to the app. Never carries the `__variant` parameters. */
+  /** Starts with `/`; opaque to the app. Never carries the preview parameters (`__variant`, `__at`, `__test`). */
   path: string;
   /** Opaque: identifies the editor's last save. `"local"` names no draft (`deco serve`). */
   version: string;
   /** The variants this preview forces (the query's `__variant` parameters); absent when none. */
   variants?: ForcedVariant[];
+  /**
+   * The moment this preview shows (the query's `__at`): an ISO date-time with
+   * its offset. It becomes `client.now`; absent, the client shows the moment
+   * it was created.
+   */
+  at?: string;
+  /**
+   * The A/B tests this preview forces on (`true`) or off (`false`), by name
+   * (the query's `__test=<name>=on|off`), applied over the visitor's answer
+   * when the saved block `experiments` resolves; absent when none.
+   */
+  tests?: Record<string, boolean>;
 }
 
 /**
@@ -347,6 +359,11 @@ export interface ClientOptions {
    * published release's commit SHA (40 hex characters), read from hosted
    * releases; or a draft pointer, the draft's changes over the current
    * release. `cms.readVersion(request)` reads one from a Studio link.
+   *
+   * A preview link's parameters ride on the version: `__at` sets
+   * `client.now`, `__test` forces tests on or off and `__variant` forces
+   * variants (in a draft pointer's query, or after a SHA:
+   * `<sha>?__at=…&__test=…`). Only a version from a Studio link carries them.
    */
   version?: string | null;
 }

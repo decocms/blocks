@@ -520,25 +520,18 @@ describe("names that are also Object.prototype keys", () => {
 
 describe("formats and character counts", () => {
   it("checks date and date-time values, and leaves widget formats alone", () => {
-    const date = (start: string) => ({
-      ...hero,
-      title: {
-        __resolveType: "multivariate",
-        variants: [
-          {
-            rule: { __resolveType: "date", start, end: "2026-12-31T23:59:59Z" },
-            value: { __resolveType: "lazy", value: "Sale" },
-          },
-        ],
+    const campaigns = (a: string, b: string) => ({
+      campaigns: {
+        __resolveType: "date-windows",
+        a: { start: a, end: "2026-12-31T23:59:59Z" },
+        b: { start: b, end: "2026-12-31T23:59:59Z" },
       },
     });
-    expect(lines(run({ A: date("not a date"), B: date("2026-02-30T10:00") }))).toEqual([
-      'A.json title.variants[0].rule.start: "not a date" isn\'t a valid date-time',
-      'B.json title.variants[0].rule.start: "2026-02-30T10:00" isn\'t a valid date-time',
+    expect(lines(run(campaigns("not a date", "2026-02-30T10:00")))).toEqual([
+      'campaigns.json a.start: "not a date" isn\'t a valid date-time',
+      'campaigns.json b.start: "2026-02-30T10:00" isn\'t a valid date-time',
     ]);
-    expect(run({ A: date("2026-11-27T09:00"), B: date("2026-11-27T09:00:00.000-03:00") })).toEqual(
-      [],
-    );
+    expect(run(campaigns("2026-11-27T09:00", "2026-11-27T09:00:00.000-03:00"))).toEqual([]);
     // image-uri is a widget, not a rule: any string goes.
     expect(run({ Hero: { ...hero, image: "/assets/a b.png" } })).toEqual([]);
   });
@@ -929,6 +922,88 @@ describe("the saved block experiments and the experiment rule", () => {
     };
     expect(lines(checkContent(own, saved({})))).toEqual([
       '.deco/schema.gen.json warning experiment: the block map defines "experiment", which replaces the built-in block of that name; rename it to use the built-in',
+    ]);
+  });
+});
+
+describe("the saved block campaigns and the date rule", () => {
+  const campaigns = {
+    __resolveType: "date-windows",
+    "black-friday": { start: "2026-11-27T00:00:00-03:00", end: "2026-12-01T23:59:59-03:00" },
+    "always-on": {},
+  };
+  const rule = (campaign: string) => ({ __resolveType: "date", campaign });
+  const banner = (r: unknown) => ({
+    __resolveType: "multivariate",
+    variants: [
+      { rule: r, value: { __resolveType: "lazy", value: [hero] } },
+      { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
+    ],
+  });
+
+  it("passes a campaigns block of windows and rules naming its campaigns", () => {
+    expect(run({ campaigns, HomePage: page(banner(rule("black-friday")) as never) })).toEqual([]);
+  });
+
+  it("warns about a campaigns block of another type, which turns every date rule off", () => {
+    expect(lines(run({ campaigns: hero }))).toEqual([
+      'campaigns.json warning "campaigns" is the saved block every date rule reads, of type "date-windows"; with type "hero" every date rule is false',
+    ]);
+  });
+
+  it("warns about a rule naming a campaign the campaigns block doesn't have", () => {
+    expect(lines(run({ campaigns, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning campaign: no campaign "gone" in the saved block "campaigns": this rule is always false',
+    ]);
+    expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
+      'Rule.json warning campaign: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
+    ]);
+  });
+
+  it("warns about a date rule still written inline, or naming no campaign: it is always false", () => {
+    const inline = { __resolveType: "date", start: "2026-11-27", end: "2026-12-01" };
+    expect(lines(run({ campaigns, HomePage: page(banner(inline) as never) }))).toEqual([
+      'HomePage.json warning sections.variants[0].rule: this date rule has its dates inline, so it is always false: move them into a campaign of the saved block "campaigns" and name it here (campaign)',
+    ]);
+    expect(lines(run({ campaigns, Rule: { __resolveType: "date" } }))).toEqual([
+      'Rule.json warning this date rule names no campaign, so it is always false: name a campaign of the saved block "campaigns"',
+    ]);
+  });
+
+  it("warns about a campaign whose end isn't after its start", () => {
+    const backwards = {
+      __resolveType: "date-windows",
+      sale: { start: "2026-12-01T00:00:00Z", end: "2026-11-27T00:00:00Z" },
+      flash: { start: "2026-12-01T00:00:00Z", end: "2026-12-01T00:00:00Z" },
+    };
+    expect(lines(run({ campaigns: backwards }))).toEqual([
+      'campaigns.json warning flash.end: the campaign "flash" ends before it starts, so it never runs: set an end after the start',
+      'campaigns.json warning sale.end: the campaign "sale" ends before it starts, so it never runs: set an end after the start',
+    ]);
+  });
+
+  it("date-windows and date are reserved names; campaigns is not", () => {
+    expect(lines(run({ campaigns, "date-windows": { ...campaigns } }))).toContain(
+      'date-windows.json saved block "date-windows" has the name of a built-in block',
+    );
+    expect(lines(run({ campaigns, date: rule("black-friday") }))).toContain(
+      'date.json saved block "date" has the name of a built-in block',
+    );
+    expect(lines(run({ campaigns })).some((line) => line.includes("name of a built-in"))).toBe(
+      false,
+    );
+  });
+
+  it("warns when the block map defines date or date-windows, which replaces the built-in", () => {
+    const own = structuredClone(meta);
+    own.manifest.blocks.matchers.date = { ...own.manifest.blocks.matchers.date, namespace: "site" };
+    own.manifest.blocks.content["date-windows"] = {
+      ...own.manifest.blocks.content["date-windows"],
+      namespace: "site",
+    };
+    expect(lines(checkContent(own, saved({})))).toEqual([
+      '.deco/schema.gen.json warning date: the block map defines "date", which replaces the built-in block of that name; rename it to use the built-in',
+      '.deco/schema.gen.json warning date-windows: the block map defines "date-windows", which replaces the built-in block of that name; rename it to use the built-in',
     ]);
   });
 });

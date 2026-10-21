@@ -12,13 +12,7 @@ import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
-import {
-  draftCookieFor,
-  endsPreview,
-  isRevision,
-  parseDraftPointer,
-  readVersion,
-} from "./draft.ts";
+import { draftCookieFor, endsPreview, parseVersion, readVersion } from "./draft.ts";
 import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
@@ -116,17 +110,39 @@ class CMSInstance {
   /**
    * A client for one request: the version it reads (the current release, a
    * published release by its commit SHA, or a draft pointer) and the visitor
-   * it decides tests for, both passed in. It shows the moment it was created.
+   * it decides tests for, both passed in. It shows the moment the version's
+   * preview sets (`__at`), else the moment it was created; the tests the
+   * preview forces (`__test`) go on top of the visitor's answers.
    */
   client(blocks: Blocks, options: ClientOptions = {}): Client {
     this.#scheduleUpdate();
     const version = typeof options.version === "string" ? options.version : undefined;
-    const inputs = { version, visitor: options.visitor ?? null, now: Date.now() };
-    if (version === undefined) return this.#client(blocks, this.#release(blocks), inputs);
-    if (isRevision(version)) {
-      return this.#client(blocks, () => this.#store.revision(version), inputs);
+    const visitor = options.visitor ?? null;
+    if (version === undefined) {
+      return this.#client(blocks, this.#release(blocks), { version, visitor, now: Date.now() });
     }
-    return this.#client(blocks, () => this.#draft(version), inputs);
+    const parsed = parseVersion(version);
+    // A version that doesn't parse fails on the first read, as an invalid pointer always has.
+    if (parsed === null) {
+      return this.#client(blocks, () => this.#store.draft(version), {
+        version,
+        visitor,
+        now: Date.now(),
+      });
+    }
+    const { variants, at, tests } = parsed.preview;
+    const inputs = {
+      version,
+      visitor,
+      now: at === undefined ? Date.now() : Date.parse(at),
+      forcedTests: tests,
+    };
+    const load =
+      parsed.kind === "revision"
+        ? () => this.#store.revision(parsed.sha)
+        : () => this.#store.draft(version);
+    if (variants === undefined) return this.#client(blocks, load, inputs);
+    return this.#client(blocks, () => load().then((s) => forceVariants(s, variants)), inputs);
   }
 
   /** Loads the current release, keeping telemetry on the release's settings. */
@@ -162,14 +178,6 @@ class CMSInstance {
     // Ending a preview is allowed anywhere, so a cookie set before a host was removed still goes.
     if (endsPreview(request)) return cookie;
     return (await this.#previewAllowed(blocks, request)) ? cookie : null;
-  }
-
-  /** The draft a pointer names, with the variants it forces. */
-  #draft(pointer: string): Promise<Snapshot> {
-    const load = this.#store.draft(pointer);
-    const variants = parseDraftPointer(pointer)?.variants;
-    if (variants === undefined) return load;
-    return load.then((snapshot) => forceVariants(snapshot, variants));
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -256,7 +264,12 @@ class CMSInstance {
   #client(
     blocks: Blocks,
     load: () => Promise<Snapshot>,
-    inputs: { version: string | undefined; visitor: ClientOptions["visitor"]; now: number },
+    inputs: {
+      version: string | undefined;
+      visitor: ClientOptions["visitor"];
+      now: number;
+      forcedTests?: Readonly<Record<string, boolean>>;
+    },
   ): Client {
     return new CMSClient({
       load,

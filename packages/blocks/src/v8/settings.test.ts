@@ -410,22 +410,24 @@ describe("cms.settings(): always the release in memory", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     let now = Date.parse("2026-10-05T12:00:00Z");
     vi.spyOn(Date, "now").mockImplementation(() => now);
+    const content = withSettings({
+      telemetry: {
+        traceSampleRate: {
+          __resolveType: "multivariate",
+          variants: [
+            { rule: { __resolveType: "date", campaign: "sampling" }, value: lazy(1) },
+            { rule: { __resolveType: "always" }, value: lazy(0) },
+          ],
+        },
+      },
+    });
+    content.blocks.campaigns = {
+      __resolveType: "date-windows",
+      sampling: { start: "2026-10-05T12:00:30Z" },
+    };
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: withSettings({
-        telemetry: {
-          traceSampleRate: {
-            __resolveType: "multivariate",
-            variants: [
-              {
-                rule: { __resolveType: "date", start: "2026-10-05T12:00:30Z" },
-                value: lazy(1),
-              },
-              { rule: { __resolveType: "always" }, value: lazy(0) },
-            ],
-          },
-        },
-      }),
+      content,
       telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
     });
     await cms.forRelease().revision();

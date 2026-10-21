@@ -104,6 +104,10 @@
         "split-traffic": {
           "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw==",
           "namespace": "deco"
+        },
+        "date-windows": {
+          "$ref": "#/definitions/ZGF0ZS13aW5kb3dz",
+          "namespace": "deco"
         }
       }
     }
@@ -434,7 +438,7 @@
       },
       "ZGF0ZQ==": {
         "title": "date",
-        "description": "True from start until end",
+        "description": "True while a campaign of the saved block campaigns is running",
         "icon": "calendar-event",
         "type": "object",
         "required": [
@@ -448,15 +452,10 @@
             ],
             "default": "date"
           },
-          "start": {
+          "campaign": {
             "type": "string",
-            "format": "date-time",
-            "title": "Start"
-          },
-          "end": {
-            "type": "string",
-            "format": "date-time",
-            "title": "End"
+            "title": "Campaign",
+            "description": "A campaign in the saved block campaigns"
           }
         }
       },
@@ -630,6 +629,42 @@
               "split-traffic"
             ],
             "default": "split-traffic"
+          }
+        }
+      },
+      "ZGF0ZS13aW5kb3dz": {
+        "title": "date-windows",
+        "description": "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
+        "icon": "calendar-event",
+        "additionalProperties": {
+          "type": "object",
+          "title": "Campaign dates",
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Start",
+              "description": "The campaign runs from this moment on (empty: since always)"
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time",
+              "title": "End",
+              "description": "The campaign stops at this moment (empty: never)"
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "date-windows"
+            ],
+            "default": "date-windows"
           }
         }
       },
@@ -1053,6 +1088,9 @@
           },
           {
             "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw=="
+          },
+          {
+            "$ref": "#/definitions/ZGF0ZS13aW5kb3dz"
           }
         ]
       }
