@@ -54,6 +54,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "CMSError",
     "CMSSettings",
     "createCMS",
+    "currentClient",
     "DraftPointer",
     "EffectiveSettings",
     "formatDraftPointer",
@@ -78,6 +79,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Variant",
   ]),
   "@decocms/blocks/fetch": "*",
+  // Who is in which A/B test: pure helpers a site's own code may call.
+  "@decocms/blocks/experiments": "*",
   "@decocms/blocks/analytics": "*",
   "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",

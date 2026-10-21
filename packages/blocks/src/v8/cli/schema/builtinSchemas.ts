@@ -1,5 +1,5 @@
 /**
- * The forms of the thirteen built-in blocks (spec: built-in-blocks, and the types
+ * The forms of the eleven built-in blocks (spec: built-in-blocks, and the types
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
@@ -14,12 +14,10 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   never: "matchers",
   date: "matchers",
   experiment: "matchers",
-  schedule: "matchers",
   page: "pages",
   redirect: "redirects",
   "cms-settings": "content",
-  experiments: "content",
-  schedules: "content",
+  "split-traffic": "content",
   secret: "loaders",
 };
 
@@ -38,14 +36,9 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
     icon: "calendar-event",
   },
   experiment: {
-    title: "Experiment",
-    description: "True for the visitors in an A/B test of the Experiments block",
+    title: "A/B test",
+    description: "True for the visitors in a test of the saved block experiments",
     icon: "flask",
-  },
-  schedule: {
-    title: "Campaign",
-    description: "True during a campaign's dates in the Schedules block",
-    icon: "calendar-event",
   },
   page: { title: "Page", description: "A page at a URL" },
   redirect: { title: "Redirect", description: "Sends one URL to another" },
@@ -54,48 +47,22 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
     description: "Preview hosts, telemetry and analytics: the saved block named CMS",
     icon: "settings",
   },
-  experiments: {
-    title: "Experiments",
+  "split-traffic": {
+    title: "Split traffic",
     description:
-      "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone): the saved block named Experiments",
+      "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
     icon: "flask",
-  },
-  schedules: {
-    title: "Campaigns",
-    description:
-      "Campaign dates: each name with its start and end, the saved block named Schedules",
-    icon: "calendar-event",
   },
   secret: { title: "Secret", description: "An encrypted value, decrypted on the server" },
 };
 
-/** The form of each allocation in the `experiments` block: a whole percentage. */
+/** The form of each test in a `split-traffic` block: a whole percentage. */
 const ALLOCATION = {
   type: "integer",
   title: "Visitors in (%)",
   description: "0 turns the test off, 100 shows it to everyone",
   minimum: 0,
   maximum: 100,
-};
-
-/** The form of each campaign in the `schedules` block: one window, both bounds optional. */
-const CAMPAIGN_DATES = {
-  type: "object",
-  title: "Campaign dates",
-  properties: {
-    start: {
-      type: "string",
-      format: "date-time",
-      title: "Start",
-      description: "The campaign runs from this moment on (empty: since always)",
-    },
-    end: {
-      type: "string",
-      format: "date-time",
-      title: "End",
-      description: "The campaign stops at this moment (empty: never)",
-    },
-  },
 };
 
 function resolveTypeProperty(key: string) {
@@ -184,27 +151,12 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
         properties: {
           name: {
             type: "string",
-            title: "Experiment",
-            description: "A name in the Experiments block",
+            title: "Test",
+            description: "A test in the saved block experiments",
           },
         },
       };
-    case "schedule":
-      return {
-        type: "object",
-        required: ["name"],
-        properties: {
-          name: {
-            type: "string",
-            title: "Campaign",
-            description: "A name in the Schedules block",
-          },
-        },
-      };
-    case "schedules":
-      // Like experiments: every key but __resolveType is a campaign (see builtInDefinition).
-      return { type: "object", properties: {} };
-    case "experiments":
+    case "split-traffic":
       // The names are the content: every key but __resolveType is one (see builtInDefinition).
       return { type: "object", properties: {} };
     case "page":
@@ -324,8 +276,7 @@ export function builtInDefinition(name: string, ctx: BuiltInContext): any {
   return flatDefinition(name, builtInProps(name, ctx), {
     description: docs.description,
     ...(docs.icon ? { icon: docs.icon } : {}),
-    ...(name === "experiments" ? { additionalProperties: ALLOCATION } : {}),
-    ...(name === "schedules" ? { additionalProperties: CAMPAIGN_DATES } : {}),
+    ...(name === "split-traffic" ? { additionalProperties: ALLOCATION } : {}),
   });
 }
 

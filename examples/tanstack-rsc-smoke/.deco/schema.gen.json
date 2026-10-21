@@ -55,6 +55,10 @@
           "$ref": "#/definitions/ZGF0ZQ==",
           "namespace": "deco"
         },
+        "experiment": {
+          "$ref": "#/definitions/ZXhwZXJpbWVudA==",
+          "namespace": "deco"
+        },
         "website/matchers/always.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9tYXRjaGVycy9hbHdheXMudHM=",
           "namespace": "website"
@@ -95,6 +99,10 @@
         },
         "cms-settings": {
           "$ref": "#/definitions/Y21zLXNldHRpbmdz",
+          "namespace": "deco"
+        },
+        "split-traffic": {
+          "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw==",
           "namespace": "deco"
         }
       }
@@ -385,6 +393,30 @@
           }
         }
       },
+      "ZXhwZXJpbWVudA==": {
+        "title": "experiment",
+        "description": "True for the visitors in a test of the saved block experiments",
+        "icon": "flask",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "name"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "experiment"
+            ],
+            "default": "experiment"
+          },
+          "name": {
+            "type": "string",
+            "title": "Test",
+            "description": "A test in the saved block experiments"
+          }
+        }
+      },
       "cGFnZQ==": {
         "title": "page",
         "description": "A page at a URL",
@@ -653,6 +685,31 @@
                 "default": true
               }
             }
+          }
+        }
+      },
+      "c3BsaXQtdHJhZmZpYw==": {
+        "title": "split-traffic",
+        "description": "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
+        "icon": "flask",
+        "additionalProperties": {
+          "type": "integer",
+          "title": "Visitors in (%)",
+          "description": "0 turns the test off, 100 shows it to everyone",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "split-traffic"
+            ],
+            "default": "split-traffic"
           }
         }
       },
@@ -1231,6 +1288,9 @@
           },
           {
             "$ref": "#/definitions/ZGF0ZQ=="
+          },
+          {
+            "$ref": "#/definitions/ZXhwZXJpbWVudA=="
           }
         ]
       },
@@ -1264,6 +1324,9 @@
           },
           {
             "$ref": "#/definitions/Y21zLXNldHRpbmdz"
+          },
+          {
+            "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw=="
           }
         ]
       }

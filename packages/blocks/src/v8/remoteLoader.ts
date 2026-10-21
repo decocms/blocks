@@ -30,12 +30,19 @@
  *   this loader reads no environment itself.
  * - A release larger than `MAX_SNAPSHOT_BYTES` is refused while it downloads,
  *   before it's buffered whole (a Worker isolate has 128 MB).
+ * - A client can ask for a published release by its commit SHA
+ *   (`cms.client({ version })`): it's read from
+ *   `sites/<site>/revisions/<sha>.json` on first use and kept in memory, a
+ *   few at a time (the least recently used dropped first), since a revision
+ *   never changes. One built with another schema than the bundled content is
+ *   an error, never half a page.
  * - Without `site` it's a plain loader over the fallback.
  *
  * Instances are process-wide singletons, like `createCMS`'s.
  */
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
-import { isSnapshot, PEEK_RELEASE, peekRelease } from "./content.ts";
+import { BoundedMap, isSnapshot, PEEK_RELEASE, peekRelease, READ_REVISION } from "./content.ts";
+import { errors } from "./errors.ts";
 import { clearGlobals, contentIdentity } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import type { Loader, Snapshot } from "./types.ts";
@@ -49,6 +56,8 @@ const INSTANCE_PREFIX = "decocms.blocks.remote:";
 const FETCH_TIMEOUT_MS = 10_000;
 /** The largest release accepted, in bytes of JSON. */
 const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
+/** Published releases kept in memory once read (a client asked for one by its SHA). */
+const CACHED_REVISIONS = 3;
 // OPEN: a revision is the git commit SHA; only SHA-1 (40 hex) object names are accepted.
 const REVISION = /^[0-9a-f]{40}$/;
 const SCHEMA_HASH = /^[0-9a-f]{64}$/;
@@ -78,6 +87,8 @@ class RemoteLoader implements Loader {
   /** The release this process last swapped in; `undefined` serves the fallback. */
   #current: Snapshot | undefined;
   readonly #dev: boolean;
+  /** Published releases read by SHA; immutable, so a hit is never revalidated. */
+  readonly #revisions = new BoundedMap<string, Promise<Snapshot>>(CACHED_REVISIONS);
 
   constructor(
     fallback: Snapshot | Loader,
@@ -125,6 +136,72 @@ class RemoteLoader implements Loader {
     return { updated: true };
   }
 
+  /** A published release by its commit SHA (see `READ_REVISION`). */
+  async [READ_REVISION](sha: string): Promise<Snapshot> {
+    if (!REVISION.test(sha)) throw errors.loaderFailed(`"${sha}" is not a release's commit SHA`);
+    if (this.#current?.revision === sha) return this.#current;
+    const fallback = this.#fallbackSnapshot ?? (await this.#loadFallback());
+    if (fallback.revision === sha) return fallback;
+    if (fallback.schemaHash === undefined) {
+      throw errors.loaderFailed(
+        `the release ${sha} can't be checked against this code: the bundled content has no schemaHash (run deco content)`,
+      );
+    }
+    const snapshot = await this.#readRevision(sha);
+    if (snapshot.schemaHash !== fallback.schemaHash) {
+      throw errors.loaderFailed(
+        `the release ${sha} was published with another schema than this code's ` +
+          `(${snapshot.schemaHash} ≠ ${fallback.schemaHash}): preview it on a deploy of its own code`,
+      );
+    }
+    if (fallback.aliases === undefined) return snapshot;
+    return { ...snapshot, aliases: fallback.aliases };
+  }
+
+  /** Reads a revision once; a failed read isn't kept, so the next client tries again. */
+  #readRevision(sha: string): Promise<Snapshot> {
+    const held = this.#revisions.get(sha);
+    if (held !== undefined) return held;
+    const site = encodeURIComponent(this.#site);
+    const pending = this.#fetchRevision(site, sha, "the revision asked for").then(
+      (body): Snapshot => ({
+        revision: sha,
+        blocks: body.blocks,
+        schemaHash: body.schemaHash,
+      }),
+    );
+    this.#revisions.set(sha, pending);
+    pending.catch(() => {
+      if (this.#revisions.get(sha) === pending) this.#revisions.delete(sha);
+    });
+    return pending;
+  }
+
+  async #fetchRevision(
+    site: string,
+    sha: string,
+    expected: string,
+  ): Promise<{ blocks: Record<string, unknown>; schemaHash: string }> {
+    const label = `revision ${sha}`;
+    const response = await fetchWithTimeout(
+      `${deliveryOrigin()}/sites/${site}/revisions/${sha}.json`,
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`${label}: HTTP ${response.status}`);
+    }
+    const body = await readBoundedJson(response, label, MAX_SNAPSHOT_BYTES);
+    if (
+      !isPlainObject(body) ||
+      body.revision !== sha ||
+      typeof body.schemaHash !== "string" ||
+      !isPlainObject(body.blocks)
+    ) {
+      throw new Error(`${label}: unexpected format, or not ${expected}`);
+    }
+    return { blocks: body.blocks, schemaHash: body.schemaHash };
+  }
+
   async #loadFallback(): Promise<Snapshot> {
     const fallback = this.#fallback;
     const snapshot = isSnapshot(fallback) ? fallback : await (fallback as Loader).load();
@@ -154,22 +231,9 @@ class RemoteLoader implements Loader {
   }
 
   async #revision(site: string, latest: Latest): Promise<Record<string, unknown>> {
-    const label = `revision ${latest.revision}`;
-    const response = await fetchWithTimeout(
-      `${deliveryOrigin()}/sites/${site}/revisions/${latest.revision}.json`,
-    );
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`${label}: HTTP ${response.status}`);
-    }
-    const body = await readBoundedJson(response, label, MAX_SNAPSHOT_BYTES);
-    if (
-      !isPlainObject(body) ||
-      body.revision !== latest.revision ||
-      body.schemaHash !== latest.schemaHash ||
-      !isPlainObject(body.blocks)
-    ) {
-      throw new Error(`${label}: unexpected format, or not the revision latest.json names`);
+    const body = await this.#fetchRevision(site, latest.revision, "the revision latest.json names");
+    if (body.schemaHash !== latest.schemaHash) {
+      throw new Error(`revision ${latest.revision}: not the schema latest.json names`);
     }
     return body.blocks;
   }

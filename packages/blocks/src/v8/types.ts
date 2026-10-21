@@ -3,6 +3,7 @@
  * (`/next/api-reference#types`) — every type here is documented there.
  */
 import type { ReactNode } from "react";
+import type { Visitor } from "./experiments.ts";
 
 // ---------------------------------------------------------------------------
 // Blocks and content
@@ -304,13 +305,14 @@ export interface ListOptions<T> {
 }
 
 /**
- * Reads one revision for one request.
+ * Reads one revision for one request, for one visitor, at one moment.
  *
  * Results are read-only. A client runs each block function once per distinct
  * input, so the same block at two places in a request hands both places the
  * same object; mutating it in place changes the other occurrence too. Copy a
  * result before changing it. (The memo belongs to one client, so nothing is
- * shared across requests.)
+ * shared across requests; it is also why tests and campaigns are decided once
+ * per client, however many rules ask.)
  */
 export interface Client {
   resolve<T = unknown>(target: unknown, options?: ResolveOptions): Promise<Result<T>>;
@@ -321,37 +323,49 @@ export interface Client {
    * can't load, since there is no revision to report.
    */
   revision(): Promise<string>;
+  /** Who is visiting, as passed to `cms.client()` (a frozen copy); `null` for none. */
+  readonly visitor: Visitor | null;
+  /**
+   * The version it reads: the release's commit SHA, or the draft pointer, as
+   * passed to `cms.client()`. For the current release, the SHA of the release
+   * it loaded (`undefined` until its first `resolve`, `list` or `revision()`).
+   */
+  readonly version: string | undefined;
+  /** The moment it shows: a preview's time, otherwise when the client was created. */
+  readonly now: Date;
 }
 
-/** What one client is created with. */
+/** What one client is created with. Both are read by the app, outside blocks, and passed in. */
 export interface ClientOptions {
   /**
-   * The visitor's A/B assignments (`assign(...).assignments` from
-   * `@decocms/blocks/experiments`), read by the built-in `experiment`
-   * matcher. They belong to this client alone and are copied when it is
-   * created; without them, every `experiment` rule is `false`.
+   * Who is visiting (`readVisitor`, `parseVisitor` or `newVisitor` from
+   * `@decocms/blocks/experiments`). Without one, every test is off.
    */
-  assignments?: Readonly<Record<string, boolean>>;
+  visitor?: Visitor | null;
+  /**
+   * What to read: `undefined` (or `null`) for the current release; a
+   * published release's commit SHA (40 hex characters), read from hosted
+   * releases; or a draft pointer, the draft's changes over the current
+   * release. `cms.readVersion(request)` reads one from a Studio link.
+   */
+  version?: string | null;
 }
 
 export interface CMS {
-  /** A client reading the current release. */
-  forRelease(options?: ClientOptions): Client;
   /**
-   * A client reading the draft a pointer names: its changes, fetched from a
-   * draft host (`*.decocms.com` and loopback by default;
-   * `createCMS({ preview: { draftHosts } })` replaces the list), over this
-   * server's production content.
+   * A client: the version it reads and the visitor it decides tests for, both
+   * passed in. Create one per request.
    */
-  forDraft(pointer: string, options?: ClientOptions): Client;
+  client(options?: ClientOptions): Client;
+  /** A client reading the current release: `cms.client()`. */
+  forRelease(): Client;
   /**
-   * The experiments (the saved block `Experiments`, of the built-in type
-   * `experiments`): each name with its allocation, 0–100. Read from the
-   * release, or with a pointer from that draft, so a test created in a draft
-   * runs in its preview. `{}` when there is none; never rejects. Pass it to
-   * `assign` from `@decocms/blocks/experiments`.
+   * A client reading the draft a pointer names: `cms.client({ version: pointer })`.
+   * Its changes are fetched from a draft host (`*.decocms.com` and loopback by
+   * default; `createCMS({ preview: { draftHosts } })` replaces the list) and
+   * laid over this server's production content.
    */
-  experiments(pointer?: string): Promise<Record<string, number>>;
+  forDraft(pointer: string): Client;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
   /**
@@ -361,11 +375,14 @@ export interface CMS {
    */
   settings(): Promise<EffectiveSettings>;
   /**
-   * The request's draft pointer: `?__draft=` first, then the `__deco_draft`
-   * cookie. `null` when neither is present, for `?__draft=off`, on a host
+   * The version a Studio link asks for: `?__draft=` first, then the
+   * `__deco_draft` cookie, holding a draft pointer or a published release's
+   * commit SHA. `null` when neither is present, for `?__draft=off`, on a host
    * outside `settings().preview.hosts`, and for a value that doesn't parse
-   * (ignored, as if absent): in each case the request gets the release.
+   * (ignored, as if absent): in each case the request gets the current release.
    */
+  readVersion(request: RequestLike): Promise<string | null>;
+  /** The same as `readVersion`, under its earlier name. */
   draftPointer(request: RequestLike): Promise<string | null>;
   /**
    * The `Set-Cookie` value that starts a preview (a valid `?__draft=` on an

@@ -144,20 +144,18 @@ describe("quickstart", () => {
     expect(spy.mock.calls[0][0]).toEqual({ title: "hi" });
   });
 
-  it("qs-17/hiw-06/dd-03: exactly thirteen built-ins, all resolvable", async () => {
+  it("qs-17/hiw-06/dd-03: exactly eleven built-ins, all resolvable", async () => {
     const { builtIns } = await import("../builtins/index");
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "page",
         "redirect",
         "cms-settings",
-        "experiments",
-        "schedules",
+        "split-traffic",
         "always",
         "never",
         "date",
         "experiment",
-        "schedule",
         "multivariate",
         "lazy",
         "secret",
@@ -171,10 +169,8 @@ describe("quickstart", () => {
       ["page", { name: "x", path: "/", sections: [] }],
       ["redirect", { from: "/a", to: "/b", permanent: false }],
       ["cms-settings", {}],
-      ["experiments", {}],
+      ["split-traffic", {}],
       ["experiment", { name: "x" }],
-      ["schedules", {}],
-      ["schedule", { name: "x" }],
       ["multivariate", { variants: [] }],
     ] as const) {
       const [, error] = await client.resolve({ __resolveType: type, ...inputs });

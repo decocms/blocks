@@ -1,78 +1,97 @@
 /**
  * `@decocms/blocks/experiments`: who is in which A/B test, decided the same
- * way on a server and in a browser.
+ * way on a server, in a browser and in a mobile app.
  *
- * An allocation is content (`{ name: percent }`, a saved block the editor
- * publishes with a release); an assignment is arithmetic. What a visitor gets
- * is never stored as a decision: it is recomputed from the allocation and the
- * visitor's id, so the two sides cannot drift apart. One id serves every
- * experiment, because each roll hashes `name:id`, so a new experiment needs no
- * new state and two experiments are independent.
+ * The percentages are content (the saved block `experiments`, of the built-in
+ * type `split-traffic`); a decision is arithmetic over the visitor's id. What
+ * a visitor gets is never stored: it is recomputed from the percentage and the
+ * id, so one id serves every test (each roll hashes `name:id`), a new test
+ * needs no new state and two tests are independent.
  *
- * Pure functions: no React, no framework, no module state, no environment
- * reads, no network. Drawing an id is the only impure step, and `assign` takes
- * the randomness as an argument so a test can pin it. Where `assign` runs is
- * the site's call; the CMS takes its answer per client
- * (`cms.forRelease({ assignments })`), and the built-in `experiment` matcher
- * reads it.
+ * Pure functions over values and strings: no React, no framework, no module
+ * state, no environment reads, no network. Nothing here is called for you:
+ * the app reads the visitor its own way (`readVisitor` on the web, device
+ * storage in an app) and hands it to `cms.client({ visitor })`; the built-in
+ * `split-traffic` calls `assign` with it.
  *
- * The cookie is v7's `deco_segment` wire format (the same fields and
- * encoding; names sorted by code unit rather than v7's `localeCompare`), with
- * an `id` field added, so a visitor carried over from v7 keeps the group v7
- * put them in and analytics keeps reading the cookie it already reads.
+ * The stored form is v7's `deco_segment` (the same fields and encoding; names
+ * sorted by code unit rather than v7's `localeCompare`) plus an `id`, so a
+ * visitor carried over from v7 keeps the group v7 put them in and analytics
+ * keeps reading the cookie it already reads. A visitor is written once, when
+ * it has no id; v7's stored decisions are read and honoured, never rewritten.
  */
 
-import { defaultRandom, newId, type RandomBytes, roll } from "./bucketing.ts";
+import { newId, roll } from "./bucketing.ts";
 
-/** The experiments block: experiment name to its allocation, 0–100. */
+/** The saved block `experiments`: each test's name and the whole percentage of visitors in it, 0–100. */
 export type Experiments = Record<string, number>;
 
-/** What a visitor got: experiment name to whether they are in it. */
+/** What a visitor got: each test's name and whether they are in it. */
 export type Assignments = Record<string, boolean>;
 
 /**
- * A visitor's `deco_segment`. `active`/`inactiveDrawn`/`pct` are v7's fields
- * and analytics reads them; `id` is what every roll is computed from; `exp`
- * holds v7's N-way assignments, which this module only carries over.
+ * Who is visiting: an id every decision is computed from, plus the decisions
+ * v7 stored (`active`, `inactiveDrawn`, `pct`, `exp`), which are honoured and
+ * carried, never rewritten.
  */
-export interface Segment {
+export interface Visitor {
   /** 16 random bytes as 22 base64url characters, drawn once per visitor. */
-  id?: string;
-  /** Names this visitor is in. */
+  id: string;
+  /** Tests v7 put this visitor in. */
   active: string[];
-  /** Names this visitor is out of. */
+  /** Tests v7 left this visitor out of. */
   inactiveDrawn: string[];
-  /** The allocation each listed name was last computed under, as an integer. */
+  /** The percentage each of v7's decisions was made at. */
   pct: Record<string, number>;
-  /** v7's N-way assignments. Never written here, never read; passed through. */
+  /** v7's N-way decisions. Never read; carried as they are. */
   exp?: Record<string, string>;
 }
 
-/** The cookie holding a visitor's id and decisions (v7's name). */
-const SEGMENT_COOKIE = "deco_segment";
+/** What `readVisitor` answers. */
+export interface VisitorFromRequest {
+  /** The request's visitor, or a new one when it had none. */
+  visitor: Visitor;
+  /**
+   * The `Set-Cookie` line to send when the visitor had no id (a first visit,
+   * or a v7 visitor getting theirs); `null` otherwise. Never send it from a
+   * preview.
+   */
+  cookie: string | null;
+}
+
+/** The fields of a request `readVisitor` reads: a `Request`, or anything with its `headers`. */
+interface RequestWithHeaders {
+  url?: string;
+  headers: { get(name: string): string | null };
+}
+
+/** The visitor's stored form, v7's name for it. */
+const VISITOR_COOKIE = "deco_segment";
 
 /** One year: the id is the visitor, and it should outlive any single test. */
-const SEGMENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+const VISITOR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 /**
- * A cookie over this stays out of every request. An id plus 50 experiments
- * fits well under it; past it, `serializeSegment` drops `inactiveDrawn`
- * entries, which the id recomputes anyway.
+ * A cookie over this stays out of every request. An id plus 50 of v7's
+ * decisions fits well under it; past it, `serializeVisitor` drops entries,
+ * the ones the id reproduces first.
  */
 const COOKIE_BUDGET = 2048;
 
 const ID_RE = /^[A-Za-z0-9_-]{22}$/;
 
+/** A stored visitor before it is known to have an id. */
+type Stored = Omit<Visitor, "id"> & { id?: string };
+
 /**
  * A record with no prototype, so a name such as `__proto__` is an ordinary
- * key: assigned, written and read back like any other.
+ * key: decided, written and read back like any other.
  */
 function record<T>(): Record<string, T> {
   return Object.create(null) as Record<string, T>;
 }
 
-/** A segment with nothing in it: what a first visit and a broken cookie both give. */
-function emptySegment(): Segment {
+function emptyStored(): Stored {
   return { active: [], inactiveDrawn: [], pct: record() };
 }
 
@@ -82,8 +101,8 @@ function stringList(value: unknown): string[] {
 }
 
 function pctRecord(value: unknown): Record<string, number> {
-  if (typeof value !== "object" || value === null) return record();
   const out = record<number>();
+  if (typeof value !== "object" || value === null) return out;
   for (const [name, pct] of Object.entries(value as Record<string, unknown>)) {
     if (typeof pct === "number" && Number.isFinite(pct)) out[name] = pct;
   }
@@ -99,126 +118,99 @@ function expRecord(value: unknown): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** The raw `deco_segment` value out of a `Cookie` header or `document.cookie`. */
-function readCookie(cookies: string): string | undefined {
-  for (const part of cookies.split(";")) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    if (part.slice(0, eq).trim() !== SEGMENT_COOKIE) continue;
-    return part.slice(eq + 1).trim();
-  }
-  return undefined;
-}
-
 /**
- * The visitor's segment out of a `Cookie` header or `document.cookie`.
- *
- * Never throws, for any input. The value may arrive percent-encoded (some
- * cookie APIs encode what they write; base64 never holds a `%`, so decoding
- * first is always safe). A missing, undecodable or wrongly shaped value
- * gives an empty segment, non-string entries are dropped, and an id that is
- * not 22 base64url characters is treated as absent so `assign` draws a new
- * one. Editing your own cookie only changes your own content, which is why
- * an assignment may never decide a price or a permission.
+ * A stored value, with or without an id; `null` when it doesn't read. Never
+ * throws. The value may arrive percent-encoded (some cookie APIs encode what
+ * they write; base64 never holds a `%`, so decoding first is always safe).
+ * Entries of the wrong type are dropped, and an id that is not 22 base64url
+ * characters is treated as absent.
  */
-export function parseSegment(cookies: string | null | undefined): Segment {
-  if (!cookies) return emptySegment();
-  const raw = readCookie(cookies);
-  if (!raw) return emptySegment();
+function parseStored(text: string | null | undefined): Stored | null {
+  if (typeof text !== "string" || text === "") return null;
   try {
-    const parsed = JSON.parse(decodeURIComponent(atob(decodeURIComponent(raw)))) as Record<
-      string,
-      unknown
-    >;
-    if (typeof parsed !== "object" || parsed === null) return emptySegment();
-    const segment: Segment = {
-      active: stringList(parsed.active),
-      inactiveDrawn: stringList(parsed.inactiveDrawn),
-      pct: pctRecord(parsed.pct),
+    const parsed: unknown = JSON.parse(decodeURIComponent(atob(decodeURIComponent(text.trim()))));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const body = parsed as Record<string, unknown>;
+    const stored: Stored = {
+      active: stringList(body.active),
+      inactiveDrawn: stringList(body.inactiveDrawn),
+      pct: pctRecord(body.pct),
     };
-    if (typeof parsed.id === "string" && ID_RE.test(parsed.id)) segment.id = parsed.id;
-    const exp = expRecord(parsed.exp);
-    if (exp) segment.exp = exp;
-    return segment;
+    if (typeof body.id === "string" && ID_RE.test(body.id)) stored.id = body.id;
+    const exp = expRecord(body.exp);
+    if (exp) stored.exp = exp;
+    return stored;
   } catch {
-    return emptySegment();
+    return null;
   }
 }
 
-/** The fields of a request `readSegment` reads: a `Request`, or anything with its `headers`. */
-interface RequestWithHeaders {
-  headers: { get(name: string): string | null };
-}
-
-/** The visitor's segment out of a request's `Cookie` header: `parseSegment` of it. */
-export function readSegment(request: RequestWithHeaders): Segment {
-  try {
-    return parseSegment(request.headers.get("cookie"));
-  } catch {
-    return emptySegment();
-  }
+/** A new visitor: a fresh id and nothing else. */
+export function newVisitor(): Visitor {
+  return { id: newId(), active: [], inactiveDrawn: [], pct: record() };
 }
 
 /**
- * The segment as a `deco_segment` value: v7's
- * `btoa(encodeURIComponent(JSON.stringify(...)))`, with a fixed key order and
- * names sorted, so two equal segments give byte-equal cookies and `changed`
- * is the only thing that ever triggers a write.
+ * A visitor out of its stored form (what `serializeVisitor` wrote, the value
+ * of the `deco_segment` cookie). `null` when the text is missing, doesn't
+ * read, or holds no id (a v7 value: `readVisitor` gives it one, keeping its
+ * decisions). Never throws.
  */
-export function serializeSegment(segment: Segment): string {
-  const active = [...segment.active].sort();
-  const inactiveDrawn = [...segment.inactiveDrawn].sort();
+export function parseVisitor(text: string | null | undefined): Visitor | null {
+  const stored = parseStored(text);
+  return stored?.id === undefined ? null : (stored as Visitor);
+}
+
+/**
+ * The visitor's stored form: v7's `btoa(encodeURIComponent(JSON.stringify(...)))`,
+ * with a fixed key order and names sorted, so two equal visitors give
+ * byte-equal values. Under 2KB: past it, v7's entries are dropped, first the
+ * ones the id reproduces anyway.
+ */
+export function serializeVisitor(visitor: Visitor): string {
+  const active = [...visitor.active].sort();
+  const inactiveDrawn = [...visitor.inactiveDrawn].sort();
   const dropped = new Set<string>();
 
   const encode = (): string => {
     const stillActive = active.filter((name) => !dropped.has(name));
     const stillInactive = inactiveDrawn.filter((name) => !dropped.has(name));
     const pct = record<number>();
-    for (const name of Object.keys(segment.pct).sort()) {
-      // v7 kept a `pct` for its N-way names too, and `exp` is carried
-      // untouched, so dropping their fingerprint would silently rewrite data
-      // this module promises not to read.
+    for (const name of Object.keys(visitor.pct).sort()) {
+      // v7 kept a `pct` beside its N-way names too, and `exp` is carried
+      // untouched, so their fingerprint is carried with it.
       const listed =
         stillActive.includes(name) ||
         stillInactive.includes(name) ||
-        (segment.exp !== undefined && Object.hasOwn(segment.exp, name));
-      if (listed) pct[name] = segment.pct[name] as number;
+        (visitor.exp !== undefined && Object.hasOwn(visitor.exp, name));
+      if (listed) pct[name] = visitor.pct[name] as number;
     }
     const body: Record<string, unknown> = {
       active: stillActive,
       inactiveDrawn: stillInactive,
       pct,
     };
-    if (segment.id !== undefined) body.id = segment.id;
-    if (segment.exp !== undefined) body.exp = segment.exp;
+    if (visitor.id !== undefined) body.id = visitor.id;
+    if (visitor.exp !== undefined) body.exp = visitor.exp;
     return btoa(encodeURIComponent(JSON.stringify(body)));
   };
 
   let value = encode();
   if (value.length <= COOKIE_BUDGET) return value;
 
-  // Over budget. Dropping an entry means the next `assign` recomputes it from
-  // the roll, which reproduces the decision exactly when the stored value
-  // already agrees with the roll, and silently moves the visitor to the other
-  // arm when it does not (a cohort carried over from v7, or one a ramp moved).
-  // So spend the budget in that order: the reproducible entries first, and the
-  // unrecoverable ones only if the cookie is still too big. Within each group,
-  // the visitor is out before in, and names in sorted order, so the choice is
-  // deterministic and two equal segments still give byte-equal values.
-  const { id } = segment;
+  // Over budget. A dropped entry is decided by the roll from then on, which
+  // keeps the decision only when the stored one already agrees with the roll.
+  // So drop those first, and the others only if the value is still too big.
   const reproducible = (name: string): boolean => {
-    if (id === undefined) return false;
-    const pct = segment.pct[name];
+    const pct = visitor.pct[name];
     if (typeof pct !== "number") return false;
-    return active.includes(name) === roll(name, id) < pct;
+    return active.includes(name) === roll(name, visitor.id) < pct;
   };
-  const lossless = (name: string) => reproducible(name);
-  const lossy = (name: string) => !reproducible(name);
   for (const name of [
-    ...inactiveDrawn.filter(lossless),
-    ...active.filter(lossless),
-    ...inactiveDrawn.filter(lossy),
-    ...active.filter(lossy),
+    ...inactiveDrawn.filter(reproducible),
+    ...active.filter(reproducible),
+    ...inactiveDrawn.filter((name) => !reproducible(name)),
+    ...active.filter((name) => !reproducible(name)),
   ]) {
     if (value.length <= COOKIE_BUDGET) break;
     dropped.add(name);
@@ -227,76 +219,65 @@ export function serializeSegment(segment: Segment): string {
   return value;
 }
 
-/**
- * The `Set-Cookie` line for a segment, as raw header text: send it as a
- * `Set-Cookie` header, not through a cookie API that encodes the value again
- * (`parseSegment` reads either, but the browser stores what it is given).
- * Not `HttpOnly`: the browser and the
- * analytics script both read it, which is also why an assignment is only ever
- * allowed to change content.
- *
- * `secure` defaults to `true`; a site serving over plain http (localhost)
- * passes `false`. The package reads no environment, so it cannot tell.
- */
-export function segmentCookie(segment: Segment, options: { secure?: boolean } = {}): string {
-  const { secure = true } = options;
-  const parts = [
-    `${SEGMENT_COOKIE}=${serializeSegment(segment)}`,
-    "Path=/",
-    `Max-Age=${SEGMENT_COOKIE_MAX_AGE}`,
-    "SameSite=Lax",
-  ];
-  if (secure) parts.push("Secure");
-  return parts.join("; ");
+/** The raw `deco_segment` value out of a `Cookie` header. */
+function readCookie(cookies: string | null): string | undefined {
+  if (!cookies) return undefined;
+  for (const part of cookies.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() !== VISITOR_COOKIE) continue;
+    return part.slice(eq + 1).trim();
+  }
+  return undefined;
 }
 
-/** What `assign` answers. */
-interface Assignment {
-  /** Every experiment in the block, and whether this visitor is in it. */
-  assignments: Assignments;
-  /** The segment to write back when `changed`. */
-  segment: Segment;
-  /**
-   * Whether the cookie should be rewritten: the value `segment` serializes to
-   * differs from the one the incoming segment does (a new id, a new decision,
-   * a moved allocation or a name dropped).
-   */
-  changed: boolean;
+/** Whether a request came over plain http (localhost), where a `Secure` cookie isn't stored. */
+function isPlainHttp(url: string | undefined): boolean {
+  if (typeof url !== "string") return false;
+  try {
+    return new URL(url).protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The web helper: the visitor out of a request's `deco_segment` cookie, and
+ * the `Set-Cookie` line to send back when it had no id (a first visit, or a
+ * v7 visitor, whose decisions are kept). The cookie isn't `HttpOnly` (the
+ * analytics script reads it, as in v7) and is `Secure` unless the request
+ * came over plain http. Never throws.
+ */
+export function readVisitor(request: RequestWithHeaders): VisitorFromRequest {
+  let header: string | null = null;
+  try {
+    header = request.headers.get("cookie");
+  } catch {
+    header = null;
+  }
+  const stored = parseStored(readCookie(header));
+  if (stored?.id !== undefined) return { visitor: stored as Visitor, cookie: null };
+  const visitor: Visitor = { ...(stored ?? emptyStored()), id: newId() };
+  const parts = [
+    `${VISITOR_COOKIE}=${serializeVisitor(visitor)}`,
+    "Path=/",
+    `Max-Age=${VISITOR_COOKIE_MAX_AGE}`,
+    "SameSite=Lax",
+  ];
+  if (!isPlainHttp(request.url)) parts.push("Secure");
+  return { visitor, cookie: parts.join("; ") };
 }
 
 function roundPct(allocation: number): number {
-  if (!Number.isFinite(allocation)) return 0;
   return Math.round(Math.min(100, Math.max(0, allocation)));
 }
 
 /**
- * The visitor's answer after the allocation moved, given the decision they
- * already had: **raising an allocation never removes anyone, and lowering it
- * never adds anyone.** A test that grows or shrinks therefore never shuffles
- * its arms under the people already in it, which is the one thing that would
- * make its result meaningless.
- *
- * Otherwise the roll decides, as it does on a first visit.
- *
- * For a visitor this package decided, the two clauses are not a special case
- * at all: `stored` is `roll(name, id) < from`, so in-and-growing already
- * implies `roll < from <= to`, and the roll would say the same. That is what
- * keeps them exactly on the allocation and independent of the path taken to
- * it. The clauses only ever bite for a cohort carried over from v7, whose id
- * was drawn at the migration and whose roll therefore says nothing about the
- * draw v7 made.
- *
- * The cost is on that v7 population alone, and it is a share that drifts off
- * target until those visitors churn: after a ramp 10% → 20% the arm measures
- * about 28%, and after 50% → 10% about 5%. The alternative — admitting them
- * at the rate that lands on target, through a second draw per move — was
- * built and measured, and it loses more than it buys: it makes every
- * visitor's arm depend on the path of allocations rather than on their id,
- * and a test returning to an allocation it already used then undershoots
- * (20% measured at 15.5%). Correct for the visitors who are leaving, broken
- * for the ones who are staying, so: not that.
+ * A v7 decision after the percentage moved: raising a percentage never
+ * removes anyone v7 put in, and lowering it never adds anyone v7 left out.
+ * Otherwise the roll decides, as for any visitor.
  */
-function decideRamp(stored: boolean, from: number, to: number): boolean | undefined {
+function keptFromV7(stored: boolean, from: number, to: number): boolean | undefined {
   if (to === from) return stored;
   if (stored && to > from) return true;
   if (!stored && to < from) return false;
@@ -304,83 +285,54 @@ function decideRamp(stored: boolean, from: number, to: number): boolean | undefi
 }
 
 /**
- * This visitor's answer for every experiment in the block.
+ * This visitor's answer for every test: `true` when they are in it.
  *
- * Pure apart from drawing an id on a first visit, and it never throws for any
- * input. An allocation is a whole percentage (`deco check` requires one; a
- * fraction is rounded, and the roll is compared with the rounded value, so
- * the answer never depends on the path the allocation took). A v7 visitor's
- * stored decision is honoured while the allocation it was drawn at still
- * holds, so the migration itself reshuffles nobody, including a v7 cookie
- * that recorded no allocation for the name (or `-1`, v7's "any"); once an
- * editor moves the allocation, `decideRamp` decides. A name that left the
- * block leaves the cookie, and its rules read as `false`.
- *
- * Two early parallel requests on a first visit can draw different ids; the
- * first cookie the browser stores wins from then on. That is the only race,
- * and it costs one visitor one re-draw.
+ * A visitor is in a test when their roll for it (a fixed number in [0, 100)
+ * from the test's name and their id) is under its percentage, so 0 puts
+ * nobody in, 100 everybody, and raising a percentage only adds people. A
+ * fractional percentage is rounded. A decision v7 stored is honoured while
+ * the percentage it was made at holds (a missing or `-1` percentage, v7's
+ * "any", included); once it moves, a v7 visitor in a test that grows stays
+ * in and one out of a test that shrinks stays out. Without a visitor every
+ * test is `false`. Entries that aren't finite numbers are left out. Pure;
+ * never throws.
  */
 export function assign(
-  experiments: Experiments,
-  segment?: Segment,
-  random: RandomBytes = defaultRandom,
-): Assignment {
-  const source = segment ?? emptySegment();
-  const next: Segment = {
-    id: source.id,
-    active: [],
-    inactiveDrawn: [],
-    pct: record(),
-  };
-  if (source.exp !== undefined) {
-    next.exp = source.exp;
-    // v7 kept a `pct` beside each N-way name; `exp` is carried untouched, so
-    // its fingerprint is carried with it.
-    for (const name of Object.keys(source.exp)) {
-      const fingerprint = source.pct[name];
-      if (typeof fingerprint === "number") next.pct[name] = fingerprint;
-    }
-  }
-
-  if (next.id === undefined || !ID_RE.test(next.id)) next.id = newId(random);
-
-  const names =
-    typeof experiments === "object" && experiments !== null ? Object.keys(experiments).sort() : [];
-
+  experiments: Experiments | null | undefined,
+  visitor: Visitor | null | undefined,
+): Assignments {
   const assignments = record<boolean>();
-  for (const name of names) {
+  if (typeof experiments !== "object" || experiments === null) return assignments;
+  const id = visitor !== null && typeof visitor === "object" ? visitor.id : undefined;
+  const known = typeof id === "string" && ID_RE.test(id);
+  for (const name of Object.keys(experiments).sort()) {
     const allocation = experiments[name];
     if (typeof allocation !== "number" || !Number.isFinite(allocation)) continue;
+    if (!known) {
+      assignments[name] = false;
+      continue;
+    }
     const pct = roundPct(allocation);
-
-    const stored = source.active.includes(name)
+    const v = visitor as Visitor;
+    const stored = list(v.active).includes(name)
       ? true
-      : source.inactiveDrawn.includes(name)
+      : list(v.inactiveDrawn).includes(name)
         ? false
         : undefined;
-    // The allocation the stored decision was made under. v7 wrote
-    // `round(traffic * 100)` here, and its own reader treated a missing or
-    // negative entry as "matches anything": that decision stands at today's
-    // allocation, and only a later move reconsiders it.
-    const rawFrom = source.pct[name];
-    const from =
-      typeof rawFrom === "number" && Number.isFinite(rawFrom) && rawFrom >= 0
-        ? roundPct(rawFrom)
-        : pct;
-
-    const carried = stored === undefined ? undefined : decideRamp(stored, from, pct);
-    const value = carried ?? roll(name, next.id) < pct;
-
-    assignments[name] = value;
-    (value ? next.active : next.inactiveDrawn).push(name);
-    next.pct[name] = pct;
+    // v7 wrote `round(traffic * 100)` here, and its own reader treated a
+    // missing or negative entry as "matches anything".
+    const raw = isRecord(v.pct) && Object.hasOwn(v.pct, name) ? v.pct[name] : undefined;
+    const from = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? roundPct(raw) : pct;
+    const kept = stored === undefined ? undefined : keptFromV7(stored, from, pct);
+    assignments[name] = kept ?? roll(name, id) < pct;
   }
+  return assignments;
+}
 
-  // The cookie is rewritten exactly when what it would hold changes. Comparing
-  // the serialized values, not the decisions, keeps a trimmed cookie (over
-  // the 2KB budget) from counting its trimmed entries as new on every
-  // request, and catches every dropped name, whatever dropped it.
-  const changed = serializeSegment(next) !== serializeSegment(source);
+function list(value: unknown): string[] {
+  return Array.isArray(value) ? value : [];
+}
 
-  return { assignments, segment: next, changed };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

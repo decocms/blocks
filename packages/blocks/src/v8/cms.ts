@@ -8,12 +8,17 @@
  */
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
-import { assignedNames, readExperiments } from "./builtins/experiments.ts";
 import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
-import { draftCookieFor, endsPreview, parseDraftPointer, readDraftPointer } from "./draft.ts";
+import {
+  draftCookieFor,
+  endsPreview,
+  isRevision,
+  parseDraftPointer,
+  readVersion,
+} from "./draft.ts";
 import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
@@ -83,7 +88,7 @@ class CMSInstance {
   /** One handle per block map, so the same config returns the same object. */
   readonly #handles = new WeakMap<Blocks, CMS>();
   /**
-   * When the next check is due. The first is on the first `forRelease()` or `forDraft()`, not
+   * When the next check is due. The first is on the first `client()`, not
    * at construction: Workers read `Date.now()` as 0 at module scope.
    */
   #nextCheck: number | undefined;
@@ -108,45 +113,32 @@ class CMSInstance {
     this.#builtIns = Object.freeze({ ...builtIns, secret });
   }
 
-  forRelease(blocks: Blocks, options?: ClientOptions): Client {
+  /**
+   * A client for one request: the version it reads (the current release, a
+   * published release by its commit SHA, or a draft pointer) and the visitor
+   * it decides tests for, both passed in. It shows the moment it was created.
+   */
+  client(blocks: Blocks, options: ClientOptions = {}): Client {
     this.#scheduleUpdate();
-    const telemetry = this.#telemetry;
-    if (telemetry === undefined) {
-      return this.#client(blocks, () => this.#store.release(), options);
+    const version = typeof options.version === "string" ? options.version : undefined;
+    const inputs = { version, visitor: options.visitor ?? null, now: Date.now() };
+    if (version === undefined) return this.#client(blocks, this.#release(blocks), inputs);
+    if (isRevision(version)) {
+      return this.#client(blocks, () => this.#store.revision(version), inputs);
     }
-    return this.#client(
-      blocks,
-      () =>
-        this.#store.release().then(async (snapshot) => {
-          telemetry.useRelease(snapshot);
-          await this.#followTelemetrySettings(blocks, telemetry, snapshot);
-          return snapshot;
-        }),
-      options,
-    );
+    return this.#client(blocks, () => this.#draft(version), inputs);
   }
 
-  /**
-   * The `Experiments` block of the release, or of the draft a pointer names
-   * (with the variants it forces), resolved with this handle's block map.
-   */
-  async experiments(blocks: Blocks, pointer?: string): Promise<Record<string, number>> {
-    let snapshot: Snapshot;
-    try {
-      snapshot = await (pointer === undefined ? this.#store.release() : this.#draft(pointer));
-    } catch {
-      return Object.create(null) as Record<string, number>;
-    }
-    return readExperiments(
-      snapshot,
-      () =>
-        new CMSClient({
-          load: () => Promise.resolve(snapshot),
-          blocks,
-          builtIns: this.#builtIns,
-          onCollision: (name) => this.#warnCollision(name),
-        }),
-    );
+  /** Loads the current release, keeping telemetry on the release's settings. */
+  #release(blocks: Blocks): () => Promise<Snapshot> {
+    const telemetry = this.#telemetry;
+    if (telemetry === undefined) return () => this.#store.release();
+    return () =>
+      this.#store.release().then(async (snapshot) => {
+        telemetry.useRelease(snapshot);
+        await this.#followTelemetrySettings(blocks, telemetry, snapshot);
+        return snapshot;
+      });
   }
 
   /**
@@ -158,10 +150,10 @@ class CMSInstance {
     return this.#settingsOf(blocks, this.#store.current());
   }
 
-  async draftPointer(blocks: Blocks, request: RequestLike): Promise<string | null> {
-    const pointer = readDraftPointer(request);
-    if (pointer === null) return null;
-    return (await this.#previewAllowed(blocks, request)) ? pointer : null;
+  async readVersion(blocks: Blocks, request: RequestLike): Promise<string | null> {
+    const version = readVersion(request);
+    if (version === null) return null;
+    return (await this.#previewAllowed(blocks, request)) ? version : null;
   }
 
   async draftCookie(blocks: Blocks, request: RequestLike): Promise<string | null> {
@@ -170,16 +162,6 @@ class CMSInstance {
     // Ending a preview is allowed anywhere, so a cookie set before a host was removed still goes.
     if (endsPreview(request)) return cookie;
     return (await this.#previewAllowed(blocks, request)) ? cookie : null;
-  }
-
-  /**
-   * The draft, with the variants the pointer forces (even for a `local`
-   * pointer, which names no draft). A draft client is a production client
-   * reading a draft pointer, so it schedules the release check like any other.
-   */
-  forDraft(blocks: Blocks, pointer: string, options?: ClientOptions): Client {
-    this.#scheduleUpdate();
-    return this.#client(blocks, () => this.#draft(pointer), options);
   }
 
   /** The draft a pointer names, with the variants it forces. */
@@ -270,16 +252,17 @@ class CMSInstance {
     if (last?.snapshot !== snapshot) await read;
   }
 
-  /**
-   * A client. Its assignments are its own, copied here, so one request's
-   * assignments never reach another's client.
-   */
-  #client(blocks: Blocks, load: () => Promise<Snapshot>, options?: ClientOptions): Client {
+  /** A client with its inputs (each client copies its visitor, so none is shared). */
+  #client(
+    blocks: Blocks,
+    load: () => Promise<Snapshot>,
+    inputs: { version: string | undefined; visitor: ClientOptions["visitor"]; now: number },
+  ): Client {
     return new CMSClient({
       load,
       blocks,
       builtIns: this.#builtIns,
-      assignments: assignedNames(options?.assignments),
+      ...inputs,
       onCollision: (name) => this.#warnCollision(name),
       telemetry: this.#telemetry?.forClient(),
     });
@@ -332,16 +315,16 @@ class CMSHandle implements CMS {
     return this.#instance;
   }
 
-  forRelease(options: ClientOptions = {}): Client {
-    return this.#instance.forRelease(this.#blocks, options);
+  client(options: ClientOptions = {}): Client {
+    return this.#instance.client(this.#blocks, options);
   }
 
-  forDraft(pointer: string, options: ClientOptions = {}): Client {
-    return this.#instance.forDraft(this.#blocks, pointer, options);
+  forRelease(): Client {
+    return this.#instance.client(this.#blocks);
   }
 
-  experiments(pointer?: string): Promise<Record<string, number>> {
-    return this.#instance.experiments(this.#blocks, pointer);
+  forDraft(pointer: string): Client {
+    return this.#instance.client(this.#blocks, { version: pointer });
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -352,8 +335,12 @@ class CMSHandle implements CMS {
     return this.#instance.settings(this.#blocks);
   }
 
+  readVersion(request: RequestLike): Promise<string | null> {
+    return this.#instance.readVersion(this.#blocks, request);
+  }
+
   draftPointer(request: RequestLike): Promise<string | null> {
-    return this.#instance.draftPointer(this.#blocks, request);
+    return this.#instance.readVersion(this.#blocks, request);
   }
 
   draftCookie(request: RequestLike): Promise<string | null> {
