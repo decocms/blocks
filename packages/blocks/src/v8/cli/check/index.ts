@@ -23,9 +23,9 @@ import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
-  EXPERIMENT_MATCHER,
+  EXPERIMENT_RULE,
   EXPERIMENTS_BLOCK,
-  EXPERIMENTS_TYPE,
+  SPLIT_TRAFFIC_TYPE,
 } from "../../builtins/experiments.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
@@ -394,10 +394,12 @@ class Checker {
     return undefined;
   }
 
-  /** The names in the `Experiments` block, or null when there is no such block. */
+  /** The tests in the saved block `experiments`, or null when there is no such block of its type. */
   private experimentNames(): Set<string> | null {
     const entry = own(this.saved.blocks, EXPERIMENTS_BLOCK);
-    if (!isBlock(entry) || entry.__resolveType !== EXPERIMENTS_TYPE) return null;
+    if (!isBlock(entry) || this.canonicalType(entry.__resolveType) !== SPLIT_TRAFFIC_TYPE) {
+      return null;
+    }
     return new Set(Object.keys(entry).filter((key) => key !== "__resolveType"));
   }
 
@@ -406,7 +408,7 @@ class Checker {
    * inline or through a saved block (whose `name` the rule may override).
    */
   private experimentRuleName(rule: Json): string | undefined {
-    if (!isBlock(rule) || !this.isOwnBuiltIn(EXPERIMENT_MATCHER)) return undefined;
+    if (!isBlock(rule) || !this.isOwnBuiltIn(EXPERIMENT_RULE)) return undefined;
     let type: string | null = this.canonicalType(rule.__resolveType);
     let name: unknown = rule.name;
     if (type === null) {
@@ -415,7 +417,7 @@ class Checker {
       type = this.canonicalType(saved.__resolveType);
       name = "name" in rule ? rule.name : saved.name;
     }
-    return type === EXPERIMENT_MATCHER && typeof name === "string" ? name : undefined;
+    return type === EXPERIMENT_RULE && typeof name === "string" ? name : undefined;
   }
 
   private report(
@@ -601,7 +603,7 @@ class Checker {
         }
         return;
       }
-      case EXPERIMENT_MATCHER: {
+      case EXPERIMENT_RULE: {
         this.checkProps(ctx, block, path, true);
         const name = this.experimentRuleName(block);
         const names = this.experimentNames();
@@ -609,7 +611,7 @@ class Checker {
           this.report(
             ctx,
             joinPath(path, "/name"),
-            `no experiment "${name}" in the "${EXPERIMENTS_BLOCK}" block: this rule is always false`,
+            `no test "${name}" in the saved block "${EXPERIMENTS_BLOCK}": this rule is always false`,
             "warning",
           );
         }
@@ -679,19 +681,6 @@ class Checker {
       if ("rule" in variant) {
         if (isBlock(variant.rule)) {
           this.checkBlock(ctx, variant.rule, joinPath(at, "/rule"), rule);
-          const ruleExperiment = this.experimentRuleName(variant.rule);
-          if (
-            typeof block.experiment === "string" &&
-            ruleExperiment !== undefined &&
-            ruleExperiment !== block.experiment
-          ) {
-            this.report(
-              ctx,
-              joinPath(at, "/rule"),
-              `this rule reads the experiment "${ruleExperiment}", but the block's experiment is "${block.experiment}": its results are kept under "${block.experiment}"`,
-              "warning",
-            );
-          }
           if (alwaysAt < 0 && this.underlyingType(variant.rule.__resolveType).type === "always") {
             alwaysAt = i;
           }
@@ -749,27 +738,13 @@ class Checker {
       }
       if (
         name === EXPERIMENTS_BLOCK &&
-        entry.__resolveType !== EXPERIMENTS_TYPE &&
-        this.isOwnBuiltIn(EXPERIMENTS_TYPE)
+        this.canonicalType(entry.__resolveType) !== SPLIT_TRAFFIC_TYPE
       ) {
         this.report(
           ctx,
           "",
-          `"${EXPERIMENTS_BLOCK}" is the name of the experiments block (type "${EXPERIMENTS_TYPE}"); ` +
-            "this one is ignored as experiments, so rename it",
-          "warning",
-        );
-      }
-      if (
-        name !== EXPERIMENTS_BLOCK &&
-        this.canonicalType(entry.__resolveType) === EXPERIMENTS_TYPE &&
-        this.isOwnBuiltIn(EXPERIMENTS_TYPE)
-      ) {
-        this.report(
-          ctx,
-          "",
-          `the experiments are read only from the saved block "${EXPERIMENTS_BLOCK}"; ` +
-            `this "${EXPERIMENTS_TYPE}" block is never read, so move its tests there`,
+          `"${EXPERIMENTS_BLOCK}" is the saved block every experiment rule reads, of type ` +
+            `"${SPLIT_TRAFFIC_TYPE}"; with type "${entry.__resolveType}" every experiment rule is false`,
           "warning",
         );
       }
@@ -783,19 +758,19 @@ class Checker {
   /**
    * A block map entry named after a built-in replaces it, schema included.
    * Deliberate for most (a migrated site's own `page`), but `experiment` and
-   * `experiments` were free names before they were built in, so a site that
-   * registered its own A/B matcher under them now hides the built-in by
+   * `split-traffic` were free names before they were built in, so a site
+   * that registered its own block under them now hides the built-in by
    * accident.
    */
   private builtInOverrides(): Problem[] {
     const problems: Problem[] = [];
-    for (const name of [EXPERIMENT_MATCHER, EXPERIMENTS_TYPE]) {
+    for (const name of [EXPERIMENT_RULE, SPLIT_TRAFFIC_TYPE]) {
       if (this.siteNamespaceOf(name) === undefined) continue;
       problems.push({
         file: ".deco/schema.gen.json",
         path: name,
         severity: "warning",
-        message: `the block map defines "${name}", which replaces the built-in A/B block of that name; rename it to use the built-in`,
+        message: `the block map defines "${name}", which replaces the built-in block of that name; rename it to use the built-in`,
       });
     }
     return problems;

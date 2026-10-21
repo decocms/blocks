@@ -12,18 +12,25 @@ import { describe, expect, it } from "vitest";
 import { murmur3_32, newId, roll } from "./bucketing.ts";
 import {
   assign,
-  parseSegment,
-  readSegment,
-  type Segment,
-  segmentCookie,
-  serializeSegment,
+  newVisitor,
+  parseVisitor,
+  readVisitor,
+  serializeVisitor,
+  type Visitor,
 } from "./experiments.ts";
 
-const SEGMENT_COOKIE = "deco_segment";
+const COOKIE = "deco_segment";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
-const emptySegment = (): Segment => ({ active: [], inactiveDrawn: [], pct: {} });
+/** A visitor with this id and nothing stored. */
+const visitor = (id: string): Visitor => ({ id, active: [], inactiveDrawn: [], pct: {} });
+
+/** A `deco_segment` value v7 itself would have written: no id. */
+const v7Value = (body: Record<string, unknown>) => btoa(encodeURIComponent(JSON.stringify(body)));
+
+const requestWith = (cookie?: string, url = "https://example.com/") =>
+  new Request(url, cookie === undefined ? {} : { headers: { cookie } });
 
 /** A deterministic `RandomBytes`, so a drawn id is reproducible in a test. */
 function seededRandom(seed: number) {
@@ -130,173 +137,64 @@ describe("the properties a test's result depends on", { timeout: 60_000 }, () =>
   });
 });
 
-describe("moving an allocation", { timeout: 60_000 }, () => {
-  const NAME = "t";
-  const population = ids(40_000);
-
-  /** A cookie as it stands for a visitor already decided at `pct`. */
-  const at = (id: string, isIn: boolean, pct: number): Segment => ({
-    id,
-    active: isIn ? [NAME] : [],
-    inactiveDrawn: isIn ? [] : [NAME],
-    pct: { [NAME]: pct },
+describe("assign", () => {
+  it("answers from the id, so the same visitor always gets the same answer", () => {
+    for (const id of ids(200)) {
+      expect(assign({ "pdp-cta": 50 }, visitor(id))).toEqual(
+        assign({ "pdp-cta": 50 }, visitor(id)),
+      );
+    }
   });
 
-  /**
-   * Walks a population through a path of allocations, counting the visitors
-   * who moved the wrong way: out of a test that grew, or into one that shrank.
-   */
-  function walk(start: Segment[], path: number[]) {
-    let segments = start;
-    let violations = 0;
-    for (const allocation of path) {
-      segments = segments.map((segment) => {
-        const wasIn = segment.active.includes(NAME);
-        const before = segment.pct[NAME] as number;
-        const result = assign({ [NAME]: allocation }, segment);
-        const isIn = result.assignments[NAME] === true;
-        if (allocation > before && wasIn && !isIn) violations++;
-        if (allocation < before && !wasIn && isIn) violations++;
-        return result.segment;
+  it("is in when the roll is under the percentage", () => {
+    const id = "Zm9vYmFyYmF6cXV4MTIzNA"; // hero-copy rolls 0.93
+    expect(assign({ "hero-copy": 1 }, visitor(id))["hero-copy"]).toBe(true);
+    expect(assign({ "hero-copy": 0 }, visitor(id))["hero-copy"]).toBe(false);
+  });
+
+  it("rounds a fractional percentage and compares the roll with the rounded value", () => {
+    const id = "Zm9vYmFyYmF6cXV4MTIzNA"; // hero-copy rolls 0.93
+    expect(assign({ "hero-copy": 0.5 }, visitor(id))["hero-copy"]).toBe(true); // 1%
+    expect(assign({ "hero-copy": 0.4 }, visitor(id))["hero-copy"]).toBe(false); // 0%
+  });
+
+  it("puts nobody in a paused test and everybody in a full one", () => {
+    for (const id of ids(500)) {
+      expect(assign({ x: 0 }, visitor(id)).x).toBe(false);
+      expect(assign({ x: 100 }, visitor(id)).x).toBe(true);
+    }
+  });
+
+  it("raising a percentage only adds people, whatever path it took", () => {
+    for (const id of ids(2000)) {
+      const path = [10, 20, 5, 50].map((pct) => assign({ t: pct }, visitor(id)).t);
+      if (path[2]) expect(path[0] && path[1] && path[3], id).toBe(true);
+      if (path[0]) expect(path[1] && path[3], id).toBe(true);
+    }
+  });
+
+  it("answers every test false without a visitor, or with one without a usable id", () => {
+    for (const none of [null, undefined, { ...visitor("too-short") }]) {
+      expect({ ...assign({ a: 100, b: 50 }, none as Visitor | null) }).toEqual({
+        a: false,
+        b: false,
       });
     }
-    const share = (segments.filter((s) => s.active.includes(NAME)).length / segments.length) * 100;
-    return { share, violations };
-  }
-
-  /** A visitor v7 decided, whose id was drawn later: the roll says nothing about them. */
-  const migrated = (pct: number) =>
-    population.map((id) => at(id, roll("a v7 draw", id) < pct, pct));
-  /** A visitor this package decided: stored and roll agree by construction. */
-  const native = (pct: number) => population.map((id) => at(id, roll(NAME, id) < pct, pct));
-
-  const paths: [string, number, number[]][] = [
-    ["up", 10, [20]],
-    ["up twice", 10, [20, 50]],
-    ["down", 50, [10]],
-    ["down then up", 50, [10, 50]],
-    ["up, up, down", 10, [20, 50, 20]],
-    ["to nothing", 20, [0]],
-    ["from nothing", 0, [30]],
-  ];
-
-  for (const [label, start, path] of paths) {
-    const target = path.at(-1) as number;
-
-    it(`${label}: a visitor carried over from v7 never moves the wrong way`, () => {
-      // Monotonicity only: their share drifts, which the test below pins.
-      expect(walk(migrated(start), path).violations).toBe(0);
-    });
-
-    it(`${label}: a visitor this package decided never moves the wrong way, and the arm lands on ${target}%`, () => {
-      const { share, violations } = walk(native(start), path);
-      expect(violations).toBe(0);
-      expect(share).toBeCloseTo(target, 0);
-    });
-  }
-
-  it("gives a visitor this package decided the same arm whatever path the allocation took", () => {
-    // The clause that protects v7 cohorts must stay invisible here: a native
-    // visitor's arm is a function of their id and the allocation, nothing
-    // else. Lose that and you can no longer answer "which arm is this
-    // visitor in?" from the id alone, and a test that returns to an
-    // allocation it already used stops landing on it.
-    for (const path of [[50], [20, 50], [20, 35, 50], [20, 10, 20, 50]]) {
-      const { share, violations } = walk(native(10), path);
-      expect(share, path.join("→")).toBeCloseTo(50, 0);
-      expect(violations, path.join("→")).toBe(0);
-    }
   });
 
-  it("holds a v7 cohort's arm steady, at a share that drifts off target until they churn", () => {
-    // The price of never moving a v7 visitor the wrong way. Their id was
-    // drawn at the migration, so there is no roll to put them back in their
-    // place: the arm can only be kept, and it comes out wider than asked for
-    // on the way up and narrower on the way down. It corrects itself as
-    // those visitors age out, and nothing else in the system pays for it.
-    expect(walk(migrated(10), [20]).share).toBeCloseTo(28, 0);
-    expect(walk(migrated(50), [10]).share).toBeCloseTo(5, 0);
-  });
-});
-
-describe("assign", () => {
-  const random = seededRandom(7);
-
-  it("draws an id on a first visit and reports the change", () => {
-    const result = assign({ "pdp-cta": 50 }, undefined, random);
-    expect(result.segment.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(result.changed).toBe(true);
-    expect(Object.keys(result.assignments)).toEqual(["pdp-cta"]);
-  });
-
-  it("answers from the id, so the same cookie always gives the same answer", () => {
-    const segment = assign({ "pdp-cta": 50 }, undefined, random).segment;
-    const again = assign({ "pdp-cta": 50 }, segment);
-    expect(again.assignments).toEqual(assign({ "pdp-cta": 50 }, segment).assignments);
-    expect(again.changed).toBe(false);
-  });
-
-  it("is in when the roll is under the allocation", () => {
-    const id = "Zm9vYmFyYmF6cXV4MTIzNA"; // hero-copy rolls 0.93
-    const segment: Segment = { ...emptySegment(), id };
-    expect(assign({ "hero-copy": 1 }, segment).assignments["hero-copy"]).toBe(true);
-    expect(assign({ "hero-copy": 0 }, segment).assignments["hero-copy"]).toBe(false);
-  });
-
-  it("rounds a fractional allocation and compares the roll with the rounded value", () => {
-    const id = "Zm9vYmFyYmF6cXV4MTIzNA"; // hero-copy rolls 0.93
-    const segment: Segment = { ...emptySegment(), id };
-    expect(assign({ "hero-copy": 0.5 }, segment).assignments["hero-copy"]).toBe(true); // 1%
-    expect(assign({ "hero-copy": 0.4 }, segment).assignments["hero-copy"]).toBe(false); // 0%
-  });
-
-  it("gives the same answer whatever path a fractional allocation took", () => {
-    // Stored at round(10.6) = 11, so a later 11 is no move at all: the
-    // visitor must be where a fresh visitor with the same id lands at 11.
-    for (const id of ids(2000)) {
-      const at11 = assign({ f: 10.6 }, { ...emptySegment(), id }).segment;
-      const then = assign({ f: 11 }, at11).assignments.f;
-      const fresh = assign({ f: 11 }, { ...emptySegment(), id }).assignments.f;
-      expect(then, id).toBe(fresh);
-    }
-  });
-
-  it("puts nobody in a paused experiment and everybody in a full one", () => {
-    for (const id of ids(500)) {
-      const segment: Segment = { ...emptySegment(), id };
-      expect(assign({ x: 0 }, segment).assignments.x).toBe(false);
-      expect(assign({ x: 100 }, segment).assignments.x).toBe(true);
-    }
-  });
-
-  it("drops an experiment that left the block", () => {
-    const first = assign({ "pdp-cta": 50, "hero-copy": 50 }, undefined, random);
-    const second = assign({ "pdp-cta": 50 }, first.segment);
-    expect(second.assignments).not.toHaveProperty("hero-copy");
-    expect(second.segment.active).not.toContain("hero-copy");
-    expect(second.segment.inactiveDrawn).not.toContain("hero-copy");
-    expect(second.segment.pct).not.toHaveProperty("hero-copy");
-    expect(second.changed).toBe(true);
-  });
-
-  it("ignores an allocation that is not a finite number", () => {
+  it("answers only the tests in the block, and leaves out a percentage that is not a finite number", () => {
     const experiments = { ok: 50, bad: Number.NaN, worse: "50" } as unknown as Record<
       string,
       number
     >;
-    const result = assign(experiments, undefined, random);
-    expect(Object.keys(result.assignments)).toEqual(["ok"]);
+    expect(Object.keys(assign(experiments, newVisitor()))).toEqual(["ok"]);
   });
 
-  it("reports the change when a name leaves because its allocation is unusable", () => {
-    // The name is still a key of the block, so counting dropped names from
-    // the block's keys would miss it: the cookie would lose the entry and
-    // `changed` would say nothing, leaving the stale one in the browser.
-    const before = assign({ a: 50, b: 50 }, undefined, random).segment;
-    expect([...before.active, ...before.inactiveDrawn]).toContain("b");
-    const after = assign({ a: 50, b: Number.NaN } as unknown as Record<string, number>, before);
-    expect([...after.segment.active, ...after.segment.inactiveDrawn]).not.toContain("b");
-    expect(after.changed).toBe(true);
+  it("treats __proto__ as an ordinary name", () => {
+    const experiments = JSON.parse('{"__proto__": 100}') as Record<string, number>;
+    const answers = assign(experiments, newVisitor());
+    expect(Object.keys(answers)).toEqual(["__proto__"]);
+    expect(Object.getOwnPropertyDescriptor(answers, "__proto__")?.value).toBe(true);
   });
 
   it("never throws, whatever it is handed", () => {
@@ -309,322 +207,228 @@ describe("assign", () => {
       { a: -10 },
       { a: 1e9 },
     ] as unknown as Record<string, number>[];
+    const visitors = [null, newVisitor(), { id: 5 }, { id: "AAAAAAAAAAAAAAAAAAAAAA", pct: null }];
     for (const experiments of junk) {
-      expect(() => assign(experiments, undefined, random)).not.toThrow();
+      for (const v of visitors) {
+        expect(() => assign(experiments, v as Visitor)).not.toThrow();
+      }
     }
   });
 });
 
 describe("the v7 visitor", () => {
-  /** A `deco_segment` v7 itself would have written: no id. */
-  const v7Cookie = (body: Record<string, unknown>) =>
-    `${SEGMENT_COOKIE}=${btoa(encodeURIComponent(JSON.stringify(body)))}`;
+  /** A v7 visitor, given an id: what `readVisitor` makes of a v7 cookie. */
+  const fromV7 = (body: Record<string, unknown>, id = "AAAAAAAAAAAAAAAAAAAAAA") => {
+    const { visitor: read } = readVisitor(requestWith(`${COOKIE}=${v7Value(body)}`));
+    return { ...read, id };
+  };
 
-  it("keeps the decision v7 made while its allocation still holds", () => {
-    // The visitor is recorded as in at 50%, but their own roll is 84.57 —
-    // a reshuffle would throw them out. The stored decision must win.
-    const raw = v7Cookie({
-      active: ["pdp-cta"],
-      inactiveDrawn: [],
-      pct: { "pdp-cta": 50 },
-    });
-    const segment = { ...parseSegment(raw), id: "AAAAAAAAAAAAAAAAAAAAAA" };
-    expect(assign({ "pdp-cta": 50 }, segment).assignments["pdp-cta"]).toBe(true);
+  it("keeps the decision v7 made while its percentage still holds", () => {
+    // In at 50%, but their own roll is 84.57: re-rolling would throw them out.
+    const v = fromV7({ active: ["pdp-cta"], inactiveDrawn: [], pct: { "pdp-cta": 50 } });
+    expect(assign({ "pdp-cta": 50 }, v)["pdp-cta"]).toBe(true);
   });
 
   it("honours a v7 cohort named like a saved block, spaces and comma included", () => {
-    // v7's cohort is the random matcher's saved block name, so production
-    // cookies carry names such as "Test AB 0,5" (traffic 0.5). `assign`
-    // validates no name: it only hashes them, so a migrated site keeps v7's
-    // cohort verbatim and nobody is re-rolled.
     const cohort = "Test AB 0,5";
-    const raw = v7Cookie({
-      active: [cohort],
-      inactiveDrawn: [],
-      pct: { [cohort]: 50 }, // v7 stored round(traffic * 100)
-    });
-    const result = assign({ [cohort]: 50 }, parseSegment(raw), seededRandom(11));
-    expect(result.assignments[cohort]).toBe(true);
-    // The cookie it writes back round-trips that name unharmed.
-    expect(parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(result.segment)}`).active).toEqual([
-      cohort,
-    ]);
+    const v = fromV7({ active: [cohort], inactiveDrawn: [], pct: { [cohort]: 50 } });
+    expect(assign({ [cohort]: 50 }, v)[cohort]).toBe(true);
+    expect(parseVisitor(serializeVisitor(v))?.active).toEqual([cohort]);
   });
 
-  it("keeps a v7 visitor in when the editor ramps up, roll or no roll", () => {
-    // The visitor's own roll is 84.57, so recomputing from it would throw
-    // them out of a test that just got *bigger*. Their id was drawn at the
-    // migration and has nothing to do with the draw v7 made, so the roll
-    // carries no information about them here: only the stored decision does.
-    const raw = v7Cookie({ active: ["pdp-cta"], inactiveDrawn: [], pct: { "pdp-cta": 50 } });
-    const segment = { ...parseSegment(raw), id: "AAAAAAAAAAAAAAAAAAAAAA" };
-    expect(assign({ "pdp-cta": 60 }, segment).assignments["pdp-cta"]).toBe(true);
+  it("keeps a v7 visitor in when the percentage goes up, roll or no roll", () => {
+    const v = fromV7({ active: ["pdp-cta"], inactiveDrawn: [], pct: { "pdp-cta": 50 } });
+    expect(assign({ "pdp-cta": 60 }, v)["pdp-cta"]).toBe(true);
   });
 
-  it("keeps a v7 visitor out when the editor ramps down", () => {
-    const raw = v7Cookie({ active: [], inactiveDrawn: ["pdp-cta"], pct: { "pdp-cta": 50 } });
-    const segment = { ...parseSegment(raw), id: "AAAAAAAAAAAAAAAAAAAAAA" };
-    expect(assign({ "pdp-cta": 40 }, segment).assignments["pdp-cta"]).toBe(false);
+  it("keeps a v7 visitor out when the percentage goes down", () => {
+    const v = fromV7({ active: [], inactiveDrawn: ["pdp-cta"], pct: { "pdp-cta": 50 } });
+    expect(assign({ "pdp-cta": 40 }, v)["pdp-cta"]).toBe(false);
   });
 
   for (const [label, pct] of [
-    ["recorded no allocation for the name", undefined],
-    ['recorded -1, v7\'s "any allocation"', -1],
+    ["recorded no percentage for the name", undefined],
+    ['recorded -1, v7\'s "any percentage"', -1],
   ] as const) {
-    it(`keeps both arms where v7 put them when the cookie ${label}`, () => {
-      // v7's reader treated a missing or negative entry as valid at any
-      // allocation. Re-rolling here would flip about half of each arm.
+    it(`keeps both groups where v7 put them when the cookie ${label}`, () => {
       for (const id of ids(400)) {
         for (const isIn of [true, false]) {
-          const body: Record<string, unknown> = {
-            active: isIn ? ["t"] : [],
-            inactiveDrawn: isIn ? [] : ["t"],
-            pct: pct === undefined ? {} : { t: pct },
-          };
-          const segment = { ...parseSegment(v7Cookie(body)), id };
-          const result = assign({ t: 50 }, segment);
-          expect(result.assignments.t, `${id} ${isIn}`).toBe(isIn);
-          // The allocation it now holds at is recorded, so a later move is a move.
-          expect(result.segment.pct.t).toBe(50);
+          const v = fromV7(
+            {
+              active: isIn ? ["t"] : [],
+              inactiveDrawn: isIn ? [] : ["t"],
+              pct: pct === undefined ? {} : { t: pct },
+            },
+            id,
+          );
+          expect(assign({ t: 50 }, v).t, `${id} ${isIn}`).toBe(isIn);
         }
       }
     });
   }
-
-  it("keeps the allocation v7 recorded beside an N-way name through assign", () => {
-    const raw = v7Cookie({
-      active: ["pdp-cta"],
-      inactiveDrawn: [],
-      pct: { "pdp-cta": 50, "legacy-nway": 30 },
-      exp: { "legacy-nway": "arm-b" },
-    });
-    const { segment } = assign({ "pdp-cta": 50 }, parseSegment(raw), seededRandom(4));
-    const written = parseSegment(segmentCookie(segment).split(";")[0]);
-    expect(written.exp).toEqual({ "legacy-nway": "arm-b" });
-    expect(written.pct).toEqual({ "pdp-cta": 50, "legacy-nway": 30 });
-  });
-
-  it("gets an id without losing anything else", () => {
-    const raw = v7Cookie({
-      active: ["pdp-cta"],
-      inactiveDrawn: ["hero-copy"],
-      pct: { "pdp-cta": 50, "hero-copy": 10 },
-      exp: { "legacy-nway": "arm-b" },
-    });
-    const result = assign({ "pdp-cta": 50, "hero-copy": 10 }, parseSegment(raw));
-    expect(result.segment.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(result.assignments).toEqual({ "pdp-cta": true, "hero-copy": false });
-    expect(result.segment.exp).toEqual({ "legacy-nway": "arm-b" }); // carried, never read
-  });
 });
 
-describe("the cookie", () => {
+describe("the visitor's stored form", () => {
   it("round-trips through v7's encoding", () => {
-    const segment = assign({ b: 50, a: 10 }, undefined, seededRandom(3)).segment;
-    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(segment)}`);
-    expect(parsed).toEqual(segment);
+    const v: Visitor = {
+      id: "AAAAAAAAAAAAAAAAAAAAAA",
+      active: ["a"],
+      inactiveDrawn: ["b"],
+      pct: { a: 10, b: 50 },
+      exp: { "legacy-nway": "arm-b" },
+    };
+    expect(parseVisitor(serializeVisitor(v))).toEqual(v);
   });
 
-  it("gives byte-equal values for equal segments, so nothing is rewritten for nothing", () => {
-    const a: Segment = {
+  it("is v7's format: btoa(encodeURIComponent(JSON)) with v7's fields plus id", () => {
+    const v = newVisitor();
+    const body = JSON.parse(decodeURIComponent(atob(serializeVisitor(v))));
+    expect(body).toEqual({ active: [], inactiveDrawn: [], pct: {}, id: v.id });
+  });
+
+  it("gives byte-equal values for equal visitors", () => {
+    const a: Visitor = {
       id: "AAAAAAAAAAAAAAAAAAAAAA",
       active: ["b", "a"],
       inactiveDrawn: ["d", "c"],
       pct: { b: 50, a: 10, d: 1, c: 2 },
     };
-    const b: Segment = {
+    const b: Visitor = {
       id: "AAAAAAAAAAAAAAAAAAAAAA",
       active: ["a", "b"],
       inactiveDrawn: ["c", "d"],
       pct: { a: 10, b: 50, c: 2, d: 1 },
     };
-    expect(serializeSegment(a)).toBe(serializeSegment(b));
+    expect(serializeVisitor(a)).toBe(serializeVisitor(b));
   });
 
-  it("keeps the fingerprint of v7's N-way names, which it only carries", () => {
-    // `exp` is passed through untouched, so dropping the `pct` v7 kept beside
-    // it would be a silent rewrite of data this module claims not to read.
-    const segment: Segment = {
-      id: "AAAAAAAAAAAAAAAAAAAAAA",
-      active: ["a"],
-      inactiveDrawn: [],
-      pct: { a: 50, "nway-test": 30 },
-      exp: { "nway-test": "arm-b" },
-    };
-    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(segment)}`);
-    expect(parsed.exp).toEqual({ "nway-test": "arm-b" });
-    expect(parsed.pct).toEqual({ a: 50, "nway-test": 30 });
-  });
-
-  it("reads one cookie out of a header holding others", () => {
-    const value = serializeSegment({ ...emptySegment(), id: "AAAAAAAAAAAAAAAAAAAAAA" });
-    const parsed = parseSegment(`other=1; ${SEGMENT_COOKIE}=${value}; last=2`);
-    expect(parsed.id).toBe("AAAAAAAAAAAAAAAAAAAAAA");
-  });
-
-  it("carries v7's attributes, and drops Secure when the site asks", () => {
-    const segment = emptySegment();
-    expect(segmentCookie(segment)).toContain("Path=/");
-    expect(segmentCookie(segment)).toContain("Max-Age=31536000");
-    expect(segmentCookie(segment)).toContain("SameSite=Lax");
-    expect(segmentCookie(segment)).toContain("Secure");
-    expect(segmentCookie(segment)).not.toContain("Domain");
-    expect(segmentCookie(segment)).not.toContain("HttpOnly");
-    expect(segmentCookie(segment, { secure: false })).not.toContain("Secure");
-  });
-
-  it("stays under 2KB with an id and 50 experiments", () => {
-    const experiments: Record<string, number> = {};
-    for (let i = 0; i < 50; i++) experiments[`experiment-number-${i}`] = 50;
-    const segment = assign(experiments, undefined, seededRandom(5)).segment;
-    expect(serializeSegment(segment).length).toBeLessThan(2048);
-  });
-
-  it("spends the budget on the entries a roll can reproduce, keeping the ones it cannot", () => {
-    // Trimming is not free: a dropped entry is recomputed from the roll on
-    // the next request, which reproduces the decision only when the stored
-    // value already agreed with it. A cohort carried over from v7 does not,
-    // so dropping it would move that visitor to the other arm for no reason
-    // at all — the cookie merely got long. Those go last.
+  it("stays under 2KB, dropping first the v7 entries the id reproduces", () => {
     const id = "AAAAAAAAAAAAAAAAAAAAAA";
-    const segment: Segment = { id, active: [], inactiveDrawn: [], pct: {} };
+    const v: Visitor = { id, active: [], inactiveDrawn: [], pct: {} };
     const unrecoverable: string[] = [];
     for (let i = 0; i < 20; i++) {
       const name = `experiment-number-${i}`;
-      // Store the opposite of what the roll says: only v7 could have written
-      // this, and only the cookie remembers it.
-      const isIn = !(roll(name, id) < 50);
-      (isIn ? segment.active : segment.inactiveDrawn).push(name);
-      segment.pct[name] = 50;
+      const isIn = !(roll(name, id) < 50); // only v7 could have stored this
+      (isIn ? v.active : v.inactiveDrawn).push(name);
+      v.pct[name] = 50;
       unrecoverable.push(name);
     }
     for (let i = 0; i < 120; i++) {
       const name = `reproducible-${i}`;
-      const isIn = roll(name, id) < 50;
-      (isIn ? segment.active : segment.inactiveDrawn).push(name);
-      segment.pct[name] = 50;
+      (roll(name, id) < 50 ? v.active : v.inactiveDrawn).push(name);
+      v.pct[name] = 50;
     }
-
-    const written = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(segment)}`);
-    expect(serializeSegment(segment).length).toBeLessThanOrEqual(2048);
+    const value = serializeVisitor(v);
+    expect(value.length).toBeLessThanOrEqual(2048);
+    const written = parseVisitor(value) as Visitor;
     const kept = new Set([...written.active, ...written.inactiveDrawn]);
-    // Every entry the roll cannot bring back survived the trim.
     for (const name of unrecoverable) expect(kept.has(name), name).toBe(true);
-    // And something was actually dropped, or the case proves nothing.
     expect(kept.size).toBeLessThan(140);
   });
 
-  it("never throws on a broken or hostile value, and gives an empty segment", () => {
+  it("parses to null when missing, broken, hostile, or without an id (never throws)", () => {
     const junk = [
       undefined,
       null,
       "",
-      "deco_segment=",
-      "deco_segment=not-base64!!",
-      `${SEGMENT_COOKIE}=${btoa("not json")}`,
-      `${SEGMENT_COOKIE}=${btoa(encodeURIComponent(JSON.stringify(null)))}`,
-      `${SEGMENT_COOKIE}=${btoa(encodeURIComponent(JSON.stringify([1, 2, 3])))}`,
-      `${SEGMENT_COOKIE}=${btoa(encodeURIComponent(JSON.stringify({ active: "nope" })))}`,
-      "=;;;===",
+      "not-base64!!",
+      btoa("not json"),
+      v7Value(null as never),
+      btoa(encodeURIComponent(JSON.stringify([1, 2, 3]))),
+      v7Value({ active: [], inactiveDrawn: [], pct: {} }), // v7: no id
+      v7Value({ id: "../../etc/passwd", active: [], inactiveDrawn: [], pct: {} }),
     ];
-    for (const raw of junk) {
-      expect(() => parseSegment(raw)).not.toThrow();
-      const parsed = parseSegment(raw);
-      expect(Array.isArray(parsed.active)).toBe(true);
-      expect(Array.isArray(parsed.inactiveDrawn)).toBe(true);
+    for (const text of junk) {
+      expect(() => parseVisitor(text)).not.toThrow();
+      expect(parseVisitor(text), String(text)).toBeNull();
     }
   });
 
   it("drops entries of the wrong type instead of trusting them", () => {
-    const raw = `${SEGMENT_COOKIE}=${btoa(
-      encodeURIComponent(
-        JSON.stringify({
-          id: "too-short",
-          active: ["ok", 42, null],
-          inactiveDrawn: ["fine"],
-          pct: { ok: 50, bad: "50" },
-          exp: { a: "arm", b: 7 },
-        }),
-      ),
-    )}`;
-    const parsed = parseSegment(raw);
-    expect(parsed.id).toBeUndefined(); // not 22 base64url chars: a new one is drawn
+    const parsed = parseVisitor(
+      v7Value({
+        id: "AAAAAAAAAAAAAAAAAAAAAA",
+        active: ["ok", 42, null],
+        inactiveDrawn: ["fine"],
+        pct: { ok: 50, bad: "50" },
+        exp: { a: "arm", b: 7 },
+      }),
+    ) as Visitor;
     expect(parsed.active).toEqual(["ok"]);
-    expect(parsed.pct).toEqual({ ok: 50 });
-    expect(parsed.exp).toEqual({ a: "arm" });
+    expect({ ...parsed.pct }).toEqual({ ok: 50 });
+    expect({ ...parsed.exp }).toEqual({ a: "arm" });
   });
 
-  it("replaces a forged id rather than using it", () => {
-    const raw = `${SEGMENT_COOKIE}=${btoa(
-      encodeURIComponent(
-        JSON.stringify({ id: "../../etc/passwd", active: [], inactiveDrawn: [], pct: {} }),
-      ),
-    )}`;
-    const result = assign({ a: 50 }, parseSegment(raw), seededRandom(9));
-    expect(result.segment.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-  });
-});
-
-describe("assign's changed flag", () => {
-  it("stays false on the next request once an over-budget cookie was trimmed", () => {
-    // Trimmed entries come back from the roll; they are not a change.
-    const experiments: Record<string, number> = {};
-    for (let i = 0; i < 140; i++) experiments[`a-fairly-long-experiment-name-${i}`] = 50;
-    const first = assign(experiments, undefined, seededRandom(21));
-    const written = serializeSegment(first.segment);
-    expect(written.length).toBeLessThanOrEqual(2048);
-    const parsed = parseSegment(`${SEGMENT_COOKIE}=${written}`);
-    expect([...parsed.active, ...parsed.inactiveDrawn].length).toBeLessThan(140); // trimmed
-    const second = assign(experiments, parsed);
-    expect(second.changed).toBe(false);
-    expect(second.assignments).toEqual(first.assignments);
-  });
-
-  it("is false for the cookie it wrote itself, and true once the allocation moves", () => {
-    const first = assign({ a: 50, b: 10 }, undefined, seededRandom(22));
-    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(first.segment)}`);
-    expect(assign({ a: 50, b: 10 }, parsed).changed).toBe(false);
-    expect(assign({ a: 50, b: 20 }, parsed).changed).toBe(true);
-  });
-});
-
-describe("names and encodings that used to break", () => {
   it("reads a percent-encoded value, as a cookie API that encodes what it writes leaves it", () => {
-    const { segment } = assign({ a: 50 }, undefined, seededRandom(23));
-    const value = serializeSegment(segment);
-    expect(value).toMatch(/=/); // base64 padding, which such an API writes as %3D
-    const parsed = parseSegment(`${SEGMENT_COOKIE}=${encodeURIComponent(value)}`);
-    expect(parsed.id).toBe(segment.id);
-    expect(assign({ a: 50 }, parsed).changed).toBe(false);
+    const v = newVisitor();
+    const value = serializeVisitor(v);
+    expect(parseVisitor(encodeURIComponent(value))?.id).toBe(v.id);
   });
 
-  it("treats __proto__ as an ordinary name: assigned, written, read back, not rewritten", () => {
-    const experiments = JSON.parse('{"__proto__": 100}') as Record<string, number>;
-    const first = assign(experiments, undefined, seededRandom(24));
-    expect(Object.keys(first.assignments)).toEqual(["__proto__"]);
-    expect(Object.getOwnPropertyDescriptor(first.assignments, "__proto__")?.value).toBe(true);
-    const parsed = parseSegment(`${SEGMENT_COOKIE}=${serializeSegment(first.segment)}`);
-    expect(parsed.active).toEqual(["__proto__"]);
-    expect(Object.hasOwn(parsed.pct, "__proto__")).toBe(true);
-    expect(assign(experiments, parsed).changed).toBe(false);
+  it("newVisitor draws a fresh 22-character id each time", () => {
+    const a = newVisitor();
+    const b = newVisitor();
+    expect(a.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(a.id).not.toBe(b.id);
+    expect(a).toMatchObject({ active: [], inactiveDrawn: [] });
   });
 });
 
-describe("readSegment", () => {
-  it("reads the segment from a request's Cookie header", () => {
-    const { segment } = assign({ a: 50 }, undefined, seededRandom(25));
-    const request = new Request("https://example.com/", {
-      headers: { cookie: `x=1; ${SEGMENT_COOKIE}=${serializeSegment(segment)}` },
-    });
-    expect(readSegment(request)).toEqual(parseSegment(request.headers.get("cookie")));
-    expect(readSegment(request).id).toBe(segment.id);
+describe("readVisitor", () => {
+  it("reads the visitor from the request's cookie, and sends no cookie back", () => {
+    const v = newVisitor();
+    const { visitor: read, cookie } = readVisitor(
+      requestWith(`x=1; ${COOKIE}=${serializeVisitor(v)}; y=2`),
+    );
+    expect(read.id).toBe(v.id);
+    expect(cookie).toBeNull();
   });
 
-  it("gives an empty segment for a request without the cookie", () => {
-    const parsed = readSegment(new Request("https://example.com/"));
-    expect(parsed.id).toBeUndefined();
-    expect(parsed.active).toEqual([]);
-    expect(parsed.inactiveDrawn).toEqual([]);
+  it("makes a visitor on a first visit, with the cookie line to send", () => {
+    const { visitor: read, cookie } = readVisitor(requestWith());
+    expect(read.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(cookie).toBe(
+      `${COOKIE}=${serializeVisitor(read)}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`,
+    );
+    expect(cookie).not.toContain("HttpOnly");
+    expect(cookie).not.toContain("Domain");
+  });
+
+  it("drops Secure for a request over plain http (localhost)", () => {
+    expect(readVisitor(requestWith(undefined, "http://localhost:3000/")).cookie).not.toContain(
+      "Secure",
+    );
+    expect(readVisitor({ headers: new Headers() }).cookie).toContain("Secure");
+  });
+
+  it("gives a v7 visitor an id, keeping every decision v7 stored", () => {
+    const body = {
+      active: ["pdp-cta"],
+      inactiveDrawn: ["hero-copy"],
+      pct: { "pdp-cta": 50, "hero-copy": 10, "legacy-nway": 30 },
+      exp: { "legacy-nway": "arm-b" },
+    };
+    const { visitor: read, cookie } = readVisitor(requestWith(`${COOKIE}=${v7Value(body)}`));
+    expect(read.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    const written = parseVisitor((cookie as string).split(";")[0].slice(COOKIE.length + 1));
+    expect(written).toEqual(read);
+    expect(written).toMatchObject({ ...body, id: read.id });
+  });
+
+  it("never throws, and replaces a broken or forged value", () => {
+    for (const raw of ["=;;;===", `${COOKIE}=`, `${COOKIE}=garbage!!`]) {
+      const { visitor: read, cookie } = readVisitor(requestWith(raw));
+      expect(read.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      expect(cookie).not.toBeNull();
+    }
+    const broken = {
+      headers: {
+        get: () => {
+          throw new Error("no headers");
+        },
+      },
+    };
+    expect(() => readVisitor(broken)).not.toThrow();
   });
 });
 
@@ -641,10 +445,10 @@ describe("the ./experiments subpath", () => {
   it("exports exactly the documented runtime names", async () => {
     expect(Object.keys(await import("./experiments.ts")).sort()).toEqual([
       "assign",
-      "parseSegment",
-      "readSegment",
-      "segmentCookie",
-      "serializeSegment",
+      "newVisitor",
+      "parseVisitor",
+      "readVisitor",
+      "serializeVisitor",
     ]);
   });
 });

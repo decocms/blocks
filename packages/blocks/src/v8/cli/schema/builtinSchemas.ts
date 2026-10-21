@@ -17,7 +17,7 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   page: "pages",
   redirect: "redirects",
   "cms-settings": "content",
-  experiments: "content",
+  "split-traffic": "content",
   secret: "loaders",
 };
 
@@ -36,8 +36,8 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
     icon: "calendar-event",
   },
   experiment: {
-    title: "Experiment",
-    description: "True for the visitors in an A/B test of the Experiments block",
+    title: "A/B test",
+    description: "True for the visitors in a test of the saved block experiments",
     icon: "flask",
   },
   page: { title: "Page", description: "A page at a URL" },
@@ -47,16 +47,16 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
     description: "Preview hosts, telemetry and analytics: the saved block named CMS",
     icon: "settings",
   },
-  experiments: {
-    title: "Experiments",
+  "split-traffic": {
+    title: "Split traffic",
     description:
-      "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone): the saved block named Experiments",
+      "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
     icon: "flask",
   },
   secret: { title: "Secret", description: "An encrypted value, decrypted on the server" },
 };
 
-/** The form of each allocation in the `experiments` block: a whole percentage. */
+/** The form of each test in a `split-traffic` block: a whole percentage. */
 const ALLOCATION = {
   type: "integer",
   title: "Visitors in (%)",
@@ -151,12 +151,12 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
         properties: {
           name: {
             type: "string",
-            title: "Experiment",
-            description: "A name in the Experiments block",
+            title: "Test",
+            description: "A test in the saved block experiments",
           },
         },
       };
-    case "experiments":
+    case "split-traffic":
       // The names are the content: every key but __resolveType is one (see builtInDefinition).
       return { type: "object", properties: {} };
     case "page":
@@ -276,7 +276,7 @@ export function builtInDefinition(name: string, ctx: BuiltInContext): any {
   return flatDefinition(name, builtInProps(name, ctx), {
     description: docs.description,
     ...(docs.icon ? { icon: docs.icon } : {}),
-    ...(name === "experiments" ? { additionalProperties: ALLOCATION } : {}),
+    ...(name === "split-traffic" ? { additionalProperties: ALLOCATION } : {}),
   });
 }
 

@@ -1,8 +1,9 @@
 /**
  * Draft pointers (see /next/api-reference#draft-pointers): the string
  * `<host[:port]><path[?query]>@<version>` that names a draft, and what
- * `cms.draftPointer` and `cms.draftCookie` read and write to carry one from a
- * `?__draft=` link into a cookie. The host check against the preview hosts is
+ * `cms.readVersion` and `cms.draftCookie` read and write to carry one (or a
+ * published release's commit SHA) from a `?__draft=` link into a cookie. The
+ * host check against the preview hosts is
  * the CMS's: these read the request only.
  *
  * The query's reserved `__variant` parameters are the variants a preview
@@ -27,6 +28,18 @@ const PATH_RE = /^\/[A-Za-z0-9/_.%~=&?-]*$/;
 const MAX_POINTER_LENGTH = 4096;
 const VARIANT_PARAM = "__variant=";
 const INDEX_RE = /^(0|[1-9][0-9]{0,3})$/;
+/** A published release: its git commit SHA (SHA-1, 40 lowercase hex). */
+const REVISION_RE = /^[0-9a-f]{40}$/;
+
+/** Whether a version names a published release (its commit SHA) rather than a draft. */
+export function isRevision(version: string): boolean {
+  return REVISION_RE.test(version);
+}
+
+/** Whether a Studio link's value is a version: a draft pointer or a release's commit SHA. */
+function isVersion(value: string): boolean {
+  return isRevision(value) || parseDraftPointer(value) !== null;
+}
 
 /**
  * Parses a pointer, strictly: `null` on a scheme, a stray `@`, an unrooted
@@ -157,23 +170,24 @@ function normalizeIPv6Host(authority: string): string | null {
 }
 
 /**
- * The draft pointer a request carries: `?__draft=` from the URL first, then
- * the `__deco_draft` cookie. `null` when neither is present, or when the URL
- * says `?__draft=off`. A value that doesn't parse is ignored, as if it were
+ * The version a request carries (a draft pointer, or a published release's
+ * commit SHA): `?__draft=` from the URL first, then the `__deco_draft`
+ * cookie. `null` when neither is present, or when the URL says
+ * `?__draft=off`. A value that doesn't parse is ignored, as if it were
  * absent: a stray `?__draft=junk` link or a mangled cookie gets the release,
- * never an error from `cms.forDraft`.
+ * never an error from `cms.client`.
  */
-export function readDraftPointer(request: RequestLike): string | null {
+export function readVersion(request: RequestLike): string | null {
   const param = draftParam(request);
   if (param === DRAFT_OFF) return null;
-  if (param && parseDraftPointer(param) !== null) return param;
+  if (param && isVersion(param)) return param;
   const cookie = readCookie(request.headers.get("cookie"), DRAFT_COOKIE);
-  return cookie && parseDraftPointer(cookie) !== null ? cookie : null;
+  return cookie && isVersion(cookie) ? cookie : null;
 }
 
 /**
  * The `Set-Cookie` value for a request whose URL carries `?__draft=`: one that
- * stores the pointer, or one that expires the cookie when the value is `off`
+ * stores the version (a draft pointer or a release's commit SHA), or one that expires the cookie when the value is `off`
  * (how the site editor ends a preview). `null` on every other request, and for
  * a pointer that doesn't parse, so garbage never lands in the cookie.
  *
@@ -185,7 +199,7 @@ export function draftCookieFor(request: RequestLike): string | null {
   const param = draftParam(request);
   if (!param) return null;
   if (param === DRAFT_OFF) return serializeCookie("", ["Max-Age=0"]);
-  if (parseDraftPointer(param) === null) return null;
+  if (!isVersion(param)) return null;
   return serializeCookie(encodeURIComponent(param), []);
 }
 

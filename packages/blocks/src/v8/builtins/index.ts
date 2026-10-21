@@ -1,6 +1,6 @@
 import type { BlockFunction } from "../types.ts";
 import { cmsSettings, page, redirect, SETTINGS_TYPE } from "./data.ts";
-import { EXPERIMENTS_TYPE, experiment, experiments } from "./experiments.ts";
+import { experiment, SPLIT_TRAFFIC_TYPE, splitTraffic } from "./experiments.ts";
 import { lazy } from "./lazy.ts";
 import { always, date, never } from "./matchers.ts";
 import { multivariate } from "./multivariate.ts";
@@ -9,8 +9,6 @@ import { secretBlock } from "./secret.ts";
 /**
  * The built-in blocks every block map gets. `secret` here has no key, so it
  * always fails; each CMS replaces it with one holding its `secrets.key`.
- * `experiment` here has no assignments, so it is always `false`; each client
- * created with `{ assignments }` gets one holding them.
  */
 export const builtIns: Readonly<Record<string, BlockFunction>> = Object.freeze({
   lazy,
@@ -22,7 +20,7 @@ export const builtIns: Readonly<Record<string, BlockFunction>> = Object.freeze({
   page,
   redirect,
   [SETTINGS_TYPE]: cmsSettings,
-  [EXPERIMENTS_TYPE]: experiments,
+  [SPLIT_TRAFFIC_TYPE]: splitTraffic,
   secret: secretBlock(),
 });
 

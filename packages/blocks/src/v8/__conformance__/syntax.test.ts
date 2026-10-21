@@ -59,7 +59,7 @@ const BUILT_INS = [
   "page",
   "redirect",
   "cms-settings",
-  "experiments",
+  "split-traffic",
   "secret",
 ];
 

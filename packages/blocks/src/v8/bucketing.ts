@@ -1,7 +1,7 @@
 /**
  * The arithmetic behind `@decocms/blocks/experiments`: the hash, the roll and
  * the visitor id. Internal: not in the exports map, so the public surface is
- * `assign` and the cookie helpers alone, and the tests import this by path.
+ * `assign` and the visitor helpers alone, and the tests import this by path.
  *
  * A hash bug here fails silently: every visitor still gets an answer, it is
  * just the wrong one, and the test's result is quietly meaningless. That is
@@ -9,7 +9,7 @@
  * of rolls, and why changing anything here moves visitors already allocated.
  */
 
-/** Fills `bytes` with random values. `assign` takes one so tests can pin the id. */
+/** Fills `bytes` with random values. `newId` takes one so tests can pin the id. */
 export type RandomBytes = (bytes: Uint8Array<ArrayBuffer>) => void;
 
 const ID_BYTES = 16;
@@ -76,7 +76,7 @@ function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export const defaultRandom: RandomBytes = (bytes) => {
+const defaultRandom: RandomBytes = (bytes) => {
   crypto.getRandomValues(bytes);
 };
 

@@ -1,9 +1,11 @@
 /**
  * A client: one revision, loaded on first use and read for the rest of its
- * life, plus a memo of block results. Create one per request.
+ * life, plus a memo of block results, and the inputs it was created with
+ * (the visitor, the version, the moment it shows). Create one per request.
  */
-import { withExperiments } from "./builtins/experiments.ts";
+import { FORCED_TESTS } from "./current.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
+import type { Visitor } from "./experiments.ts";
 import { isBlock } from "./json.ts";
 import { Resolver } from "./resolver.ts";
 import type { ClientTelemetry } from "./telemetry.ts";
@@ -24,12 +26,14 @@ interface ClientOptions {
   blocks: Blocks;
   /** The built-ins, with this CMS's `secret`. */
   builtIns: Readonly<Blocks>;
-  /**
-   * The tests the visitor is in (`{ assignments }`, copied). The built-in
-   * `experiment` matcher answers from them and from the loaded snapshot's
-   * `Experiments` block, so a draft client reads the draft's tests.
-   */
-  assignments?: ReadonlySet<string>;
+  /** Who is visiting (copied and frozen); `null` for none. */
+  visitor?: Visitor | null;
+  /** The version it was created with: `undefined` for the current release. */
+  version?: string;
+  /** The moment it shows, in ms since the epoch: a preview's time, or its creation. */
+  now?: number;
+  /** The tests a preview link forces on or off, by name. */
+  forcedTests?: Readonly<Record<string, boolean>>;
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
 }
@@ -39,10 +43,35 @@ type Loaded = { resolver: Resolver; snapshot: Snapshot } | { error: CMSError };
 export class CMSClient implements Client {
   readonly #options: ClientOptions;
   readonly #reported = new WeakSet<CMSError>();
+  readonly #visitor: Visitor | null;
+  readonly #now: number;
+  readonly #forced: Readonly<Record<string, boolean>> | undefined;
   #loaded: Promise<Loaded> | undefined;
+  /** The revision loaded, once it is. */
+  #revision: string | undefined;
 
   constructor(options: ClientOptions) {
     this.#options = options;
+    this.#visitor = copyVisitor(options.visitor);
+    this.#now = options.now ?? Date.now();
+    this.#forced = options.forcedTests && Object.freeze({ ...options.forcedTests });
+  }
+
+  get visitor(): Visitor | null {
+    return this.#visitor;
+  }
+
+  get version(): string | undefined {
+    return this.#options.version ?? this.#revision;
+  }
+
+  get now(): Date {
+    return new Date(this.#now);
+  }
+
+  /** Read by the built-in `split-traffic` (see ./current.ts). */
+  get [FORCED_TESTS](): Readonly<Record<string, boolean>> | undefined {
+    return this.#forced;
   }
 
   async resolve<T = unknown>(target: unknown, options: ResolveOptions = {}): Promise<Result<T>> {
@@ -109,16 +138,20 @@ export class CMSClient implements Client {
 
   #load(): Promise<Loaded> {
     this.#loaded ??= this.#options.load().then(
-      (snapshot): Loaded => ({
-        snapshot,
-        resolver: new Resolver({
+      (snapshot): Loaded => {
+        this.#revision = snapshot.revision;
+        return {
           snapshot,
-          blocks: this.#options.blocks,
-          builtIns: withExperiments(this.#options.builtIns, snapshot, this.#options.assignments),
-          onCollision: this.#options.onCollision,
-          onBlock: this.#options.telemetry?.block,
-        }),
-      }),
+          resolver: new Resolver({
+            snapshot,
+            blocks: this.#options.blocks,
+            builtIns: this.#options.builtIns,
+            client: this,
+            onCollision: this.#options.onCollision,
+            onBlock: this.#options.telemetry?.block,
+          }),
+        };
+      },
       (error): Loaded => ({
         error: isResolutionError(error)
           ? error
@@ -136,6 +169,28 @@ export class CMSClient implements Client {
     }
     return [null, error];
   }
+}
+
+/**
+ * The client's own frozen copy of a visitor, so a caller changing its object
+ * later changes no client; `null` for anything that isn't one.
+ */
+function copyVisitor(visitor: Visitor | null | undefined): Visitor | null {
+  if (typeof visitor !== "object" || visitor === null || typeof visitor.id !== "string") {
+    return null;
+  }
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
+  const copy: Visitor = {
+    id: visitor.id,
+    active: Object.freeze(strings(visitor.active)) as string[],
+    inactiveDrawn: Object.freeze(strings(visitor.inactiveDrawn)) as string[],
+    pct: Object.freeze(Object.assign(Object.create(null), visitor.pct)),
+  };
+  if (typeof visitor.exp === "object" && visitor.exp !== null) {
+    copy.exp = Object.freeze(Object.assign(Object.create(null), visitor.exp));
+  }
+  return Object.freeze(copy);
 }
 
 /** Plain code-unit order, the same on every server and locale. */

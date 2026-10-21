@@ -293,20 +293,20 @@ describe("built-ins and aliases", () => {
       "page",
       "redirect",
       "cms-settings",
-      "experiments",
+      "split-traffic",
       "secret",
     ]) {
       expect(def(name), name).toBeDefined();
     }
     expect(def("redirect").required).toEqual(["__resolveType", "from", "to", "permanent"]);
-    // Every key of the experiments block but __resolveType is a test: a whole percentage.
-    expect(def("experiments").additionalProperties).toMatchObject({
+    // Every key of a split-traffic block but __resolveType is a test: a whole percentage.
+    expect(def("split-traffic").additionalProperties).toMatchObject({
       type: "integer",
       minimum: 0,
       maximum: 100,
     });
     expect(def("experiment").required).toEqual(["__resolveType", "name"]);
-    expect(meta.manifest.blocks.content.experiments).toBeDefined();
+    expect(meta.manifest.blocks.content["split-traffic"]).toBeDefined();
     expect(meta.manifest.blocks.matchers.experiment).toBeDefined();
     expect(def("page").properties.sections.anyOf[0]).toEqual({
       type: "array",

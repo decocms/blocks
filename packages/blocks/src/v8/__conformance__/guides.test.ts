@@ -151,7 +151,7 @@ describe("quickstart", () => {
         "page",
         "redirect",
         "cms-settings",
-        "experiments",
+        "split-traffic",
         "always",
         "never",
         "date",
@@ -169,7 +169,7 @@ describe("quickstart", () => {
       ["page", { name: "x", path: "/", sections: [] }],
       ["redirect", { from: "/a", to: "/b", permanent: false }],
       ["cms-settings", {}],
-      ["experiments", {}],
+      ["split-traffic", {}],
       ["experiment", { name: "x" }],
       ["multivariate", { variants: [] }],
     ] as const) {

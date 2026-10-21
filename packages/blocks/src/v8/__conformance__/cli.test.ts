@@ -1998,7 +1998,7 @@ describe("studio-compatibility.mdx", () => {
     expect(Object.keys(g.pages)).toEqual(expect.arrayContaining(["page", "post"]));
     expect(Object.keys(g.redirects)).toContain("redirect");
     expect(Object.keys(g.content)).toEqual(
-      expect.arrayContaining(["seo", "hero", "cms-settings", "experiments"]),
+      expect.arrayContaining(["seo", "hero", "cms-settings", "split-traffic"]),
     );
   });
 
