@@ -25,17 +25,15 @@ export class MemoryCache {
     return this.entries.delete(key.url);
   }
 
-  /** The stored copies' keys, each without its generation; the paths' purge entries left out. */
+  /** The stored copies' keys (the kept navigation shapes left out). */
   pageKeys(): string[] {
-    return [...this.entries.keys()]
-      .filter((key) => !new URL(key).searchParams.has("__purge"))
-      .map((key) => key.replace(/&__g=[0-9a-f]+$/, ""));
+    return [...this.entries.keys()].filter((key) => !key.includes("/_cache/navigation-shapes"));
   }
 
-  /** The stored copies (purge entries left out). */
+  /** The stored copies (the kept navigation shapes left out). */
   pages(): Response[] {
     return [...this.entries]
-      .filter(([key]) => !new URL(key).searchParams.has("__purge"))
+      .filter(([key]) => !key.includes("/_cache/navigation-shapes"))
       .map(([, response]) => response);
   }
 }

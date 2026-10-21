@@ -43,19 +43,29 @@ async function saves(client: Reader, type: string): Promise<boolean> {
   return (list?.length ?? 0) > 0;
 }
 
-/** The names that resolved `true` in the saved `block`, sorted; none when it is missing. */
-async function trueNames(client: Reader, spec: { block: string; type: string }): Promise<string[]> {
+/**
+ * The names in the saved `block`, sorted: every one, or (`onlyTrue`) those
+ * that resolved `true`; none when it is missing.
+ */
+async function names(
+  client: Reader,
+  spec: { block: string; type: string },
+  onlyTrue = true,
+): Promise<string[]> {
   try {
     if (!(await saves(client, spec.type))) return [];
     const [value] = await client.resolve<unknown>(spec.block);
     if (!isRecord(value)) return [];
     return Object.keys(value)
-      .filter((name) => value[name] === true)
+      .filter((name) => !onlyTrue || value[name] === true)
       .sort(byCodeUnit);
   } catch {
     return [];
   }
 }
+
+const trueNames = (client: Reader, spec: { block: string; type: string }) =>
+  names(client, spec, true);
 
 /**
  * The assignments of one request: resolves `experiments` and `campaigns`
@@ -78,6 +88,35 @@ export async function readAssignments(
     trueNames(client, CAMPAIGNS),
   ]);
   return { ...none, experiments, campaigns };
+}
+
+/**
+ * Every assignments key a live request can carry now, for a purge: each
+ * subset of the tests in the saved `experiments` block (the empty one
+ * included), with the campaigns running now and with none. Previews are
+ * never cached, so no version. A site without either block has one: `""`.
+ */
+export async function liveAssignmentKeys(cms: Pick<CMS, "client">): Promise<string[]> {
+  let client: Reader;
+  try {
+    client = cms.client({ visitor: null, version: null });
+  } catch {
+    return [""];
+  }
+  const [tests, running] = await Promise.all([
+    names(client, EXPERIMENTS, false),
+    trueNames(client, CAMPAIGNS),
+  ]);
+  const campaignSets = running.length ? [running, []] : [[]];
+  const keys: string[] = [];
+  // Subsets by bitmask, tests in sorted order: 2^tests of them.
+  for (let mask = 0; mask < 2 ** tests.length; mask++) {
+    const experiments = tests.filter((_, i) => Math.floor(mask / 2 ** i) % 2 === 1);
+    for (const campaigns of campaignSets) {
+      keys.push(assignmentsKey({ version: null, experiments, campaigns }));
+    }
+  }
+  return keys;
 }
 
 /**

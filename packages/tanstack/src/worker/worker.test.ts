@@ -989,54 +989,117 @@ describe("Set-Cookie: one header per cookie (name + Domain + Path, v7 #642)", ()
 });
 
 describe("purge", () => {
-  const purgeRequest = (paths: string[], auth = "Bearer secret") =>
+  const purgeRequest = (body: unknown, auth = "Bearer secret") =>
     new Request(`${ORIGIN}/_cache/purge`, {
       method: "POST",
       headers: { authorization: auth },
-      body: JSON.stringify({ paths }),
+      body: typeof body === "string" ? body : JSON.stringify(body),
     });
   const as = (v: Visitor) => ({ headers: { cookie: `deco_segment=${serializeVisitor(v)}` } });
+  const TABLET_UA = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) Mobile/15E148";
 
-  it("POST /_cache/purge with the token drops every copy of a path: each device, segment part, query and fetch", async () => {
+  it("v7's request: a Bearer token and { paths, countries, salesChannels, regionIds }; v7's answer", async () => {
     const { get, worker, ctx } = setup({
       purgeToken: (env) => (env as { T?: string }).T,
-      segment: (r) => ({ region: r.headers.get("x-region") ?? undefined }),
+      segment: (r) => ({
+        salesChannel: r.headers.get("x-sc") ?? undefined,
+        regionId: r.headers.get("x-region") ?? undefined,
+      }),
     });
     const copies: [string, Parameters<typeof get>[1]][] = [
       ["/shoes", {}],
-      ["/shoes", { ua: PHONE_UA }],
-      ["/shoes", { headers: { "x-region": "south" } }],
-      ["/shoes?page=2", {}],
-      ["/shoes", { headers: { "sec-fetch-dest": "empty" } }],
+      ["/shoes", { headers: { "x-sc": "2" } }],
+      ["/shoes", { headers: { "x-sc": "2", "x-region": "south" } }],
     ];
-    for (const [path, init] of copies) {
-      expect((await get(path, init)).headers.get("x-cache")).toBe("MISS");
-    }
+    for (const [path, init] of copies) await get(path, init);
     await get("/hats");
-    expect(cache.pageKeys()).toHaveLength(6);
-    expect(
-      (await worker.fetch(purgeRequest(["/shoes"], "Bearer nope"), { T: "secret" }, ctx)).status,
-    ).toBe(401);
-    const res = await worker.fetch(purgeRequest(["/shoes", "/never"]), { T: "secret" }, ctx);
-    expect(await res.json()).toEqual({ purged: ["/shoes"], notCached: ["/never"], total: 1 });
+    const res = await worker.fetch(
+      purgeRequest({
+        paths: ["/shoes"],
+        countries: ["BR", "US"],
+        salesChannels: ["1", "2"],
+        regionIds: ["south"],
+      }),
+      { T: "secret" },
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      purged: [
+        "/shoes (device=desktop)",
+        "/shoes (device=desktop|salesChannel=2)",
+        "/shoes (device=desktop|regionId=south|salesChannel=2)",
+      ],
+      total: 3,
+    });
     for (const [path, init] of copies) {
       expect((await get(path, init)).headers.get("x-cache")).toBe("MISS");
     }
     expect((await get("/hats")).headers.get("x-cache")).toBe("HIT");
   });
 
-  for (const running of [0, 1, 5, 10]) {
-    it(`with ${running} running tests, one delete drops every copy: each side, each campaign, v7 visitors' stored sides`, async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-02T00:00:00Z" };
-      const CM = { start: "2026-11-30T00:00:00Z", end: "2026-12-01T00:00:00Z" };
-      const phases = [Date.parse(BF.start) + 1_000, Date.parse(CM.start) + 1_000];
+  it("exact paths only, as v7: /shoes never drops /shoes?page=2", async () => {
+    const { get, worker, ctx } = setup({ purgeToken: () => "secret" });
+    await get("/shoes");
+    await get("/shoes?page=2");
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+    expect(await res.json()).toEqual({ purged: ["/shoes (device=desktop)"], total: 1 });
+    expect((await get("/shoes")).headers.get("x-cache")).toBe("MISS");
+    expect((await get("/shoes?page=2")).headers.get("x-cache")).toBe("HIT");
+    const query = await worker.fetch(purgeRequest({ paths: ["/shoes?page=2"] }), {}, ctx);
+    expect(await query.json()).toEqual({ purged: ["/shoes?page=2 (device=desktop)"], total: 1 });
+    expect((await get("/shoes?page=2")).headers.get("x-cache")).toBe("MISS");
+  });
+
+  it("every device, navigations and programmatic fetches", async () => {
+    const { get, worker, ctx } = setup({ purgeToken: () => "secret" });
+    const copies: [string, Parameters<typeof get>[1]][] = [
+      ["/shoes", {}],
+      ["/shoes", { ua: PHONE_UA }],
+      ["/shoes", { ua: TABLET_UA }],
+      ["/shoes", { headers: { "sec-fetch-dest": "empty" } }],
+      ["/shoes", { ua: PHONE_UA, headers: { "sec-fetch-dest": "empty" } }],
+    ];
+    for (const [path, init] of copies) await get(path, init);
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+    expect(await res.json()).toEqual({
+      purged: [
+        "/shoes (device=mobile)",
+        "/shoes (device=mobile, fetch)",
+        "/shoes (device=tablet)",
+        "/shoes (device=desktop)",
+        "/shoes (device=desktop, fetch)",
+      ],
+      total: 5,
+    });
+    for (const [path, init] of copies) {
+      expect((await get(path, init)).headers.get("x-cache")).toBe("MISS");
+    }
+  });
+
+  it("main's segments field lists the segments to drop", async () => {
+    const { get, worker, ctx } = setup({
+      purgeToken: () => "secret",
+      segment: (r) => ({ region: r.headers.get("x-region") ?? undefined }),
+    });
+    await get("/shoes", { headers: { "x-region": "south" } });
+    const res = await worker.fetch(
+      purgeRequest({ paths: ["/shoes"], segments: [{ device: "desktop", region: "south" }] }),
+      {},
+      ctx,
+    );
+    expect(await res.json()).toEqual({
+      purged: ["/shoes (device=desktop|region=south)"],
+      total: 1,
+    });
+  });
+
+  for (const running of [0, 1, 3]) {
+    it(`with ${running} tests at 50% (and tests at 0 and 100), every side is dropped, v7 visitors' stored sides included`, async () => {
       const experiments: Record<string, number> = { off: 0, all: 100 };
       for (let i = 0; i < running; i++) experiments[`t${i}`] = 50;
-      const { get, worker, ctx, entry } = setup({
-        cms: testCMS(
-          snapshot({ experiments, campaigns: { "black-friday": BF, "cyber-monday": CM } }),
-        ),
+      const { get, worker, ctx } = setup({
+        cms: testCMS(snapshot({ experiments })),
         purgeToken: () => "secret",
       });
       const visitors: Visitor[] = Array.from({ length: 24 }, () => newVisitor());
@@ -1044,102 +1107,122 @@ describe("purge", () => {
       visitors.push({ id: newVisitor().id, active: [], inactiveDrawn: ["all"], pct: { all: 100 } });
       visitors.push({ id: newVisitor().id, active: ["off"], inactiveDrawn: [], pct: { off: 0 } });
       const sides = new Set(visitors.map((v) => JSON.stringify(assign(experiments, v))));
-      expect(sides.size).toBeGreaterThan(running === 0 ? 2 : running === 1 ? 3 : 6);
-
-      for (const at of phases) {
-        vi.setSystemTime(at);
-        for (const v of visitors) await get("/shoes", as(v));
-      }
-      // Every side of every test, under each set of running campaigns.
-      expect(cache.pageKeys()).toHaveLength(sides.size * phases.length);
+      for (const v of visitors) await get("/shoes", as(v));
+      await get("/hats");
+      expect(cache.pageKeys()).toHaveLength(sides.size + 1);
 
       const deletes = vi.spyOn(cache, "delete");
-      const res = await worker.fetch(purgeRequest(["/shoes"]), {}, ctx);
-      expect(await res.json()).toEqual({ purged: ["/shoes"], notCached: [], total: 1 });
-      expect(deletes).toHaveBeenCalledTimes(1);
-
-      // Every copy rendered again: the first visitor of each side misses, the others share its new copy.
-      const rendered = entry.served.length;
-      for (const at of phases) {
-        vi.setSystemTime(at);
-        const seen = new Set<string>();
-        for (const v of visitors) {
-          const side = JSON.stringify(assign(experiments, v));
-          const again = await get("/shoes", as(v));
-          expect(again.headers.get("x-cache")).toBe(seen.has(side) ? "HIT" : "MISS");
-          seen.add(side);
-        }
-      }
-      expect(entry.served.length - rendered).toBe(sides.size * phases.length);
+      const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+      const body = (await res.json()) as { purged: string[]; total: number };
+      expect(body.total).toBe(sides.size);
+      // Each device × navigation or fetch × every subset of the 2 + running tests.
+      expect(deletes).toHaveBeenCalledTimes(3 * 2 * 2 ** (2 + running));
+      expect(cache.pageKeys()).toEqual([expect.stringContaining(`${ORIGIN}/hats?`)]);
     });
   }
 
-  it("a purge drops the page's navigation data (its server-function page loads) too", async () => {
+  it("the campaigns running now and none: copies from before a campaign started are dropped too", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-02T00:00:00Z" };
+    const { get, worker, ctx } = setup({
+      cms: testCMS(snapshot({ campaigns: { "black-friday": BF } })),
+      purgeToken: () => "secret",
+    });
+    vi.setSystemTime(Date.parse(BF.start) - 1_000);
+    await get("/shoes");
+    vi.setSystemTime(Date.parse(BF.start) + 1_000);
+    await get("/shoes");
+    expect(cache.pageKeys()).toHaveLength(2);
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+    expect(await res.json()).toEqual({
+      purged: ["/shoes (device=desktop, c=black-friday)", "/shoes (device=desktop)"],
+      total: 2,
+    });
+    expect(cache.pageKeys()).toEqual([]);
+  });
+
+  it("drops the page's navigation data (its server-function page loads), for that exact path", async () => {
     const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
       Response.json({ ok: true }),
     );
-    const load = (href: string) =>
-      `/_serverFn/abc?payload=${encodeURIComponent(JSON.stringify({ data: { href } }))}`;
-    for (const path of [load("/shoes"), load("/shoes?page=2"), load("/hats")]) {
+    const load = (href: string, fn = "abc") =>
+      `/_serverFn/${fn}?payload=${encodeURIComponent(JSON.stringify({ data: { href, pathname: href.split("?")[0] } }))}`;
+    const paths = [load("/shoes"), load("/shoes", "def"), load("/shoes?page=2"), load("/hats")];
+    for (const path of paths) {
       expect((await get(path)).headers.get("x-cache")).toBe("MISS");
       expect((await get(path)).headers.get("x-cache")).toBe("HIT");
     }
-    const res = await worker.fetch(purgeRequest(["/shoes"]), {}, ctx);
-    expect(await res.json()).toEqual({ purged: ["/shoes"], notCached: [], total: 1 });
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
+    expect(await res.json()).toEqual({
+      purged: ["/shoes (device=desktop, navigation)", "/shoes (device=desktop, navigation)"],
+      total: 2,
+    });
     expect((await get(load("/shoes"))).headers.get("x-cache")).toBe("MISS");
-    expect((await get(load("/shoes?page=2"))).headers.get("x-cache")).toBe("MISS");
+    expect((await get(load("/shoes", "def"))).headers.get("x-cache")).toBe("MISS");
+    expect((await get(load("/shoes?page=2"))).headers.get("x-cache")).toBe("HIT");
     expect((await get(load("/hats"))).headers.get("x-cache")).toBe("HIT");
   });
 
-  it("a failed delete (the Cache API down or its per-request quota spent) names the paths it didn't reach", async () => {
+  it("a page's request is one cache lookup: no extra entry is read", async () => {
+    const { get } = setup();
+    await get("/shoes");
+    const match = vi.spyOn(cache, "match");
+    expect((await get("/shoes")).headers.get("x-cache")).toBe("HIT");
+    expect(match).toHaveBeenCalledTimes(1);
+    expect(cache.pageKeys()).toEqual([`${ORIGIN}/shoes?__v=abc123.rev-1&__seg=device%3Ddesktop`]);
+  });
+
+  it("a wrong or missing token is a 401; no purgeToken turns it off", async () => {
+    const on = setup({ purgeToken: () => "secret" });
+    expect(
+      (await on.worker.fetch(purgeRequest({ paths: ["/"] }, "Bearer nope"), {}, on.ctx)).status,
+    ).toBe(401);
+    expect((await on.worker.fetch(purgeRequest({ paths: ["/"] }, ""), {}, on.ctx)).status).toBe(
+      401,
+    );
+    const off = setup();
+    expect((await off.worker.fetch(purgeRequest({ paths: ["/"] }), {}, off.ctx)).status).toBe(401);
+  });
+
+  it("a body that isn't JSON, or has no paths, is a 400", async () => {
+    const { worker, ctx } = setup({ purgeToken: () => "secret" });
+    const bad = await worker.fetch(purgeRequest("{not json"), {}, ctx);
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toBe("Invalid JSON body");
+    for (const body of [{}, { paths: [] }, { paths: ["shoes"] }, null]) {
+      const res = await worker.fetch(purgeRequest(body), {}, ctx);
+      expect(res.status).toBe(400);
+      expect(await res.text()).toBe('Body must include "paths": ["/", "/page"]');
+    }
+  });
+
+  it("without the Cache API, v7's note", async () => {
+    const { worker, ctx } = setup({ purgeToken: () => "secret" });
+    uninstallCache();
+    const res = await worker.fetch(purgeRequest({ paths: ["/"] }), {}, ctx);
+    expect(await res.json()).toEqual({ purged: [], total: 0, note: "Cache storage unavailable" });
+  });
+
+  it("a failed delete (the Cache API down or its per-request calls spent) is a 503 naming the paths to send again", async () => {
     const { get, worker, ctx } = setup({ purgeToken: () => "secret" });
     await get("/a");
     await get("/b");
     const remove = cache.delete.bind(cache);
     let calls = 0;
+    // Each path takes 6 deletes (3 devices × navigation and fetch); the 9th throws, inside /b.
     vi.spyOn(cache, "delete").mockImplementation(async (key: Request) => {
-      if (++calls > 2) throw new Error("Too many API requests by single Worker invocation");
+      if (++calls > 8) throw new Error("Too many API requests by single Worker invocation");
       return remove(key);
     });
-    const res = await worker.fetch(purgeRequest(["/a", "/never", "/b", "/c"]), {}, ctx);
+    const res = await worker.fetch(purgeRequest({ paths: ["/a", "/b", "/c"] }), {}, ctx);
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({
-      purged: ["/a"],
-      notCached: ["/never"],
+      purged: ["/a (device=desktop)"],
       notPurged: ["/b", "/c"],
       total: 1,
-      note: "The Cache API failed: send the notPurged paths again",
+      note: "The Cache API stopped answering: send the notPurged paths again",
     });
     expect((await get("/b")).headers.get("x-cache")).toBe("HIT");
-  });
-
-  it("an evicted purge entry is a miss, never a stale copy", async () => {
-    const { get } = setup();
-    await get("/shoes");
-    for (const key of cache.entries.keys()) if (key.includes("__purge")) cache.entries.delete(key);
-    expect((await get("/shoes")).headers.get("x-cache")).toBe("MISS");
-    expect((await get("/shoes")).headers.get("x-cache")).toBe("HIT");
-  });
-
-  it("a failed read of the path's purge entry stores nothing", async () => {
-    const { get } = setup();
-    const match = cache.match.bind(cache);
-    vi.spyOn(cache, "match").mockImplementation(async (key: Request) => {
-      if (key.url.includes("__purge")) throw new Error("Cache API down");
-      return match(key);
-    });
-    expect((await get("/shoes")).headers.get("x-cache")).toBe("MISS");
-    expect(cache.entries.size).toBe(0);
-  });
-
-  it("is off without purgeToken", async () => {
-    const { worker, ctx } = setup();
-    const res = await worker.fetch(
-      new Request(`${ORIGIN}/_cache/purge`, { method: "POST", body: "{}" }),
-      {},
-      ctx,
-    );
-    expect(res.status).toBe(401);
   });
 });
 
