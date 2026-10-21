@@ -48,10 +48,10 @@ import {
   resolveProfiles,
 } from "./cacheProfiles.ts";
 import { dedupeSetCookies, hasOnlySafeCookies, withoutSafeCookies } from "./cookies.ts";
-import { decisionsKey, possibleDecisions, readDecisions } from "./decisions.ts";
+import { decisionsKey, readDecisions } from "./decisions.ts";
 import { decideDraft, type PreviewPolicy } from "./drafts.ts";
 import { type CspOptions, htmlSecurityHeaders } from "./security.ts";
-import { DEVICES, detectDevice, type Segment, segmentKey, segmentToken } from "./segment.ts";
+import { detectDevice, type Segment, segmentKey, segmentToken } from "./segment.ts";
 
 export type {
   CacheProfile,
@@ -113,7 +113,11 @@ export interface DecoWorkerOptions<Env = unknown> {
   cacheProfiles?: CacheProfileOverrides;
   /** Cookies a cached response may set (stripped from the stored copy). Default: `_deco_bucket`. */
   safeCookies?: readonly string[];
-  /** Turns on `POST /_cache/purge` with `Authorization: Bearer <token>`. */
+  /**
+   * Turns on `POST /_cache/purge` with `Authorization: Bearer <token>`: each
+   * path's every cached copy (every device and segment part, every side of
+   * every test, every campaign, any query) stops being served.
+   */
   purgeToken?: (env: Env) => string | undefined;
   /**
    * `Link: rel=preload` hints on every HTML response the app renders. A
@@ -180,6 +184,19 @@ const TRACKING_PARAMS = new Set([
 ]);
 const DEFAULT_SAFE_COOKIES = ["_deco_bucket"];
 const STORED_AT = "X-Deco-Stored-At";
+/**
+ * A path's generation: a random id kept in the Cache API under the path's
+ * purge entry and carried in the key of every copy of the path. A purge
+ * deletes the purge entry, so no copy stored before it is looked up again,
+ * whatever device, segment, query or decisions it was stored for: one delete
+ * per path, never one per combination. An evicted purge entry is a miss,
+ * never a stale page.
+ */
+const GENERATION = "X-Deco-Generation";
+const GENERATION_PARAM = "__g";
+const PURGE_ENTRY_PARAM = "__purge";
+/** A purge entry outlives the copies it stands for (they last a profile's TTL). */
+const GENERATION_TTL = 60 * 60 * 24 * 365;
 const DECISIONS = new Set<string>(["HIT", "STALE-HIT", "STALE-ERROR", "MISS", "BYPASS"]);
 /** Paths the worker (or TanStack Start) serves under a fixed template, for `http.route`. */
 const FIXED_ROUTES = [LIVENESS_PATH, PURGE_PATH];
@@ -251,6 +268,33 @@ function appendVary(headers: Headers, value: string): void {
   }
 }
 
+/** The Cache API key of a path's purge entry: its origin and path, no query. */
+function purgeKey(url: URL): Request {
+  const key = new URL(url.pathname, url.origin);
+  key.searchParams.set(PURGE_ENTRY_PARAM, "1");
+  return new Request(key.toString(), { method: "GET" });
+}
+
+/** The path's generation; `null` when it has none; `undefined` when the Cache API failed. */
+async function readGeneration(cache: Cache, url: URL): Promise<string | null | undefined> {
+  try {
+    const entry = await cache.match(purgeKey(url));
+    return entry?.headers.get(GENERATION) || null;
+  } catch {
+    return undefined;
+  }
+}
+
+function newGeneration(): string {
+  return crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+}
+
+function generationEntry(generation: string): Response {
+  return new Response("", {
+    headers: { "Cache-Control": `public, max-age=${GENERATION_TTL}`, [GENERATION]: generation },
+  });
+}
+
 function mutable(response: Response): Response {
   return new Response(response.body, response);
 }
@@ -307,6 +351,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     version: string,
     segment: Segment,
     decided: string,
+    generation: string,
   ): Request {
     const key = new URL(url);
     for (const name of [...key.searchParams.keys()]) {
@@ -325,6 +370,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     }
     key.searchParams.set("__seg", segmentKey(segment));
     if (decided) key.searchParams.set("__d", decided);
+    key.searchParams.set(GENERATION_PARAM, generation);
     return new Request(key.toString(), { method: "GET" });
   }
 
@@ -333,7 +379,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) {
       return new Response("Unauthorized", { status: 401 });
     }
-    let body: { paths?: unknown; segments?: unknown };
+    let body: { paths?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -345,42 +391,32 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     if (paths.length === 0) {
       return new Response('Body must include "paths": ["/", "/page"]', { status: 400 });
     }
-    // Each segment to drop: the devices by default; a site with more parts lists its own.
-    const segments: Segment[] = Array.isArray(body.segments)
-      ? body.segments.filter((s): s is Segment => !!s && typeof s === "object")
-      : DEVICES.map((device) => ({ device }));
     const cache = edgeCache();
-    if (!cache) return Response.json({ purged: [], total: 0, note: "Cache API unavailable" });
+    if (!cache)
+      return Response.json({ purged: [], notCached: [], total: 0, note: "Cache API unavailable" });
     const origin = new URL(request.url).origin;
-    // The current version's entries: older versions' keys are no longer looked
-    // up, nor are those of campaigns that are no longer running.
-    const version = await cacheVersion();
-    const { decisions, complete } = await possibleDecisions(cms);
+    // One delete per path: its purge entry. Every copy of the path (each
+    // device and segment part, each side of every test, each campaign, each
+    // query, a v7 visitor's stored sides) carries the generation that entry
+    // held, so none is served again; the copies themselves expire unread.
+    // A path's query never matters: `/shoes?page=2` is a copy of `/shoes`.
+    const dropped = new Map<string, boolean>();
     const purged: string[] = [];
-    for (const path of paths) {
-      for (const segment of segments) {
-        for (const decided of decisions.map(decisionsKey)) {
-          for (const programmatic of [false, true]) {
-            const url = new URL(path, origin);
-            const headers = programmatic ? { "sec-fetch-dest": "empty" } : undefined;
-            const key = cacheKey(url, new Request(url, { headers }), version, segment, decided);
-            if (await cache.delete(key)) {
-              const parts = [segmentKey(segment), decided, programmatic ? "fetch" : ""];
-              purged.push(`${path} (${parts.filter(Boolean).join(", ")})`);
-            }
-          }
+    const notCached: string[] = [];
+    for (const path of new Set(paths)) {
+      const key = purgeKey(new URL(`${origin}${path}`));
+      let gone = dropped.get(key.url);
+      if (gone === undefined) {
+        try {
+          gone = await cache.delete(key);
+        } catch {
+          return new Response("Cache API unavailable", { status: 503 });
         }
+        dropped.set(key.url, gone);
       }
+      (gone ? purged : notCached).push(path);
     }
-    return Response.json({
-      purged,
-      total: purged.length,
-      ...(complete
-        ? {}
-        : {
-            note: "More than four tests are running: only the combinations of the first four were purged",
-          }),
-    });
+    return Response.json({ purged, notCached, total: purged.length });
   }
 
   // The release's redirects, read once per revision (a draft's are read each time).
@@ -598,6 +634,12 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       segment !== "private" &&
       !request.headers.has("authorization") &&
       !BYPASS_PATHS.some((p) => url.pathname.startsWith(p));
+    const cache = edgeCache();
+    // The path's generation, read beside the version and the decisions.
+    const generationRead =
+      cacheable && cache && profile.isPublic && profile.edge.fresh > 0
+        ? readGeneration(cache, url)
+        : Promise.resolve(undefined);
     const version = cacheable ? await cacheVersion() : "";
     // What the content decides for this request, before the lookup: two
     // visitors on the same side of every test share an entry.
@@ -642,8 +684,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     }
 
     const seg = segment as Segment;
-    const key = cacheKey(url, request, version, seg, decided);
-    const cache = edgeCache();
+    let generation = await generationRead;
+    const keyFor = (g: string) => cacheKey(url, request, version, seg, decided, g);
     const edge = profile.edge;
     const cdnPublic =
       token !== null &&
@@ -683,7 +725,13 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       hasOnlySafeCookies(resp, safeCookies);
 
     const store = (resp: Response) => {
-      if (!cache) return;
+      // A failed read of the generation stores nothing: a new one would hide every copy of the path.
+      if (!cache || generation === undefined) return;
+      if (generation === null) {
+        generation = newGeneration();
+        ctx.waitUntil(cache.put(purgeKey(url), generationEntry(generation)).catch(() => {}));
+      }
+      const key = keyFor(generation);
       const ttl = edge.fresh + Math.max(edge.swr, edge.sie);
       const copy = resp.headers.has("set-cookie")
         ? withoutSafeCookies(resp, safeCookies)
@@ -700,9 +748,9 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     };
 
     let cached: Response | undefined;
-    if (cache && profile.isPublic && edge.fresh > 0) {
+    if (cache && generation && profile.isPublic && edge.fresh > 0) {
       try {
-        cached = (await cache.match(key)) ?? undefined;
+        cached = (await cache.match(keyFor(generation))) ?? undefined;
       } catch {
         // Cache API unavailable: a miss.
       }

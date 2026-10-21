@@ -24,6 +24,20 @@ export class MemoryCache {
   async delete(key: Request): Promise<boolean> {
     return this.entries.delete(key.url);
   }
+
+  /** The stored copies' keys, each without its generation; the paths' purge entries left out. */
+  pageKeys(): string[] {
+    return [...this.entries.keys()]
+      .filter((key) => !new URL(key).searchParams.has("__purge"))
+      .map((key) => key.replace(/&__g=[0-9a-f]+$/, ""));
+  }
+
+  /** The stored copies (purge entries left out). */
+  pages(): Response[] {
+    return [...this.entries]
+      .filter(([key]) => !new URL(key).searchParams.has("__purge"))
+      .map(([, response]) => response);
+  }
 }
 
 export function installCache(): MemoryCache {

@@ -5,7 +5,7 @@
  */
 import { assign, newVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decisionsKey, possibleDecisions, readDecisions } from "./decisions.ts";
+import { decisionsKey, readDecisions } from "./decisions.ts";
 import { POINTER, snapshot, testCMS } from "./testing.ts";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -94,30 +94,5 @@ describe("decisionsKey", () => {
     const b = decisionsKey({ version: null, experiments: ["a|x", "b"], campaigns: ["c,d"] });
     expect(a).toBe(b);
     expect(a).toBe("x=a%7Cx,b|c=c%2Cd");
-  });
-});
-
-describe("possibleDecisions", () => {
-  it("every side of the running tests, the fixed ones as they are", async () => {
-    const cms = testCMS(snapshot({ experiments: { hero: 50, cta: 10, all: 100, off: 0 } }));
-    const { decisions, complete } = await possibleDecisions(cms);
-    expect(complete).toBe(true);
-    expect(decisions.map(decisionsKey).sort()).toEqual(
-      ["x=all", "x=all,cta", "x=all,hero", "x=all,cta,hero"].sort(),
-    );
-  });
-
-  it("more than four running tests: the first four's combinations, and says so", async () => {
-    const tests = Object.fromEntries(["a", "b", "c", "d", "e"].map((n) => [n, 50]));
-    const { decisions, complete } = await possibleDecisions(
-      testCMS(snapshot({ experiments: tests })),
-    );
-    expect(decisions).toHaveLength(16);
-    expect(complete).toBe(false);
-  });
-
-  it("no blocks: one decision, none", async () => {
-    const { decisions } = await possibleDecisions(testCMS());
-    expect(decisions.map(decisionsKey)).toEqual([""]);
   });
 });

@@ -21,8 +21,6 @@ export function detectDevice(userAgent: string): Device {
   return "desktop";
 }
 
-export const DEVICES: readonly Device[] = ["mobile", "tablet", "desktop"];
-
 /** A segment as one stable string: parts sorted by name, values URL-encoded. */
 export function segmentKey(segment: Segment): string {
   return Object.keys(segment)
