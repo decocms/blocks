@@ -666,6 +666,24 @@ describe("a v7 Next.js site on the v8 binding", () => {
     expect(note).not.toContain("SegmentCookie");
     // The proxy reads the visitor: the report says how.
     expect(report.manual.find((n) => n.subject === "experiments")?.message).toContain("draftProxy");
+    // The A/B test and the date window are saved blocks the rules name.
+    expect(JSON.parse(read(".deco/blocks/experiments.json"))).toEqual({
+      __resolveType: "split-traffic",
+      "Hero test": 30,
+    });
+    expect(Object.keys(JSON.parse(read(".deco/blocks/campaigns.json")))).toEqual([
+      "__resolveType",
+      "2020-11-27 → 2020-12-01",
+    ]);
+    expect(
+      JSON.parse(read(".deco/blocks/pages-home.json")).sections[0].variants.map(
+        (v: { rule: unknown }) => v.rule,
+      ),
+    ).toEqual([
+      { __resolveType: "experiment", name: "Hero test" },
+      { __resolveType: "website/matchers/device.ts", mobile: true },
+      { __resolveType: "date", campaign: "2020-11-27 → 2020-12-01" },
+    ]);
     // Next.js images go through its image loader: no src/imageUrl.ts.
     expect(fs.existsSync(path.join(root, "src/imageUrl.ts"))).toBe(false);
   });
