@@ -8,7 +8,25 @@
     "description": "Light cotton shirt for hot days."
   },
   "sections": [
-    { "__resolveType": "promo-banner", "title": "Free shipping over $50", "href": "/shipping" },
+    {
+      "__resolveType": "multivariate",
+      "variants": [
+        {
+          "rule": { "__resolveType": "experiment", "name": "promo-copy" },
+          "value": {
+            "__resolveType": "lazy",
+            "value": { "__resolveType": "promo-banner", "title": "Free shipping on every order", "href": "/shipping" }
+          }
+        },
+        {
+          "rule": { "__resolveType": "always" },
+          "value": {
+            "__resolveType": "lazy",
+            "value": { "__resolveType": "promo-banner", "title": "Free shipping over $50", "href": "/shipping" }
+          }
+        }
+      ]
+    },
     {
       "__resolveType": "product-hero",
       "name": "Summer shirt",

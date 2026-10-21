@@ -4,6 +4,7 @@
  * Start's server entry replaced by test doubles: the header matrix of every
  * always-on behaviour, and each option a site uses.
  */
+import { newVisitor, parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CSEG_PARAM } from "../shared.ts";
 import { type CacheEvent, createDecoWorker, type DecoWorkerOptions } from "./index.ts";
@@ -27,6 +28,9 @@ const DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) Chrome/130";
 /** A start time for fake clocks (a stored copy records when it was stored). */
 const T0 = 1_700_000_000_000;
 const PHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
+
+/** A visitor who has been here before: their cookie, as the worker wrote it. */
+const RETURNING = `deco_segment=${serializeVisitor(newVisitor())}`;
 
 let cache: MemoryCache;
 beforeEach(() => {
@@ -53,9 +57,14 @@ function setup(
     ...options,
   });
   const ctx = new TestContext();
-  const get = async (path: string, init: RequestInit & { ua?: string } = {}) => {
+  const get = async (path: string, init: RequestInit & { ua?: string; firstVisit?: true } = {}) => {
     const headers = new Headers(init.headers);
     if (!headers.has("user-agent")) headers.set("user-agent", init.ua ?? DESKTOP_UA);
+    // A returning visitor unless the test says otherwise, so no visitor cookie joins its own.
+    const cookie = headers.get("cookie");
+    if (!init.firstVisit && !cookie?.includes("deco_segment=")) {
+      headers.set("cookie", cookie ? `${cookie}; ${RETURNING}` : RETURNING);
+    }
     const url = path.startsWith("http") ? path : `${ORIGIN}${path}`;
     const response = await worker.fetch(new Request(url, { ...init, headers }), {}, ctx);
     await ctx.settle();
@@ -522,35 +531,51 @@ describe("drafts", () => {
   });
 });
 
-describe("A/B tests: the visitor's assignments", () => {
-  const withTests = (experiments: Record<string, number>) =>
-    testCMS(snapshot({ previewHosts: ["store.example.com"], experiments }));
+describe("the visitor", () => {
   const segmentCookies = (res: Response) =>
     res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
   const cookieValue = (setCookie: string) => setCookie.split(";")[0] as string;
+  const forwarded = (headers: Headers | undefined) =>
+    parseVisitor(headers?.get("x-deco-visitor") ?? null);
 
-  it("a first visit: the app gets the assignments, the response sets deco_segment", async () => {
-    const { get, entry } = setup({ cms: withTests({ "buy-button": 100, "hero-copy": 0 }) });
-    const res = await get("/");
-    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("buy-button");
+  it("a first visit: the app gets a new visitor, the response sets deco_segment once", async () => {
+    const { get, entry } = setup();
+    const res = await get("/", { firstVisit: true });
+    const visitor = forwarded(entry.served[0]?.headers);
+    expect(visitor?.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     const [cookie, ...more] = segmentCookies(res);
     expect(more).toEqual([]);
     expect(cookie).toMatch(/^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/);
+    expect(cookieValue(cookie as string)).toBe(`deco_segment=${serializeVisitor(visitor!)}`);
   });
 
-  it("the cookie is written only when the assignments change", async () => {
-    const { get, entry } = setup({ cms: withTests({ "buy-button": 100 }) });
-    const first = segmentCookies(await get("/shoes"));
-    expect(first).toHaveLength(1);
-    const again = await get("/shoes", { headers: { cookie: cookieValue(first[0] as string) } });
+  it("a returning visitor keeps their id and gets no cookie", async () => {
+    const { get, entry } = setup();
+    const [first] = segmentCookies(await get("/shoes", { firstVisit: true }));
+    const again = await get("/shoes", { headers: { cookie: cookieValue(first as string) } });
     expect(segmentCookies(again)).toEqual([]);
-    expect(entry.served.at(-1)?.headers.get("x-deco-assignments")).toBe("buy-button");
+    expect(forwarded(entry.served.at(-1)?.headers)?.id).toBe(
+      forwarded(entry.served[0]?.headers)?.id,
+    );
+  });
+
+  it("a v7 visitor gets an id once, their stored decisions kept", async () => {
+    const v7 = btoa(
+      encodeURIComponent(
+        JSON.stringify({ active: ["hero"], inactiveDrawn: [], pct: { hero: 50 } }),
+      ),
+    );
+    const { get, entry } = setup();
+    const res = await get("/", { headers: { cookie: `deco_segment=${v7}` } });
+    const visitor = forwarded(entry.served[0]?.headers);
+    expect(visitor?.active).toEqual(["hero"]);
+    expect(segmentCookies(res)).toHaveLength(1);
   });
 
   it("a new visitor served from the cache still gets their cookie; the stored copy has none", async () => {
-    const { get, entry } = setup({ cms: withTests({ "buy-button": 50 }) });
-    await get("/");
-    const hit = await get("/");
+    const { get, entry } = setup();
+    await get("/", { firstVisit: true });
+    const hit = await get("/", { firstVisit: true });
     expect(hit.headers.get("x-cache")).toBe("HIT");
     expect(entry.served).toHaveLength(1);
     expect(segmentCookies(hit)).toHaveLength(1);
@@ -558,69 +583,82 @@ describe("A/B tests: the visitor's assignments", () => {
       expect(stored.headers.has("set-cookie")).toBe(false);
   });
 
-  it("server-function calls are assigned too", async () => {
-    const { get, entry } = setup({ cms: withTests({ "buy-button": 100 }) }, () =>
-      Response.json({}),
-    );
-    const res = await get("/_serverFn/abc", { method: "POST" });
-    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("buy-button");
+  it("server-function calls get the visitor too", async () => {
+    const { get, entry } = setup({}, () => Response.json({}));
+    const res = await get("/_serverFn/abc", { method: "POST", firstVisit: true });
+    expect(forwarded(entry.served[0]?.headers)).not.toBe(null);
     expect(segmentCookies(res)).toHaveLength(1);
   });
 
-  it("with no experiments: no header, no cookie", async () => {
-    const { get, entry } = setup();
-    const res = await get("/");
-    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
-    expect(segmentCookies(res)).toEqual([]);
-  });
-
-  it("an x-deco-assignments header from outside never reaches the app", async () => {
-    const forged = { headers: { "x-deco-assignments": "buy-button" } };
-    const none = setup();
-    await none.get("/", forged);
-    expect(none.entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
-    const off = setup({ cms: withTests({ "buy-button": 0 }) });
-    await off.get("/shoes", forged);
-    expect(off.entry.served[0]?.headers.get("x-deco-assignments")).toBe("");
+  it("an x-deco-visitor header from outside never reaches the app", async () => {
+    const forged = serializeVisitor({ ...newVisitor(), id: "AAAAAAAAAAAAAAAAAAAAAA" });
+    const init = { headers: { "x-deco-visitor": forged }, firstVisit: true } as const;
+    const page = setup();
+    await page.get("/", init);
+    expect(forwarded(page.entry.served[0]?.headers)?.id).not.toBe("AAAAAAAAAAAAAAAAAAAAAA");
     const routed = setup({
-      routes: (request) => html(request.headers.get("x-deco-assignments") ?? "none"),
+      routes: (request) => html(request.headers.get("x-deco-visitor") ?? "none"),
     });
-    expect(await (await routed.get("/hats", forged)).text()).toBe("none");
+    expect(await (await routed.get("/hats", init)).text()).toBe("none");
   });
 
-  it("a draft is assigned from the draft's Experiments, and never writes deco_segment", async () => {
-    // The draft adds a test the release doesn't have.
-    const draft = {
-      set: { Experiments: { __resolveType: "experiments", "buy-button": 100 } },
-      delete: [],
-    };
+  it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json(draft)),
+      vi.fn(async () => Response.json({ set: {}, delete: [] })),
     );
-    const { get, entry } = setup({ cms: withTests({ "hero-copy": 0 }) });
-    const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, {
-      headers: { "x-deco-assignments": "hero-copy" },
-    });
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, { firstVisit: true });
     expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(POINTER);
-    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("buy-button");
+    expect(forwarded(entry.served[0]?.headers)).not.toBe(null);
     expect(segmentCookies(res)).toEqual([]);
   });
 
-  it("assets and the liveness check are never assigned", async () => {
+  it("assets and the liveness check never read the visitor", async () => {
     const { get, entry } = setup(
-      { cms: withTests({ "buy-button": 100 }) },
+      {},
       () => new Response("x", { headers: { "content-type": "text/javascript" } }),
     );
-    expect(segmentCookies(await get("/assets/main-AbCdEf12.js"))).toEqual([]);
-    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(false);
-    expect(segmentCookies(await get("/deco/_liveness"))).toEqual([]);
+    expect(segmentCookies(await get("/assets/main-AbCdEf12.js", { firstVisit: true }))).toEqual([]);
+    expect(entry.served[0]?.headers.has("x-deco-visitor")).toBe(false);
+    expect(segmentCookies(await get("/deco/_liveness", { firstVisit: true }))).toEqual([]);
   });
 
   it("over plain http (local development) the cookie isn't Secure", async () => {
-    const { get } = setup({ cms: withTests({ "buy-button": 100 }) });
-    const [cookie] = segmentCookies(await get("http://localhost:5173/"));
+    const { get } = setup();
+    const [cookie] = segmentCookies(await get("http://localhost:5173/", { firstVisit: true }));
     expect(cookie).not.toContain("Secure");
+  });
+});
+
+describe("the version: an old release from a Studio link", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const segmentCookies = (res: Response) =>
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+
+  it("a release SHA on a preview host is the version the app reads, kept in the draft cookie", async () => {
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${SHA}`, { firstVisit: true });
+    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(SHA);
+    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(`__deco_draft=${SHA};`))).toBe(true);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("with the preview time and forced tests on it", async () => {
+    const version = `${SHA}?__at=${encodeURIComponent("2026-11-28T10:00:00-03:00")}&__test=${encodeURIComponent("hero=on")}`;
+    const { get, entry } = setup();
+    await get(`/?__draft=${encodeURIComponent(version)}`);
+    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(version);
+  });
+
+  it("on a host that may not preview, or when it doesn't parse, the request gets the current release", async () => {
+    const { get, entry } = setup();
+    await get(`https://elsewhere.example.com/?__draft=${SHA}`);
+    await get(`/?__draft=${SHA.slice(1)}`);
+    await get(`/?__draft=${encodeURIComponent(`${SHA}?__at=yesterday`)}`);
+    await get(`/?__draft=${encodeURIComponent(`${SHA}?page=2`)}`);
+    for (const served of entry.served) expect(served.headers.has("x-deco-draft")).toBe(false);
   });
 });
 

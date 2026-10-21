@@ -102,6 +102,17 @@ try {
     page.body.match(/srcSet="[^"]*"/)?.[0],
   );
   check("no draft badge on the release", !page.body.includes(POINTER));
+  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const [visitorCookie, ...moreVisitorCookies] = visitorCookies(page.res);
+  check(
+    "a first visit gets the visitor's cookie from the proxy, once",
+    /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
+      moreVisitorCookies.length === 0,
+    page.res.headers.getSetCookie().join(" | "),
+  );
+  // Another route, so the per-route request counts below stay as they are.
+  const returning = await get("/blog", { cookie: (visitorCookie ?? "").split(";")[0] });
+  check("a returning visitor gets no new cookie", visitorCookies(returning.res).length === 0, returning.res.headers.getSetCookie().join(" | "));
 
   const link = await get(draftLink("/summer-shirt/p"), DECO_HOST);
   check("a draft link on a Deco host renders the draft", link.res.status === 200 && link.body.includes("Draft shirt"), link.res.status);
@@ -118,6 +129,7 @@ try {
     link.res.headers.get("set-cookie"),
   );
   check("the draft page mounts the badge for its draft", link.body.includes(POINTER));
+  check("a preview never sends the visitor's cookie", visitorCookies(link.res).length === 0, link.res.headers.getSetCookie().join(" | "));
 
   const cookie = await get("/summer-shirt/p", { ...DECO_HOST, ...COOKIE });
   check("the cookie keeps the preview going", cookie.body.includes("Draft shirt"));

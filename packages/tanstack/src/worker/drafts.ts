@@ -5,7 +5,7 @@
  * `DECO_ALLOWED_PREVIEW_HOSTS` variable; here it is the `previewHosts` option.
  *
  * - The site's own preview hosts: the ones it declares, in the `CMS` block or
- *   as `createCMS({ preview: { hosts } })` (matched as `cms.draftPointer`
+ *   as `createCMS({ preview: { hosts } })` (matched as `cms.readVersion`
  *   matches them). A site that declares none has none, as in v7: blocks'
  *   own default (every host) doesn't count as a declaration.
  * - The hosts Deco runs the site on, named after the site and always added:
@@ -17,6 +17,12 @@
  *
  * The draft itself is the capability: a host check only bounds where a draft
  * link works. A request the check refuses gets the release, never an error.
+ *
+ * What a link carries is a version, as `cms.readVersion` reads it: a draft
+ * pointer, or a published release's commit SHA (Studio's "Preview this
+ * version"), either one with the preview parameters (`__at`, `__test`,
+ * `__variant`). Both pass the same host check: a visitor on the live site
+ * never picks a version.
  */
 import { type CMS, parseDraftPointer } from "@decocms/blocks";
 import { DRAFT_COOKIE, DRAFT_PARAM } from "../draft.ts";
@@ -98,17 +104,34 @@ function readCookie(header: string | null, name: string): string | null {
   return null;
 }
 
+/** A published release: its git commit SHA (SHA-1, 40 lowercase hex), as `@decocms/blocks` names it. */
+const REVISION_RE = /^[0-9a-f]{40}$/;
+
 /**
- * The pointer a request carries, as `@decocms/blocks` reads it: `?__draft=`
+ * Whether `value` is a version `cms.readVersion` accepts: a draft pointer, or
+ * a release's commit SHA, optionally followed by `?` and the preview
+ * parameters a pointer's query takes (`<sha>?__at=…&__test=…`).
+ */
+export function isVersion(value: string): boolean {
+  if (parseDraftPointer(value) !== null) return true;
+  const q = value.indexOf("?");
+  if (!REVISION_RE.test(q === -1 ? value : value.slice(0, q))) return false;
+  if (q === -1) return true;
+  // The parameters parse as a pointer's would, with nothing else in the query.
+  return parseDraftPointer(`localhost/${value.slice(q)}@${value.slice(0, q)}`)?.path === "/";
+}
+
+/**
+ * The version a request carries, as `@decocms/blocks` reads it: `?__draft=`
  * first, then the draft cookie; `null` for `?__draft=off` and for a value
  * that doesn't parse.
  */
 export function readDraftPointer(request: Request): string | null {
   const param = draftParam(new URL(request.url));
   if (param === DRAFT_OFF) return null;
-  if (param && parseDraftPointer(param) !== null) return param;
+  if (param && isVersion(param)) return param;
   const cookie = readCookie(request.headers.get("cookie"), DRAFT_COOKIE);
-  return cookie && parseDraftPointer(cookie) !== null ? cookie : null;
+  return cookie && isVersion(cookie) ? cookie : null;
 }
 
 function serializeCookie(value: string, extra: string[]): string {
@@ -125,15 +148,18 @@ function serializeCookie(value: string, extra: string[]): string {
 }
 
 export interface DraftDecision {
-  /** The draft this request renders, after the host check; `null` for the release. */
+  /**
+   * The version this request renders (a draft pointer, or a release's commit
+   * SHA), after the host check; `null` for the current release.
+   */
   pointer: string | null;
-  /** The `Set-Cookie` the response carries: storing a draft link's pointer, or ending a preview. */
+  /** The `Set-Cookie` the response carries: storing a link's version, or ending a preview. */
   setCookie: string | null;
 }
 
-/** The draft a request renders, and the cookie its response sets, under `policy`. */
+/** The version a request renders, and the cookie its response sets, under `policy`. */
 export async function decideDraft(
-  cms: Pick<CMS, "draftPointer" | "settings" | "forRelease">,
+  cms: Pick<CMS, "readVersion" | "settings" | "forRelease">,
   request: Request,
   policy: PreviewPolicy,
 ): Promise<DraftDecision> {
@@ -146,7 +172,7 @@ export async function decideDraft(
   const decision = previewHostDecision(url.host, policy);
   const allowed =
     decision === "cms"
-      ? (await declaresPreviewHosts(cms)) && (await cms.draftPointer(request)) !== null
+      ? (await declaresPreviewHosts(cms)) && (await cms.readVersion(request)) !== null
       : decision;
   if (!allowed) return { pointer: null, setCookie: null };
   const fromLink = param !== null && param === pointer;

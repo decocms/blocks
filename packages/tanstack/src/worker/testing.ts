@@ -48,8 +48,8 @@ export class TestContext implements ExecutionContextLike {
 
 /**
  * A release with a page, a redirect, a block that varies on the `buy-button`
- * test and, when given, the `CMS` block's preview hosts and the `Experiments`
- * block.
+ * test and, when given, the `CMS` block's preview hosts and the saved
+ * `experiments` block.
  */
 export function snapshot(
   options: {
@@ -73,7 +73,7 @@ export function snapshot(
     blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
   }
   if (options.experiments) {
-    blocks.Experiments = { __resolveType: "experiments", ...options.experiments };
+    blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
   }
   return { revision: options.revision ?? "rev-1", blocks } as Snapshot;
 }
