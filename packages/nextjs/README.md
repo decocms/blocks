@@ -6,8 +6,8 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 
 | Import | What it is for |
 | --- | --- |
-| `@decocms/nextjs/proxy` | Draft previews and the visitor in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, or `draftProxy` for a site with no proxy of its own; `readDecisions` and `decisionsKey` for a site's own cache key; `rewriteToDecisionsRoute`, `isDecisionsRoutePath`, `decisionsRoutePath` and `decisionsSegment` for Next's own cache. No React and no block map. |
-| `@decocms/nextjs/server` | Draft previews and the visitor in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`; `decidedClient` for a page on the decisions route. |
+| `@decocms/nextjs/proxy` | Draft previews and the visitor in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, or `draftProxy` for a site with no proxy of its own; `readAssignments` and `assignmentsKey` for a site's own cache key; `rewriteToAssignmentsRoute`, `isAssignmentsRoutePath`, `assignmentsRoutePath` and `assignmentsSegment` for Next's own cache. No React and no block map. |
+| `@decocms/nextjs/server` | Draft previews and the visitor in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`; `assignedClient` for a page on the assignments route. |
 | `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/instrumentation` | `register`, the `instrumentation.ts` hook that records `http.server.request.duration` from Next's own request span, and `serverRequestSpanProcessor()` for a site with its own OpenTelemetry SDK. |
@@ -57,24 +57,24 @@ A draft link can carry a published release's commit SHA instead of a draft (Stud
 
 On the page, `bindDraft` binds the version and the forwarded visitor (on the current release it reads the request only when the release saves an `experiments` block, so a page without tests stays static), and `contentClient(cms)` builds `cms.client({ visitor, version })` from them. A statically rendered page has no visitor, so its tests are off: a page that should vary per visitor has to render per request.
 
-The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on what the content decided, never on the visitor: `decisionsKey(await readDecisions(proxyCms, { visitor: visitor.visitor, version: draft.pointer }))` from `@decocms/nextjs/proxy` resolves the saved `experiments` and `campaigns` blocks as the page will and gives the version, the tests the visitor is in and the campaigns running now (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the decisions route](#the-decisions-route).
+The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on the request's assignments, never on the visitor: `assignmentsKey(await readAssignments(proxyCms, { visitor: visitor.visitor, version: draft.pointer }))` from `@decocms/nextjs/proxy` resolves the saved `experiments` and `campaigns` blocks as the page will and gives the version, the tests the visitor is in and the campaigns running now (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the assignments route](#the-assignments-route).
 
-### The decisions route
+### The assignments route
 
-Next caches a static page by its path (ISR, the full route cache), so the proxy puts the decisions in the path: it rewrites each CMS page to `/_decided/<decisions>/<path>`, and the page renders what that segment says. Next then keeps one entry per path and set of decisions and serves it to every visitor with the same ones; the page reads no request and stays static.
+Next caches a static page by its path (ISR, the full route cache), so the proxy puts the assignments in the path: it rewrites each CMS page to `/_assignments/<assignments>/<path>`, and the page renders the tests that segment names. Next then keeps one entry per path and set of assignments and serves it to every visitor with the same ones; the page reads no request and stays static.
 
 ```ts
 // src/proxy.ts
-import { isDecisionsRoutePath, isDraftRoutePath, rewriteToDecisionsRoute /* … */ } from "@decocms/nextjs/proxy";
+import { isAssignmentsRoutePath, isDraftRoutePath, rewriteToAssignmentsRoute /* … */ } from "@decocms/nextjs/proxy";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (isDraftRoutePath(pathname) || isDecisionsRoutePath(pathname)) return new NextResponse(null, { status: 404 });
+  if (isDraftRoutePath(pathname) || isAssignmentsRoutePath(pathname)) return new NextResponse(null, { status: 404 });
   const draft = await decideDraft(proxyCms, request, preview);
   const visitor = decideVisitor(request, draft);
   const response =
     rewriteToDraftRoute(request, draft, visitor) ??
-    (isCmsPage(pathname) ? await rewriteToDecisionsRoute(proxyCms, request, draft, visitor) : null) ??
+    (isCmsPage(pathname) ? await rewriteToAssignmentsRoute(proxyCms, request, draft, visitor) : null) ??
     NextResponse.next({ request: { headers: visitorRequestHeaders(draftRequestHeaders(request, draft), visitor) } });
   return applyVisitor(applyDraft(response, draft), visitor);
 }
@@ -84,26 +84,26 @@ export const config = { matcher: ["/((?!_next/|favicon.ico).*)"] };
 ```
 
 ```tsx
-// src/app/%5Fdecided/[decisions]/[[...path]]/page.tsx: every CMS page (a literal `_decided` folder never routes)
-import { decidedClient } from "@decocms/nextjs/server";
+// src/app/%5Fassignments/[assignments]/[[...path]]/page.tsx: every CMS page (a literal `_assignments` folder never routes)
+import { assignedClient } from "@decocms/nextjs/server";
 
 export const dynamic = "force-static";
 export default async function Page({ params }) {
-  const { decisions, path } = await params;
-  const client = await decidedClient(cms, decisions);
+  const { assignments, path } = await params;
+  const client = assignedClient(cms, assignments);
   if (!client) notFound();
   // … match the path and resolve the page through `client`, as on any page …
 }
 ```
 
-- **What the segment holds**: the tests the visitor is in and the campaigns running now (`readDecisions` on the current release), as `decisionsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of decisions. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
-- **The page doesn't decide again**: `decidedClient(cms, segment)` builds `cms.client({ decided })`, whose `experiments` and `campaigns` answer from the segment. A page Next renders again later (revalidation) shows the same thing under the same path.
-- **A path can't switch a test on**: the proxy answers a direct hit on `/_decided/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `decidedClient` still keeps off a test at 0% or not in `experiments` and a campaign that isn't running now, and returns `null` (a 404) only for a segment the proxy never writes. A visitor can at most see the other side of a running test, as clearing their cookies would. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote just before a campaign ended, or before the page's server saw newly published content, still renders.
-- **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of decisions, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's static `s-maxage` under it.
+- **What the segment holds**: the tests the visitor is in and the campaigns running now (`readAssignments` on the current release), as `assignmentsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of assignments. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
+- **The page reads the tests from the path**: `assignedClient(cms, segment)` builds `cms.client({ visitor })` with a visitor that has no id and is in exactly the tests the segment names (v7's stored-decision field `active`, which `assign` honours), so every visitor on that side renders the same page. Campaigns are checked again at the client's moment, as on any page: the segment names the running ones only so Next keeps a page apart for each set. A page Next renders again later (revalidation) shows the same tests under the same path.
+- **A path can't switch a test on**: the proxy answers a direct hit on `/_assignments/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `assignedClient` keeps off a test the content doesn't have and a campaign that isn't running now, and returns `null` (a 404) only for a segment the proxy never writes. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote just before a campaign ended, or before the page's server saw newly published content, still renders.
+- **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of assignments, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's static `s-maxage` under it.
 - **Drafts and previews are never rewritten here**: a drafted request goes to the dynamic draft route, so nothing from a preview lands in Next's cache.
-- **Which paths**: only the CMS's pages (`isCmsPage` above is the site's own: routes of the app's own, such as `/blog` here, render as before). `draftProxy(proxyCms, { decisions: (request) => isCmsPage(request.nextUrl.pathname) })` does the same for a site with no proxy of its own.
+- **Which paths**: only the CMS's pages (`isCmsPage` above is the site's own: routes of the app's own, such as `/blog` here, render as before). `draftProxy(proxyCms, { assignments: (request) => isCmsPage(request.nextUrl.pathname) })` does the same for a site with no proxy of its own.
 
-`examples/nextjs-binding-smoke` in the repository runs it: two visitors on opposite sides of a test get different paths, two on the same side get one cached entry (`x-nextjs-cache: HIT`), and a typed `/_decided/…` path is a 404.
+`examples/nextjs-binding-smoke` in the repository runs it: two visitors on opposite sides of a test get different paths, two on the same side get one cached entry (`x-nextjs-cache: HIT`), and a typed `/_assignments/…` path is a 404.
 
 ### Draft hosts
 

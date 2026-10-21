@@ -12,7 +12,6 @@ export {
   type CMSSettings,
   createCMS,
   currentClient,
-  type Decided,
   type DraftPointer,
   type EffectiveSettings,
   formatDraftPointer,

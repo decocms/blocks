@@ -1,10 +1,10 @@
 /**
- * What a request's content decided, as one cache-key part, for a site that
- * caches in front of its pages: the version it reads (a Studio link's draft
+ * A request's assignments (what its content gives it), as one cache-key
+ * part, for a site that caches in front of its pages: the version it reads (a Studio link's draft
  * or release SHA, with its preview time `__at` and forced tests), the tests
  * of the saved `experiments` block its visitor is in, and the campaigns of
  * the saved `campaigns` block running at its moment. Two requests with the
- * same decisions render the same content; the visitor id itself is never in
+ * same assignments render the same content; the visitor id itself is never in
  * the key, or every visitor would miss. The binding caches nothing itself.
  *
  * The same reading as `@decocms/tanstack/worker`'s edge cache key.
@@ -12,7 +12,7 @@
 import type { CMS } from "@decocms/blocks";
 import type { Visitor } from "@decocms/blocks/experiments";
 
-export interface Decisions {
+export interface RequestAssignments {
   /** The version read, `null` for the current release. */
   version: string | null;
   /** The tests the visitor is in, sorted. */
@@ -60,71 +60,71 @@ async function trueNames(
 }
 
 /**
- * The decisions of one request: resolves `experiments` and `campaigns`
+ * The assignments of one request: resolves `experiments` and `campaigns`
  * through `cms.client({ visitor, version })`, as the page will. Missing
- * blocks (or content that doesn't load) give no decisions, never an error.
+ * blocks (or content that doesn't load) give no assignments, never an error.
  */
-export async function readDecisions(
+export async function readAssignments(
   cms: Pick<CMS, "client">,
   inputs: { visitor: Visitor | null; version: string | null },
-): Promise<Decisions> {
-  return (await readDecisionsAndScope(cms, inputs)).decisions;
+): Promise<RequestAssignments> {
+  return (await readAssignmentsAndScope(cms, inputs)).assignments;
 }
 
 /**
- * `readDecisions`, and whether its page can differ by them: `true` when the
+ * `readAssignments`, and whether its page can differ by them: `true` when the
  * content saves tests or campaigns (or couldn't be read, to stay safe), so a
  * response keyed on them must never be shared by its URL alone.
  */
-export async function readDecisionsAndScope(
+export async function readAssignmentsAndScope(
   cms: Pick<CMS, "client">,
   inputs: { visitor: Visitor | null; version: string | null },
-): Promise<{ decisions: Decisions; decided: boolean }> {
-  const none: Decisions = { version: inputs.version, experiments: [], campaigns: [] };
+): Promise<{ assignments: RequestAssignments; varies: boolean }> {
+  const none: RequestAssignments = { version: inputs.version, experiments: [], campaigns: [] };
   let client: Reader;
   try {
     client = cms.client({ visitor: inputs.visitor, version: inputs.version });
   } catch {
-    return { decisions: none, decided: true };
+    return { assignments: none, varies: true };
   }
   const [experiments, campaigns] = await Promise.all([
     trueNames(client, EXPERIMENTS),
     trueNames(client, CAMPAIGNS),
   ]);
   return {
-    decisions: { ...none, experiments: experiments ?? [], campaigns: campaigns ?? [] },
-    decided: experiments !== null || campaigns !== null,
+    assignments: { ...none, experiments: experiments ?? [], campaigns: campaigns ?? [] },
+    varies: experiments !== null || campaigns !== null,
   };
 }
 
 /**
- * The decisions as one stable string: `v=<version>|x=<tests>|c=<campaigns>`,
+ * The assignments as one stable string: `v=<version>|x=<tests>|c=<campaigns>`,
  * names sorted and URL-encoded, empty parts left out; `""` for none.
  */
-export function decisionsKey(decisions: Decisions): string {
+export function assignmentsKey(assignments: RequestAssignments): string {
   const list = (names: readonly string[]) =>
     [...names].sort(byCodeUnit).map(encodeURIComponent).join(",");
   const parts: string[] = [];
-  if (decisions.version) parts.push(`v=${encodeURIComponent(decisions.version)}`);
-  if (decisions.experiments.length) parts.push(`x=${list(decisions.experiments)}`);
-  if (decisions.campaigns.length) parts.push(`c=${list(decisions.campaigns)}`);
+  if (assignments.version) parts.push(`v=${encodeURIComponent(assignments.version)}`);
+  if (assignments.experiments.length) parts.push(`x=${list(assignments.experiments)}`);
+  if (assignments.campaigns.length) parts.push(`c=${list(assignments.campaigns)}`);
   return parts.join("|");
 }
 
 /**
- * The route a page renders on under the decisions its proxy made:
- * `/_decided/<decisions>/<path>`, mounted as `app/%5Fdecided/[decisions]/[[...path]]`
- * (a literal `_decided` folder is private in Next and never routes). The proxy
- * rewrites to it (`rewriteToDecisionsRoute`) and answers a direct hit with
- * its 404, so a visitor can't pick the decisions by typing a path.
+ * The route a page renders on under the assignments its proxy made:
+ * `/_assignments/<assignments>/<path>`, mounted as `app/%5Fassignments/[assignments]/[[...path]]`
+ * (a literal `_assignments` folder is private in Next and never routes). The proxy
+ * rewrites to it (`rewriteToAssignmentsRoute`) and answers a direct hit with
+ * its 404, so a visitor can't pick the assignments by typing a path.
  */
-export const DECISIONS_ROUTE_PREFIX = "/_decided";
+export const ASSIGNMENTS_ROUTE_PREFIX = "/_assignments";
 
 /** The segment for a request with no test on and no campaign running. */
 const NONE = "-";
 
-/** What a decisions segment carries: the tests on and the campaigns running, never the version or the visitor. */
-export type PathDecisions = Pick<Decisions, "experiments" | "campaigns">;
+/** What a assignments segment carries: the tests on and the campaigns running, never the version or the visitor. */
+export type PathAssignments = Pick<RequestAssignments, "experiments" | "campaigns">;
 
 function toBase64Url(text: string): string {
   let binary = "";
@@ -144,22 +144,22 @@ function fromBase64Url(segment: string): string | null {
 }
 
 /**
- * The decisions as one path segment, for Next's own path-keyed cache (ISR,
- * the full route cache): `-` for none, otherwise `decisionsKey` without the
+ * The assignments as one path segment, for Next's own path-keyed cache (ISR,
+ * the full route cache): `-` for none, otherwise `assignmentsKey` without the
  * version, base64url-encoded so Next passes it to the page unchanged. The
- * same decisions always give the same segment; the visitor is never in it.
+ * same assignments always give the same segment; the visitor is never in it.
  */
-export function decisionsSegment(decisions: PathDecisions): string {
-  const key = decisionsKey({ version: null, ...decisions });
+export function assignmentsSegment(assignments: PathAssignments): string {
+  const key = assignmentsKey({ version: null, ...assignments });
   return key === "" ? NONE : toBase64Url(key);
 }
 
 /**
- * The decisions a segment carries, or `null` when it isn't one
- * `decisionsSegment` writes (malformed, or the same decisions spelled another
- * way), so each set of decisions has exactly one path.
+ * The assignments a segment carries, or `null` when it isn't one
+ * `assignmentsSegment` writes (malformed, or the same assignments spelled another
+ * way), so each set of assignments has exactly one path.
  */
-export function parseDecisionsSegment(segment: string): PathDecisions | null {
+export function parseAssignmentsSegment(segment: string): PathAssignments | null {
   if (segment === NONE) return { experiments: [], campaigns: [] };
   const key = fromBase64Url(segment);
   if (key === null) return null;
@@ -176,16 +176,18 @@ export function parseDecisionsSegment(segment: string): PathDecisions | null {
   } catch {
     return null;
   }
-  return decisionsSegment(parsed) === segment ? parsed : null;
+  return assignmentsSegment(parsed) === segment ? parsed : null;
 }
 
-/** `/_decided/<segment><pathname>` (the bare prefix and segment for `/`). */
-export function decisionsRoutePath(pathname: string, decisions: PathDecisions): string {
-  const base = `${DECISIONS_ROUTE_PREFIX}/${decisionsSegment(decisions)}`;
+/** `/_assignments/<segment><pathname>` (the bare prefix and segment for `/`). */
+export function assignmentsRoutePath(pathname: string, assignments: PathAssignments): string {
+  const base = `${ASSIGNMENTS_ROUTE_PREFIX}/${assignmentsSegment(assignments)}`;
   return pathname === "/" || pathname === "" ? base : `${base}${pathname}`;
 }
 
-/** Whether `pathname` is on the decisions route: a site's proxy answers a direct hit there with its 404. */
-export function isDecisionsRoutePath(pathname: string): boolean {
-  return pathname === DECISIONS_ROUTE_PREFIX || pathname.startsWith(`${DECISIONS_ROUTE_PREFIX}/`);
+/** Whether `pathname` is on the assignments route: a site's proxy answers a direct hit there with its 404. */
+export function isAssignmentsRoutePath(pathname: string): boolean {
+  return (
+    pathname === ASSIGNMENTS_ROUTE_PREFIX || pathname.startsWith(`${ASSIGNMENTS_ROUTE_PREFIX}/`)
+  );
 }

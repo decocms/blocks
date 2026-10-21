@@ -118,14 +118,8 @@ class CMSInstance {
     this.#scheduleUpdate();
     const version = typeof options.version === "string" ? options.version : undefined;
     const visitor = options.visitor ?? null;
-    const decided = options.decided ?? null;
     if (version === undefined) {
-      return this.#client(blocks, this.#release(blocks), {
-        version,
-        visitor,
-        decided,
-        now: Date.now(),
-      });
+      return this.#client(blocks, this.#release(blocks), { version, visitor, now: Date.now() });
     }
     const parsed = parseVersion(version);
     // A version that doesn't parse fails on the first read, as an invalid pointer always has.
@@ -133,7 +127,6 @@ class CMSInstance {
       return this.#client(blocks, () => this.#store.draft(version), {
         version,
         visitor,
-        decided,
         now: Date.now(),
       });
     }
@@ -141,7 +134,6 @@ class CMSInstance {
     const inputs = {
       version,
       visitor,
-      decided,
       now: at === undefined ? Date.now() : Date.parse(at),
       forcedTests: tests,
     };
@@ -275,7 +267,6 @@ class CMSInstance {
     inputs: {
       version: string | undefined;
       visitor: ClientOptions["visitor"];
-      decided: ClientOptions["decided"];
       now: number;
       forcedTests?: Readonly<Record<string, boolean>>;
     },

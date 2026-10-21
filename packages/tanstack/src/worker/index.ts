@@ -12,8 +12,8 @@
  *   cache.
  * - The CMS redirects, before any route.
  * - An edge cache (the Cloudflare Cache API) keyed by URL, device, the site's
- *   segment parts, `<build>.<content revision>` and what the content decided
- *   for the request (`./decisions.ts`: the tests of the saved `experiments`
+ *   segment parts, `<build>.<content revision>` and the request's assignments
+ *   (`./assignments.ts`: the tests of the saved `experiments`
  *   block the visitor is in and the campaigns of `campaigns` running now,
  *   never the visitor id), with stale-while-revalidate and stale-if-error;
  *   logged-in, private and degraded responses never stored.
@@ -37,6 +37,7 @@ import { runInScope } from "@decocms/tanstack/scope";
 import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
 import { CSEG_PARAM, DEGRADED_HEADER, PAGE_STATUS_HEADER } from "../shared.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
+import { assignmentsKey, readAssignments } from "./assignments.ts";
 import {
   type CacheProfileName,
   type CacheProfileOverrides,
@@ -49,7 +50,6 @@ import {
   serverFnPagePath,
 } from "./cacheProfiles.ts";
 import { dedupeSetCookies, hasOnlySafeCookies, withoutSafeCookies } from "./cookies.ts";
-import { decisionsKey, readDecisions } from "./decisions.ts";
 import { decideDraft, type PreviewPolicy } from "./drafts.ts";
 import { type CspOptions, htmlSecurityHeaders } from "./security.ts";
 import { detectDevice, type Segment, segmentKey, segmentToken } from "./segment.ts";
@@ -189,7 +189,7 @@ const STORED_AT = "X-Deco-Stored-At";
  * A path's generation: a random id kept in the Cache API under the path's
  * purge entry and carried in the key of every copy of the path. A purge
  * deletes the purge entry, so no copy stored before it is looked up again,
- * whatever device, segment, query or decisions it was stored for: one delete
+ * whatever device, segment, query or assignments it was stored for: one delete
  * per path, never one per combination. An evicted purge entry is a miss,
  * never a stale page.
  */
@@ -357,7 +357,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     request: Request,
     version: string,
     segment: Segment,
-    decided: string,
+    assigned: string,
     generation: string,
   ): Request {
     const key = new URL(url);
@@ -376,7 +376,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       key.searchParams.set("__fetch", "1");
     }
     key.searchParams.set("__seg", segmentKey(segment));
-    if (decided) key.searchParams.set("__d", decided);
+    if (assigned) key.searchParams.set("__a", assigned);
     key.searchParams.set(GENERATION_PARAM, generation);
     return new Request(key.toString(), { method: "GET" });
   }
@@ -655,19 +655,19 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       !request.headers.has("authorization") &&
       !BYPASS_PATHS.some((p) => url.pathname.startsWith(p));
     const cache = edgeCache();
-    // The path's generation, read beside the version and the decisions.
+    // The path's generation, read beside the version and the assignments.
     const generationRead =
       cacheable && cache && profile.isPublic && profile.edge.fresh > 0
         ? readGeneration(cache, url)
         : Promise.resolve(undefined);
     const version = cacheable ? await cacheVersion() : "";
-    // What the content decides for this request, before the lookup: two
-    // visitors on the same side of every test share an entry.
-    const decided = cacheable
-      ? decisionsKey(await readDecisions(cms, { visitor, version: draft }))
+    // The request's assignments, before the lookup: two visitors on the
+    // same side of every test share an entry.
+    const assigned = cacheable
+      ? assignmentsKey(await readAssignments(cms, { visitor, version: draft }))
       : "";
     const token = cacheable
-      ? segmentToken(segment as Segment, decided ? `${version}|${decided}` : version)
+      ? segmentToken(segment as Segment, assigned ? `${version}|${assigned}` : version)
       : null;
     const origin = async (): Promise<Response> =>
       withPageStatus(
@@ -705,7 +705,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
 
     const seg = segment as Segment;
     let generation = await generationRead;
-    const keyFor = (g: string) => cacheKey(url, request, version, seg, decided, g);
+    const keyFor = (g: string) => cacheKey(url, request, version, seg, assigned, g);
     const edge = profile.edge;
     const cdnPublic =
       token !== null &&

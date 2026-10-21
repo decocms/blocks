@@ -1,19 +1,19 @@
 /**
- * What a request's content decided, as one cache-key part: the version it
- * reads (a Studio link's draft or release SHA, with its preview time `__at`
+ * A request's assignments (what its content gives it), as one cache-key
+ * part: the version it reads (a Studio link's draft or release SHA, with its preview time `__at`
  * and forced tests), the tests of the saved `experiments` block its visitor
  * is in, and the campaigns of the saved `campaigns` block running at its
- * moment. Two requests with the same decisions render the same content, so
+ * moment. Two requests with the same assignments render the same content, so
  * they share a cache entry; the visitor id itself is never in the key, or
  * every visitor would miss.
  *
  * Blocks decides (`cms.client({ visitor, version })`); this only reads the
- * answers. A site without either block has no decisions and keys as before.
+ * answers. A site without either block has no assignments and keys as before.
  */
 import type { CMS } from "@decocms/blocks";
 import type { Visitor } from "@decocms/blocks/experiments";
 
-export interface Decisions {
+export interface RequestAssignments {
   /** The version read, `null` for the current release. */
   version: string | null;
   /** The tests the visitor is in, sorted. */
@@ -58,15 +58,15 @@ async function trueNames(client: Reader, spec: { block: string; type: string }):
 }
 
 /**
- * The decisions of one request: resolves `experiments` and `campaigns`
+ * The assignments of one request: resolves `experiments` and `campaigns`
  * through `cms.client({ visitor, version })`, as the page will. Missing
- * blocks (or content that doesn't load) give no decisions, never an error.
+ * blocks (or content that doesn't load) give no assignments, never an error.
  */
-export async function readDecisions(
+export async function readAssignments(
   cms: Pick<CMS, "client">,
   inputs: { visitor: Visitor | null; version: string | null },
-): Promise<Decisions> {
-  const none: Decisions = { version: inputs.version, experiments: [], campaigns: [] };
+): Promise<RequestAssignments> {
+  const none: RequestAssignments = { version: inputs.version, experiments: [], campaigns: [] };
   let client: Reader;
   try {
     client = cms.client({ visitor: inputs.visitor, version: inputs.version });
@@ -81,15 +81,15 @@ export async function readDecisions(
 }
 
 /**
- * The decisions as one stable string: `v=<version>|x=<tests>|c=<campaigns>`,
+ * The assignments as one stable string: `v=<version>|x=<tests>|c=<campaigns>`,
  * names sorted and URL-encoded, empty parts left out; `""` for none.
  */
-export function decisionsKey(decisions: Decisions): string {
+export function assignmentsKey(assignments: RequestAssignments): string {
   const list = (names: readonly string[]) =>
     [...names].sort(byCodeUnit).map(encodeURIComponent).join(",");
   const parts: string[] = [];
-  if (decisions.version) parts.push(`v=${encodeURIComponent(decisions.version)}`);
-  if (decisions.experiments.length) parts.push(`x=${list(decisions.experiments)}`);
-  if (decisions.campaigns.length) parts.push(`c=${list(decisions.campaigns)}`);
+  if (assignments.version) parts.push(`v=${encodeURIComponent(assignments.version)}`);
+  if (assignments.experiments.length) parts.push(`x=${list(assignments.experiments)}`);
+  if (assignments.campaigns.length) parts.push(`c=${list(assignments.campaigns)}`);
   return parts.join("|");
 }

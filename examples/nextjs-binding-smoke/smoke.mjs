@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { gunzipSync } from "node:zlib";
 import { assign, newVisitor, serializeVisitor } from "@decocms/blocks/experiments";
-import { decisionsRoutePath } from "@decocms/nextjs/proxy";
+import { assignmentsRoutePath } from "@decocms/nextjs/proxy";
 
 const PORT = Number(process.env.SMOKE_PORT ?? 8821);
 const DRAFT_PORT = PORT + 1;
@@ -170,13 +170,13 @@ try {
   check(
     // The published page, ?__draft=off, the host outside the allowlist and the forged header.
     "pages count under their route template",
-    count({ "http.route": "/_decided/[decisions]/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 4 &&
+    count({ "http.route": "/_assignments/[assignments]/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 4 &&
       count({ "http.route": "/blog", status_class: "2xx" }) >= 1,
     JSON.stringify(requests),
   );
   check(
     "a 404 counts under the page that answered it",
-    count({ "http.route": "/_decided/[decisions]/[[...path]]", status_class: "4xx" }) === 1,
+    count({ "http.route": "/_assignments/[assignments]/[[...path]]", status_class: "4xx" }) === 1,
   );
   check("a 5xx counts under its page", count({ "http.route": "/smoke/fail", status_class: "5xx" }) === 1);
   check(
@@ -198,8 +198,8 @@ try {
     JSON.stringify(requests),
   );
 
-  // The decisions route: every CMS page renders on /_decided/<decisions>/<path>, so Next's cache
-  // keeps one entry per set of decisions (the 50% new-banner test, the running summer-sale) and
+  // The assignments route: every CMS page renders on /_assignments/<assignments>/<path>, so Next's cache
+  // keeps one entry per set of assignments (the 50% new-banner test, the running summer-sale) and
   // never one per visitor.
   const visitorOn = (inside) => {
     for (;;) {
@@ -208,7 +208,7 @@ try {
     }
   };
   const as = (visitor) => ({ cookie: `deco_segment=${serializeVisitor(visitor)}` });
-  const decisionsOf = (body) => body.match(/<main data-decisions="([^"]*)"/)?.[1];
+  const assignmentsOf = (body) => body.match(/<main data-assignments="([^"]*)"/)?.[1];
   const [inA, inB, out] = [visitorOn(true), visitorOn(true), visitorOn(false)];
   const sideA = await get("/sale", as(inA));
   const sideA2 = await get("/sale", as(inB));
@@ -221,13 +221,13 @@ try {
   check("a visitor out of it gets the other side", sideB.body.includes("Banner A") && sideB.body.includes("Summer sale"));
   check(
     "opposite sides render on different paths",
-    decisionsOf(sideA.body) && decisionsOf(sideB.body) && decisionsOf(sideA.body) !== decisionsOf(sideB.body),
-    `${decisionsOf(sideA.body)} / ${decisionsOf(sideB.body)}`,
+    assignmentsOf(sideA.body) && assignmentsOf(sideB.body) && assignmentsOf(sideA.body) !== assignmentsOf(sideB.body),
+    `${assignmentsOf(sideA.body)} / ${assignmentsOf(sideB.body)}`,
   );
   check(
     "the same side renders on the same path, served from Next's cache",
-    decisionsOf(sideA2.body) === decisionsOf(sideA.body) && sideA2.res.headers.get("x-nextjs-cache") === "HIT",
-    `${decisionsOf(sideA2.body)} ${sideA2.res.headers.get("x-nextjs-cache")}`,
+    assignmentsOf(sideA2.body) === assignmentsOf(sideA.body) && sideA2.res.headers.get("x-nextjs-cache") === "HIT",
+    `${assignmentsOf(sideA2.body)} ${sideA2.res.headers.get("x-nextjs-cache")}`,
   );
   check(
     "the URL asked for is private, so a CDN in front can't hand one side's page to the other",
@@ -242,18 +242,18 @@ try {
     "a test nobody is in and a campaign not started stay off",
     ![sideA, sideB].some(({ body }) => body.includes("Next season") || body.includes("Black Friday")),
   );
-  const forgedPath = decisionsRoutePath("/sale", { experiments: ["new-banner", "next-season"], campaigns: ["black-friday"] });
-  const forgedDecisions = await get(forgedPath);
-  check("a typed decisions path is a 404: a path can't switch a test or a campaign on", forgedDecisions.res.status === 404, forgedDecisions.res.status);
+  const forgedPath = assignmentsRoutePath("/sale", { experiments: ["new-banner", "next-season"], campaigns: ["black-friday"] });
+  const forgedAssignments = await get(forgedPath);
+  check("a typed assignments path is a 404: a path can't switch a test or a campaign on", forgedAssignments.res.status === 404, forgedAssignments.res.status);
   const draftOnSide = await get(draftLink("/sale"), { ...DECO_HOST, ...as(inA) });
   check(
-    "a draft link renders on the draft route, never on a cached decisions path",
+    "a draft link renders on the draft route, never on a cached assignments path",
     draftOnSide.res.status === 200 &&
       draftOnSide.body.includes(POINTER) &&
       draftOnSide.body.includes("Banner B") &&
-      decisionsOf(draftOnSide.body) === undefined &&
+      assignmentsOf(draftOnSide.body) === undefined &&
       draftOnSide.res.headers.get("cache-control") === "no-store, private",
-    `${draftOnSide.res.status} ${decisionsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
+    `${draftOnSide.res.status} ${assignmentsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
   );
 
   // The proxy bundle holds no block map: no section component, no React. (Block names do appear:

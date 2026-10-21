@@ -4,9 +4,9 @@ import {
   decideDraft,
   decideVisitor,
   draftRequestHeaders,
-  isDecisionsRoutePath,
+  isAssignmentsRoutePath,
   isDraftRoutePath,
-  rewriteToDecisionsRoute,
+  rewriteToAssignmentsRoute,
   rewriteToDraftRoute,
   visitorRequestHeaders,
 } from "@decocms/nextjs/proxy";
@@ -16,9 +16,9 @@ import { proxyCms } from "./cms.proxy";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  // The draft and decisions routes are reached only through the rewrites below: a path can't
+  // The draft and assignments routes are reached only through the rewrites below: a path can't
   // pick a draft, or switch a test or a campaign on.
-  if (isDraftRoutePath(pathname) || isDecisionsRoutePath(pathname)) {
+  if (isDraftRoutePath(pathname) || isAssignmentsRoutePath(pathname)) {
     return new NextResponse("Not found", { status: 404 });
   }
   // The version: a Studio link's draft or old release, on a host that may preview.
@@ -26,11 +26,11 @@ export async function proxy(request: NextRequest) {
   // The visitor: the deco_segment cookie, or a new one (its cookie goes out on a first visit).
   const visitor = decideVisitor(request, draft);
   // Published pages are static, so a drafted request renders on the dynamic draft route, and a CMS
-  // page on the decisions route, /_decided/<decisions>/<path>: Next caches one entry per set of
-  // decisions, and the visitor stays out of it.
+  // page on the assignments route, /_assignments/<assignments>/<path>: Next caches one entry per set of
+  // assignments, and the visitor stays out of it.
   const response =
     rewriteToDraftRoute(request, draft, visitor) ??
-    (isCmsPage(pathname) ? await rewriteToDecisionsRoute(proxyCms, request, draft, visitor) : null) ??
+    (isCmsPage(pathname) ? await rewriteToAssignmentsRoute(proxyCms, request, draft, visitor) : null) ??
     NextResponse.next({
       request: { headers: visitorRequestHeaders(draftRequestHeaders(request, draft), visitor) },
     });

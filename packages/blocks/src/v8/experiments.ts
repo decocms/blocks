@@ -35,7 +35,11 @@ export type Assignments = Record<string, boolean>;
  * carried, never rewritten.
  */
 export interface Visitor {
-  /** 16 random bytes as 22 base64url characters, drawn once per visitor. */
+  /**
+   * 16 random bytes as 22 base64url characters, drawn once per visitor. `""`
+   * for a visitor with no id of its own (one built from a cache key's
+   * assignments), which is in only the tests `active` names.
+   */
   id: string;
   /** Tests v7 put this visitor in. */
   active: string[];
@@ -294,8 +298,10 @@ function keptFromV7(stored: boolean, from: number, to: number): boolean | undefi
  * the percentage it was made at holds (a missing or `-1` percentage, v7's
  * "any", included); once it moves, a v7 visitor in a test that grows stays
  * in and one out of a test that shrinks stays out. Without a visitor every
- * test is `false`. Entries that aren't finite numbers are left out. Pure;
- * never throws.
+ * test is `false`. A visitor without an id (`""`, as a page built from a
+ * cache key's assignments gives one) has no roll: it is in exactly the tests
+ * its stored decisions keep it in. Entries that aren't finite numbers are
+ * left out. Pure; never throws.
  */
 export function assign(
   experiments: Experiments | null | undefined,
@@ -305,15 +311,11 @@ export function assign(
   if (typeof experiments !== "object" || experiments === null) return assignments;
   const id = visitor !== null && typeof visitor === "object" ? visitor.id : undefined;
   const known = typeof id === "string" && ID_RE.test(id);
+  const v: Partial<Visitor> = visitor !== null && typeof visitor === "object" ? visitor : {};
   for (const name of Object.keys(experiments).sort()) {
     const allocation = experiments[name];
     if (typeof allocation !== "number" || !Number.isFinite(allocation)) continue;
-    if (!known) {
-      assignments[name] = false;
-      continue;
-    }
     const pct = roundPct(allocation);
-    const v = visitor as Visitor;
     const stored = list(v.active).includes(name)
       ? true
       : list(v.inactiveDrawn).includes(name)
@@ -324,7 +326,7 @@ export function assign(
     const raw = isRecord(v.pct) && Object.hasOwn(v.pct, name) ? v.pct[name] : undefined;
     const from = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? roundPct(raw) : pct;
     const kept = stored === undefined ? undefined : keptFromV7(stored, from, pct);
-    assignments[name] = kept ?? roll(name, id) < pct;
+    assignments[name] = kept ?? (known && roll(name, id as string) < pct);
   }
   return assignments;
 }

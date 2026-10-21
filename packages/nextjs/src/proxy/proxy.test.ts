@@ -4,22 +4,22 @@ import { NextRequest, NextResponse } from "next/server.js";
 import { describe, expect, it, vi } from "vitest";
 import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
 import {
+  ASSIGNMENTS_ROUTE_PREFIX,
   applyDraft,
   applyVisitor,
-  DECISIONS_ROUTE_PREFIX,
+  assignmentsKey,
+  assignmentsRoutePath,
+  assignmentsSegment,
   DRAFT_ROUTE_PREFIX,
   decideDraft,
   decideVisitor,
-  decisionsKey,
-  decisionsRoutePath,
-  decisionsSegment,
   draftProxy,
   draftRequestHeaders,
-  isDecisionsRoutePath,
+  isAssignmentsRoutePath,
   isDraftRoutePath,
-  parseDecisionsSegment,
-  readDecisions,
-  rewriteToDecisionsRoute,
+  parseAssignmentsSegment,
+  readAssignments,
+  rewriteToAssignmentsRoute,
   rewriteToDraftRoute,
   visitorRequestHeaders,
 } from "./index.ts";
@@ -294,7 +294,7 @@ describe("the version: an old release from a Studio link", () => {
   });
 });
 
-describe("readDecisions and decisionsKey: what a site's own cache keys on", () => {
+describe("readAssignments and assignmentsKey: what a site's own cache keys on", () => {
   const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
   const content = snapshot({ experiments: { hero: 50 }, campaigns: { "black-friday": BF } });
   const visitorIn = (inside: boolean) => {
@@ -307,7 +307,7 @@ describe("readDecisions and decisionsKey: what a site's own cache keys on", () =
   it("sides of a test key apart, the same side alike, never by the visitor id", async () => {
     const cms = testCMS(content);
     const key = async (visitor: ReturnType<typeof newVisitor>) =>
-      decisionsKey(await readDecisions(cms, { visitor, version: null }));
+      assignmentsKey(await readAssignments(cms, { visitor, version: null }));
     const a = visitorIn(true);
     const keys = [await key(a), await key(visitorIn(true)), await key(visitorIn(false))];
     expect(keys[0]).toBe(keys[1]);
@@ -320,9 +320,9 @@ describe("readDecisions and decisionsKey: what a site's own cache keys on", () =
     try {
       const cms = testCMS(content);
       vi.setSystemTime(Date.parse(BF.start) - 1_000);
-      const before = decisionsKey(await readDecisions(cms, { visitor: null, version: null }));
+      const before = assignmentsKey(await readAssignments(cms, { visitor: null, version: null }));
       vi.setSystemTime(Date.parse(BF.start) + 1_000);
-      const after = decisionsKey(await readDecisions(cms, { visitor: null, version: null }));
+      const after = assignmentsKey(await readAssignments(cms, { visitor: null, version: null }));
       expect(before).toBe("");
       expect(after).toBe("c=black-friday");
     } finally {
@@ -334,18 +334,18 @@ describe("readDecisions and decisionsKey: what a site's own cache keys on", () =
     const none = { experiments: [], campaigns: [] };
     const sha = "0123456789abcdef0123456789abcdef01234567";
     const keys = [null, POINTER, sha, `${sha}?__at=2026-11-28T10%3A00%3A00Z`].map((version) =>
-      decisionsKey({ version, ...none }),
+      assignmentsKey({ version, ...none }),
     );
     expect(new Set(keys).size).toBe(4);
   });
 
-  it("no experiments or campaigns: no decisions", async () => {
-    const decisions = await readDecisions(testCMS(), { visitor: newVisitor(), version: null });
-    expect(decisionsKey(decisions)).toBe("");
+  it("no experiments or campaigns: no assignments", async () => {
+    const assignments = await readAssignments(testCMS(), { visitor: newVisitor(), version: null });
+    expect(assignmentsKey(assignments)).toBe("");
   });
 });
 
-describe("the decisions route: Next's path-keyed cache keys on what the content decided", () => {
+describe("the assignments route: Next's path-keyed cache keys on the request's assignments", () => {
   const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
   const content = snapshot({
     experiments: { hero: 50, later: 0 },
@@ -366,7 +366,7 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
     request: NextRequest,
   ): Promise<string | null> {
     const draft = await decideDraft(cms, request);
-    const res = await rewriteToDecisionsRoute(cms, request, draft, decideVisitor(request, draft));
+    const res = await rewriteToAssignmentsRoute(cms, request, draft, decideVisitor(request, draft));
     const target = res?.headers.get("x-middleware-rewrite");
     return target ? new URL(target).pathname + new URL(target).search : null;
   }
@@ -383,8 +383,8 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
     ];
     expect(paths[0]).toBe(paths[1]);
     expect(paths[0]).not.toBe(paths[2]);
-    expect(paths[0]).toMatch(/^\/_decided\/[A-Za-z0-9_-]+\/shoes\?color=red$/);
-    expect(paths[2]).toMatch(/^\/_decided\/-\/shoes\?color=red$/);
+    expect(paths[0]).toMatch(/^\/_assignments\/[A-Za-z0-9_-]+\/shoes\?color=red$/);
+    expect(paths[2]).toMatch(/^\/_assignments\/-\/shoes\?color=red$/);
     expect(paths.join()).not.toContain(a.id);
   });
 
@@ -396,7 +396,7 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
       "x-deco-draft": POINTER,
     });
     const draft = await decideDraft(cms, req);
-    const res = await rewriteToDecisionsRoute(cms, req, draft, decideVisitor(req, draft));
+    const res = await rewriteToAssignmentsRoute(cms, req, draft, decideVisitor(req, draft));
     expect(forwarded(res!, "x-deco-visitor")).toBeNull();
     expect(forwarded(res!, "x-deco-draft")).toBeNull();
   });
@@ -405,16 +405,16 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
     const req = page("/shoes", asCookie(visitorIn(true)));
     const draft = await decideDraft(testCMS(content), req);
     const visitor = decideVisitor(req, draft);
-    const varies = await rewriteToDecisionsRoute(testCMS(content), req, draft, visitor);
+    const varies = await rewriteToAssignmentsRoute(testCMS(content), req, draft, visitor);
     expect(varies!.headers.get("cache-control")).toBe("private, no-cache");
     const campaignsOnly = testCMS(snapshot({ campaigns: { "black-friday": BF } }));
     expect(
-      (await rewriteToDecisionsRoute(campaignsOnly, req, draft, visitor))!.headers.get(
+      (await rewriteToAssignmentsRoute(campaignsOnly, req, draft, visitor))!.headers.get(
         "cache-control",
       ),
     ).toBe("private, no-cache");
     // Content with neither answers the same to everyone: Next's own headers stay.
-    const plain = await rewriteToDecisionsRoute(testCMS(), req, draft, visitor);
+    const plain = await rewriteToAssignmentsRoute(testCMS(), req, draft, visitor);
     expect(plain!.headers.get("cache-control")).toBeNull();
   });
 
@@ -429,9 +429,9 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
       const before = await at(Date.parse(BF.start) - 1_000);
       const during = await at(Date.parse(BF.start) + 1_000);
       const after = await at(Date.parse(BF.end) + 1_000);
-      expect(before).toBe("/_decided/-");
+      expect(before).toBe("/_assignments/-");
       expect(during).not.toBe(before);
-      expect(parseDecisionsSegment(during!.split("/")[2]!)).toEqual({
+      expect(parseAssignmentsSegment(during!.split("/")[2]!)).toEqual({
         experiments: [],
         campaigns: ["black-friday"],
       });
@@ -453,44 +453,44 @@ describe("the decisions route: Next's path-keyed cache keys on what the content 
     );
   });
 
-  it("a path already on the decisions or draft route is never rewritten again", async () => {
+  it("a path already on the assignments or draft route is never rewritten again", async () => {
     const cms = testCMS(content);
-    expect(await routed(cms, page("/_decided/-/shoes"))).toBeNull();
+    expect(await routed(cms, page("/_assignments/-/shoes"))).toBeNull();
     expect(await routed(cms, page("/_draft/shoes"))).toBeNull();
-    expect(isDecisionsRoutePath("/_decided")).toBe(true);
-    expect(isDecisionsRoutePath("/_decided/x/shoes")).toBe(true);
-    expect(isDecisionsRoutePath("/_decidedly")).toBe(false);
-    expect(DECISIONS_ROUTE_PREFIX).toBe("/_decided");
+    expect(isAssignmentsRoutePath("/_assignments")).toBe(true);
+    expect(isAssignmentsRoutePath("/_assignments/x/shoes")).toBe(true);
+    expect(isAssignmentsRoutePath("/_assignmentsly")).toBe(false);
+    expect(ASSIGNMENTS_ROUTE_PREFIX).toBe("/_assignments");
   });
 
-  it("draftProxy answers a direct hit on the decisions route with a 404, so a path can't force a test on", async () => {
+  it("draftProxy answers a direct hit on the assignments route with a 404, so a path can't force a test on", async () => {
     const cms = testCMS(content);
-    const proxy = draftProxy(cms, { decisions: () => true });
-    const forged = decisionsRoutePath("/shoes", { experiments: ["later"], campaigns: [] });
+    const proxy = draftProxy(cms, { assignments: () => true });
+    const forged = assignmentsRoutePath("/shoes", { experiments: ["later"], campaigns: [] });
     expect((await proxy(page(forged))).status).toBe(404);
     const res = await proxy(page("/shoes", asCookie(visitorIn(false))));
     expect(res.headers.get("x-middleware-rewrite")).toBe(
-      "https://shop.example.com/_decided/-/shoes",
+      "https://shop.example.com/_assignments/-/shoes",
     );
     // Without the option nothing changes.
     expect((await draftProxy(cms)(page("/shoes"))).headers.get("x-middleware-rewrite")).toBeNull();
   });
 });
 
-describe("decisionsSegment and parseDecisionsSegment", () => {
-  it("round-trip, sorted, with one spelling per set of decisions", () => {
+describe("assignmentsSegment and parseAssignmentsSegment", () => {
+  it("round-trip, sorted, with one spelling per set of assignments", () => {
     const d = { experiments: ["b", "a b", "ç"], campaigns: ["sale|x", "c=1"] };
-    const segment = decisionsSegment(d);
+    const segment = assignmentsSegment(d);
     expect(segment).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(parseDecisionsSegment(segment)).toEqual({
+    expect(parseAssignmentsSegment(segment)).toEqual({
       experiments: ["a b", "b", "ç"],
       campaigns: ["c=1", "sale|x"],
     });
     expect(
-      decisionsSegment({ experiments: [...d.experiments].reverse(), campaigns: d.campaigns }),
+      assignmentsSegment({ experiments: [...d.experiments].reverse(), campaigns: d.campaigns }),
     ).toBe(segment);
-    expect(decisionsSegment({ experiments: [], campaigns: [] })).toBe("-");
-    expect(parseDecisionsSegment("-")).toEqual({ experiments: [], campaigns: [] });
+    expect(assignmentsSegment({ experiments: [], campaigns: [] })).toBe("-");
+    expect(parseAssignmentsSegment("-")).toEqual({ experiments: [], campaigns: [] });
   });
 
   it("rejects what the proxy never writes", () => {
@@ -507,8 +507,11 @@ describe("decisionsSegment and parseDecisionsSegment", () => {
       b64("x="),
       `${b64("x=a")}=`,
     ]) {
-      expect(parseDecisionsSegment(bad), bad).toBeNull();
+      expect(parseAssignmentsSegment(bad), bad).toBeNull();
     }
-    expect(parseDecisionsSegment(b64("x=a|c=b"))).toEqual({ experiments: ["a"], campaigns: ["b"] });
+    expect(parseAssignmentsSegment(b64("x=a|c=b"))).toEqual({
+      experiments: ["a"],
+      campaigns: ["b"],
+    });
   });
 });

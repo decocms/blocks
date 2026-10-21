@@ -2,17 +2,18 @@ import "server-only";
 import { cache, type ReactNode } from "react";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { matchRoute, type Redirect } from "@decocms/blocks";
-import { decidedClient } from "@decocms/nextjs/server";
+import { assignedClient } from "@decocms/nextjs/server";
 import { client } from "./client.server";
 import { cms } from "./cms";
 import type { ResolvedPage, StoredPage } from "./model";
 import type { Post } from "./post";
 
-// `decisions`: the decisions route's segment. The page renders what it says (decidedClient: a test
-// nobody is in or a campaign not running stays off, and a segment the proxy never writes is a
-// 404). Without it, the request's own client (a draft, and the visitor bindDraft bound).
-export const openPage = cache(async (pathname: string, decisions?: string) => {
-  const c = decisions === undefined ? await client() : await decidedClient(cms, decisions);
+// `assignments`: the assignments route's segment. The page shows the tests it names (assignedClient:
+// a visitor with no id in exactly those tests; campaigns checked at render time; a name the content
+// doesn't have stays off, and a segment the proxy never writes is a 404). Without it, the
+// request's own client (a draft, and the visitor bindDraft bound).
+export const openPage = cache(async (pathname: string, assignments?: string) => {
+  const c = assignments === undefined ? await client() : assignedClient(cms, assignments);
   if (!c) notFound();
   const [pages, pagesError] = await c.list<StoredPage>("page");
   if (pagesError) throw pagesError;

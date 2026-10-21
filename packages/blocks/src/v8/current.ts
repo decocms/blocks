@@ -15,7 +15,7 @@
  */
 import { createAsyncStore } from "#async-store";
 import type { AsyncStore } from "../async/types.ts";
-import type { Client, Decided } from "./types.ts";
+import type { Client } from "./types.ts";
 
 const SLOT = Symbol.for("decocms.blocks.currentClient");
 
@@ -25,13 +25,6 @@ const SLOT = Symbol.for("decocms.blocks.currentClient");
  * reads it too.
  */
 export const FORCED_TESTS: unique symbol = Symbol.for("decocms.blocks.forcedTests");
-
-/**
- * The decisions a client was created with (`cms.client({ decided })`): read
- * by the built-ins `split-traffic` and `date-windows`. `Symbol.for`, so a
- * second copy of the package reads it too.
- */
-export const DECIDED: unique symbol = Symbol.for("decocms.blocks.decided");
 
 interface Slot {
   /** Set while a block function runs synchronously. */
@@ -86,10 +79,4 @@ export function forcedTests(client: Client): Readonly<Record<string, boolean>> |
   return typeof forced === "object" && forced !== null
     ? (forced as Readonly<Record<string, boolean>>)
     : undefined;
-}
-
-/** The decisions a client was created with; `undefined` when it decides itself. */
-export function decided(client: Client): Readonly<Decided> | undefined {
-  const value = (client as unknown as Record<symbol, unknown>)[DECIDED];
-  return typeof value === "object" && value !== null ? (value as Readonly<Decided>) : undefined;
 }

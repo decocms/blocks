@@ -27,20 +27,20 @@
  */
 
 import type { Client, CMS } from "@decocms/blocks";
-import { parseVisitor } from "@decocms/blocks/experiments";
+import { parseVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { headers } from "next/headers.js";
-import { type PathDecisions, parseDecisionsSegment } from "../decisions.ts";
+import { type PathAssignments, parseAssignmentsSegment } from "../assignments.ts";
 import { DRAFT_HEADER, DRAFT_PARAM } from "../draft.ts";
 import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 
 export {
-  DECISIONS_ROUTE_PREFIX,
-  decisionsSegment,
-  type PathDecisions,
-  parseDecisionsSegment,
-} from "../decisions.ts";
+  ASSIGNMENTS_ROUTE_PREFIX,
+  assignmentsSegment,
+  type PathAssignments,
+  parseAssignmentsSegment,
+} from "../assignments.ts";
 export { type PreviewPolicy, requestLike } from "../drafts.ts";
 export { activeDraftPointer };
 
@@ -132,76 +132,40 @@ export function contentClient(cms: Pick<CMS, "client">): Client {
   return cms.client({ visitor, version: pointer });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
- * The part of `decisions` the release could have made for some visitor at
- * this moment: the tests in the saved `experiments` with a percentage that
- * puts someone in (over 0 once rounded) and the campaigns of the saved
- * `campaigns` running now. Anything else is left off, never an error: a path
- * can't switch on a test nobody is in or a campaign that hasn't started, and
- * a path the proxy wrote just before the content or the moment moved on
- * (a campaign that just ended, a test published to the proxy first) still
- * renders. A 404 here would be cached under the path by Next.
+ * The visitor a path's assignments stand for: no id of its own, in exactly
+ * the tests the path names (v7's stored-decision field `active`, which
+ * `assign` honours), so every visitor on that side renders the same page.
  */
-async function possible(
-  cms: Pick<CMS, "client" | "forRelease">,
-  decisions: PathDecisions,
-): Promise<PathDecisions> {
-  let experiments: string[] = [];
-  if (decisions.experiments.length > 0) {
-    const [raw, error] = await cms.forRelease().resolve<unknown>("experiments", { run: false });
-    if (error && error.code !== "NOT_FOUND") throw error;
-    if (isRecord(raw) && raw.__resolveType === "split-traffic") {
-      experiments = decisions.experiments.filter((name) => {
-        const pct = Object.hasOwn(raw, name) ? raw[name] : undefined;
-        return (
-          typeof pct === "number" && Number.isFinite(pct) && Math.round(Math.min(100, pct)) > 0
-        );
-      });
-    }
-  }
-  let campaigns: string[] = [];
-  if (decisions.campaigns.length > 0) {
-    const [running, error] = await cms.client().resolve<unknown>("campaigns");
-    if (error && error.code !== "NOT_FOUND") throw error;
-    if (isRecord(running)) {
-      campaigns = decisions.campaigns.filter(
-        (name) => Object.hasOwn(running, name) && running[name] === true,
-      );
-    }
-  }
-  return { experiments, campaigns };
+function visitorFromAssignments(assignments: PathAssignments): Visitor {
+  return { id: "", active: [...assignments.experiments], inactiveDrawn: [], pct: {} };
 }
 
 /**
- * The content client of a page on the decisions route
- * (`app/%5Fdecided/[decisions]/[[...path]]`, which the proxy's
- * `rewriteToDecisionsRoute` rewrites the CMS's pages to): the current release,
- * answering `experiments` and `campaigns` from the path's segment
- * (`cms.client({ decided })`), so the page renders what its cache key says
- * and reads no request: it can be static. A test nobody is in or a campaign
- * not running now stays off, whatever the segment says. `null` only when the
+ * The content client of a page on the assignments route
+ * (`app/%5Fassignments/[assignments]/[[...path]]`, which the proxy's
+ * `rewriteToAssignmentsRoute` rewrites the CMS's pages to): the current
+ * release, read as `cms.client({ visitor })` with a visitor built from the
+ * path's segment, so the page shows the sides of the tests its cache key
+ * says and reads no request: it can be static. Campaigns are checked again
+ * at the client's moment, as on any page; the path names them only so Next
+ * keeps a page apart for each set running. A test or a campaign the content
+ * doesn't have (or a campaign that has ended) stays off, never an error: a
+ * 404 here would be cached under the path by Next. `null` only when the
  * segment isn't one the proxy writes: the page answers with `notFound()`.
- * Content that fails to load throws, so Next caches no page for it.
  *
  * ```tsx
  * export const dynamic = "force-static";
  * export default async function Page({ params }) {
- *   const { decisions, path } = await params;
- *   const client = await decidedClient(cms, decisions);
+ *   const { assignments, path } = await params;
+ *   const client = assignedClient(cms, assignments);
  *   if (!client) notFound();
  *   …
  * }
  * ```
  */
-export async function decidedClient(
-  cms: Pick<CMS, "client" | "forRelease">,
-  segment: string,
-): Promise<Client | null> {
-  const decisions = parseDecisionsSegment(segment);
-  if (decisions === null) return null;
-  return cms.client({ decided: await possible(cms, decisions) });
+export function assignedClient(cms: Pick<CMS, "client">, segment: string): Client | null {
+  const assignments = parseAssignmentsSegment(segment);
+  if (assignments === null) return null;
+  return cms.client({ visitor: visitorFromAssignments(assignments) });
 }

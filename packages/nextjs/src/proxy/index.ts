@@ -30,13 +30,13 @@
  *
  * The binding caches nothing. A site that caches in front of its pages (a
  * CDN keyed on a request header, ISR under a path the proxy rewrites to)
- * keys on what the content decided for the request, never on the visitor:
- * `decisionsKey(await readDecisions(proxyCms, { visitor: visitor.visitor,
+ * keys on the request's assignments, never on the visitor:
+ * `assignmentsKey(await readAssignments(proxyCms, { visitor: visitor.visitor,
  * version: draft.pointer }))` gives the version, the tests the visitor is
  * in and the campaigns running now, `""` when there are none. For Next's own
- * path-keyed cache, `rewriteToDecisionsRoute` puts them in the path
- * (`/_decided/<decisions>/<path>`), where `decidedClient` from
- * `@decocms/nextjs/server` renders what they say.
+ * path-keyed cache, `rewriteToAssignmentsRoute` puts them in the path
+ * (`/_assignments/<assignments>/<path>`), where `assignedClient` from
+ * `@decocms/nextjs/server` renders the tests they name.
  *
  * The proxy measures no requests: it runs before Next routes and renders the
  * page. `http.server.request.duration` comes from Next's own request span
@@ -45,7 +45,11 @@
 import type { CMS } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
-import { decisionsRoutePath, isDecisionsRoutePath, readDecisionsAndScope } from "../decisions.ts";
+import {
+  assignmentsRoutePath,
+  isAssignmentsRoutePath,
+  readAssignmentsAndScope,
+} from "../assignments.ts";
 import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX, draftResponseHeaders } from "../draft.ts";
 import {
   allowedDraft,
@@ -80,16 +84,16 @@ export interface DraftDecision {
 }
 
 export {
-  DECISIONS_ROUTE_PREFIX,
-  type Decisions,
-  decisionsKey,
-  decisionsRoutePath,
-  decisionsSegment,
-  isDecisionsRoutePath,
-  type PathDecisions,
-  parseDecisionsSegment,
-  readDecisions,
-} from "../decisions.ts";
+  ASSIGNMENTS_ROUTE_PREFIX,
+  assignmentsKey,
+  assignmentsRoutePath,
+  assignmentsSegment,
+  isAssignmentsRoutePath,
+  type PathAssignments,
+  parseAssignmentsSegment,
+  type RequestAssignments,
+  readAssignments,
+} from "../assignments.ts";
 export { DRAFT_ROUTE_PREFIX } from "../draft.ts";
 
 const INERT: DraftDecision = Object.freeze({ pointer: null, setCookie: null });
@@ -219,30 +223,31 @@ export function rewriteToDraftRoute(
   });
 }
 
-/** A decisions-route response's `Cache-Control` when its content has tests or campaigns. */
-const DECIDED_CACHE_CONTROL = "private, no-cache";
+/** An assignments-route response's `Cache-Control` when its content has tests or campaigns. */
+const ASSIGNED_CACHE_CONTROL = "private, no-cache";
 
 /**
- * The rewrite of a published request onto the decisions route,
- * `/_decided/<decisions>/<path>`: the tests the visitor is in and the
- * campaigns running now (`readDecisions` on the current release), as one path
- * segment, so Next's own path-keyed cache (ISR, the full route cache) keeps
- * one entry per set of decisions. Visitors on the same side of every test
+ * The rewrite of a published request onto the assignments route,
+ * `/_assignments/<assignments>/<path>`: the tests the visitor is in and the
+ * campaigns running now (`readAssignments` on the current release), as one
+ * path segment, so Next's own path-keyed cache (ISR, the full route cache) keeps
+ * one entry per set of assignments. Visitors on the same side of every test
  * share a path; the visitor id is never in it, and the page reads neither the
  * visitor nor the draft (both headers are removed from the request it
  * forwards), so it can stay static. The page builds its client with
- * `decidedClient` from `@decocms/nextjs/server`, which answers from the path.
+ * `assignedClient` from `@decocms/nextjs/server`, which answers the tests from
+ * the path and checks the campaigns again at render time.
  *
  * `null` for a drafted request (it renders on the draft route, never cached)
- * and for a path already on the draft or decisions route. When the content
+ * and for a path already on the draft or assignments route. When the content
  * saves tests or campaigns, the response is marked `Cache-Control: private,
- * no-cache`: Next keeps one cached page per set of decisions, but the URL the
- * visitor asked for answers by their cookie and the moment, so a CDN in front
- * must not share it. Call it only for
- * the paths the decisions route renders (the CMS's pages), and answer a direct
- * hit on the route with a 404 (`isDecisionsRoutePath`).
+ * no-cache`: Next keeps one cached page per set of assignments, but the URL
+ * the visitor asked for answers by their cookie and the moment, so a CDN in
+ * front must not share it. Call it only for the paths the assignments route
+ * renders (the CMS's pages), and answer a direct hit on the route with a 404
+ * (`isAssignmentsRoutePath`).
  */
-export async function rewriteToDecisionsRoute(
+export async function rewriteToAssignmentsRoute(
   cms: Pick<CMS, "client">,
   request: NextRequest,
   draft: DraftDecision,
@@ -250,18 +255,18 @@ export async function rewriteToDecisionsRoute(
 ): Promise<NextResponse | null> {
   if (draft.pointer) return null;
   const url = request.nextUrl.clone();
-  if (isDraftRoutePath(url.pathname) || isDecisionsRoutePath(url.pathname)) return null;
-  const { decisions, decided } = await readDecisionsAndScope(cms, {
+  if (isDraftRoutePath(url.pathname) || isAssignmentsRoutePath(url.pathname)) return null;
+  const { assignments, varies } = await readAssignmentsAndScope(cms, {
     visitor: visitor.visitor,
     version: null,
   });
-  url.pathname = decisionsRoutePath(url.pathname, decisions);
+  url.pathname = assignmentsRoutePath(url.pathname, assignments);
   const response = NextResponse.rewrite(url, {
     request: { headers: draftRequestHeaders(request, INERT) },
   });
   // The URL the visitor asked for answers differently by their cookie and the moment: a
   // shared cache in front (a CDN) must not keep Next's static `s-maxage` under it.
-  if (decided) response.headers.set("Cache-Control", DECIDED_CACHE_CONTROL);
+  if (varies) response.headers.set("Cache-Control", ASSIGNED_CACHE_CONTROL);
   return response;
 }
 
@@ -288,12 +293,12 @@ export interface DraftProxyOptions extends PreviewPolicy {
    */
   rewrite?: (request: NextRequest) => boolean;
   /**
-   * Which published requests render on the decisions route
-   * (`rewriteToDecisionsRoute`): the CMS's pages, when the site mounts
-   * `app/%5Fdecided/[decisions]/[[...path]]`. Default: none. A direct hit on
-   * the route gets a 404 once this is set.
+   * Which published requests render on the assignments route
+   * (`rewriteToAssignmentsRoute`): the CMS's pages, when the site mounts
+   * `app/%5Fassignments/[assignments]/[[...path]]`. Default: none. A direct
+   * hit on the route gets a 404 once this is set.
    */
-  decisions?: (request: NextRequest) => boolean;
+  assignments?: (request: NextRequest) => boolean;
 }
 
 /**
@@ -304,17 +309,17 @@ export function draftProxy(
   cms: CMSHandle & Pick<CMS, "client">,
   options: DraftProxyOptions = {},
 ): (request: NextRequest) => Promise<NextResponse> {
-  const { rewrite = () => true, decisions, ...policy } = options;
+  const { rewrite = () => true, assignments, ...policy } = options;
   return async (request) => {
-    if (decisions && isDecisionsRoutePath(request.nextUrl.pathname)) {
+    if (assignments && isAssignmentsRoutePath(request.nextUrl.pathname)) {
       return new NextResponse(null, { status: 404 });
     }
     const decision = await decideDraft(cms, request, policy);
     const visitor = decideVisitor(request, decision);
     const rewritten =
       (rewrite(request) ? rewriteToDraftRoute(request, decision, visitor) : null) ??
-      (decisions?.(request)
-        ? await rewriteToDecisionsRoute(cms, request, decision, visitor)
+      (assignments?.(request)
+        ? await rewriteToAssignmentsRoute(cms, request, decision, visitor)
         : null);
     const response =
       rewritten ??

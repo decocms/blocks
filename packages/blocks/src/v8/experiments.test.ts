@@ -182,6 +182,21 @@ describe("assign", () => {
     }
   });
 
+  it("without a usable id, keeps the stored decisions and leaves every other test out", () => {
+    for (const id of ["", "too-short"]) {
+      const stored: Visitor = { id, active: ["in", "zero"], inactiveDrawn: ["out"], pct: {} };
+      expect({ ...assign({ in: 50, out: 100, zero: 0, other: 100 }, stored) }).toEqual({
+        in: true,
+        out: false,
+        zero: true,
+        other: false,
+      });
+    }
+    // A stored decision whose percentage moved past it is rolled, and there is no roll.
+    const moved: Visitor = { id: "", active: ["t"], inactiveDrawn: [], pct: { t: 50 } };
+    expect(assign({ t: 20 }, moved).t).toBe(false);
+  });
+
   it("answers only the tests in the block, and leaves out a percentage that is not a finite number", () => {
     const experiments = { ok: 50, bad: Number.NaN, worse: "50" } as unknown as Record<
       string,

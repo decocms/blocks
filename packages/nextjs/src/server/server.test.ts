@@ -31,7 +31,7 @@ vi.mock("react", async (original) => {
   };
 });
 
-const { activeDraftPointer, bindDraft, contentClient, decidedClient, decisionsSegment } =
+const { activeDraftPointer, bindDraft, contentClient, assignedClient, assignmentsSegment } =
   await import("./index.ts");
 
 function serve(headers: Record<string, string>): void {
@@ -145,7 +145,7 @@ describe("the visitor the proxy forwarded", () => {
   });
 });
 
-describe("decidedClient: a page on the decisions route renders what its path says", () => {
+describe("assignedClient: a page on the assignments route renders what its path says", () => {
   const content = snapshot({
     experiments: { "buy-button": 50, later: 0 },
     campaigns: {
@@ -154,51 +154,40 @@ describe("decidedClient: a page on the decisions route renders what its path say
     },
   });
   const seg = (experiments: string[], campaigns: string[] = []) =>
-    decisionsSegment({ experiments, campaigns });
+    assignmentsSegment({ experiments, campaigns });
 
-  it("answers from the path, not from a visitor, and reads no request", async () => {
+  it("answers the tests from the path, through a visitor with no id, and reads no request", async () => {
     const cms = testCMS(content);
-    const on = await decidedClient(cms, seg(["buy-button"], ["sale"]));
+    const on = assignedClient(cms, seg(["buy-button"], ["sale"]));
     expect((await on!.resolve("BuyButton"))[0]).toBe("new");
-    expect({ ...(await on!.resolve("campaigns"))[0]! }).toEqual({
-      sale: true,
-      "black-friday": false,
-    });
-    const off = await decidedClient(cms, seg([]));
+    expect(on!.visitor).toMatchObject({ id: "", active: ["buy-button"], inactiveDrawn: [] });
+    const off = assignedClient(cms, seg([]));
     expect((await off!.resolve("BuyButton"))[0]).toBe("old");
-    // A running campaign the path leaves out stays off: the page shows what its path says.
-    expect({ ...(await off!.resolve("campaigns"))[0]! }).toEqual({
-      sale: false,
-      "black-friday": false,
+    expect({ ...(await off!.resolve("experiments"))[0]! }).toEqual({
+      "buy-button": false,
+      later: false,
     });
-    expect(off!.visitor).toBeNull();
     expect(request.reads).toBe(0);
   });
 
-  it("a forged segment can't switch on a test nobody is in, or a campaign not running", async () => {
+  it("checks the campaigns again at the client's moment, whatever the path names", async () => {
     const cms = testCMS(content);
-    const answers = async (segment: string) => {
-      const client = await decidedClient(cms, segment);
-      return {
-        experiments: { ...(await client!.resolve("experiments"))[0]! },
-        campaigns: { ...(await client!.resolve("campaigns"))[0]! },
-      };
-    };
-    const allOff = {
-      experiments: { "buy-button": false, later: false },
-      campaigns: { sale: false, "black-friday": false },
-    };
-    expect(await answers(seg(["later"]))).toEqual(allOff);
-    expect(await answers(seg(["gone"]))).toEqual(allOff);
-    expect(await answers(seg([], ["black-friday"]))).toEqual(allOff);
-    expect(await answers(seg([], ["gone"]))).toEqual(allOff);
-    // What the release could have decided still answers: one stale name never costs the rest.
-    expect(await answers(seg(["buy-button", "later"], ["sale", "black-friday"]))).toEqual({
-      experiments: { "buy-button": true, later: false },
-      campaigns: { sale: true, "black-friday": false },
+    const running = { sale: true, "black-friday": false };
+    for (const campaigns of [["sale"], [], ["black-friday"], ["gone"]]) {
+      const client = assignedClient(cms, seg([], campaigns));
+      expect({ ...(await client!.resolve("campaigns"))[0]! }).toEqual(running);
+    }
+  });
+
+  it("keeps a name the content doesn't have off, never an error; a malformed segment is null", async () => {
+    const cms = testCMS(content);
+    const client = assignedClient(cms, seg(["buy-button", "gone"], ["sale", "gone"]));
+    expect({ ...(await client!.resolve("experiments"))[0]! }).toEqual({
+      "buy-button": true,
+      later: false,
     });
-    expect(await decidedClient(cms, "not-a-segment!")).toBeNull();
-    const bare = await decidedClient(testCMS(), seg(["buy-button"], ["sale"])); // no experiments or campaigns block
+    expect(assignedClient(cms, "not-a-segment!")).toBeNull();
+    const bare = assignedClient(testCMS(), seg(["buy-button"], ["sale"])); // no experiments or campaigns block
     expect(bare).not.toBeNull();
   });
 });

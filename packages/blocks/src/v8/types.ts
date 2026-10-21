@@ -351,19 +351,6 @@ export interface Client {
   readonly now: Date;
 }
 
-/**
- * What an app already decided for a request, carried with it (in a URL a
- * cache keys on, say): the tests of the saved block `experiments` the visitor
- * is in and the campaigns of the saved block `campaigns` running. Names only,
- * never the visitor.
- */
-export interface Decided {
-  /** The tests that answer `true`; every other test answers `false`. */
-  experiments: readonly string[];
-  /** The campaigns that answer `true`; every other campaign answers `false`. */
-  campaigns: readonly string[];
-}
-
 /** What one client is created with. Both are read by the app, outside blocks, and passed in. */
 export interface ClientOptions {
   /**
@@ -383,14 +370,6 @@ export interface ClientOptions {
    * `<sha>?__at=…&__test=…`). Only a version from a Studio link carries them.
    */
   version?: string | null;
-  /**
-   * Decisions made earlier for this request (see `Decided`): the saved
-   * `experiments` and `campaigns` answer from them instead of deciding again
-   * from the visitor and the moment, so a page rendered under a cache key
-   * shows what the key says. A name the block doesn't have stays out. The app
-   * must only pass decisions it made, or checked, itself.
-   */
-  decided?: Decided | null;
 }
 
 export interface CMS {

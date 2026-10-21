@@ -457,7 +457,7 @@ describe("__cseg: the CDN caches navigation data only under a token that checks 
   });
 });
 
-describe("the edge cache keys on what the content decided", () => {
+describe("the edge cache keys on the request's assignments", () => {
   /** Two visitors on opposite sides of a 50% `hero` test. */
   function visitorsAcross(): { inside: Visitor; outside: Visitor } {
     let inside: Visitor | undefined;
@@ -472,12 +472,12 @@ describe("the edge cache keys on what the content decided", () => {
   const as = (v: Visitor) => ({ headers: { cookie: `deco_segment=${serializeVisitor(v)}` } });
   const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
 
-  function decided(content: Parameters<typeof snapshot>[0]) {
+  function assigned(content: Parameters<typeof snapshot>[0]) {
     return setup({ cms: testCMS(snapshot({ previewHosts: ["store.example.com"], ...content })) });
   }
 
   it("visitors on opposite sides of a test get their own entries; the same side shares one", async () => {
-    const { get, entry } = decided({ experiments: { hero: 50 } });
+    const { get, entry } = assigned({ experiments: { hero: 50 } });
     const { inside, outside } = visitorsAcross();
     let another = newVisitor();
     while (!assign({ hero: 50 }, another).hero) another = newVisitor();
@@ -487,12 +487,12 @@ describe("the edge cache keys on what the content decided", () => {
     expect(entry.served).toHaveLength(2);
     expect(cache.pageKeys().sort()).toEqual([
       `${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop`,
-      `${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop&__d=x%3Dhero`,
+      `${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop&__a=x%3Dhero`,
     ]);
   });
 
   it("the visitor id is never in the key", async () => {
-    const { get } = decided({ experiments: { hero: 50 } });
+    const { get } = assigned({ experiments: { hero: 50 } });
     const { inside, outside } = visitorsAcross();
     await get("/", as(inside));
     await get("/", as(outside));
@@ -503,28 +503,28 @@ describe("the edge cache keys on what the content decided", () => {
   });
 
   it("a test at 0 or 100 decides the same for everyone: one entry", async () => {
-    const { get, entry } = decided({ experiments: { off: 0, all: 100 } });
+    const { get, entry } = assigned({ experiments: { off: 0, all: 100 } });
     const { inside, outside } = visitorsAcross();
     await get("/", as(inside));
     expect((await get("/", as(outside))).headers.get("x-cache")).toBe("HIT");
     expect(entry.served).toHaveLength(1);
-    expect(cache.pageKeys()[0]).toContain("&__d=x%3Dall");
+    expect(cache.pageKeys()[0]).toContain("&__a=x%3Dall");
   });
 
   it("a campaign starting changes the key", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse(BF.start) - 60_000);
-    const { get, entry } = decided({ campaigns: { "black-friday": BF } });
+    const { get, entry } = assigned({ campaigns: { "black-friday": BF } });
     expect((await get("/")).headers.get("x-cache")).toBe("MISS");
     expect((await get("/")).headers.get("x-cache")).toBe("HIT");
     vi.setSystemTime(Date.parse(BF.start) + 1_000);
     expect((await get("/")).headers.get("x-cache")).toBe("MISS");
     expect(entry.served).toHaveLength(2);
-    expect(cache.pageKeys().at(-1)).toContain("&__d=c%3Dblack-friday");
+    expect(cache.pageKeys().at(-1)).toContain("&__a=c%3Dblack-friday");
   });
 
-  it("the CDN token follows the decisions", async () => {
-    const { get, entry } = decided({ experiments: { hero: 50 } });
+  it("the CDN token follows the assignments", async () => {
+    const { get, entry } = assigned({ experiments: { hero: 50 } });
     const { inside, outside } = visitorsAcross();
     await get("/", as(inside));
     await get("/", as(outside));
@@ -539,7 +539,7 @@ describe("the edge cache keys on what the content decided", () => {
       "fetch",
       vi.fn(async () => Response.json({ set: {}, delete: [] })),
     );
-    const { get, entry } = decided({ campaigns: { "black-friday": BF } });
+    const { get, entry } = assigned({ campaigns: { "black-friday": BF } });
     await get("/");
     const SHA = "0123456789abcdef0123456789abcdef01234567";
     for (const version of [POINTER, SHA, `${SHA}?__at=${encodeURIComponent(BF.start)}`]) {
@@ -551,7 +551,7 @@ describe("the edge cache keys on what the content decided", () => {
   });
 
   it("a first visit is keyed on its new visitor's side, and a hit still sets that visitor's cookie", async () => {
-    const { get, entry } = decided({ experiments: { hero: 50 } });
+    const { get, entry } = assigned({ experiments: { hero: 50 } });
     const sides = new Set<boolean>();
     for (let i = 0; i < 12; i++) {
       const res = await get("/", { firstVisit: true });
@@ -566,7 +566,7 @@ describe("the edge cache keys on what the content decided", () => {
     }
     // One render per side, each keyed on the side its visitor landed on.
     expect(entry.served).toHaveLength(sides.size);
-    const keyed = cache.pageKeys().map((key) => key.includes("&__d=x%3Dhero"));
+    const keyed = cache.pageKeys().map((key) => key.includes("&__a=x%3Dhero"));
     expect(new Set(keyed)).toEqual(sides);
   });
 

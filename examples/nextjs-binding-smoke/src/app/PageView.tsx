@@ -5,23 +5,23 @@ import type { Post } from "../post";
 export function PageView({
   post,
   page,
-  decisions,
+  assignments,
 }: {
   post: Post | null;
   page: ResolvedPage<ReactNode> | null;
-  /** The decisions route's segment, shown for the smoke. */
-  decisions?: string;
+  /** The assignments route's segment, shown for the smoke. */
+  assignments?: string;
 }) {
   if (post) {
     return (
-      <article data-decisions={decisions}>
+      <article data-assignments={assignments}>
         <h1>{post.name}</h1>
         <p>{post.body}</p>
       </article>
     );
   }
   return (
-    <main data-decisions={decisions}>
+    <main data-assignments={assignments}>
       {page?.sections.map((section, index) => (
         <Fragment key={index}>{section}</Fragment>
       ))}
