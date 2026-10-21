@@ -33,7 +33,10 @@
  * keys on what the content decided for the request, never on the visitor:
  * `decisionsKey(await readDecisions(proxyCms, { visitor: visitor.visitor,
  * version: draft.pointer }))` gives the version, the tests the visitor is
- * in and the campaigns running now, `""` when there are none.
+ * in and the campaigns running now, `""` when there are none. For Next's own
+ * path-keyed cache, `rewriteToDecisionsRoute` puts them in the path
+ * (`/_decided/<decisions>/<path>`), where `decidedClient` from
+ * `@decocms/nextjs/server` renders what they say.
  *
  * The proxy measures no requests: it runs before Next routes and renders the
  * page. `http.server.request.duration` comes from Next's own request span
@@ -42,6 +45,7 @@
 import type { CMS } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
+import { decisionsRoutePath, isDecisionsRoutePath, readDecisions } from "../decisions.ts";
 import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX, draftResponseHeaders } from "../draft.ts";
 import {
   allowedDraft,
@@ -75,7 +79,17 @@ export interface DraftDecision {
   setCookie: string | null;
 }
 
-export { type Decisions, decisionsKey, readDecisions } from "../decisions.ts";
+export {
+  DECISIONS_ROUTE_PREFIX,
+  type Decisions,
+  decisionsKey,
+  decisionsRoutePath,
+  decisionsSegment,
+  isDecisionsRoutePath,
+  type PathDecisions,
+  parseDecisionsSegment,
+  readDecisions,
+} from "../decisions.ts";
 export { DRAFT_ROUTE_PREFIX } from "../draft.ts";
 
 const INERT: DraftDecision = Object.freeze({ pointer: null, setCookie: null });
@@ -206,6 +220,36 @@ export function rewriteToDraftRoute(
 }
 
 /**
+ * The rewrite of a published request onto the decisions route,
+ * `/_decided/<decisions>/<path>`: the tests the visitor is in and the
+ * campaigns running now (`readDecisions` on the current release), as one path
+ * segment, so Next's own path-keyed cache (ISR, the full route cache) keeps
+ * one entry per set of decisions. Visitors on the same side of every test
+ * share a path; the visitor id is never in it, and the page reads neither the
+ * visitor nor the draft (both headers are removed from the request it
+ * forwards), so it can stay static. The page builds its client with
+ * `decidedClient` from `@decocms/nextjs/server`, which answers from the path.
+ *
+ * `null` for a drafted request (it renders on the draft route, never cached)
+ * and for a path already on the draft or decisions route. Call it only for
+ * the paths the decisions route renders (the CMS's pages), and answer a direct
+ * hit on the route with a 404 (`isDecisionsRoutePath`).
+ */
+export async function rewriteToDecisionsRoute(
+  cms: Pick<CMS, "client">,
+  request: NextRequest,
+  draft: DraftDecision,
+  visitor: VisitorDecision,
+): Promise<NextResponse | null> {
+  if (draft.pointer) return null;
+  const url = request.nextUrl.clone();
+  if (isDraftRoutePath(url.pathname) || isDecisionsRoutePath(url.pathname)) return null;
+  const decisions = await readDecisions(cms, { visitor: visitor.visitor, version: null });
+  url.pathname = decisionsRoutePath(url.pathname, decisions);
+  return NextResponse.rewrite(url, { request: { headers: draftRequestHeaders(request, INERT) } });
+}
+
+/**
  * The cookie and the response headers of a draft: `Set-Cookie`, and for a
  * drafted response `Cache-Control: no-store, private`, `Vary: Cookie` and
  * `X-Robots-Tag: noindex, nofollow` (`draftResponseHeaders`). With the
@@ -227,6 +271,13 @@ export interface DraftProxyOptions extends PreviewPolicy {
    * `false` for a route that is already dynamic and binds the draft itself.
    */
   rewrite?: (request: NextRequest) => boolean;
+  /**
+   * Which published requests render on the decisions route
+   * (`rewriteToDecisionsRoute`): the CMS's pages, when the site mounts
+   * `app/%5Fdecided/[decisions]/[[...path]]`. Default: none. A direct hit on
+   * the route gets a 404 once this is set.
+   */
+  decisions?: (request: NextRequest) => boolean;
 }
 
 /**
@@ -234,14 +285,21 @@ export interface DraftProxyOptions extends PreviewPolicy {
  * own: `export const proxy = draftProxy(proxyCms, { site: "my-store" })`.
  */
 export function draftProxy(
-  cms: CMSHandle,
+  cms: CMSHandle & Pick<CMS, "client">,
   options: DraftProxyOptions = {},
 ): (request: NextRequest) => Promise<NextResponse> {
-  const { rewrite = () => true, ...policy } = options;
+  const { rewrite = () => true, decisions, ...policy } = options;
   return async (request) => {
+    if (decisions && isDecisionsRoutePath(request.nextUrl.pathname)) {
+      return new NextResponse(null, { status: 404 });
+    }
     const decision = await decideDraft(cms, request, policy);
     const visitor = decideVisitor(request, decision);
-    const rewritten = rewrite(request) ? rewriteToDraftRoute(request, decision, visitor) : null;
+    const rewritten =
+      (rewrite(request) ? rewriteToDraftRoute(request, decision, visitor) : null) ??
+      (decisions?.(request)
+        ? await rewriteToDecisionsRoute(cms, request, decision, visitor)
+        : null);
     const response =
       rewritten ??
       NextResponse.next({ request: { headers: forwardedHeaders(request, decision, visitor) } });

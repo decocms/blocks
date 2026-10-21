@@ -92,3 +92,82 @@ export function decisionsKey(decisions: Decisions): string {
   if (decisions.campaigns.length) parts.push(`c=${list(decisions.campaigns)}`);
   return parts.join("|");
 }
+
+/**
+ * The route a page renders on under the decisions its proxy made:
+ * `/_decided/<decisions>/<path>`, mounted as `app/%5Fdecided/[decisions]/[[...path]]`
+ * (a literal `_decided` folder is private in Next and never routes). The proxy
+ * rewrites to it (`rewriteToDecisionsRoute`) and answers a direct hit with
+ * its 404, so a visitor can't pick the decisions by typing a path.
+ */
+export const DECISIONS_ROUTE_PREFIX = "/_decided";
+
+/** The segment for a request with no test on and no campaign running. */
+const NONE = "-";
+
+/** What a decisions segment carries: the tests on and the campaigns running, never the version or the visitor. */
+export type PathDecisions = Pick<Decisions, "experiments" | "campaigns">;
+
+function toBase64Url(text: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(segment: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(segment)) return null;
+  try {
+    const binary = atob(segment.replace(/-/g, "+").replace(/_/g, "/"));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The decisions as one path segment, for Next's own path-keyed cache (ISR,
+ * the full route cache): `-` for none, otherwise `decisionsKey` without the
+ * version, base64url-encoded so Next passes it to the page unchanged. The
+ * same decisions always give the same segment; the visitor is never in it.
+ */
+export function decisionsSegment(decisions: PathDecisions): string {
+  const key = decisionsKey({ version: null, ...decisions });
+  return key === "" ? NONE : toBase64Url(key);
+}
+
+/**
+ * The decisions a segment carries, or `null` when it isn't one
+ * `decisionsSegment` writes (malformed, or the same decisions spelled another
+ * way), so each set of decisions has exactly one path.
+ */
+export function parseDecisionsSegment(segment: string): PathDecisions | null {
+  if (segment === NONE) return { experiments: [], campaigns: [] };
+  const key = fromBase64Url(segment);
+  if (key === null) return null;
+  const parsed: { experiments: string[]; campaigns: string[] } = { experiments: [], campaigns: [] };
+  try {
+    for (const part of key.split("|")) {
+      const [tag, list, ...rest] = part.split("=");
+      if (rest.length > 0 || list === undefined || list === "") return null;
+      const names = list.split(",").map(decodeURIComponent);
+      if (tag === "x" && parsed.experiments.length === 0) parsed.experiments = names;
+      else if (tag === "c" && parsed.campaigns.length === 0) parsed.campaigns = names;
+      else return null;
+    }
+  } catch {
+    return null;
+  }
+  return decisionsSegment(parsed) === segment ? parsed : null;
+}
+
+/** `/_decided/<segment><pathname>` (the bare prefix and segment for `/`). */
+export function decisionsRoutePath(pathname: string, decisions: PathDecisions): string {
+  const base = `${DECISIONS_ROUTE_PREFIX}/${decisionsSegment(decisions)}`;
+  return pathname === "/" || pathname === "" ? base : `${base}${pathname}`;
+}
+
+/** Whether `pathname` is on the decisions route: a site's proxy answers a direct hit there with its 404. */
+export function isDecisionsRoutePath(pathname: string): boolean {
+  return pathname === DECISIONS_ROUTE_PREFIX || pathname.startsWith(`${DECISIONS_ROUTE_PREFIX}/`);
+}

@@ -2,12 +2,18 @@ import "server-only";
 import { cache, type ReactNode } from "react";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { matchRoute, type Redirect } from "@decocms/blocks";
+import { decidedClient } from "@decocms/nextjs/server";
 import { client } from "./client.server";
+import { cms } from "./cms";
 import type { ResolvedPage, StoredPage } from "./model";
 import type { Post } from "./post";
 
-export const openPage = cache(async (pathname: string) => {
-  const c = await client();
+// `decisions`: the decisions route's segment. The page renders what it says (decidedClient: a
+// forged one that names a test nobody is in, or a campaign not running, is a 404). Without it, the
+// request's own client (a draft, and the visitor bindDraft bound).
+export const openPage = cache(async (pathname: string, decisions?: string) => {
+  const c = decisions === undefined ? await client() : await decidedClient(cms, decisions);
+  if (!c) notFound();
   const [pages, pagesError] = await c.list<StoredPage>("page");
   if (pagesError) throw pagesError;
   const [redirects, redirectsError] = await c.list<Redirect>("redirect");

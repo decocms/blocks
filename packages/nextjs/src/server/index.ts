@@ -29,11 +29,18 @@
 import type { Client, CMS } from "@decocms/blocks";
 import { parseVisitor } from "@decocms/blocks/experiments";
 import { headers } from "next/headers.js";
+import { type PathDecisions, parseDecisionsSegment } from "../decisions.ts";
 import { DRAFT_HEADER, DRAFT_PARAM } from "../draft.ts";
 import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 
+export {
+  DECISIONS_ROUTE_PREFIX,
+  decisionsSegment,
+  type PathDecisions,
+  parseDecisionsSegment,
+} from "../decisions.ts";
 export { type PreviewPolicy, requestLike } from "../drafts.ts";
 export { activeDraftPointer };
 
@@ -123,4 +130,73 @@ async function bindDraftPointer(
 export function contentClient(cms: Pick<CMS, "client">): Client {
   const { pointer, visitor } = draftSlot();
   return cms.client({ visitor, version: pointer });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Whether the release could have made `decisions` for some visitor at this
+ * moment: every test named is in the saved `experiments` with a percentage
+ * that puts someone in (over 0 once rounded), and every campaign named is in
+ * the saved `campaigns` and running now. A forged path can't switch on a test
+ * nobody is in yet or a campaign that hasn't started.
+ */
+async function couldDecide(
+  cms: Pick<CMS, "client" | "forRelease">,
+  decisions: PathDecisions,
+): Promise<boolean> {
+  if (decisions.experiments.length > 0) {
+    const [raw] = await cms.forRelease().resolve<unknown>("experiments", { run: false });
+    if (!isRecord(raw) || raw.__resolveType !== "split-traffic") return false;
+    for (const name of decisions.experiments) {
+      const pct = Object.hasOwn(raw, name) ? raw[name] : undefined;
+      if (typeof pct !== "number" || !Number.isFinite(pct) || Math.round(Math.min(100, pct)) <= 0) {
+        return false;
+      }
+    }
+  }
+  if (decisions.campaigns.length > 0) {
+    const [running] = await cms.client().resolve<unknown>("campaigns");
+    if (!isRecord(running)) return false;
+    for (const name of decisions.campaigns) {
+      if (!Object.hasOwn(running, name) || running[name] !== true) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The content client of a page on the decisions route
+ * (`app/%5Fdecided/[decisions]/[[...path]]`, which the proxy's
+ * `rewriteToDecisionsRoute` rewrites the CMS's pages to): the current release,
+ * answering `experiments` and `campaigns` from the path's segment
+ * (`cms.client({ decided })`), so the page renders what its cache key says
+ * and reads no request: it can be static. `null` when the segment isn't one
+ * the proxy writes, or names a test nobody is in or a campaign not running
+ * now: the page answers with `notFound()`.
+ *
+ * ```tsx
+ * export const dynamic = "force-static";
+ * export default async function Page({ params }) {
+ *   const { decisions, path } = await params;
+ *   const client = await decidedClient(cms, decisions);
+ *   if (!client) notFound();
+ *   …
+ * }
+ * ```
+ */
+export async function decidedClient(
+  cms: Pick<CMS, "client" | "forRelease">,
+  segment: string,
+): Promise<Client | null> {
+  const decisions = parseDecisionsSegment(segment);
+  if (decisions === null) return null;
+  try {
+    if (!(await couldDecide(cms, decisions))) return null;
+  } catch {
+    return null;
+  }
+  return cms.client({ decided: decisions });
 }

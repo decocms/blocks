@@ -6,14 +6,20 @@ import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
 import {
   applyDraft,
   applyVisitor,
+  DECISIONS_ROUTE_PREFIX,
   DRAFT_ROUTE_PREFIX,
   decideDraft,
   decideVisitor,
   decisionsKey,
+  decisionsRoutePath,
+  decisionsSegment,
   draftProxy,
   draftRequestHeaders,
+  isDecisionsRoutePath,
   isDraftRoutePath,
+  parseDecisionsSegment,
   readDecisions,
+  rewriteToDecisionsRoute,
   rewriteToDraftRoute,
   visitorRequestHeaders,
 } from "./index.ts";
@@ -336,5 +342,156 @@ describe("readDecisions and decisionsKey: what a site's own cache keys on", () =
   it("no experiments or campaigns: no decisions", async () => {
     const decisions = await readDecisions(testCMS(), { visitor: newVisitor(), version: null });
     expect(decisionsKey(decisions)).toBe("");
+  });
+});
+
+describe("the decisions route: Next's path-keyed cache keys on what the content decided", () => {
+  const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
+  const content = snapshot({
+    experiments: { hero: 50, later: 0 },
+    campaigns: { "black-friday": BF },
+  });
+  const visitorIn = (inside: boolean) => {
+    for (;;) {
+      const v = newVisitor();
+      if (assign({ hero: 50 }, v).hero === inside) return v;
+    }
+  };
+  const asCookie = (visitor: ReturnType<typeof newVisitor>) => ({
+    cookie: `deco_segment=${serializeVisitor(visitor)}`,
+  });
+  /** The path the request is rewritten to, or null when it isn't. */
+  async function routed(
+    cms: ReturnType<typeof testCMS>,
+    request: NextRequest,
+  ): Promise<string | null> {
+    const draft = await decideDraft(cms, request);
+    const res = await rewriteToDecisionsRoute(cms, request, draft, decideVisitor(request, draft));
+    const target = res?.headers.get("x-middleware-rewrite");
+    return target ? new URL(target).pathname + new URL(target).search : null;
+  }
+  const page = (path: string, headers: Record<string, string> = {}) =>
+    new NextRequest(`https://shop.example.com${path}`, { headers });
+
+  it("two visitors on opposite sides of a test get different paths; the same side, the same path", async () => {
+    const cms = testCMS(content);
+    const a = visitorIn(true);
+    const paths = [
+      await routed(cms, page("/shoes?color=red", asCookie(a))),
+      await routed(cms, page("/shoes?color=red", asCookie(visitorIn(true)))),
+      await routed(cms, page("/shoes?color=red", asCookie(visitorIn(false)))),
+    ];
+    expect(paths[0]).toBe(paths[1]);
+    expect(paths[0]).not.toBe(paths[2]);
+    expect(paths[0]).toMatch(/^\/_decided\/[A-Za-z0-9_-]+\/shoes\?color=red$/);
+    expect(paths[2]).toMatch(/^\/_decided\/-\/shoes\?color=red$/);
+    expect(paths.join()).not.toContain(a.id);
+  });
+
+  it("the page gets neither the visitor nor a draft header", async () => {
+    const cms = testCMS(content);
+    const req = page("/shoes", {
+      ...asCookie(visitorIn(true)),
+      "x-deco-visitor": "forged",
+      "x-deco-draft": POINTER,
+    });
+    const draft = await decideDraft(cms, req);
+    const res = await rewriteToDecisionsRoute(cms, req, draft, decideVisitor(req, draft));
+    expect(forwarded(res!, "x-deco-visitor")).toBeNull();
+    expect(forwarded(res!, "x-deco-draft")).toBeNull();
+  });
+
+  it("a campaign starting or ending changes the path", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const cms = testCMS(content);
+      const at = async (time: number) => {
+        vi.setSystemTime(time);
+        return routed(cms, page("/", asCookie(visitorIn(false))));
+      };
+      const before = await at(Date.parse(BF.start) - 1_000);
+      const during = await at(Date.parse(BF.start) + 1_000);
+      const after = await at(Date.parse(BF.end) + 1_000);
+      expect(before).toBe("/_decided/-");
+      expect(during).not.toBe(before);
+      expect(parseDecisionsSegment(during!.split("/")[2]!)).toEqual({
+        experiments: [],
+        campaigns: ["black-friday"],
+      });
+      expect(after).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a draft or preview link is not rewritten for caching: it goes to the draft route", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["shop.example.com"], experiments: { hero: 50 } }),
+    );
+    expect(await routed(cms, draftLink())).toBeNull();
+    expect(await routed(cms, withCookie())).toBeNull();
+    const draft = await decideDraft(cms, draftLink());
+    expect(rewriteToDraftRoute(draftLink(), draft)?.headers.get("x-middleware-rewrite")).toContain(
+      "/_draft/shoes",
+    );
+  });
+
+  it("a path already on the decisions or draft route is never rewritten again", async () => {
+    const cms = testCMS(content);
+    expect(await routed(cms, page("/_decided/-/shoes"))).toBeNull();
+    expect(await routed(cms, page("/_draft/shoes"))).toBeNull();
+    expect(isDecisionsRoutePath("/_decided")).toBe(true);
+    expect(isDecisionsRoutePath("/_decided/x/shoes")).toBe(true);
+    expect(isDecisionsRoutePath("/_decidedly")).toBe(false);
+    expect(DECISIONS_ROUTE_PREFIX).toBe("/_decided");
+  });
+
+  it("draftProxy answers a direct hit on the decisions route with a 404, so a path can't force a test on", async () => {
+    const cms = testCMS(content);
+    const proxy = draftProxy(cms, { decisions: () => true });
+    const forged = decisionsRoutePath("/shoes", { experiments: ["later"], campaigns: [] });
+    expect((await proxy(page(forged))).status).toBe(404);
+    const res = await proxy(page("/shoes", asCookie(visitorIn(false))));
+    expect(res.headers.get("x-middleware-rewrite")).toBe(
+      "https://shop.example.com/_decided/-/shoes",
+    );
+    // Without the option nothing changes.
+    expect((await draftProxy(cms)(page("/shoes"))).headers.get("x-middleware-rewrite")).toBeNull();
+  });
+});
+
+describe("decisionsSegment and parseDecisionsSegment", () => {
+  it("round-trip, sorted, with one spelling per set of decisions", () => {
+    const d = { experiments: ["b", "a b", "ç"], campaigns: ["sale|x", "c=1"] };
+    const segment = decisionsSegment(d);
+    expect(segment).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(parseDecisionsSegment(segment)).toEqual({
+      experiments: ["a b", "b", "ç"],
+      campaigns: ["c=1", "sale|x"],
+    });
+    expect(
+      decisionsSegment({ experiments: [...d.experiments].reverse(), campaigns: d.campaigns }),
+    ).toBe(segment);
+    expect(decisionsSegment({ experiments: [], campaigns: [] })).toBe("-");
+    expect(parseDecisionsSegment("-")).toEqual({ experiments: [], campaigns: [] });
+  });
+
+  it("rejects what the proxy never writes", () => {
+    const b64 = (text: string) =>
+      btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    for (const bad of [
+      "",
+      "--",
+      "not base64!",
+      b64("x=b,a"), // unsorted
+      b64("c=a|x=b"), // out of order
+      b64("x=a|x=b"),
+      b64("v=sha|x=a"), // a version never rides in the path
+      b64("x="),
+      `${b64("x=a")}=`,
+    ]) {
+      expect(parseDecisionsSegment(bad), bad).toBeNull();
+    }
+    expect(parseDecisionsSegment(b64("x=a|c=b"))).toEqual({ experiments: ["a"], campaigns: ["b"] });
   });
 });

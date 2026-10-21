@@ -31,7 +31,8 @@ vi.mock("react", async (original) => {
   };
 });
 
-const { activeDraftPointer, bindDraft, contentClient } = await import("./index.ts");
+const { activeDraftPointer, bindDraft, contentClient, decidedClient, decisionsSegment } =
+  await import("./index.ts");
 
 function serve(headers: Record<string, string>): void {
   request.headers = new Headers({ host: "shop.example.com", ...headers });
@@ -141,5 +142,46 @@ describe("the visitor the proxy forwarded", () => {
     const cms = { client: vi.fn(() => "client") };
     contentClient(cms as never);
     expect(cms.client).toHaveBeenLastCalledWith({ visitor: null, version: null });
+  });
+});
+
+describe("decidedClient: a page on the decisions route renders what its path says", () => {
+  const content = snapshot({
+    experiments: { "buy-button": 50, later: 0 },
+    campaigns: {
+      sale: { start: "2000-01-01T00:00:00Z" },
+      "black-friday": { start: "2999-11-27T00:00:00Z" },
+    },
+  });
+  const seg = (experiments: string[], campaigns: string[] = []) =>
+    decisionsSegment({ experiments, campaigns });
+
+  it("answers from the path, not from a visitor, and reads no request", async () => {
+    const cms = testCMS(content);
+    const on = await decidedClient(cms, seg(["buy-button"], ["sale"]));
+    expect((await on!.resolve("BuyButton"))[0]).toBe("new");
+    expect({ ...(await on!.resolve("campaigns"))[0]! }).toEqual({
+      sale: true,
+      "black-friday": false,
+    });
+    const off = await decidedClient(cms, seg([]));
+    expect((await off!.resolve("BuyButton"))[0]).toBe("old");
+    // A running campaign the path leaves out stays off: the page shows what its path says.
+    expect({ ...(await off!.resolve("campaigns"))[0]! }).toEqual({
+      sale: false,
+      "black-friday": false,
+    });
+    expect(off!.visitor).toBeNull();
+    expect(request.reads).toBe(0);
+  });
+
+  it("a forged segment can't switch on a test nobody is in, or a campaign not running", async () => {
+    const cms = testCMS(content);
+    expect(await decidedClient(cms, seg(["later"]))).toBeNull();
+    expect(await decidedClient(cms, seg(["gone"]))).toBeNull();
+    expect(await decidedClient(cms, seg([], ["black-friday"]))).toBeNull();
+    expect(await decidedClient(cms, seg([], ["gone"]))).toBeNull();
+    expect(await decidedClient(cms, "not-a-segment!")).toBeNull();
+    expect(await decidedClient(testCMS(), seg(["buy-button"]))).toBeNull(); // no experiments block
   });
 });
