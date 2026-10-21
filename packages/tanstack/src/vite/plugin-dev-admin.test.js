@@ -49,11 +49,11 @@ describe("decoVitePlugin — dev admin reads from Studio", () => {
     vi.restoreAllMocks();
   });
 
-  function startServer() {
+  function startServer({ stack = middlewares } = {}) {
     const p = Array.isArray(plugin()) ? plugin()[0] : plugin();
     const server = {
       watcher: new EventEmitter(),
-      middlewares: { stack: middlewares },
+      middlewares: { stack },
       config: { define: {} },
       environments: undefined,
       httpServer: { once: () => {}, address: () => ({ port: 4321 }) },
@@ -121,5 +121,9 @@ describe("decoVitePlugin — dev admin reads from Studio", () => {
     expect(preflight("GET", "/live/_meta", "https://studio.decocms.com").passed).toBe(true);
     expect(preflight("OPTIONS", "/src/main.tsx", "https://studio.decocms.com").passed).toBe(true);
     expect(preflight("OPTIONS", "/live/previews/", "https://studio.decocms.com").passed).toBe(true);
+  });
+
+  it("still starts when the middleware stack isn't connect's array", () => {
+    expect(() => startServer({ stack: undefined })).not.toThrow();
   });
 });

@@ -53,7 +53,6 @@ describe("decoVitePlugin — sections/loaders/invoke dev regeneration (#371)", (
   function makeServer() {
     return {
       watcher: new EventEmitter(),
-      middlewares: { stack: [] },
       config: { define: {} },
       environments: undefined,
       httpServer: { once: () => {} },

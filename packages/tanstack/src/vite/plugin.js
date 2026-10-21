@@ -507,17 +507,21 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // one (Studio's conditional `/live/_meta` through the tunnel) never
       // reaches the worker's own answer. Vite installs it before running
       // configureServer, hence the front of the stack rather than `use()`.
-      server.middlewares.stack.unshift({
-        route: "",
-        handle: (req, res, next) => {
-          if (req.method !== "OPTIONS" || !isAdminPreflightPath(req.url)) return next();
-          res.statusCode = 204;
-          for (const [name, value] of Object.entries(adminPreflightHeaders(req.headers.origin))) {
-            res.setHeader(name, value);
-          }
-          res.end();
-        },
-      });
+      // That stack is connect's, not Vite's API: without it, only this
+      // preflight is lost, never the dev server.
+      if (Array.isArray(server.middlewares?.stack)) {
+        server.middlewares.stack.unshift({
+          route: "",
+          handle: (req, res, next) => {
+            if (req.method !== "OPTIONS" || !isAdminPreflightPath(req.url)) return next();
+            res.statusCode = 204;
+            for (const [name, value] of Object.entries(adminPreflightHeaders(req.headers.origin))) {
+              res.setHeader(name, value);
+            }
+            res.end();
+          },
+        });
+      }
       const blocksDir = path.resolve(cwd, ".deco/blocks");
       const outFile = path.resolve(cwd, ".deco/blocks.gen.ts");
       const jsonFile = outFile.replace(/\.ts$/, ".json");
