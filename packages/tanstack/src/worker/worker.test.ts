@@ -4,7 +4,13 @@
  * Start's server entry replaced by test doubles: the header matrix of every
  * always-on behaviour, and each option a site uses.
  */
-import { newVisitor, parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
+import {
+  assign,
+  newVisitor,
+  parseVisitor,
+  serializeVisitor,
+  type Visitor,
+} from "@decocms/blocks/experiments";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CSEG_PARAM } from "../shared.ts";
 import { type CacheEvent, createDecoWorker, type DecoWorkerOptions } from "./index.ts";
@@ -448,6 +454,133 @@ describe("__cseg: the CDN caches navigation data only under a token that checks 
     expect(doc.headers.get("cdn-cache-control")).toBe("no-store");
     await get("/", { headers: { cookie: "session=1" } });
     expect(entry.served[1]?.scope?.csegToken).toBeUndefined();
+  });
+});
+
+describe("the edge cache keys on what the content decided", () => {
+  /** Two visitors on opposite sides of a 50% `hero` test. */
+  function visitorsAcross(): { inside: Visitor; outside: Visitor } {
+    let inside: Visitor | undefined;
+    let outside: Visitor | undefined;
+    while (!inside || !outside) {
+      const v = newVisitor();
+      if (assign({ hero: 50 }, v).hero) inside ??= v;
+      else outside ??= v;
+    }
+    return { inside, outside };
+  }
+  const as = (v: Visitor) => ({ headers: { cookie: `deco_segment=${serializeVisitor(v)}` } });
+  const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
+
+  function decided(content: Parameters<typeof snapshot>[0]) {
+    return setup({ cms: testCMS(snapshot({ previewHosts: ["store.example.com"], ...content })) });
+  }
+
+  it("visitors on opposite sides of a test get their own entries; the same side shares one", async () => {
+    const { get, entry } = decided({ experiments: { hero: 50 } });
+    const { inside, outside } = visitorsAcross();
+    let another = newVisitor();
+    while (!assign({ hero: 50 }, another).hero) another = newVisitor();
+    expect((await get("/", as(inside))).headers.get("x-cache")).toBe("MISS");
+    expect((await get("/", as(outside))).headers.get("x-cache")).toBe("MISS");
+    expect((await get("/", as(another))).headers.get("x-cache")).toBe("HIT");
+    expect(entry.served).toHaveLength(2);
+    expect([...cache.entries.keys()].sort()).toEqual([
+      `${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop`,
+      `${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop&__d=x%3Dhero`,
+    ]);
+  });
+
+  it("the visitor id is never in the key", async () => {
+    const { get } = decided({ experiments: { hero: 50 } });
+    const { inside, outside } = visitorsAcross();
+    await get("/", as(inside));
+    await get("/", as(outside));
+    for (const key of cache.entries.keys()) {
+      expect(key).not.toContain(inside.id);
+      expect(key).not.toContain(outside.id);
+    }
+  });
+
+  it("a test at 0 or 100 decides the same for everyone: one entry", async () => {
+    const { get, entry } = decided({ experiments: { off: 0, all: 100 } });
+    const { inside, outside } = visitorsAcross();
+    await get("/", as(inside));
+    expect((await get("/", as(outside))).headers.get("x-cache")).toBe("HIT");
+    expect(entry.served).toHaveLength(1);
+    expect([...cache.entries.keys()][0]).toContain("&__d=x%3Dall");
+  });
+
+  it("a campaign starting changes the key", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse(BF.start) - 60_000);
+    const { get, entry } = decided({ campaigns: { "black-friday": BF } });
+    expect((await get("/")).headers.get("x-cache")).toBe("MISS");
+    expect((await get("/")).headers.get("x-cache")).toBe("HIT");
+    vi.setSystemTime(Date.parse(BF.start) + 1_000);
+    expect((await get("/")).headers.get("x-cache")).toBe("MISS");
+    expect(entry.served).toHaveLength(2);
+    expect([...cache.entries.keys()].at(-1)).toContain("&__d=c%3Dblack-friday");
+  });
+
+  it("the CDN token follows the decisions", async () => {
+    const { get, entry } = decided({ experiments: { hero: 50 } });
+    const { inside, outside } = visitorsAcross();
+    await get("/", as(inside));
+    await get("/", as(outside));
+    const [a, b] = entry.served.map((s) => s.scope?.csegToken);
+    expect(a).toBeTruthy();
+    expect(b).toBeTruthy();
+    expect(a).not.toBe(b);
+  });
+
+  it("previews (a draft, an old release, a preview time) never share the live entry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ set: {}, delete: [] })),
+    );
+    const { get, entry } = decided({ campaigns: { "black-friday": BF } });
+    await get("/");
+    const SHA = "0123456789abcdef0123456789abcdef01234567";
+    for (const version of [POINTER, SHA, `${SHA}?__at=${encodeURIComponent(BF.start)}`]) {
+      const res = await get(`/?__draft=${encodeURIComponent(version)}`);
+      expect(res.headers.get("x-cache")).toBe("BYPASS");
+    }
+    expect(entry.served).toHaveLength(4);
+    expect(cache.entries.size).toBe(1);
+  });
+
+  it("a site without experiments or campaigns keys as before", async () => {
+    const { get } = setup();
+    await get("/");
+    expect([...cache.entries.keys()]).toEqual([
+      `${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop`,
+    ]);
+  });
+
+  it("purge drops the entries of every running test's sides", async () => {
+    const { get, worker, ctx } = setup({
+      cms: testCMS(snapshot({ experiments: { hero: 50 } })),
+      purgeToken: () => "secret",
+    });
+    const { inside, outside } = visitorsAcross();
+    await get("/shoes", as(inside));
+    await get("/shoes", as(outside));
+    expect(cache.entries.size).toBe(2);
+    const res = await worker.fetch(
+      new Request(`${ORIGIN}/_cache/purge`, {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+        body: JSON.stringify({ paths: ["/shoes"] }),
+      }),
+      {},
+      ctx,
+    );
+    expect(await res.json()).toEqual({
+      purged: ["/shoes (device=desktop)", "/shoes (device=desktop, x=hero)"],
+      total: 2,
+    });
+    expect(cache.entries.size).toBe(0);
   });
 });
 

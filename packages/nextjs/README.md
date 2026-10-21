@@ -6,7 +6,7 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 
 | Import | What it is for |
 | --- | --- |
-| `@decocms/nextjs/proxy` | Draft previews and the visitor in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, or `draftProxy` for a site with no proxy of its own. No React and no block map. |
+| `@decocms/nextjs/proxy` | Draft previews and the visitor in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, or `draftProxy` for a site with no proxy of its own; `readDecisions` and `decisionsKey` for a site's own cache key. No React and no block map. |
 | `@decocms/nextjs/server` | Draft previews and the visitor in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
 | `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
@@ -56,6 +56,8 @@ A draft link can carry a published release's commit SHA instead of a draft (Stud
 `decideVisitor(request, draft)` reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor); `visitorRequestHeaders` forwards it on `x-deco-visitor` (`draftRequestHeaders` always removes a copy sent from outside), and `applyVisitor` sends the cookie on a first visit only, never from a preview. It reads no content: the saved `experiments` block decides the tests for the visitor the client carries.
 
 On the page, `bindDraft` binds the version and the forwarded visitor (on the current release it reads the request only when the release saves an `experiments` block, so a page without tests stays static), and `contentClient(cms)` builds `cms.client({ visitor, version })` from them. A statically rendered page has no visitor, so its tests are off: a page that should vary per visitor has to render per request.
+
+The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header, or ISR under a path its proxy rewrites to) keys on what the content decided, never on the visitor: `decisionsKey(await readDecisions(proxyCms, { visitor: visitor.visitor, version: draft.pointer }))` from `@decocms/nextjs/proxy` resolves the saved `experiments` and `campaigns` blocks as the page will and gives the version, the tests the visitor is in and the campaigns running now (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key.
 
 ### Draft hosts
 

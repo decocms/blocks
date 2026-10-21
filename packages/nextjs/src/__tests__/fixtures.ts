@@ -9,7 +9,11 @@ export const POINTER = "studio.decocms.com/api/acme/decofile/mcp/main?token=t@v1
  * when given, the `CMS` block's preview hosts and the saved `experiments` block.
  */
 export function snapshot(
-  options: { previewHosts?: string[]; experiments?: Record<string, number> } = {},
+  options: {
+    previewHosts?: string[];
+    experiments?: Record<string, number>;
+    campaigns?: Record<string, { start?: string; end?: string }>;
+  } = {},
 ): Snapshot {
   const blocks: Record<string, unknown> = {
     Home: { __resolveType: "page", path: "/", sections: [] },
@@ -26,6 +30,9 @@ export function snapshot(
   }
   if (options.experiments) {
     blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
+  }
+  if (options.campaigns) {
+    blocks.campaigns = { __resolveType: "date-windows", ...options.campaigns };
   }
   return { revision: "rev-1", blocks } as Snapshot;
 }

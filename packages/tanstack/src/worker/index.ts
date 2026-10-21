@@ -12,8 +12,11 @@
  *   cache.
  * - The CMS redirects, before any route.
  * - An edge cache (the Cloudflare Cache API) keyed by URL, device, the site's
- *   segment parts and `<build>.<content revision>`, with stale-while-revalidate
- *   and stale-if-error; logged-in, private and degraded responses never stored.
+ *   segment parts, `<build>.<content revision>` and what the content decided
+ *   for the request (`./decisions.ts`: the tests of the saved `experiments`
+ *   block the visitor is in and the campaigns of `campaigns` running now,
+ *   never the visitor id), with stale-while-revalidate and stale-if-error;
+ *   logged-in, private and degraded responses never stored.
  * - CDN caching of client-side navigation data whose `__cseg` token checks out;
  *   every other response tells the CDN `no-store`, at one exit.
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
@@ -28,7 +31,7 @@
  *   when the CMS has no telemetry.
  */
 import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
-import { readVisitor, serializeVisitor } from "@decocms/blocks/experiments";
+import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
 import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
@@ -45,6 +48,7 @@ import {
   resolveProfiles,
 } from "./cacheProfiles.ts";
 import { dedupeSetCookies, hasOnlySafeCookies, withoutSafeCookies } from "./cookies.ts";
+import { decisionsKey, possibleDecisions, readDecisions } from "./decisions.ts";
 import { decideDraft, type PreviewPolicy } from "./drafts.ts";
 import { type CspOptions, htmlSecurityHeaders } from "./security.ts";
 import { DEVICES, detectDevice, type Segment, segmentKey, segmentToken } from "./segment.ts";
@@ -297,7 +301,13 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return out;
   }
 
-  function cacheKey(url: URL, request: Request, version: string, segment: Segment): Request {
+  function cacheKey(
+    url: URL,
+    request: Request,
+    version: string,
+    segment: Segment,
+    decided: string,
+  ): Request {
     const key = new URL(url);
     for (const name of [...key.searchParams.keys()]) {
       if (TRACKING_PARAMS.has(name.toLowerCase())) key.searchParams.delete(name);
@@ -314,6 +324,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       key.searchParams.set("__fetch", "1");
     }
     key.searchParams.set("__seg", segmentKey(segment));
+    if (decided) key.searchParams.set("__d", decided);
     return new Request(key.toString(), { method: "GET" });
   }
 
@@ -341,22 +352,35 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     const cache = edgeCache();
     if (!cache) return Response.json({ purged: [], total: 0, note: "Cache API unavailable" });
     const origin = new URL(request.url).origin;
-    // The current version's entries: older versions' keys are no longer looked up.
+    // The current version's entries: older versions' keys are no longer looked
+    // up, nor are those of campaigns that are no longer running.
     const version = await cacheVersion();
+    const { decisions, complete } = await possibleDecisions(cms);
     const purged: string[] = [];
     for (const path of paths) {
       for (const segment of segments) {
-        for (const programmatic of [false, true]) {
-          const url = new URL(path, origin);
-          const headers = programmatic ? { "sec-fetch-dest": "empty" } : undefined;
-          const key = cacheKey(url, new Request(url, { headers }), version, segment);
-          if (await cache.delete(key)) {
-            purged.push(`${path} (${segmentKey(segment)}${programmatic ? ", fetch" : ""})`);
+        for (const decided of decisions.map(decisionsKey)) {
+          for (const programmatic of [false, true]) {
+            const url = new URL(path, origin);
+            const headers = programmatic ? { "sec-fetch-dest": "empty" } : undefined;
+            const key = cacheKey(url, new Request(url, { headers }), version, segment, decided);
+            if (await cache.delete(key)) {
+              const parts = [segmentKey(segment), decided, programmatic ? "fetch" : ""];
+              purged.push(`${path} (${parts.filter(Boolean).join(", ")})`);
+            }
           }
         }
       }
     }
-    return Response.json({ purged, total: purged.length });
+    return Response.json({
+      purged,
+      total: purged.length,
+      ...(complete
+        ? {}
+        : {
+            note: "More than four tests are running: only the combinations of the first four were purged",
+          }),
+    });
   }
 
   // The release's redirects, read once per revision (a draft's are read each time).
@@ -473,15 +497,17 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   function withVisitor(
     request: Request,
     version: string | null,
-  ): { request: Request; visitorCookie?: string } {
+  ): { request: Request; visitor: Visitor | null; visitorCookie?: string } {
     // TanStack Start's own build files render no content.
-    if (BYPASS_PATHS.some((p) => new URL(request.url).pathname.startsWith(p))) return { request };
+    if (BYPASS_PATHS.some((p) => new URL(request.url).pathname.startsWith(p))) {
+      return { request, visitor: null };
+    }
     const { visitor, cookie } = readVisitor(request);
     const headers = new Headers(request.headers);
     headers.set(VISITOR_HEADER, serializeVisitor(visitor));
     const forwarded = new Request(request, { headers });
-    if (cookie === null || version !== null) return { request: forwarded };
-    return { request: forwarded, visitorCookie: cookie };
+    if (cookie === null || version !== null) return { request: forwarded, visitor };
+    return { request: forwarded, visitor, visitorCookie: cookie };
   }
 
   async function handle(
@@ -546,7 +572,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     }
 
     const visited = withVisitor(request, draft);
-    const served = await page(visited.request, env, ctx, draft, url);
+    const served = await page(visited.request, env, ctx, draft, url, visited.visitor);
     return visited.visitorCookie === undefined
       ? served
       : { ...served, visitorCookie: visited.visitorCookie };
@@ -559,6 +585,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     ctx: ExecutionContextLike,
     draft: string | null,
     url: URL,
+    visitor: Visitor | null,
   ): Promise<Served> {
     const method = request.method;
     const profileName = profileOf(url);
@@ -572,7 +599,14 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       !request.headers.has("authorization") &&
       !BYPASS_PATHS.some((p) => url.pathname.startsWith(p));
     const version = cacheable ? await cacheVersion() : "";
-    const token = cacheable ? segmentToken(segment as Segment, version) : null;
+    // What the content decides for this request, before the lookup: two
+    // visitors on the same side of every test share an entry.
+    const decided = cacheable
+      ? decisionsKey(await readDecisions(cms, { visitor, version: draft }))
+      : "";
+    const token = cacheable
+      ? segmentToken(segment as Segment, decided ? `${version}|${decided}` : version)
+      : null;
     const origin = async (): Promise<Response> =>
       withPageStatus(
         await runInScope({ csegToken: token ?? undefined, draft: draft ?? undefined }, () =>
@@ -608,7 +642,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     }
 
     const seg = segment as Segment;
-    const key = cacheKey(url, request, version, seg);
+    const key = cacheKey(url, request, version, seg, decided);
     const cache = edgeCache();
     const edge = profile.edge;
     const cdnPublic =

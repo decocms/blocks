@@ -28,6 +28,13 @@
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
  * routes).
  *
+ * The binding caches nothing. A site that caches in front of its pages (a
+ * CDN keyed on a request header, ISR under a path the proxy rewrites to)
+ * keys on what the content decided for the request, never on the visitor:
+ * `decisionsKey(await readDecisions(proxyCms, { visitor: visitor.visitor,
+ * version: draft.pointer }))` gives the version, the tests the visitor is
+ * in and the campaigns running now, `""` when there are none.
+ *
  * The proxy measures no requests: it runs before Next routes and renders the
  * page. `http.server.request.duration` comes from Next's own request span
  * (`register` from `@decocms/nextjs/instrumentation`).
@@ -68,6 +75,7 @@ export interface DraftDecision {
   setCookie: string | null;
 }
 
+export { type Decisions, decisionsKey, readDecisions } from "../decisions.ts";
 export { DRAFT_ROUTE_PREFIX } from "../draft.ts";
 
 const INERT: DraftDecision = Object.freeze({ pointer: null, setCookie: null });

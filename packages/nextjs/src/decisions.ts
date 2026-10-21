@@ -1,0 +1,94 @@
+/**
+ * What a request's content decided, as one cache-key part, for a site that
+ * caches in front of its pages: the version it reads (a Studio link's draft
+ * or release SHA, with its preview time `__at` and forced tests), the tests
+ * of the saved `experiments` block its visitor is in, and the campaigns of
+ * the saved `campaigns` block running at its moment. Two requests with the
+ * same decisions render the same content; the visitor id itself is never in
+ * the key, or every visitor would miss. The binding caches nothing itself.
+ *
+ * The same reading as `@decocms/tanstack/worker`'s edge cache key.
+ */
+import type { CMS } from "@decocms/blocks";
+import type { Visitor } from "@decocms/blocks/experiments";
+
+export interface Decisions {
+  /** The version read, `null` for the current release. */
+  version: string | null;
+  /** The tests the visitor is in, sorted. */
+  experiments: readonly string[];
+  /** The campaigns running at the request's moment, sorted. */
+  campaigns: readonly string[];
+}
+
+const EXPERIMENTS = { block: "experiments", type: "split-traffic" } as const;
+const CAMPAIGNS = { block: "campaigns", type: "date-windows" } as const;
+
+type Reader = ReturnType<CMS["client"]>;
+
+/** Plain code-unit order, the same on every server and locale. */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Whether the content saves a block of `type`: listing never fails on a
+ * missing block, so a site without tests or campaigns reports no error.
+ */
+async function saves(client: Reader, type: string): Promise<boolean> {
+  const [list] = await client.list(type);
+  return (list?.length ?? 0) > 0;
+}
+
+/** The names that resolved `true` in the saved `block`, sorted; none when it is missing. */
+async function trueNames(client: Reader, spec: { block: string; type: string }): Promise<string[]> {
+  try {
+    if (!(await saves(client, spec.type))) return [];
+    const [value] = await client.resolve<unknown>(spec.block);
+    if (!isRecord(value)) return [];
+    return Object.keys(value)
+      .filter((name) => value[name] === true)
+      .sort(byCodeUnit);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The decisions of one request: resolves `experiments` and `campaigns`
+ * through `cms.client({ visitor, version })`, as the page will. Missing
+ * blocks (or content that doesn't load) give no decisions, never an error.
+ */
+export async function readDecisions(
+  cms: Pick<CMS, "client">,
+  inputs: { visitor: Visitor | null; version: string | null },
+): Promise<Decisions> {
+  const none: Decisions = { version: inputs.version, experiments: [], campaigns: [] };
+  let client: Reader;
+  try {
+    client = cms.client({ visitor: inputs.visitor, version: inputs.version });
+  } catch {
+    return none;
+  }
+  const [experiments, campaigns] = await Promise.all([
+    trueNames(client, EXPERIMENTS),
+    trueNames(client, CAMPAIGNS),
+  ]);
+  return { ...none, experiments, campaigns };
+}
+
+/**
+ * The decisions as one stable string: `v=<version>|x=<tests>|c=<campaigns>`,
+ * names sorted and URL-encoded, empty parts left out; `""` for none.
+ */
+export function decisionsKey(decisions: Decisions): string {
+  const list = (names: readonly string[]) =>
+    [...names].sort(byCodeUnit).map(encodeURIComponent).join(",");
+  const parts: string[] = [];
+  if (decisions.version) parts.push(`v=${encodeURIComponent(decisions.version)}`);
+  if (decisions.experiments.length) parts.push(`x=${list(decisions.experiments)}`);
+  if (decisions.campaigns.length) parts.push(`c=${list(decisions.campaigns)}`);
+  return parts.join("|");
+}

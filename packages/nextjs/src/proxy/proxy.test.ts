@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
+import { assign, newVisitor, parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
 import { NextRequest, NextResponse } from "next/server.js";
 import { describe, expect, it, vi } from "vitest";
 import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
@@ -9,9 +9,11 @@ import {
   DRAFT_ROUTE_PREFIX,
   decideDraft,
   decideVisitor,
+  decisionsKey,
   draftProxy,
   draftRequestHeaders,
   isDraftRoutePath,
+  readDecisions,
   rewriteToDraftRoute,
   visitorRequestHeaders,
 } from "./index.ts";
@@ -283,5 +285,56 @@ describe("the version: an old release from a Studio link", () => {
     expect((await decideDraft(cms(), link(SHA.slice(1)))).pointer).toBe(null);
     expect((await decideDraft(cms(), link(`${SHA}?__at=yesterday`))).pointer).toBe(null);
     expect((await decideDraft(cms(), link(`${SHA}?page=2`))).pointer).toBe(null);
+  });
+});
+
+describe("readDecisions and decisionsKey: what a site's own cache keys on", () => {
+  const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
+  const content = snapshot({ experiments: { hero: 50 }, campaigns: { "black-friday": BF } });
+  const visitorIn = (inside: boolean) => {
+    for (;;) {
+      const v = newVisitor();
+      if (assign({ hero: 50 }, v).hero === inside) return v;
+    }
+  };
+
+  it("sides of a test key apart, the same side alike, never by the visitor id", async () => {
+    const cms = testCMS(content);
+    const key = async (visitor: ReturnType<typeof newVisitor>) =>
+      decisionsKey(await readDecisions(cms, { visitor, version: null }));
+    const a = visitorIn(true);
+    const keys = [await key(a), await key(visitorIn(true)), await key(visitorIn(false))];
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[0]).not.toBe(keys[2]);
+    expect(keys[0]).not.toContain(a.id);
+  });
+
+  it("a campaign starting changes the key", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const cms = testCMS(content);
+      vi.setSystemTime(Date.parse(BF.start) - 1_000);
+      const before = decisionsKey(await readDecisions(cms, { visitor: null, version: null }));
+      vi.setSystemTime(Date.parse(BF.start) + 1_000);
+      const after = decisionsKey(await readDecisions(cms, { visitor: null, version: null }));
+      expect(before).toBe("");
+      expect(after).toBe("c=black-friday");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a version and a preview time key apart from the release and each other", () => {
+    const none = { experiments: [], campaigns: [] };
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const keys = [null, POINTER, sha, `${sha}?__at=2026-11-28T10%3A00%3A00Z`].map((version) =>
+      decisionsKey({ version, ...none }),
+    );
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("no experiments or campaigns: no decisions", async () => {
+    const decisions = await readDecisions(testCMS(), { visitor: newVisitor(), version: null });
+    expect(decisionsKey(decisions)).toBe("");
   });
 });

@@ -49,13 +49,14 @@ export class TestContext implements ExecutionContextLike {
 /**
  * A release with a page, a redirect, a block that varies on the `buy-button`
  * test and, when given, the `CMS` block's preview hosts and the saved
- * `experiments` block.
+ * `experiments` and `campaigns` blocks.
  */
 export function snapshot(
   options: {
     revision?: string;
     previewHosts?: string[];
     experiments?: Record<string, number>;
+    campaigns?: Record<string, { start?: string; end?: string }>;
   } = {},
 ): Snapshot {
   const blocks: Record<string, unknown> = {
@@ -74,6 +75,9 @@ export function snapshot(
   }
   if (options.experiments) {
     blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
+  }
+  if (options.campaigns) {
+    blocks.campaigns = { __resolveType: "date-windows", ...options.campaigns };
   }
   return { revision: options.revision ?? "rev-1", blocks } as Snapshot;
 }
