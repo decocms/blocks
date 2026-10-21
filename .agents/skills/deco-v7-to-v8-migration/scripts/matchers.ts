@@ -4,9 +4,10 @@
  * compat subpath gives that request (`matcherContext()`, with one A/B
  * decision list per request). The block map registers each matcher the
  * content uses under its v7 name. v7's random matcher isn't one of them: the
- * content step turns it into the built-in `Experiments` block and
- * `experiment` rules (./experiments.ts), so the binding is the only writer of
- * the visitor's `deco_segment`.
+ * content step turns it into the saved block `experiments` and `experiment`
+ * rules (./experiments.ts), so the binding is the only writer of the
+ * visitor's `deco_segment`; nor is its date matcher, which becomes the saved
+ * block `campaigns` and `date` rules (./campaigns.ts).
  */
 import type { Framework } from "./framework";
 
@@ -38,4 +39,4 @@ export function matcherEntry(matcher: string, framework: Framework): string {
 }
 
 export const V7_MATCHER_HINT =
-  "a v7 matcher: @decocms/compat-v7/matchers has v7's (device, cookie, host, pathname, queryString, location, multi), taking the request; the script registers them on a TanStack Start or Next.js site, through matcherContext() from @decocms/compat-v7/tanstack/server or /nextjs/server. Elsewhere register it under this name with the request your framework gives (/next/matchers-and-variants#matchers); v7's environment matcher read the process environment, which v8 never does: write one in the site that knows where it runs. A random matcher left here belongs in the built-in Experiments block, read by the experiment matcher ({ name }) (/next/built-in-blocks#experiments)";
+  "a v7 matcher: @decocms/compat-v7/matchers has v7's (device, cookie, host, pathname, queryString, location, multi), taking the request; the script registers them on a TanStack Start or Next.js site, through matcherContext() from @decocms/compat-v7/tanstack/server or /nextjs/server. Elsewhere register it under this name with the request your framework gives (/next/matchers-and-variants#matchers); v7's environment matcher read the process environment, which v8 never does: write one in the site that knows where it runs. A random matcher left here belongs in the saved block experiments (type split-traffic), read by the experiment rule ({ name }) (/next/built-in-blocks#split-traffic)";

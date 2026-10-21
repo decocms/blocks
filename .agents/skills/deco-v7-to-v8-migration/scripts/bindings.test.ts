@@ -102,7 +102,7 @@ function typeErrors(dir: string, pkgs: string[]): string[] {
 const IPHONE =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
 
-/** v7 content both fixtures share: a page with an A/B test on a saved random matcher, and a device rule. */
+/** v7 content both fixtures share: a page with an A/B test on a saved random matcher, a device rule and a date rule. */
 function writeContent(write: (file: string, data: string | object) => void) {
   write(".deco/blocks/Hero%20test.json", {
     __resolveType: "website/matchers/random.ts",
@@ -123,6 +123,14 @@ function writeContent(write: (file: string, data: string | object) => void) {
           {
             rule: { __resolveType: "website/matchers/device.ts", mobile: true },
             value: [{ __resolveType: "site/sections/Hero.tsx", title: "Mobile" }],
+          },
+          {
+            rule: {
+              __resolveType: "website/matchers/date.ts",
+              start: "2020-11-27T03:00:00.000Z",
+              end: "2020-12-01T03:00:00.000Z",
+            },
+            value: [{ __resolveType: "site/sections/Hero.tsx", title: "Sale" }],
           },
         ],
       },
@@ -535,8 +543,8 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(map).toContain('nested: "direct",');
     // The saved random matcher is now an experiment under v7's cookie key: its saved name.
     expect(fs.existsSync(path.join(root, ".deco/blocks/Hero%20test.json"))).toBe(false);
-    expect(JSON.parse(read(".deco/blocks/Experiments.json"))).toEqual({
-      __resolveType: "experiments",
+    expect(JSON.parse(read(".deco/blocks/experiments.json"))).toEqual({
+      __resolveType: "split-traffic",
       "Hero test": 30,
     });
     const home = JSON.parse(read(".deco/blocks/pages-home.json"));
@@ -545,12 +553,24 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
       __resolveType: "experiment",
       name: "Hero test",
     });
+    // v7's inline date rule is now a campaign named after its window.
+    expect(JSON.parse(read(".deco/blocks/campaigns.json"))).toEqual({
+      __resolveType: "date-windows",
+      "2020-11-27 → 2020-12-01": {
+        start: "2020-11-27T03:00:00.000Z",
+        end: "2020-12-01T03:00:00.000Z",
+      },
+    });
+    expect(home.sections[0].variants[2].rule).toEqual({
+      __resolveType: "date",
+      campaign: "2020-11-27 → 2020-12-01",
+    });
     expect(read("src/views.ts")).toContain('"site/sections/Hero.tsx": hero,');
     const matchersNote = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)");
     expect(matchersNote?.message).toContain("matchPage(href)");
     expect(matchersNote?.message).not.toContain("SegmentCookie");
-    // The worker assigns the visitors: nothing to wire by hand.
-    expect(report.manual.some((n) => n.subject === "Experiments")).toBe(false);
+    // The worker reads the visitor: nothing to wire by hand.
+    expect(report.manual.some((n) => n.subject === "experiments")).toBe(false);
   });
 
   it("type-checks against the v8 packages", () => {
@@ -644,8 +664,8 @@ describe("a v7 Next.js site on the v8 binding", () => {
     const note = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)")?.message;
     expect(note).toContain("pageUrlRequestHeaders");
     expect(note).not.toContain("SegmentCookie");
-    // The proxy assigns the visitors: the report says how.
-    expect(report.manual.find((n) => n.subject === "Experiments")?.message).toContain("draftProxy");
+    // The proxy reads the visitor: the report says how.
+    expect(report.manual.find((n) => n.subject === "experiments")?.message).toContain("draftProxy");
     // Next.js images go through its image loader: no src/imageUrl.ts.
     expect(fs.existsSync(path.join(root, "src/imageUrl.ts"))).toBe(false);
   });

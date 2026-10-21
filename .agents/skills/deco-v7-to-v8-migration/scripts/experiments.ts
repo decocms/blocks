@@ -1,11 +1,12 @@
 /**
- * A/B tests (spec: /next/built-in-blocks#experiments). v7 ran them on its
- * random matcher; the next major runs them on content: the built-in
- * `Experiments` block (each test's name → the whole percentage of visitors in
- * it) and the built-in `experiment` matcher (`{ name }`). The binding assigns
- * each visitor and owns the `deco_segment` cookie, so no v7 matcher writes it.
+ * A/B tests (spec: /next/built-in-blocks#split-traffic). v7 ran them on its
+ * random matcher; the next major runs them on content: the saved block
+ * `experiments`, of the built-in type `split-traffic` (each test's name → the
+ * whole percentage of visitors in it), and the built-in rule `experiment`
+ * (`{ name }`). The app reads the visitor (the binding, from `deco_segment`)
+ * and hands it to `cms.client({ visitor })`, so no v7 matcher writes it.
  *
- * - Each saved v7 random matcher `N` becomes `Experiments[N]`, its
+ * - Each saved v7 random matcher `N` becomes `experiments[N]`, its
  *   `round(traffic * 100)`; every rule that pointed at it becomes
  *   `{ "__resolveType": "experiment", "name": N }`, and the saved matcher is
  *   deleted. v7's sticky random (latest 7.x) kept the visitor's group in
@@ -19,8 +20,7 @@
  *   rule pointed at; the next major keys them on `multivariate`'s
  *   `experiment`, so that name is copied there (one already set is kept).
  *
- * v7's date matchers stay inline rules (the built-in `date`, ./legacyNames.ts):
- * nothing moves to the `Schedules` block.
+ * v7's date matchers become campaigns (./campaigns.ts).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -28,7 +28,7 @@ import { LEGACY_ALIASES } from "@decocms/blocks/cli";
 import { blockFileName, serializeBlock } from "@decocms/blocks/protocol/keys";
 import { siteFramework } from "./framework";
 import type { Report } from "./report";
-import { forEachBlock, type JsonObject, readContent } from "./walk";
+import { forEachBlock, type JsonObject, readContent, savedNameClash } from "./walk";
 
 /** v7's random matcher, under each name v7 saved it with. */
 const RANDOM_MATCHERS = new Set([
@@ -40,8 +40,8 @@ const RANDOM_MATCHERS = new Set([
 /** The name v7 kept inline random rules under in `deco_segment`. */
 export const INLINE_EXPERIMENT = "website/matchers/random.ts";
 
-const EXPERIMENTS_BLOCK = "Experiments";
-const EXPERIMENTS_TYPE = "experiments";
+const EXPERIMENTS_BLOCK = "experiments";
+const EXPERIMENTS_TYPE = "split-traffic";
 const EXPERIMENT_MATCHER = "experiment";
 
 function isMultivariate(type: string): boolean {
@@ -51,7 +51,7 @@ function isMultivariate(type: string): boolean {
   );
 }
 
-/** v7's `traffic` (0–1, 0.5 when unset) as the whole percentage `Experiments` holds. */
+/** v7's `traffic` (0–1, 0.5 when unset) as the whole percentage `experiments` holds. */
 export function trafficPercent(traffic: unknown): number {
   const share = typeof traffic === "number" && Number.isFinite(traffic) ? traffic : 0.5;
   return Math.min(100, Math.max(0, Math.round(share * 100)));
@@ -65,8 +65,8 @@ function becomeExperiment(node: JsonObject, name: string): void {
 }
 
 /**
- * Moves v7's random matchers into the `Experiments` block and `experiment`
- * rules, and copies each saved random matcher's name into the `experiment`
+ * Moves v7's random matchers into the saved block `experiments` and
+ * `experiment` rules, and copies each saved random matcher's name into the `experiment`
  * of the `multivariate` blocks whose variants point at it.
  */
 export function migrateRandomMatchers(root: string, report: Report): void {
@@ -88,11 +88,15 @@ export function migrateRandomMatchers(root: string, report: Report): void {
   if (saved.size === 0 && inline.length === 0) return;
 
   const existing = blocks[EXPERIMENTS_BLOCK];
-  if (existing && existing.__resolveType !== EXPERIMENTS_TYPE) {
+  const clash =
+    existing && existing.__resolveType !== EXPERIMENTS_TYPE
+      ? EXPERIMENTS_BLOCK
+      : savedNameClash(blocks, EXPERIMENTS_BLOCK);
+  if (clash !== undefined) {
     report.manual.push({
       step: "content",
-      subject: files[EXPERIMENTS_BLOCK],
-      message: `"${EXPERIMENTS_BLOCK}" is the name of the built-in A/B tests block, so v7's random matchers weren't moved into it: rename this block, then move each random matcher into "${EXPERIMENTS_BLOCK}" (its name → round(traffic × 100)) and point its rules at { "__resolveType": "experiment", "name": … } (/next/built-in-blocks#experiments)`,
+      subject: files[clash],
+      message: `"${EXPERIMENTS_BLOCK}" is the saved block every experiment rule reads (type "${EXPERIMENTS_TYPE}"), and "${clash}" takes that name${clash === EXPERIMENTS_BLOCK ? "" : " on a case-insensitive disk"}, so v7's random matchers weren't moved: rename this block, then move each random matcher into "${EXPERIMENTS_BLOCK}" (its name → round(traffic × 100)) and point its rules at { "__resolveType": "experiment", "name": … } (/next/built-in-blocks#split-traffic)`,
     });
     return;
   }
@@ -215,16 +219,16 @@ function inlineNames(
   return names;
 }
 
-/** What assigns the visitors, by binding: the experiment rules are false until something does. */
+/** Who hands the visitor to the client, by binding: without one every test is off. */
 function reportAssignment(root: string, report: Report): void {
   const framework = siteFramework(root);
-  if (framework === "tanstack") return; // createDecoWorker assigns every page request.
+  if (framework === "tanstack") return; // createDecoWorker reads the visitor on every page request.
   report.manual.push({
     step: "content",
     subject: EXPERIMENTS_BLOCK,
     message:
       framework === "nextjs"
-        ? "assign visitors in proxy.ts: draftProxy from @decocms/nextjs/proxy does it, or decideAssignments, assignmentRequestHeaders and applyAssignments next to the draft calls; the catch-all page's bindDraft and contentClient(cms) then pass them to the experiment matcher"
-        : "assign visitors per request: assign(await cms.experiments(), readSegment(request)) from @decocms/blocks/experiments, cms.forRelease({ assignments }), and the returned segmentCookie() on the response when changed (/next/built-in-blocks#experiments); until then every experiment rule is false",
+        ? "read the visitor in proxy.ts: draftProxy from @decocms/nextjs/proxy does it, or decideVisitor, visitorRequestHeaders and applyVisitor next to the draft calls; the catch-all page's bindDraft and contentClient(cms) then build cms.client({ visitor, version }) from it"
+        : "hand the visitor to the client per request: const { visitor, cookie } = readVisitor(request) from @decocms/blocks/experiments, cms.client({ visitor, version: await cms.readVersion(request) }), and the cookie on the response when it isn't null and the request isn't a preview (/next/built-in-blocks#split-traffic); until then every test is off",
   });
 }

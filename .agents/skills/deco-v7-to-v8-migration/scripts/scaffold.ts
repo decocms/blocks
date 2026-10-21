@@ -9,8 +9,8 @@
  * - `src/open-page.server.ts`: the page for a URL, resolved as v7 rendered
  *   it: every section, then v7's section loaders (`loadSections`, when the
  *   block map has them), with v7's matchers told the page (`matchPage`) on
- *   TanStack Start (A/B tests need nothing here: the binding assigns the
- *   visitor and `contentClient` passes the assignments on);
+ *   TanStack Start (A/B tests need nothing here: the binding reads the
+ *   visitor and `contentClient` builds `cms.client({ visitor, version })`);
  * - TanStack Start: `src/page.functions.ts`, the page's server function. It
  *   takes the page's path and passes the page's URL on, never the request's:
  *   on a client-side navigation the request is the server-function call

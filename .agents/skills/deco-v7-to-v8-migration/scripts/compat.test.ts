@@ -441,7 +441,7 @@ describe("matchers", () => {
     expect(read(".deco/index.ts")).not.toContain("matchers.random");
     expect(
       report.manual.find((n) => n.subject.startsWith("website/matchers/random.ts"))?.message,
-    ).toContain("Experiments");
+    ).toContain("saved block experiments (type split-traffic)");
   });
 });
 

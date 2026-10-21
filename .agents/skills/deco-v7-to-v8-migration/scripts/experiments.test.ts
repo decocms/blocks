@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * v7's random matchers → the built-in `Experiments` block and `experiment`
- * rules (./experiments.ts), on fixture sites.
+ * v7's random matchers → the saved block `experiments` (type `split-traffic`)
+ * and `experiment` rules (./experiments.ts), on fixture sites.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -51,7 +51,7 @@ describe("trafficPercent", () => {
 });
 
 describe("saved random matchers", () => {
-  it("become Experiments entries and experiment rules; the saved matchers are deleted", () => {
+  it("become experiments entries and experiment rules; the saved matchers are deleted", () => {
     site({
       "package.json": TANSTACK,
       ".deco/blocks/Test%20AB%200%2C5.json": {
@@ -98,8 +98,8 @@ describe("saved random matchers", () => {
     const report = createReport();
     migrateRandomMatchers(root, report);
 
-    expect(read(".deco/blocks/Experiments.json")).toEqual({
-      __resolveType: "experiments",
+    expect(read(".deco/blocks/experiments.json")).toEqual({
+      __resolveType: "split-traffic",
       "Banner test": 10,
       "Test AB 0,5": 50,
     });
@@ -134,37 +134,37 @@ describe("saved random matchers", () => {
         "Footer.json",
         "Test%20AB%200%2C5.json",
         "Banner%20test.json",
-        "Experiments.json",
+        "experiments.json",
       ]),
     );
     // TanStack's worker assigns the visitors: nothing left to do.
     expect(report.manual).toEqual([]);
   });
 
-  it("adds to an Experiments block that exists, keeping its tests", () => {
+  it("adds to an experiments block that exists, keeping its tests", () => {
     site({
       "package.json": TANSTACK,
-      ".deco/blocks/Experiments.json": { __resolveType: "experiments", "New header": 20 },
+      ".deco/blocks/experiments.json": { __resolveType: "split-traffic", "New header": 20 },
       ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
     });
     migrateRandomMatchers(root, createReport());
-    expect(read(".deco/blocks/Experiments.json")).toEqual({
-      __resolveType: "experiments",
+    expect(read(".deco/blocks/experiments.json")).toEqual({
+      __resolveType: "split-traffic",
       "New header": 20,
       "Hero test": 50,
     });
   });
 
-  it("keeps every test already in Experiments, whatever its value", () => {
+  it("keeps every test already in experiments, whatever its value", () => {
     const variant = { __resolveType: "multivariate", variants: [] };
     site({
       "package.json": TANSTACK,
-      ".deco/blocks/Experiments.json": { __resolveType: "experiments", Odd: variant },
+      ".deco/blocks/experiments.json": { __resolveType: "split-traffic", Odd: variant },
       ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
     });
     migrateRandomMatchers(root, createReport());
-    expect(read(".deco/blocks/Experiments.json")).toEqual({
-      __resolveType: "experiments",
+    expect(read(".deco/blocks/experiments.json")).toEqual({
+      __resolveType: "split-traffic",
       Odd: variant,
       "Hero test": 50,
     });
@@ -203,10 +203,10 @@ describe("saved random matchers", () => {
     expect(again).toEqual(createReport());
   });
 
-  it("leaves everything when another block is saved as Experiments, and says why", () => {
+  it("leaves everything when another block is saved as experiments, and says why", () => {
     const files = {
       "package.json": TANSTACK,
-      ".deco/blocks/Experiments.json": { __resolveType: "site/sections/Hero.tsx" },
+      ".deco/blocks/experiments.json": { __resolveType: "site/sections/Hero.tsx" },
       ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
       ".deco/blocks/Home.json": page({
         __resolveType: "website/flags/multivariate.ts",
@@ -216,11 +216,31 @@ describe("saved random matchers", () => {
     site(files);
     const report = createReport();
     migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/Experiments.json")).toEqual(files[".deco/blocks/Experiments.json"]);
+    expect(read(".deco/blocks/experiments.json")).toEqual(files[".deco/blocks/experiments.json"]);
     expect(exists(".deco/blocks/Hero%20test.json")).toBe(true);
     expect(read(".deco/blocks/Home.json")).toEqual(files[".deco/blocks/Home.json"]);
     expect(report.done).toEqual([]);
     expect(report.manual[0].message).toContain("rename this block");
+  });
+});
+
+describe("a block that would share the experiments file", () => {
+  it("on a case-insensitive disk is left alone, and the note says why", () => {
+    const files = {
+      "package.json": TANSTACK,
+      ".deco/blocks/Experiments.json": { __resolveType: "site/sections/Hero.tsx" },
+      ".deco/blocks/Hero%20test.json": { __resolveType: "website/matchers/random.ts" },
+    };
+    site(files);
+    const report = createReport();
+    migrateRandomMatchers(root, report);
+    expect(read(".deco/blocks/Experiments.json")).toEqual(files[".deco/blocks/Experiments.json"]);
+    expect(exists(".deco/blocks/Hero%20test.json")).toBe(true);
+    expect(report.done).toEqual([]);
+    expect(report.manual[0]).toMatchObject({
+      subject: "Experiments.json",
+      message: expect.stringContaining("case-insensitive"),
+    });
   });
 });
 
@@ -241,8 +261,8 @@ describe("inline random rules", () => {
     });
     const report = createReport();
     migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/Experiments.json")).toEqual({
-      __resolveType: "experiments",
+    expect(read(".deco/blocks/experiments.json")).toEqual({
+      __resolveType: "split-traffic",
       [INLINE_EXPERIMENT]: 50,
     });
     const sections = read(".deco/blocks/Home.json").sections;
@@ -265,8 +285,8 @@ describe("inline random rules", () => {
     });
     const report = createReport();
     migrateRandomMatchers(root, report);
-    expect(read(".deco/blocks/Experiments.json")).toEqual({
-      __resolveType: "experiments",
+    expect(read(".deco/blocks/experiments.json")).toEqual({
+      __resolveType: "split-traffic",
       "Random 20%": 20,
       "Random 20% (2)": 20,
       "Random 50%": 50,
@@ -275,7 +295,7 @@ describe("inline random rules", () => {
       (s: { variants: { rule: { name: string } }[] }) => s.variants[0].rule.name,
     );
     expect(names).toEqual(["Random 20% (2)", "Random 50%", "Random 20% (2)"]);
-    const notice = report.manual.find((n) => n.subject === "Experiments")?.message;
+    const notice = report.manual.find((n) => n.subject === "experiments")?.message;
     expect(notice).toContain("different traffic shares");
     expect(notice).toContain('"Random 20% (2)", "Random 50%"');
   });
@@ -290,19 +310,19 @@ describe("what's left to wire", () => {
     site({ "package.json": NEXTJS, ...files });
     const report = createReport();
     migrateRandomMatchers(root, report);
-    expect(report.manual.find((n) => n.subject === "Experiments")?.message).toContain("draftProxy");
+    expect(report.manual.find((n) => n.subject === "experiments")?.message).toContain("draftProxy");
   });
 
-  it("names assign and forRelease on a site with no binding", () => {
+  it("names readVisitor and cms.client on a site with no binding", () => {
     site({ "package.json": { name: "site" }, ...files });
     const report = createReport();
     migrateRandomMatchers(root, report);
-    const message = report.manual.find((n) => n.subject === "Experiments")?.message;
-    expect(message).toContain("readSegment(request)");
-    expect(message).toContain("cms.forRelease({ assignments })");
+    const message = report.manual.find((n) => n.subject === "experiments")?.message;
+    expect(message).toContain("readVisitor(request)");
+    expect(message).toContain("cms.client({ visitor, version");
   });
 
-  it("does nothing on a site with no random matcher; date rules stay inline", () => {
+  it("does nothing on a site with no random matcher, date rules included", () => {
     const date = {
       __resolveType: "date",
       start: "2026-11-27T00:00:00-03:00",
@@ -318,8 +338,7 @@ describe("what's left to wire", () => {
     const report = createReport();
     migrateRandomMatchers(root, report);
     expect(report).toEqual(createReport());
-    expect(exists(".deco/blocks/Experiments.json")).toBe(false);
-    expect(exists(".deco/blocks/Schedules.json")).toBe(false);
+    expect(exists(".deco/blocks/experiments.json")).toBe(false);
     expect(read(".deco/blocks/Home.json").sections.variants[0].rule).toEqual(date);
   });
 });

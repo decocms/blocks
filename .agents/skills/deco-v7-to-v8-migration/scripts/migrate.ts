@@ -4,9 +4,11 @@
  *
  * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed,
  *    v7 async-rendering wrappers (Lazy, Deferred) unwrapped to their sections,
- *    legacy type names outside the alias table renamed, and v7's random
- *    matchers moved into the built-in `Experiments` block and `experiment`
- *    rules (A/B tests keyed on one get its name as `experiment`);
+ *    legacy type names outside the alias table renamed, v7's random
+ *    matchers moved into the saved block `experiments` and `experiment`
+ *    rules (A/B tests keyed on one get its name as `experiment`), and every
+ *    date window moved into the saved block `campaigns`, each date rule
+ *    naming its campaign;
  *    then site settings folded into the `CMS` block (`.deco/blocks/CMS.json`);
  * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
  * 3. block map: the site's v7 section-loader registration turned into an
@@ -36,6 +38,7 @@ import path from "node:path";
 import { writeAppClients } from "./apps";
 import { unwrapAsyncRendering } from "./asyncRendering";
 import { writeBlockMap } from "./blockMap";
+import { migrateDateRules } from "./campaigns";
 import { addSchemaCheck } from "./ciSchemaCheck";
 import { listSources, rewriteDeviceReads } from "./compat";
 import { moveContent } from "./content";
@@ -147,6 +150,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   unwrapAsyncRendering(root, report);
   renameLegacyTypes(root, report);
   migrateRandomMatchers(root, report);
+  migrateDateRules(root, report);
   const apps = writeAppClients(root, report);
   foldSiteSettings(root, report);
   await reencryptSecrets(root, report);
