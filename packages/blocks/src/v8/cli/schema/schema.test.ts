@@ -281,6 +281,55 @@ describe("interchangeable blocks", () => {
   }, 30_000);
 });
 
+describe("a field of names to true/false", () => {
+  it("can hold the saved experiments or campaigns block: split-traffic and date-windows fit it", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props {
+  experiments?: Record<string, boolean>;
+  labels?: Record<string, string>;
+  extra?: Record<string, unknown>;
+}
+export default function Hero(_props: Props) { return <div />; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const props = m.schema.definitions[`${b64("src/hero.tsx")}@Props`].properties;
+      expect(props.experiments.anyOf).toEqual([
+        { $ref: "#/definitions/Resolvable" },
+        expect.objectContaining({ type: "object", additionalProperties: { type: "boolean" } }),
+        ref("split-traffic"),
+        ref("date-windows"),
+      ]);
+      // Other maps stay plain: a string map isn't true/false, a free-form one fits anything.
+      expect(props.labels.anyOf).toBeUndefined();
+      expect(props.extra.anyOf).toBeUndefined();
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
+  it("offers the block map's own split-traffic instead, when it declares one", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { experiments?: Record<string, boolean> }
+export default function Hero(_props: Props) { return <div />; }`,
+      "src/split.ts": `export const split = (props: { on: boolean }) => ({ a: props.on });`,
+      ".deco/index.ts": `import Hero from "../src/hero"; import { split } from "../src/split";
+export default { hero: Hero, "split-traffic": split };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const props = m.schema.definitions[`${b64("src/hero.tsx")}@Props`].properties;
+      expect(props.experiments.anyOf.slice(2)).toEqual([ref("split-traffic"), ref("date-windows")]);
+      expect(m.manifest.blocks.content["split-traffic"]).toBeUndefined();
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
 describe("built-ins and aliases", () => {
   it("adds the eleven built-ins", () => {
     for (const name of [
