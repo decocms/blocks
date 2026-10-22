@@ -21,17 +21,17 @@ export const BUILT_IN_USES: Readonly<Record<string, string>> = Object.freeze({
   multivariate: "Studio's variants, the fields whose value changes by rule, rely on it",
   always: "the default variant Studio adds to each list of variants relies on it",
   never: "a variant Studio turns off relies on it",
-  date: "Studio's date rules rely on it, each naming a campaign of the saved block campaigns",
   experiment:
     "Studio's A/B test rules rely on it, each naming a test of the saved block experiments",
+  campaign:
+    "Studio's campaign rules rely on it, each naming a campaign of the saved block campaigns",
   page: "Studio's page list and page editor rely on it",
   redirect: "Studio's redirect list relies on it",
   "cms-settings": "the saved block CMS relies on it, and Studio's settings edit that block",
+  secret: "Studio's secret fields rely on it to keep their values encrypted",
   "split-traffic":
     "the saved block experiments relies on it, and Studio's Experiments view edits its percentages",
-  "date-windows":
-    "the saved block campaigns relies on it, and Studio's Campaigns view edits its dates",
-  secret: "Studio's secret fields rely on it to keep their values encrypted",
+  calendar: "the saved block campaigns relies on it, and Studio's Campaigns view edits its dates",
 });
 
 /**

@@ -7,7 +7,7 @@
  */
 export { createCMS, resetForTests } from "./cms.ts";
 export { currentClient } from "./current.ts";
-export { formatDraftPointer, parseDraftPointer } from "./draft.ts";
+export { formatDraftPointer, parseDraftPointer, parseVersion } from "./draft.ts";
 export { matchRoute } from "./matchRoute.ts";
 export { remoteLoader } from "./remoteLoader.ts";
 export type {
@@ -29,6 +29,7 @@ export type {
   Page,
   Redirect,
   RequestLike,
+  RequestVersion,
   Result,
   Route,
   Secret,

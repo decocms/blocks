@@ -26,8 +26,8 @@ const BUILT_INS = [
   "multivariate",
   "always",
   "never",
-  "date",
   "experiment",
+  "campaign",
   "page",
   "redirect",
   "cms-settings",
@@ -265,9 +265,9 @@ describe("deco schema", () => {
     expect(lazyForm).toEqual(plainForm);
   });
 
-  it("mv-04: boolean-returning functions are matchers, next to the built-in date", () => {
+  it("mv-04: boolean-returning functions are matchers, next to the built-in campaign", () => {
     expect(Object.keys(meta.manifest.blocks.matchers)).toEqual(
-      expect.arrayContaining(["weekday", "date", "always", "never"]),
+      expect.arrayContaining(["weekday", "campaign", "always", "never"]),
     );
   });
 

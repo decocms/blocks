@@ -1049,7 +1049,7 @@ describe("caching (caching.mdx)", () => {
             __resolveType: "multivariate",
             variants: [
               {
-                rule: { __resolveType: "date", campaign: "launch" },
+                rule: { __resolveType: "campaign", name: "launch" },
                 value: { __resolveType: "lazy", value: "campaign" },
               },
               {
@@ -1059,7 +1059,7 @@ describe("caching (caching.mdx)", () => {
             ],
           },
           campaigns: {
-            __resolveType: "date-windows",
+            __resolveType: "calendar",
             launch: { start: "2030-01-01T00:00:00Z" },
           },
         },

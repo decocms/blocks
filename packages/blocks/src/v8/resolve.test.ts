@@ -230,7 +230,7 @@ describe("the lookup rule — { ...savedBlocks, ...builtIns, ...blocks }", () =>
     for (const type of [
       "always",
       "never",
-      "date",
+      "campaign",
       "page",
       "redirect",
       "cms-settings",

@@ -54,14 +54,14 @@ const BUILT_INS = [
   "multivariate",
   "always",
   "never",
-  "date",
   "experiment",
+  "campaign",
   "page",
   "redirect",
   "cms-settings",
-  "split-traffic",
-  "date-windows",
   "secret",
+  "split-traffic",
+  "calendar",
 ];
 
 beforeEach(() => {
@@ -666,13 +666,13 @@ describe("built-in blocks", () => {
     expect(await client.resolve({ __resolveType: "never" })).toEqual([false, null]);
   });
 
-  it("builtin-05/mv-05: a date-windows campaign runs from start (inclusive) until end (exclusive); dates without time are UTC midnight", async () => {
+  it("builtin-05/mv-05: a calendar campaign runs from start (inclusive) until end (exclusive); dates without time are UTC midnight", async () => {
     vi.useFakeTimers();
     const at = async (now: string, window: Record<string, unknown>) => {
       vi.setSystemTime(new Date(now));
       resetForTests();
-      const client = clientWith({}, { campaigns: { __resolveType: "date-windows", c: window } });
-      const [byDate] = await client.resolve({ __resolveType: "date", campaign: "c" });
+      const client = clientWith({}, { campaigns: { __resolveType: "calendar", c: window } });
+      const [byDate] = await client.resolve({ __resolveType: "campaign", name: "c" });
       const [campaigns] = await client.resolve<Record<string, boolean>>("campaigns");
       expect(campaigns?.c).toBe(byDate);
       return byDate;
@@ -1019,7 +1019,7 @@ describe("matchers and variants", () => {
       __resolveType: "multivariate",
       variants: [
         {
-          rule: { __resolveType: "date", campaign: "black-friday" },
+          rule: { __resolveType: "campaign", name: "black-friday" },
           value: { __resolveType: "lazy", value: "Black Friday: 40% off everything" },
         },
         {
@@ -1031,7 +1031,7 @@ describe("matchers and variants", () => {
     href: "/deals",
   };
   const campaigns = {
-    __resolveType: "date-windows",
+    __resolveType: "calendar",
     "black-friday": { start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" },
   };
 

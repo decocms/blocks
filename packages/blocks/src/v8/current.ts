@@ -4,7 +4,7 @@
  * The inputs of a request (the visitor, the version) arrive as arguments to
  * `cms.client()`; this only hands that client to the functions it runs, so a
  * rule or a section can resolve other blocks through it (`experiments`,
- * `campaigns`) and read `client.visitor`, `client.version` and `client.now`.
+ * `campaigns`) and read `client.visitor`, `client.version` and `client.date`.
  *
  * The resolver sets the client while it calls a block function, so every
  * runtime has it at the start of the function, before any `await`. Where an
@@ -19,18 +19,21 @@ import type { Client } from "./types.ts";
 
 const SLOT = Symbol.for("decocms.blocks.currentClient");
 
+/** What a client was given, test or campaign name → on or off. */
+export type Overrides = Readonly<Record<string, boolean>>;
+
 /**
- * The tests a preview link forces on or off, on a client: read by the
+ * The tests a client was given (`cms.client({ experiments })`): read by the
  * built-in `split-traffic`. `Symbol.for`, so a second copy of the package
  * reads it too.
  */
-export const FORCED_TESTS: unique symbol = Symbol.for("decocms.blocks.forcedTests");
+export const EXPERIMENT_OVERRIDES: unique symbol = Symbol.for("decocms.blocks.experimentOverrides");
 
 /**
- * The campaigns a client was given as running (`cms.client({ campaigns })`):
- * read by the built-in `date-windows`. `Symbol.for`, like `FORCED_TESTS`.
+ * The campaigns a client was given (`cms.client({ campaigns })`): read by the
+ * built-in `calendar`. `Symbol.for`, like `EXPERIMENT_OVERRIDES`.
  */
-export const RUNNING_CAMPAIGNS: unique symbol = Symbol.for("decocms.blocks.runningCampaigns");
+export const CAMPAIGN_OVERRIDES: unique symbol = Symbol.for("decocms.blocks.campaignOverrides");
 
 interface Slot {
   /** Set while a block function runs synchronously. */
@@ -79,16 +82,17 @@ export function runWithClient<R>(client: Client, fn: () => R): R {
   }
 }
 
-/** The campaigns a client was given as running; `undefined` when it checks the windows itself. */
-export function runningCampaigns(client: Client): ReadonlySet<string> | undefined {
-  const running = (client as unknown as Record<symbol, unknown>)[RUNNING_CAMPAIGNS];
-  return running instanceof Set ? (running as ReadonlySet<string>) : undefined;
+/** The tests a client was given, by name; `undefined` when none. */
+export function experimentOverrides(client: Client): Overrides | undefined {
+  return overridesAt(client, EXPERIMENT_OVERRIDES);
 }
 
-/** The tests a client's preview forces, by name; `undefined` when none. */
-export function forcedTests(client: Client): Readonly<Record<string, boolean>> | undefined {
-  const forced = (client as unknown as Record<symbol, unknown>)[FORCED_TESTS];
-  return typeof forced === "object" && forced !== null
-    ? (forced as Readonly<Record<string, boolean>>)
-    : undefined;
+/** The campaigns a client was given, by name; `undefined` when none. */
+export function campaignOverrides(client: Client): Overrides | undefined {
+  return overridesAt(client, CAMPAIGN_OVERRIDES);
+}
+
+function overridesAt(client: Client, key: symbol): Overrides | undefined {
+  const value = (client as unknown as Record<symbol, unknown>)[key];
+  return typeof value === "object" && value !== null ? (value as Overrides) : undefined;
 }

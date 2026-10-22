@@ -12,14 +12,14 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   multivariate: "loaders",
   always: "matchers",
   never: "matchers",
-  date: "matchers",
   experiment: "matchers",
+  campaign: "matchers",
   page: "pages",
   redirect: "redirects",
   "cms-settings": "content",
-  "split-traffic": "content",
-  "date-windows": "content",
   secret: "loaders",
+  "split-traffic": "content",
+  calendar: "content",
 };
 
 const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?: string }> = {
@@ -31,15 +31,15 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
   },
   always: { title: "Always", description: "Always true: the fallback variant", icon: "eye" },
   never: { title: "Never", description: "Always false: hides a block", icon: "eye-off" },
-  date: {
-    title: "Date",
-    description: "True while a campaign of the saved block campaigns is running",
-    icon: "calendar-event",
-  },
   experiment: {
     title: "A/B test",
     description: "True for the visitors in a test of the saved block experiments",
     icon: "flask",
+  },
+  campaign: {
+    title: "Campaign",
+    description: "True while a campaign of the saved block campaigns is running",
+    icon: "calendar-event",
   },
   page: { title: "Page", description: "A page at a URL" },
   redirect: { title: "Redirect", description: "Sends one URL to another" },
@@ -54,8 +54,8 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
       "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
     icon: "flask",
   },
-  "date-windows": {
-    title: "Date windows",
+  calendar: {
+    title: "Calendar",
     description:
       "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
     icon: "calendar-event",
@@ -72,7 +72,7 @@ const ALLOCATION = {
   maximum: 100,
 };
 
-/** The form of each campaign in a `date-windows` block: one window, both bounds optional. */
+/** The form of each campaign in a `calendar` block: one window, both bounds optional. */
 const CAMPAIGN_DATES = {
   type: "object",
   title: "Campaign dates",
@@ -163,18 +163,6 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
     case "always":
     case "never":
       return { type: "object", properties: {} };
-    case "date":
-      // Not required: a rule left with inline dates is a deco check warning, not an error.
-      return {
-        type: "object",
-        properties: {
-          campaign: {
-            type: "string",
-            title: "Campaign",
-            description: "A campaign in the saved block campaigns",
-          },
-        },
-      };
     case "experiment":
       return {
         type: "object",
@@ -187,8 +175,20 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
           },
         },
       };
+    case "campaign":
+      return {
+        type: "object",
+        required: ["name"],
+        properties: {
+          name: {
+            type: "string",
+            title: "Campaign",
+            description: "A campaign in the saved block campaigns",
+          },
+        },
+      };
     case "split-traffic":
-    case "date-windows":
+    case "calendar":
       // The names are the content: every key but __resolveType is one (see builtInDefinition).
       return { type: "object", properties: {} };
     case "page":
@@ -309,7 +309,7 @@ export function builtInDefinition(name: string, ctx: BuiltInContext): any {
     description: docs.description,
     ...(docs.icon ? { icon: docs.icon } : {}),
     ...(name === "split-traffic" ? { additionalProperties: ALLOCATION } : {}),
-    ...(name === "date-windows" ? { additionalProperties: CAMPAIGN_DATES } : {}),
+    ...(name === "calendar" ? { additionalProperties: CAMPAIGN_DATES } : {}),
   });
 }
 

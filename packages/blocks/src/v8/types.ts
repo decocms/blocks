@@ -3,7 +3,7 @@
  * (`/next/api-reference#types`) — every type here is documented there.
  */
 import type { ReactNode } from "react";
-import type { Visitor } from "./experiments.ts";
+import type { Assignments, Visitor } from "./experiments.ts";
 
 // ---------------------------------------------------------------------------
 // Blocks and content
@@ -64,24 +64,12 @@ export interface Loader {
 export interface DraftPointer {
   /** `host[:port]` that serves the draft's changes. */
   host: string;
-  /** Starts with `/`; opaque to the app. Never carries the preview parameters (`__variant`, `__at`, `__test`). */
+  /** Starts with `/`; opaque to the app. Never carries the `__variant` parameters. */
   path: string;
   /** Opaque: identifies the editor's last save. `"local"` names no draft (`deco serve`). */
   version: string;
   /** The variants this preview forces (the query's `__variant` parameters); absent when none. */
   variants?: ForcedVariant[];
-  /**
-   * The moment this preview shows (the query's `__at`): an ISO date-time with
-   * its offset. It becomes `client.now`; absent, the client shows the moment
-   * it was created.
-   */
-  at?: string;
-  /**
-   * The A/B tests this preview forces on (`true`) or off (`false`), by name
-   * (the query's `__test=<name>=on|off`), applied over the visitor's answer
-   * when the saved block `experiments` resolves; absent when none.
-   */
-  tests?: Record<string, boolean>;
 }
 
 /**
@@ -347,37 +335,65 @@ export interface Client {
    * it loaded (`undefined` until its first `resolve`, `list` or `revision()`).
    */
   readonly version: string | undefined;
-  /** The moment it shows: a preview's time, otherwise when the client was created. */
-  readonly now: Date;
+  /** The date campaigns run at: the one passed to `cms.client()`, otherwise when the client was created. */
+  readonly date: Date;
 }
 
-/** What one client is created with. Both are read by the app, outside blocks, and passed in. */
+/**
+ * What one client is created with, all read by the app outside blocks and
+ * passed in. The visitor and the date decide; `experiments` and `campaigns`
+ * override what they decide, name by name. Given every test and campaign and
+ * no visitor, a client is fully decided in advance (a page rendering what a
+ * proxy in front of it decided).
+ */
 export interface ClientOptions {
-  /**
-   * Who is visiting (`readVisitor`, `parseVisitor` or `newVisitor` from
-   * `@decocms/blocks/experiments`). Without one, every test is off.
-   */
-  visitor?: Visitor | null;
   /**
    * What to read: `undefined` (or `null`) for the current release; a
    * published release's commit SHA (40 hex characters), read from hosted
    * releases; or a draft pointer, the draft's changes over the current
-   * release. `cms.readVersion(request)` reads one from a Studio link.
-   *
-   * A preview link's parameters ride on the version: `__at` sets
-   * `client.now`, `__test` forces tests on or off and `__variant` forces
-   * variants (in a draft pointer's query, or after a SHA:
-   * `<sha>?__at=…&__test=…`). Only a version from a Studio link carries them.
+   * release. Only a version: a Studio link's moment and switched tests are
+   * the options below (`cms.readVersion(request)` reads all of them).
    */
   version?: string | null;
   /**
-   * The campaigns running, by name, when something in front of the page
-   * already decided them (a proxy that keyed a cached page on them): the
-   * saved `campaigns` block answers these on and every other off, whatever
-   * `client.now`. A name the block doesn't have stays off. Leave it out to
-   * check each window at `client.now`.
+   * Who is visiting (`readVisitor`, `parseVisitor` or `newVisitor` from
+   * `@decocms/blocks/experiments`): the saved block `experiments` decides
+   * its tests for them. Without one, every test not in `experiments` is off.
    */
-  campaigns?: readonly string[] | null;
+  visitor?: Visitor | null;
+  /**
+   * The moment the saved block `campaigns` checks its windows at
+   * (`client.date`). Default: when the client is created.
+   */
+  date?: Date | null;
+  /**
+   * Tests on (`true`) or off (`false`) by name, whatever the visitor and the
+   * test's percentage; the others are decided for the visitor. A name the
+   * saved block `experiments` doesn't have stays out.
+   */
+  experiments?: Partial<Assignments> | null;
+  /**
+   * Campaigns on (`true`) or off (`false`) by name, whatever their window;
+   * the others are checked at `date`. A name the saved block `campaigns`
+   * doesn't have stays out.
+   */
+  campaigns?: Partial<Assignments> | null;
+}
+
+/**
+ * What a Studio link asks for (`cms.readVersion`, `parseVersion`): the
+ * version, and the preview's moment and the tests and campaigns it switches,
+ * in the shape of `ClientOptions`, so it spreads into `cms.client()`.
+ */
+export interface RequestVersion {
+  /** A draft pointer, or a published release's commit SHA. */
+  version: string;
+  /** The moment the preview shows (`__at`). */
+  date?: Date;
+  /** The tests the preview switches on or off (`__test=<name>=on|off`). */
+  experiments?: Assignments;
+  /** The campaigns the preview switches on or off (`__campaign=<name>=on|off`). */
+  campaigns?: Assignments;
 }
 
 export interface CMS {
@@ -404,14 +420,20 @@ export interface CMS {
    */
   settings(): Promise<EffectiveSettings>;
   /**
-   * The version a Studio link asks for: `?__draft=` first, then the
-   * `__deco_draft` cookie, holding a draft pointer or a published release's
-   * commit SHA. `null` when neither is present, for `?__draft=off`, on a host
-   * outside `settings().preview.hosts`, and for a value that doesn't parse
-   * (ignored, as if absent): in each case the request gets the current release.
+   * What a Studio link asks for: `?__draft=` first, then the `__deco_draft`
+   * cookie, holding a draft pointer or a published release's commit SHA,
+   * with the preview's moment (`__at`) and switched tests (`__test`) and
+   * campaigns (`__campaign`) as `date`, `experiments` and `campaigns`.
+   * `null` when neither is present, for `?__draft=off`, on a host outside
+   * `settings().preview.hosts`, and for a value that doesn't parse (ignored,
+   * as if absent): in each case the request gets the current release.
+   *
+   * ```ts
+   * const client = cms.client({ visitor, ...(await cms.readVersion(request)) });
+   * ```
    */
-  readVersion(request: RequestLike): Promise<string | null>;
-  /** The same as `readVersion`, under its earlier name. */
+  readVersion(request: RequestLike): Promise<RequestVersion | null>;
+  /** The version alone (`readVersion(request)`'s `version`), under its earlier name. */
   draftPointer(request: RequestLike): Promise<string | null>;
   /**
    * The `Set-Cookie` value that starts a preview (a valid `?__draft=` on an

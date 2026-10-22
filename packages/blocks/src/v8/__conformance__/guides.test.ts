@@ -152,10 +152,10 @@ describe("quickstart", () => {
         "redirect",
         "cms-settings",
         "split-traffic",
-        "date-windows",
+        "calendar",
         "always",
         "never",
-        "date",
+        "campaign",
         "experiment",
         "multivariate",
         "lazy",
@@ -166,12 +166,12 @@ describe("quickstart", () => {
     for (const [type, inputs] of [
       ["always", {}],
       ["never", {}],
-      ["date", {}],
+      ["campaign", {}],
       ["page", { name: "x", path: "/", sections: [] }],
       ["redirect", { from: "/a", to: "/b", permanent: false }],
       ["cms-settings", {}],
       ["split-traffic", {}],
-      ["date-windows", {}],
+      ["calendar", {}],
       ["experiment", { name: "x" }],
       ["multivariate", { variants: [] }],
     ] as const) {
@@ -226,7 +226,7 @@ describe("how it works", () => {
           later: { __resolveType: "lazy", value: { __resolveType: "double", n: 21 } },
         },
         campaigns: {
-          __resolveType: "date-windows",
+          __resolveType: "calendar",
           on: { start: "2000-01-01", end: "2999-01-01" },
           off: { end: "2000-01-01" },
         },
@@ -239,9 +239,9 @@ describe("how it works", () => {
     expect(await (received as () => Promise<number>)()).toBe(42);
     expect(inner).toHaveBeenCalledTimes(1);
 
-    const [isOn] = await client.resolve({ __resolveType: "date", campaign: "on" });
+    const [isOn] = await client.resolve({ __resolveType: "campaign", name: "on" });
     expect(isOn).toBe(true);
-    const [isOff] = await client.resolve({ __resolveType: "date", campaign: "off" });
+    const [isOff] = await client.resolve({ __resolveType: "campaign", name: "off" });
     expect(isOff).toBe(false);
   });
 

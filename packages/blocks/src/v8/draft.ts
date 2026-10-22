@@ -3,26 +3,28 @@
  * `<host[:port]><path[?query]>@<version>` that names a draft, and what
  * `cms.readVersion` and `cms.draftCookie` read and write to carry one (or a
  * published release's commit SHA) from a `?__draft=` link into a cookie. The
- * host check against the preview hosts is
- * the CMS's: these read the request only.
+ * host check against the preview hosts is the CMS's: these read the request
+ * only.
  *
- * The query's reserved parameters are what a Studio preview sets, lifted out
- * of `path` by the parser:
+ * A version is a draft pointer or a release's commit SHA, nothing else. A
+ * pointer's query may force variants, which are part of the draft it names:
  *
  * - `__variant=<block>@<path>=<index>`: a variant the preview forces, one per
  *   multivariate (`variants`).
- * - `__at=<ISO date-time with offset>`: the moment the preview shows
- *   (`at`), which becomes `client.now`.
- * - `__test=<name>=on|off`: an A/B test the preview forces on or off
- *   (`tests`), applied by `split-traffic` over the visitor's answer.
  *
- * Each value is URL-encoded. A published release's commit SHA carries the
- * same parameters after a `?`: `<sha>?__at=…&__test=…`.
+ * A Studio preview link carries more than the version: the moment it shows
+ * and the tests and campaigns it switches on or off. They ride in the same
+ * query (a pointer's, or after a SHA: `<sha>?__at=…&__test=…`), and
+ * `parseVersion` lifts them out into the client's other options:
+ *
+ * - `__at=<ISO date-time with offset>`: the client's `date`.
+ * - `__test=<name>=on|off`: a test in the client's `experiments`.
+ * - `__campaign=<name>=on|off`: a campaign in the client's `campaigns`.
+ *
+ * Each value is URL-encoded.
  */
-import type { DraftPointer, ForcedVariant, RequestLike } from "./types.ts";
-
-/** What a preview link sets besides the version: forced variants, a moment, forced tests. */
-type Preview = Pick<DraftPointer, "variants" | "at" | "tests">;
+import type { Assignments } from "./experiments.ts";
+import type { DraftPointer, ForcedVariant, RequestLike, RequestVersion } from "./types.ts";
 
 /** The draft cookie's name. Not exported from the package: reading it directly would skip the host check. */
 const DRAFT_COOKIE = "__deco_draft";
@@ -41,53 +43,106 @@ const MAX_POINTER_LENGTH = 4096;
 const VARIANT_PARAM = "__variant=";
 const AT_PARAM = "__at=";
 const TEST_PARAM = "__test=";
+const CAMPAIGN_PARAM = "__campaign=";
+/** The parameters of a preview link that aren't part of the version. */
+const PREVIEW_PARAMS = [AT_PARAM, TEST_PARAM, CAMPAIGN_PARAM];
 /** An ISO 8601 date-time with its offset (`Z` or `±hh:mm`): the moment a preview shows. */
 const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const INDEX_RE = /^(0|[1-9][0-9]{0,3})$/;
 /** A published release: its git commit SHA (SHA-1, 40 lowercase hex). */
 const REVISION_RE = /^[0-9a-f]{40}$/;
 
-/** A version, parsed: a published release (by its commit SHA) or a draft, each with its preview. */
-type ParsedVersion =
-  | { kind: "revision"; sha: string; preview: Preview }
-  | { kind: "draft"; pointer: DraftPointer; preview: Preview };
+/** A version, read: a published release (by its commit SHA) or a draft. */
+type ClientVersion = { kind: "revision"; sha: string } | { kind: "draft"; pointer: DraftPointer };
 
 /**
- * Parses a version: a published release's commit SHA (40 lowercase hex),
- * optionally followed by `?` and the preview parameters, or a draft pointer.
- * `null` for anything else.
+ * What `cms.client({ version })` reads: a published release's commit SHA (40
+ * lowercase hex, nothing after it) or a draft pointer. `null` for anything
+ * else, a preview link's `__at`, `__test` or `__campaign` included: those
+ * are the client's `date`, `experiments` and `campaigns` (`parseVersion`).
  */
-export function parseVersion(value: string): ParsedVersion | null {
-  const q = value.indexOf("?");
-  const sha = q === -1 ? value : value.slice(0, q);
-  if (REVISION_RE.test(sha)) {
-    if (q === -1) return { kind: "revision", sha, preview: {} };
-    const split = splitPreview(`/${value.slice(q)}`);
-    if (split === null || split.path !== "/") return null;
-    return { kind: "revision", sha, preview: previewOf(split) };
-  }
+export function parseClientVersion(value: string): ClientVersion | null {
+  if (REVISION_RE.test(value)) return { kind: "revision", sha: value };
   const pointer = parseDraftPointer(value);
-  return pointer === null ? null : { kind: "draft", pointer, preview: previewOf(pointer) };
+  return pointer === null ? null : { kind: "draft", pointer };
 }
 
-/** Whether a Studio link's value is a version: a draft pointer or a release's commit SHA. */
-function isVersion(value: string): boolean {
-  return parseVersion(value) !== null;
+/**
+ * A Studio link's value (what `?__draft=` and the draft cookie carry): the
+ * version, a draft pointer or a published release's commit SHA, and the
+ * preview's moment and switched tests and campaigns, lifted out of its query
+ * as the client's `date`, `experiments` and `campaigns`. `null` for a value
+ * that is neither, or whose preview parameters don't parse (a second `__at`,
+ * a state other than `on` or `off`). The last `__test` or `__campaign` for a
+ * name wins. Spread it into `cms.client()`.
+ */
+export function parseVersion(value: string | null | undefined): RequestVersion | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_POINTER_LENGTH) {
+    return null;
+  }
+  const head = value.indexOf("?");
+  if (REVISION_RE.test(head === -1 ? value : value.slice(0, head))) {
+    if (head === -1) return { version: value };
+    const preview = liftPreview(value.slice(head + 1));
+    // After a SHA, only the preview's own parameters.
+    if (preview === null || preview.kept.length > 0) return null;
+    return { version: value.slice(0, head), ...preview.options };
+  }
+  const at = value.lastIndexOf("@");
+  if (at <= 0) return null;
+  const location = value.slice(0, at);
+  const q = location.indexOf("?");
+  if (q === -1) return parseDraftPointer(value) === null ? null : { version: value };
+  const preview = liftPreview(location.slice(q + 1));
+  if (preview === null) return null;
+  const query = preview.kept.length === 0 ? "" : `?${preview.kept.join("&")}`;
+  const version = `${location.slice(0, q)}${query}${value.slice(at)}`;
+  return parseDraftPointer(version) === null ? null : { version, ...preview.options };
 }
 
-function previewOf({ variants, at, tests }: Preview): Preview {
-  const preview: Preview = {};
-  if (variants !== undefined && variants.length > 0) preview.variants = variants;
-  if (at !== undefined) preview.at = at;
-  if (tests !== undefined) preview.tests = tests;
-  return preview;
+/** A query's preview parameters, read, and the other parameters, kept as they are. */
+function liftPreview(query: string): {
+  kept: string[];
+  options: Omit<RequestVersion, "version">;
+} | null {
+  const kept: string[] = [];
+  let at: string | undefined;
+  let experiments: Assignments | undefined;
+  let campaigns: Assignments | undefined;
+  for (const param of query.split("&")) {
+    if (param.startsWith(AT_PARAM)) {
+      const value = decodeParam(param.slice(AT_PARAM.length));
+      if (at !== undefined || value === null || !AT_RE.test(value)) return null;
+      if (Number.isNaN(Date.parse(value))) return null;
+      at = value;
+    } else if (param.startsWith(TEST_PARAM)) {
+      const test = decodeSwitch(param.slice(TEST_PARAM.length));
+      if (test === null) return null;
+      experiments ??= Object.create(null) as Assignments;
+      experiments[test.name] = test.on;
+    } else if (param.startsWith(CAMPAIGN_PARAM)) {
+      const campaign = decodeSwitch(param.slice(CAMPAIGN_PARAM.length));
+      if (campaign === null) return null;
+      campaigns ??= Object.create(null) as Assignments;
+      campaigns[campaign.name] = campaign.on;
+    } else if (param !== "") {
+      kept.push(param);
+    }
+  }
+  const options: Omit<RequestVersion, "version"> = {};
+  if (at !== undefined) options.date = new Date(Date.parse(at));
+  if (experiments !== undefined) options.experiments = experiments;
+  if (campaigns !== undefined) options.campaigns = campaigns;
+  return { kept, options };
 }
 
 /**
  * Parses a pointer, strictly: `null` on a scheme, a stray `@`, an unrooted
- * path, an odd character in the host or version, or a port out of range. The
- * host is lowercased (DNS names are case-insensitive); path and version are
- * kept as they are.
+ * path, an odd character in the host or version, a port out of range, or a
+ * preview link's `__at`, `__test` or `__campaign` left in its query (they
+ * aren't part of a version: `parseVersion` lifts them out). The host is
+ * lowercased (DNS names are case-insensitive); path and version are kept as
+ * they are.
  */
 export function parseDraftPointer(raw: string | null | undefined): DraftPointer | null {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_POINTER_LENGTH) return null;
@@ -104,9 +159,11 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
 
   const host = normalizeHost(location.slice(0, slash));
   if (host === null) return null;
-  const split = splitPreview(path);
+  const split = splitVariants(path);
   if (split === null) return null;
-  return { host, path: split.path, version, ...previewOf(split) };
+  const pointer: DraftPointer = { host, path: split.path, version };
+  if (split.variants.length > 0) pointer.variants = split.variants;
+  return pointer;
 }
 
 /**
@@ -116,14 +173,7 @@ export function parseDraftPointer(raw: string | null | undefined): DraftPointer 
  */
 export function formatDraftPointer(pointer: DraftPointer): string {
   const variants = pointer.variants ?? [];
-  const tests = pointer.tests ?? {};
-  const params = [
-    ...variants.map((variant) => VARIANT_PARAM + encodeVariant(variant)),
-    ...(pointer.at === undefined ? [] : [AT_PARAM + encodeParam(pointer.at)]),
-    ...Object.keys(tests).map(
-      (name) => TEST_PARAM + encodeParam(`${name}=${tests[name] === true ? "on" : "off"}`),
-    ),
-  ];
+  const params = variants.map((variant) => VARIANT_PARAM + encodeVariant(variant));
   const path =
     params.length === 0
       ? pointer.path
@@ -133,9 +183,7 @@ export function formatDraftPointer(pointer: DraftPointer): string {
     parsed === null ||
     parsed.path !== pointer.path ||
     parsed.version !== pointer.version ||
-    JSON.stringify(parsed.variants ?? []) !== JSON.stringify(variants.map(plainVariant)) ||
-    parsed.at !== pointer.at ||
-    JSON.stringify(parsed.tests ?? {}) !== JSON.stringify(plainTests(tests))
+    JSON.stringify(parsed.variants ?? []) !== JSON.stringify(variants.map(plainVariant))
   ) {
     throw new TypeError(`invalid draft pointer parts: ${JSON.stringify(pointer)}`);
   }
@@ -143,49 +191,32 @@ export function formatDraftPointer(pointer: DraftPointer): string {
 }
 
 /**
- * The path without its preview parameters, and what they set: the variants
- * (`__variant`), the moment (`__at`) and the tests (`__test`; the last one
- * for a name wins). `null` on one that doesn't parse, or a second `__at`.
+ * The path without its `__variant` parameters, and the variants they force.
+ * `null` on one that doesn't parse, or on a preview link's `__at`, `__test`
+ * or `__campaign`.
  */
-function splitPreview(
-  path: string,
-): (Preview & { path: string; variants: ForcedVariant[] }) | null {
+function splitVariants(path: string): { path: string; variants: ForcedVariant[] } | null {
   const q = path.indexOf("?");
   if (q === -1) return { path, variants: [] };
   const kept: string[] = [];
   const variants: ForcedVariant[] = [];
-  let at: string | undefined;
-  let tests: Record<string, boolean> | undefined;
   for (const param of path.slice(q + 1).split("&")) {
     if (param.startsWith(VARIANT_PARAM)) {
       const variant = decodeVariant(param.slice(VARIANT_PARAM.length));
       if (variant === null) return null;
       variants.push(variant);
-    } else if (param.startsWith(AT_PARAM)) {
-      const value = decodeParam(param.slice(AT_PARAM.length));
-      if (at !== undefined || value === null || !AT_RE.test(value)) return null;
-      if (Number.isNaN(Date.parse(value))) return null;
-      at = value;
-    } else if (param.startsWith(TEST_PARAM)) {
-      const test = decodeTest(param.slice(TEST_PARAM.length));
-      if (test === null) return null;
-      tests ??= Object.create(null) as Record<string, boolean>;
-      tests[test.name] = test.on;
+    } else if (PREVIEW_PARAMS.some((prefix) => param.startsWith(prefix))) {
+      return null;
     } else {
       kept.push(param);
     }
   }
   const base = path.slice(0, q);
-  return {
-    path: kept.length === 0 ? base : `${base}?${kept.join("&")}`,
-    variants,
-    ...(at === undefined ? {} : { at }),
-    ...(tests === undefined ? {} : { tests }),
-  };
+  return { path: kept.length === 0 ? base : `${base}?${kept.join("&")}`, variants };
 }
 
-/** `<name>=on|off`: the state after the last `=`, the test's name before it. */
-function decodeTest(encoded: string): { name: string; on: boolean } | null {
+/** `<name>=on|off`: the state after the last `=`, the test's or campaign's name before it. */
+function decodeSwitch(encoded: string): { name: string; on: boolean } | null {
   const raw = decodeParam(encoded);
   if (raw === null) return null;
   const eq = raw.lastIndexOf("=");
@@ -231,11 +262,6 @@ function encodeParam(value: string): string {
   );
 }
 
-/** The tests as the parser gives them back: in order, each `true` or `false`. */
-function plainTests(tests: Record<string, boolean>): Record<string, boolean> {
-  return Object.fromEntries(Object.keys(tests).map((name) => [name, tests[name] === true]));
-}
-
 function plainVariant({ block, path, index }: ForcedVariant): ForcedVariant {
   return { block, path, index };
 }
@@ -270,18 +296,19 @@ function normalizeIPv6Host(authority: string): string | null {
 
 /**
  * The version a request carries (a draft pointer, or a published release's
- * commit SHA): `?__draft=` from the URL first, then the `__deco_draft`
+ * commit SHA) with its preview's date, tests and campaigns (`parseVersion`):
+ * `?__draft=` from the URL first, then the `__deco_draft`
  * cookie. `null` when neither is present, or when the URL says
  * `?__draft=off`. A value that doesn't parse is ignored, as if it were
  * absent: a stray `?__draft=junk` link or a mangled cookie gets the release,
  * never an error from `cms.client`.
  */
-export function readVersion(request: RequestLike): string | null {
+export function readVersion(request: RequestLike): RequestVersion | null {
   const param = draftParam(request);
   if (param === DRAFT_OFF) return null;
-  if (param && isVersion(param)) return param;
-  const cookie = readCookie(request.headers.get("cookie"), DRAFT_COOKIE);
-  return cookie && isVersion(cookie) ? cookie : null;
+  const fromLink = param ? parseVersion(param) : null;
+  if (fromLink !== null) return fromLink;
+  return parseVersion(readCookie(request.headers.get("cookie"), DRAFT_COOKIE));
 }
 
 /**
@@ -298,7 +325,7 @@ export function draftCookieFor(request: RequestLike): string | null {
   const param = draftParam(request);
   if (!param) return null;
   if (param === DRAFT_OFF) return serializeCookie("", ["Max-Age=0"]);
-  if (!isVersion(param)) return null;
+  if (parseVersion(param) === null) return null;
   return serializeCookie(encodeURIComponent(param), []);
 }
 

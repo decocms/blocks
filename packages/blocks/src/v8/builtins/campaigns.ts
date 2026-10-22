@@ -1,45 +1,47 @@
 /**
- * Campaign dates as content (see /next/built-in-blocks#date-windows): the
- * built-in type `date-windows`, which the saved block `campaigns` has, and
- * the built-in rule `date`.
+ * Campaign dates as content (see /next/built-in-blocks#calendar): the
+ * built-in type `calendar`, which the saved block `campaigns` has, and the
+ * built-in rule `campaign`.
  *
  * - `campaigns` maps each campaign's name to one window, `{ start?, end? }`,
  *   ISO date-times with an offset. Resolving it gives each name and whether
- *   the client's moment is inside its window, never a date.
- * - `date { campaign }` is `true` when that answer is `true`. Every date rule
+ *   the client's date is inside its window, never a date.
+ * - `campaign { name }` is `true` when that answer is `true`. A rule always
  *   names a campaign: there are no inline `{ start, end }` dates, so
- *   `date-windows` is the only place date logic lives.
+ *   `calendar` is the only place date logic lives.
  *
- * The moment is the client's (`client.now`: a preview's time, or when the
- * client was created), read through `currentClient()` before any `await`. A
- * client given the running campaigns (`cms.client({ campaigns })`, what a
- * proxy in front of a cached page decided) answers those instead, never a
- * name the block doesn't have.
+ * The date is the client's (`client.date`: `cms.client({ date })`, or when
+ * the client was created), read through `currentClient()` before any
+ * `await`. A campaign the client is given (`cms.client({ campaigns })`) is
+ * on or off as given, whatever its window; a name the block doesn't have
+ * stays out.
  */
-import { currentClient, runningCampaigns } from "../current.ts";
+import { campaignOverrides, currentClient } from "../current.ts";
 
-/** The saved block every `date` rule reads, and its built-in type. */
+/** The saved block every `campaign` rule reads, and its built-in type. */
 export const CAMPAIGNS_BLOCK = "campaigns";
-export const DATE_WINDOWS_TYPE = "date-windows";
+export const CALENDAR_TYPE = "calendar";
 
 /** The built-in rule that reads a campaign. */
-export const DATE_RULE = "date";
+export const CAMPAIGN_RULE = "campaign";
 
-/** What resolving `campaigns` gives: each campaign and whether it is running now. */
+/** What resolving `campaigns` gives: each campaign and whether it is running. */
 type Campaigns = Record<string, boolean>;
 
 /**
- * `date-windows`: each campaign and whether the current client's moment is
- * inside its window, or, for a client given the running campaigns, whether
- * it is one of them.
+ * `calendar`: each campaign and whether the current client's date is inside
+ * its window, or, for a campaign the client was given, what it was given.
  */
-export const dateWindows = (windows: Record<string, unknown> = {}): Campaigns => {
+export const calendar = (windows: Record<string, unknown> = {}): Campaigns => {
   const client = currentClient();
-  const running = runningCampaigns(client);
-  const now = client.now.getTime();
+  const given = campaignOverrides(client);
+  const at = client.date.getTime();
   const out = Object.create(null) as Campaigns;
   for (const name of Object.keys(windows)) {
-    out[name] = running ? running.has(name) : inside(windows[name], now);
+    out[name] =
+      given !== undefined && Object.hasOwn(given, name)
+        ? given[name] === true
+        : inside(windows[name], at);
   }
   return out;
 };
@@ -67,25 +69,24 @@ function bound(value: unknown): number | undefined | null {
   return Number.isNaN(time) ? null : time;
 }
 
-/** Inputs of the built-in `date` rule. */
-interface DateProps {
+/** Inputs of the built-in `campaign` rule. */
+interface CampaignProps {
   /** A campaign in the saved block `campaigns`. */
-  campaign?: string;
+  name?: string;
 }
 
 /**
- * `date`: `true` while the campaign `campaign` of the saved block
- * `campaigns` is running at the client's moment. An unknown name, no
- * `campaigns` block, or a rule without a campaign (an inline `{ start, end }`
- * left from before, which `deco check` warns about) give `false`. The block
- * is resolved once per client, however many rules ask.
+ * `campaign`: `true` while the campaign `name` of the saved block
+ * `campaigns` is running for the client. An unknown name, no `campaigns`
+ * block, or a rule without a name give `false`. The block is resolved once
+ * per client, however many rules ask.
  */
-export const date = ({ campaign }: DateProps = {}): boolean | Promise<boolean> => {
+export const campaign = ({ name }: CampaignProps = {}): boolean | Promise<boolean> => {
   const client = currentClient();
-  if (typeof campaign !== "string") return false;
+  if (typeof name !== "string") return false;
   return client
     .resolve<Record<string, unknown>>(CAMPAIGNS_BLOCK)
-    .then(([campaigns]) => isTrueAt(campaigns, campaign));
+    .then(([campaigns]) => isTrueAt(campaigns, name));
 };
 
 function isTrueAt(record: unknown, name: string): boolean {

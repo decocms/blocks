@@ -130,6 +130,7 @@ const DOCUMENTED_ROOT_VALUES = [
   "formatDraftPointer",
   "matchRoute",
   "parseDraftPointer",
+  "parseVersion",
   "remoteLoader",
   "resetForTests",
 ].sort();
@@ -152,6 +153,7 @@ const DOCUMENTED_ROOT_TYPES = [
   "CMSSettings",
   "EffectiveSettings",
   "RequestLike",
+  "RequestVersion",
   "Match",
   "Result",
   "CMSError",
@@ -232,8 +234,9 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
   type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
-  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, currentClient } from "@decocms/blocks";
-import type { Visitor } from "@decocms/blocks/experiments";
+  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, type RequestVersion,
+  currentClient, parseVersion } from "@decocms/blocks";
+import type { Assignments, Visitor } from "@decocms/blocks/experiments";
 import type { ReactNode } from "react";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -256,7 +259,12 @@ createCMS({ blocks, content, ignoreCase: true });
 
 assert<Equal<keyof CMS, "client" | "forRelease" | "forDraft" | "update" | "settings" | "readVersion" | "draftPointer" | "draftCookie">>();
 assert<Equal<CMS["client"], (options?: ClientOptions) => Client>>();
-assert<Equal<CMS["readVersion"], (request: RequestLike) => Promise<string | null>>>();
+assert<Equal<CMS["readVersion"], (request: RequestLike) => Promise<RequestVersion | null>>>();
+assert<Equal<typeof parseVersion, (value: string | null | undefined) => RequestVersion | null>>();
+assert<Equal<
+  RequestVersion,
+  { version: string; date?: Date; experiments?: Assignments; campaigns?: Assignments }
+>>();
 assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
@@ -267,14 +275,20 @@ assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
 assert<Equal<CMS["forRelease"], () => Client>>();
 assert<Equal<
   ClientOptions,
-  { visitor?: Visitor | null; version?: string | null; campaigns?: readonly string[] | null }
+  {
+    version?: string | null;
+    visitor?: Visitor | null;
+    date?: Date | null;
+    experiments?: Partial<Assignments> | null;
+    campaigns?: Partial<Assignments> | null;
+  }
 >>();
 assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
-assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "now">>();
+assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "date">>();
 assert<Equal<Client["visitor"], Visitor | null>>();
 assert<Equal<Client["version"], string | undefined>>();
-assert<Equal<Client["now"], Date>>();
+assert<Equal<Client["date"], Date>>();
 assert<Equal<Client["revision"], () => Promise<string>>>();
 declare const client: Client;
 const r1: Promise<Result<unknown>> = client.resolve("x");

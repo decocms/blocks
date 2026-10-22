@@ -1,5 +1,5 @@
 import type { BlockFunction } from "../types.ts";
-import { DATE_WINDOWS_TYPE, date, dateWindows } from "./campaigns.ts";
+import { CALENDAR_TYPE, calendar, campaign } from "./campaigns.ts";
 import { cmsSettings, page, redirect, SETTINGS_TYPE } from "./data.ts";
 import { experiment, SPLIT_TRAFFIC_TYPE, splitTraffic } from "./experiments.ts";
 import { lazy } from "./lazy.ts";
@@ -16,14 +16,14 @@ export const builtIns: Readonly<Record<string, BlockFunction>> = Object.freeze({
   multivariate,
   always,
   never,
-  date,
   experiment,
+  campaign,
   page,
   redirect,
   [SETTINGS_TYPE]: cmsSettings,
-  [SPLIT_TRAFFIC_TYPE]: splitTraffic,
-  [DATE_WINDOWS_TYPE]: dateWindows,
   secret: secretBlock(),
+  [SPLIT_TRAFFIC_TYPE]: splitTraffic,
+  [CALENDAR_TYPE]: calendar,
 });
 
 /** Names no saved block can take (see /next/saved-blocks#names). */

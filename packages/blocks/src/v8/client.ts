@@ -1,9 +1,10 @@
 /**
  * A client: one revision, loaded on first use and read for the rest of its
  * life, plus a memo of block results, and the inputs it was created with
- * (the visitor, the version, the moment it shows). Create one per request.
+ * (the version, the visitor, the date, the tests and campaigns it was given).
+ * Create one per request.
  */
-import { FORCED_TESTS, RUNNING_CAMPAIGNS } from "./current.ts";
+import { CAMPAIGN_OVERRIDES, EXPERIMENT_OVERRIDES, type Overrides } from "./current.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
 import type { Visitor } from "./experiments.ts";
 import { isBlock } from "./json.ts";
@@ -30,12 +31,12 @@ interface ClientOptions {
   visitor?: Visitor | null;
   /** The version it was created with: `undefined` for the current release. */
   version?: string;
-  /** The moment it shows, in ms since the epoch: a preview's time, or its creation. */
-  now?: number;
-  /** The tests a preview link forces on or off, by name. */
-  forcedTests?: Readonly<Record<string, boolean>>;
-  /** The campaigns running, as decided in front of the page; `undefined` to check the windows. */
-  campaigns?: readonly string[];
+  /** The date campaigns run at, in ms since the epoch. */
+  date: number;
+  /** The tests it was given, on or off by name (frozen); `undefined` for none. */
+  experiments?: Overrides;
+  /** The campaigns it was given, on or off by name (frozen); `undefined` for none. */
+  campaigns?: Overrides;
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
 }
@@ -46,9 +47,6 @@ export class CMSClient implements Client {
   readonly #options: ClientOptions;
   readonly #reported = new WeakSet<CMSError>();
   readonly #visitor: Visitor | null;
-  readonly #now: number;
-  readonly #forced: Readonly<Record<string, boolean>> | undefined;
-  readonly #campaigns: ReadonlySet<string> | undefined;
   #loaded: Promise<Loaded> | undefined;
   /** The revision loaded, once it is. */
   #revision: string | undefined;
@@ -56,9 +54,6 @@ export class CMSClient implements Client {
   constructor(options: ClientOptions) {
     this.#options = options;
     this.#visitor = copyVisitor(options.visitor);
-    this.#now = options.now ?? Date.now();
-    this.#forced = options.forcedTests && Object.freeze({ ...options.forcedTests });
-    this.#campaigns = options.campaigns && new Set(options.campaigns);
   }
 
   get visitor(): Visitor | null {
@@ -69,18 +64,18 @@ export class CMSClient implements Client {
     return this.#options.version ?? this.#revision;
   }
 
-  get now(): Date {
-    return new Date(this.#now);
+  get date(): Date {
+    return new Date(this.#options.date);
   }
 
   /** Read by the built-in `split-traffic` (see ./current.ts). */
-  get [FORCED_TESTS](): Readonly<Record<string, boolean>> | undefined {
-    return this.#forced;
+  get [EXPERIMENT_OVERRIDES](): Overrides | undefined {
+    return this.#options.experiments;
   }
 
-  /** Read by the built-in `date-windows` (see ./current.ts). */
-  get [RUNNING_CAMPAIGNS](): ReadonlySet<string> | undefined {
-    return this.#campaigns;
+  /** Read by the built-in `calendar` (see ./current.ts). */
+  get [CAMPAIGN_OVERRIDES](): Overrides | undefined {
+    return this.#options.campaigns;
   }
 
   async resolve<T = unknown>(target: unknown, options: ResolveOptions = {}): Promise<Result<T>> {

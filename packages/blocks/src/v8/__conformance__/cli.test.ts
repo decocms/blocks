@@ -909,7 +909,7 @@ describe("schema.mdx", () => {
     // The rule points at the matchers union: every boolean-returning function.
     const target = rule.$ref ? rule.$ref.replace("#/root/", "") : null;
     const ruleRefs = JSON.stringify(target ? meta.schema.root[target] : rule);
-    for (const m of ["always", "never", "date", "isWeekend"]) {
+    for (const m of ["always", "never", "campaign", "isWeekend"]) {
       expect(ruleRefs).toContain(refTo(m));
     }
     expect(ruleRefs).not.toContain(refTo("greeting"));
@@ -1990,7 +1990,7 @@ describe("studio-compatibility.mdx", () => {
       expect.arrayContaining(["everything", "asyncSection", "promoBanner", "productCard"]),
     );
     expect(Object.keys(g.matchers)).toEqual(
-      expect.arrayContaining(["isWeekend", "always", "never", "date", "experiment"]),
+      expect.arrayContaining(["isWeekend", "always", "never", "campaign", "experiment"]),
     );
     expect(Object.keys(g.loaders)).toEqual(
       expect.arrayContaining(["catalogProduct", "syncProduct", "greeting", "multivariate", "lazy"]),

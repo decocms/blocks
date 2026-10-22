@@ -71,7 +71,7 @@ describe("groups", () => {
 
   it("puts boolean-returning functions in matchers, with the built-in matchers", () => {
     expect(Object.keys(meta.manifest.blocks.matchers)).toEqual(
-      expect.arrayContaining(["weekday", "always", "never", "date"]),
+      expect.arrayContaining(["weekday", "always", "never", "campaign"]),
     );
   });
 
@@ -319,7 +319,7 @@ describe("the built-in page with a descriptor site's blocks", () => {
 });
 
 describe("a field of names to true/false", () => {
-  it("can hold the saved experiments or campaigns block: split-traffic and date-windows fit it", async () => {
+  it("can hold the saved experiments or campaigns block: split-traffic and calendar fit it", async () => {
     const fixture = createFixture({
       "src/hero.tsx": `
 export interface Props {
@@ -337,7 +337,7 @@ export default function Hero(_props: Props) { return <div />; }`,
         { $ref: "#/definitions/Resolvable" },
         expect.objectContaining({ type: "object", additionalProperties: { type: "boolean" } }),
         ref("split-traffic"),
-        ref("date-windows"),
+        ref("calendar"),
       ]);
       // Other maps stay plain: a string map isn't true/false, a free-form one fits anything.
       expect(props.labels.anyOf).toBeUndefined();
@@ -359,7 +359,7 @@ export default { hero: Hero, "split-traffic": split };`,
     try {
       const { meta: m } = await generateSchema(decoPaths(fixture.root));
       const props = m.schema.definitions[`${b64("src/hero.tsx")}@Props`].properties;
-      expect(props.experiments.anyOf.slice(2)).toEqual([ref("split-traffic"), ref("date-windows")]);
+      expect(props.experiments.anyOf.slice(2)).toEqual([ref("split-traffic"), ref("calendar")]);
       expect(m.manifest.blocks.content["split-traffic"]).toBeUndefined();
     } finally {
       fixture.remove();
@@ -374,8 +374,8 @@ describe("built-ins and aliases", () => {
       "multivariate",
       "always",
       "never",
-      "date",
       "experiment",
+      "campaign",
       "page",
       "redirect",
       "cms-settings",

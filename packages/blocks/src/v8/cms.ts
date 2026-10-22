@@ -12,7 +12,8 @@ import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
-import { draftCookieFor, endsPreview, parseVersion, readVersion } from "./draft.ts";
+import type { Overrides } from "./current.ts";
+import { draftCookieFor, endsPreview, parseClientVersion, readVersion } from "./draft.ts";
 import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
@@ -40,6 +41,7 @@ import type {
   EffectiveSettings,
   Loader,
   RequestLike,
+  RequestVersion,
   Snapshot,
 } from "./types.ts";
 import { forceVariants } from "./variants.ts";
@@ -109,50 +111,30 @@ class CMSInstance {
 
   /**
    * A client for one request: the version it reads (the current release, a
-   * published release by its commit SHA, or a draft pointer) and the visitor
-   * it decides tests for, both passed in. It shows the moment the version's
-   * preview sets (`__at`), else the moment it was created; the tests the
-   * preview forces (`__test`) go on top of the visitor's answers. Given
-   * `campaigns`, the `campaigns` block answers those running instead of
-   * checking the windows.
+   * published release by its commit SHA, or a draft pointer), the visitor it
+   * decides tests for and the date it checks campaigns at (default: now),
+   * all passed in, with the tests and campaigns it is given on top.
    */
   client(blocks: Blocks, options: ClientOptions = {}): Client {
     this.#scheduleUpdate();
     const version = typeof options.version === "string" ? options.version : undefined;
-    const visitor = options.visitor ?? null;
-    const campaigns = Array.isArray(options.campaigns)
-      ? options.campaigns.filter((name): name is string => typeof name === "string")
-      : undefined;
-    if (version === undefined) {
-      return this.#client(blocks, this.#release(blocks), {
-        version,
-        visitor,
-        now: Date.now(),
-        campaigns,
-      });
-    }
-    const parsed = parseVersion(version);
-    // A version that doesn't parse fails on the first read, as an invalid pointer always has.
-    if (parsed === null) {
-      return this.#client(blocks, () => this.#store.draft(version), {
-        version,
-        visitor,
-        now: Date.now(),
-        campaigns,
-      });
-    }
-    const { variants, at, tests } = parsed.preview;
+    const date = options.date instanceof Date ? options.date.getTime() : Number.NaN;
     const inputs = {
       version,
-      visitor,
-      now: at === undefined ? Date.now() : Date.parse(at),
-      forcedTests: tests,
-      campaigns,
+      visitor: options.visitor ?? null,
+      date: Number.isNaN(date) ? Date.now() : date,
+      experiments: overridesOf(options.experiments),
+      campaigns: overridesOf(options.campaigns),
     };
-    const load =
-      parsed.kind === "revision"
-        ? () => this.#store.revision(parsed.sha)
-        : () => this.#store.draft(version);
+    if (version === undefined) return this.#client(blocks, this.#release(blocks), inputs);
+    const parsed = parseClientVersion(version);
+    // A version that doesn't parse fails on the first read, as an invalid pointer always has.
+    if (parsed === null) return this.#client(blocks, () => this.#store.draft(version), inputs);
+    if (parsed.kind === "revision") {
+      return this.#client(blocks, () => this.#store.revision(parsed.sha), inputs);
+    }
+    const { variants } = parsed.pointer;
+    const load = () => this.#store.draft(version);
     if (variants === undefined) return this.#client(blocks, load, inputs);
     return this.#client(blocks, () => load().then((s) => forceVariants(s, variants)), inputs);
   }
@@ -178,7 +160,7 @@ class CMSInstance {
     return this.#settingsOf(blocks, this.#store.current());
   }
 
-  async readVersion(blocks: Blocks, request: RequestLike): Promise<string | null> {
+  async readVersion(blocks: Blocks, request: RequestLike): Promise<RequestVersion | null> {
     const version = readVersion(request);
     if (version === null) return null;
     return (await this.#previewAllowed(blocks, request)) ? version : null;
@@ -229,6 +211,7 @@ class CMSInstance {
           load: () => Promise.resolve(snapshot),
           blocks,
           builtIns: this.#builtIns,
+          date: Date.now(),
           onCollision: (name) => this.#warnCollision(name),
         }),
       this.#caps,
@@ -279,9 +262,9 @@ class CMSInstance {
     inputs: {
       version: string | undefined;
       visitor: ClientOptions["visitor"];
-      now: number;
-      forcedTests?: Readonly<Record<string, boolean>>;
-      campaigns?: readonly string[];
+      date: number;
+      experiments: Overrides | undefined;
+      campaigns: Overrides | undefined;
     },
   ): Client {
     return new CMSClient({
@@ -361,12 +344,12 @@ class CMSHandle implements CMS {
     return this.#instance.settings(this.#blocks);
   }
 
-  readVersion(request: RequestLike): Promise<string | null> {
+  readVersion(request: RequestLike): Promise<RequestVersion | null> {
     return this.#instance.readVersion(this.#blocks, request);
   }
 
-  draftPointer(request: RequestLike): Promise<string | null> {
-    return this.#instance.readVersion(this.#blocks, request);
+  async draftPointer(request: RequestLike): Promise<string | null> {
+    return (await this.#instance.readVersion(this.#blocks, request))?.version ?? null;
   }
 
   draftCookie(request: RequestLike): Promise<string | null> {
@@ -443,6 +426,19 @@ export function adoptContent(content: Snapshot): number {
     adopted++;
   }
   return adopted;
+}
+
+/**
+ * A client's own frozen copy of the tests or campaigns it is given: the
+ * entries that are `true` or `false`; `undefined` for none.
+ */
+function overridesOf(given: unknown): Overrides | undefined {
+  if (typeof given !== "object" || given === null || Array.isArray(given)) return undefined;
+  const out = Object.create(null) as Record<string, boolean>;
+  for (const [name, on] of Object.entries(given as Record<string, unknown>)) {
+    if (typeof on === "boolean") out[name] = on;
+  }
+  return Object.freeze(out);
 }
 
 /** Clears every stored CMS instance, so a test starts clean. */

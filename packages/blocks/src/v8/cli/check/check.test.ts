@@ -523,7 +523,7 @@ describe("formats and character counts", () => {
   it("checks date and date-time values, and leaves widget formats alone", () => {
     const campaigns = (a: string, b: string) => ({
       campaigns: {
-        __resolveType: "date-windows",
+        __resolveType: "calendar",
         a: { start: a, end: "2026-12-31T23:59:59Z" },
         b: { start: b, end: "2026-12-31T23:59:59Z" },
       },
@@ -964,13 +964,13 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
   });
 });
 
-describe("the saved block campaigns and the date rule", () => {
+describe("the saved block campaigns and the campaign rule", () => {
   const campaigns = {
-    __resolveType: "date-windows",
+    __resolveType: "calendar",
     "black-friday": { start: "2026-11-27T00:00:00-03:00", end: "2026-12-01T23:59:59-03:00" },
     "always-on": {},
   };
-  const rule = (campaign: string) => ({ __resolveType: "date", campaign });
+  const rule = (name: string) => ({ __resolveType: "campaign", name });
   const banner = (r: unknown) => ({
     __resolveType: "multivariate",
     variants: [
@@ -1003,34 +1003,48 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     }
   }, 30_000);
 
-  it("warns about a campaigns block of another type, which turns every date rule off", () => {
+  it("warns about a campaigns block of another type, which turns every campaign rule off", () => {
     expect(lines(run({ campaigns: hero }))).toEqual([
-      'campaigns.json warning "campaigns" is the saved block every date rule reads, of type "date-windows"; with type "hero" every date rule is false',
+      'campaigns.json warning "campaigns" is the saved block every campaign rule reads, of type "calendar"; with type "hero" every campaign rule is false',
     ]);
   });
 
   it("warns about a rule naming a campaign the campaigns block doesn't have", () => {
     expect(lines(run({ campaigns, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning campaign: no campaign "gone" in the saved block "campaigns": this rule is always false',
+      'Rule.json warning name: no campaign "gone" in the saved block "campaigns": this rule is always false',
     ]);
     expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
-      'Rule.json warning campaign: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
+      'Rule.json warning name: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
     ]);
   });
 
-  it("warns about a date rule still written inline, or naming no campaign: it is always false", () => {
+  it("rejects the old date rule, saying what to write: a campaign rule naming the campaign, its inline dates moved into one", () => {
     const inline = { __resolveType: "date", start: "2026-11-27", end: "2026-12-01" };
     expect(lines(run({ campaigns, HomePage: page(banner(inline) as never) }))).toEqual([
-      'HomePage.json warning sections.variants[0].rule: this date rule has its dates inline, so it is always false: move them into a campaign of the saved block "campaigns" and name it here (campaign)',
+      'HomePage.json sections.variants[0].rule: unknown block type "date": this date rule has its dates inline; move them into a campaign of the saved block "campaigns" (type "calendar") and write { "__resolveType": "campaign", "name": … } naming it',
     ]);
-    expect(lines(run({ campaigns, Rule: { __resolveType: "date" } }))).toEqual([
-      'Rule.json warning this date rule names no campaign, so it is always false: name a campaign of the saved block "campaigns"',
+    expect(
+      lines(run({ campaigns, Rule: { __resolveType: "date", campaign: "black-friday" } })),
+    ).toEqual([
+      'Rule.json unknown block type "date": the date rule is now "campaign", so write { "__resolveType": "campaign", "name": "black-friday" }',
     ]);
+  });
+
+  it("rejects the old date-windows type, saying it is calendar now", () => {
+    expect(lines(run({ campaigns: { ...campaigns, __resolveType: "date-windows" } }))).toContain(
+      'campaigns.json unknown block type "date-windows": the built-in is now "calendar": set the saved block "campaigns" to { "__resolveType": "calendar", … }',
+    );
+  });
+
+  it("warns about a campaign rule naming no campaign: it is always false", () => {
+    expect(lines(run({ campaigns, Rule: { __resolveType: "campaign" } }))).toContain(
+      'Rule.json warning this campaign rule names no campaign, so it is always false: name a campaign of the saved block "campaigns" (name)',
+    );
   });
 
   it("warns about a campaign whose end isn't after its start", () => {
     const backwards = {
-      __resolveType: "date-windows",
+      __resolveType: "calendar",
       sale: { start: "2026-12-01T00:00:00Z", end: "2026-11-27T00:00:00Z" },
       flash: { start: "2026-12-01T00:00:00Z", end: "2026-12-01T00:00:00Z" },
     };
@@ -1040,28 +1054,31 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     ]);
   });
 
-  it("date-windows and date are reserved names; campaigns is not", () => {
-    expect(lines(run({ campaigns, "date-windows": { ...campaigns } }))).toContain(
-      'date-windows.json saved block "date-windows" has the name of a built-in block',
+  it("calendar and campaign are reserved names; campaigns is not", () => {
+    expect(lines(run({ campaigns, calendar: { ...campaigns } }))).toContain(
+      'calendar.json saved block "calendar" has the name of a built-in block',
     );
-    expect(lines(run({ campaigns, date: rule("black-friday") }))).toContain(
-      'date.json saved block "date" has the name of a built-in block',
+    expect(lines(run({ campaigns, campaign: rule("black-friday") }))).toContain(
+      'campaign.json saved block "campaign" has the name of a built-in block',
     );
     expect(lines(run({ campaigns })).some((line) => line.includes("name of a built-in"))).toBe(
       false,
     );
   });
 
-  it("warns when the block map defines date or date-windows, which replaces the built-in", () => {
+  it("warns when the block map defines campaign or calendar, which replaces the built-in", () => {
     const own = structuredClone(meta);
-    own.manifest.blocks.matchers.date = { ...own.manifest.blocks.matchers.date, namespace: "site" };
-    own.manifest.blocks.content["date-windows"] = {
-      ...own.manifest.blocks.content["date-windows"],
+    own.manifest.blocks.matchers.campaign = {
+      ...own.manifest.blocks.matchers.campaign,
+      namespace: "site",
+    };
+    own.manifest.blocks.content.calendar = {
+      ...own.manifest.blocks.content.calendar,
       namespace: "site",
     };
     expect(lines(checkContent(own, saved({})))).toEqual([
-      `.deco/schema.gen.json warning date: the block map has its own "date", in place of the built-in: Studio's date rules rely on it, each naming a campaign of the saved block campaigns. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
-      `.deco/schema.gen.json warning date-windows: the block map has its own "date-windows", in place of the built-in: the saved block campaigns relies on it, and Studio's Campaigns view edits its dates. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+      `.deco/schema.gen.json warning campaign: the block map has its own "campaign", in place of the built-in: Studio's campaign rules rely on it, each naming a campaign of the saved block campaigns. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+      `.deco/schema.gen.json warning calendar: the block map has its own "calendar", in place of the built-in: the saved block campaigns relies on it, and Studio's Campaigns view edits its dates. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
     ]);
   });
 

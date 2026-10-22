@@ -26,10 +26,10 @@ describe("the built-in list", () => {
       [
         "always",
         "cms-settings",
-        "date",
+        "campaign",
         "experiment",
         "split-traffic",
-        "date-windows",
+        "calendar",
         "lazy",
         "multivariate",
         "never",
@@ -47,10 +47,10 @@ describe("the built-in list", () => {
       "cms-settings",
       "always",
       "never",
-      "date",
+      "campaign",
       "experiment",
       "split-traffic",
-      "date-windows",
+      "calendar",
       "multivariate",
       "lazy",
       "secret",
@@ -73,7 +73,7 @@ function withCampaigns(campaigns: Record<string, unknown>): Snapshot {
   const base = docsSnapshot();
   return {
     ...base,
-    blocks: { ...base.blocks, campaigns: { __resolveType: "date-windows", ...campaigns } },
+    blocks: { ...base.blocks, campaigns: { __resolveType: "calendar", ...campaigns } },
   };
 }
 
@@ -88,7 +88,7 @@ async function running(window: unknown, now: string): Promise<unknown> {
   return campaigns?.c;
 }
 
-describe("date-windows — start inclusive, end exclusive", () => {
+describe("calendar — start inclusive, end exclusive", () => {
   const start = "2026-11-27T00:00:00-05:00";
   const end = "2026-12-01T00:00:00-05:00";
   const cases: [string, string, boolean][] = [
@@ -141,9 +141,9 @@ describe("date-windows — start inclusive, end exclusive", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-28T00:00:00Z"));
     const c = client(docsBlocks(), withCampaigns({ bf: { start, end } }));
-    expect(await c.resolve({ __resolveType: "date", campaign: "bf" })).toEqual([true, null]);
-    expect(await c.resolve({ __resolveType: "date", campaign: "nope" })).toEqual([false, null]);
-    expect(await c.resolve({ __resolveType: "date", start, end })).toEqual([false, null]);
+    expect(await c.resolve({ __resolveType: "campaign", name: "bf" })).toEqual([true, null]);
+    expect(await c.resolve({ __resolveType: "campaign", name: "nope" })).toEqual([false, null]);
+    expect(await c.resolve({ __resolveType: "campaign", start, end })).toEqual([false, null]);
   });
 });
 
@@ -154,7 +154,7 @@ describe("multivariate", () => {
       __resolveType: "multivariate",
       variants: [
         {
-          rule: { __resolveType: "date", campaign: "black-friday" },
+          rule: { __resolveType: "campaign", name: "black-friday" },
           value: lazyValue("Black Friday: 40% off everything"),
         },
         { rule: { __resolveType: "always" }, value: lazyValue("Free shipping over $50") },

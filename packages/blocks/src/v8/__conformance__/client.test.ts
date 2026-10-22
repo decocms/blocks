@@ -2,7 +2,7 @@
 /**
  * The client carries its inputs (api-reference#cms-client,
  * api-reference#current-client): `cms.client({ visitor, version })`, the
- * three kinds of version, `client.visitor`/`version`/`now`,
+ * three kinds of version, `client.visitor`/`version`/`date`,
  * `cms.readVersion`, and `currentClient()`. One test per claim.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,15 +65,22 @@ describe("cms.client", () => {
     expect(current.version).toBe("rev-1");
   });
 
-  it("cl-02: client.now is the moment the client was created, the same for its whole life", async () => {
+  it("cl-02: client.date is the date passed in, else the moment the client was created, the same for its whole life", async () => {
     vi.useFakeTimers({ now: new Date("2026-11-27T12:00:00Z") });
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const client = cms.client();
     vi.setSystemTime(new Date("2026-12-25T00:00:00Z"));
-    expect(client.now.toISOString()).toBe("2026-11-27T12:00:00.000Z");
-    client.now.setFullYear(1999); // a copy: changing it changes nothing
-    expect(client.now.toISOString()).toBe("2026-11-27T12:00:00.000Z");
-    expect(cms.client().now.toISOString()).toBe("2026-12-25T00:00:00.000Z");
+    expect(client.date.toISOString()).toBe("2026-11-27T12:00:00.000Z");
+    client.date.setFullYear(1999); // a copy: changing it changes nothing
+    expect(client.date.toISOString()).toBe("2026-11-27T12:00:00.000Z");
+    expect(cms.client().date.toISOString()).toBe("2026-12-25T00:00:00.000Z");
+    const given = new Date("2026-01-01T00:00:00Z");
+    const dated = cms.client({ date: given });
+    given.setFullYear(1999); // the client keeps its own copy
+    expect(dated.date.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+    expect(cms.client({ date: new Date("not a date") }).date.toISOString()).toBe(
+      "2026-12-25T00:00:00.000Z",
+    );
   });
 
   it("cl-03: version undefined reads the current release; forRelease() is cms.client()", async () => {
@@ -148,9 +155,11 @@ describe("cms.readVersion", () => {
   it("rv-01: reads a draft pointer or a release's commit SHA from a Studio link (?__draft=), then the cookie", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const pointer = "studio.decocms.com/sites/acme/drafts/x.json@v1";
-    expect(await cms.readVersion(request(`?__draft=${encodeURIComponent(pointer)}`))).toBe(pointer);
-    expect(await cms.readVersion(request(`?__draft=${OLD}`))).toBe(OLD);
-    expect(await cms.readVersion(request("", `__deco_draft=${OLD}`))).toBe(OLD);
+    expect(await cms.readVersion(request(`?__draft=${encodeURIComponent(pointer)}`))).toEqual({
+      version: pointer,
+    });
+    expect(await cms.readVersion(request(`?__draft=${OLD}`))).toEqual({ version: OLD });
+    expect(await cms.readVersion(request("", `__deco_draft=${OLD}`))).toEqual({ version: OLD });
     expect(await cms.readVersion(request(""))).toBeNull();
     expect(await cms.readVersion(request("?__draft=junk"))).toBeNull();
     expect(await cms.readVersion(request("?__draft=off", `__deco_draft=${OLD}`))).toBeNull();
@@ -165,7 +174,7 @@ describe("cms.readVersion", () => {
     expect(await cms.readVersion(request(`?__draft=${OLD}`))).toBeNull();
   });
 
-  it("rv-03: draftPointer is the same method under its earlier name; the cookie carries a SHA too", async () => {
+  it("rv-03: draftPointer is readVersion's version alone, under its earlier name; the cookie carries a SHA too", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(await cms.draftPointer(request(`?__draft=${OLD}`))).toBe(OLD);
     expect(await cms.draftCookie(request(`?__draft=${OLD}`))).toMatch(

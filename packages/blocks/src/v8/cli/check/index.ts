@@ -21,7 +21,7 @@ import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
-import { CAMPAIGNS_BLOCK, DATE_RULE, DATE_WINDOWS_TYPE } from "../../builtins/campaigns.ts";
+import { CALENDAR_TYPE, CAMPAIGN_RULE, CAMPAIGNS_BLOCK } from "../../builtins/campaigns.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
   EXPERIMENT_RULE,
@@ -79,11 +79,31 @@ function blockDefinitionName(schema: Json): string | null {
   return e && e.length === 1 && typeof schema.title === "string" && !schema.format ? e[0] : null;
 }
 
-/** Prerelease built-ins folded into the CMS settings block, with no alias. */
+/** Prerelease built-ins folded into the CMS settings block, or renamed, with no alias. */
 const FOLDED_BUILT_INS: Record<string, string> = {
   telemetry: `the built-in is now the telemetry section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
   analytics: `the built-in is now the analytics section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
+  "date-windows": `the built-in is now "${CALENDAR_TYPE}": set the saved block "${CAMPAIGNS_BLOCK}" to { "__resolveType": "${CALENDAR_TYPE}", … }`,
 };
+
+/** The prerelease `date` rule, which the `campaign` rule replaced. */
+const OLD_DATE_RULE = "date";
+
+/**
+ * What to write instead of a prerelease `date` rule: one naming a campaign
+ * becomes a `campaign` rule; one with its dates inline moves them into a
+ * campaign first.
+ */
+function oldDateRuleProblem(block: Record<string, Json>): string {
+  const rule = `{ "__resolveType": "${CAMPAIGN_RULE}", "name": … }`;
+  if (typeof block.campaign === "string") {
+    return `unknown block type "${OLD_DATE_RULE}": the date rule is now "${CAMPAIGN_RULE}", so write { "__resolveType": "${CAMPAIGN_RULE}", "name": ${JSON.stringify(block.campaign)} }`;
+  }
+  if ("start" in block || "end" in block) {
+    return `unknown block type "${OLD_DATE_RULE}": this date rule has its dates inline; move them into a campaign of the saved block "${CAMPAIGNS_BLOCK}" (type "${CALENDAR_TYPE}") and write ${rule} naming it`;
+  }
+  return `unknown block type "${OLD_DATE_RULE}": the date rule is now "${CAMPAIGN_RULE}": write ${rule} naming a campaign of the saved block "${CAMPAIGNS_BLOCK}"`;
+}
 
 // ---------------------------------------------------------------------------
 // The validation document: the schema, with every field also accepting a block
@@ -406,7 +426,7 @@ class Checker {
   }
 
   /**
-   * The inputs a built-in `rule` (`experiment`, `date`) gets: the block's own,
+   * The inputs a built-in `rule` (`experiment`, `campaign`) gets: the block's own,
    * inline or over the saved block it names (whose inputs it may override).
    * Undefined for any other block, or when the block map replaces the built-in.
    */
@@ -561,9 +581,11 @@ class Checker {
         this.report(
           ctx,
           path,
-          Object.hasOwn(FOLDED_BUILT_INS, name)
-            ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
-            : `unknown block type "${name}"`,
+          name === OLD_DATE_RULE
+            ? oldDateRuleProblem(block)
+            : Object.hasOwn(FOLDED_BUILT_INS, name)
+              ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
+              : `unknown block type "${name}"`,
         );
         return;
       }
@@ -639,31 +661,25 @@ class Checker {
         }
         return;
       }
-      case DATE_RULE: {
-        const inputs = this.ruleInputs(block, DATE_RULE);
-        const campaign = inputs?.campaign;
+      case CAMPAIGN_RULE: {
+        this.checkProps(ctx, block, path, true);
+        const inputs = this.ruleInputs(block, CAMPAIGN_RULE);
+        const campaign = inputs?.name;
         if (inputs !== undefined && typeof campaign !== "string") {
-          const inline = "start" in inputs || "end" in inputs;
           this.report(
             ctx,
             path,
-            inline
-              ? "this date rule has its dates inline, so it is always false: move them into a " +
-                  `campaign of the saved block "${CAMPAIGNS_BLOCK}" and name it here (campaign)`
-              : `this date rule names no campaign, so it is always false: name a campaign of the saved block "${CAMPAIGNS_BLOCK}"`,
+            `this campaign rule names no campaign, so it is always false: name a campaign of the saved block "${CAMPAIGNS_BLOCK}" (name)`,
             "warning",
           );
-          // Its start and end are the old inline form: reported once, above, not as unknown fields.
-          if (inline) return;
         }
-        this.checkProps(ctx, block, path, true);
         if (
           typeof campaign === "string" &&
-          !this.savedNames(CAMPAIGNS_BLOCK, DATE_WINDOWS_TYPE)?.has(campaign)
+          !this.savedNames(CAMPAIGNS_BLOCK, CALENDAR_TYPE)?.has(campaign)
         ) {
           this.report(
             ctx,
-            joinPath(path, "/campaign"),
+            joinPath(path, "/name"),
             `no campaign "${campaign}" in the saved block "${CAMPAIGNS_BLOCK}": this rule is always false`,
             "warning",
           );
@@ -801,13 +817,13 @@ class Checker {
           "warning",
         );
       }
-      if (name === CAMPAIGNS_BLOCK && this.isOwnBuiltIn(DATE_WINDOWS_TYPE)) {
-        if (this.canonicalType(entry.__resolveType) !== DATE_WINDOWS_TYPE) {
+      if (name === CAMPAIGNS_BLOCK && this.isOwnBuiltIn(CALENDAR_TYPE)) {
+        if (this.canonicalType(entry.__resolveType) !== CALENDAR_TYPE) {
           this.report(
             ctx,
             "",
-            `"${CAMPAIGNS_BLOCK}" is the saved block every date rule reads, of type ` +
-              `"${DATE_WINDOWS_TYPE}"; with type "${entry.__resolveType}" every date rule is false`,
+            `"${CAMPAIGNS_BLOCK}" is the saved block every campaign rule reads, of type ` +
+              `"${CALENDAR_TYPE}"; with type "${entry.__resolveType}" every campaign rule is false`,
             "warning",
           );
         } else {

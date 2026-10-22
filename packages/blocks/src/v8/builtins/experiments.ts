@@ -9,9 +9,12 @@
  * - `experiment { name }` is `true` when that answer is `true`.
  *
  * The visitor arrives as an argument to `cms.client({ visitor })`; these
- * read it through `currentClient()`, before any `await`.
+ * read it through `currentClient()`, before any `await`. A test the client
+ * is given (`cms.client({ experiments })`) is on or off as given, whatever
+ * the visitor and its percentage (a preview may switch on a test at 0%); a
+ * name the block doesn't have stays out.
  */
-import { currentClient, forcedTests } from "../current.ts";
+import { currentClient, experimentOverrides } from "../current.ts";
 import { type Assignments, assign } from "../experiments.ts";
 
 /** The saved block every `experiment` rule reads, and its built-in type. */
@@ -24,16 +27,16 @@ export const EXPERIMENT_RULE = "experiment";
 /**
  * `split-traffic`: each test and whether the current client's visitor is in
  * it (`assign` from `@decocms/blocks/experiments`), with the tests the
- * client's preview link forces applied on top. Without a visitor every test
- * is off.
+ * client was given applied on top. Without a visitor every test it wasn't
+ * given is off.
  */
 export const splitTraffic = (allocations: Record<string, number> = {}): Assignments => {
   const client = currentClient();
   const assignments = assign(allocations, client.visitor);
-  const forced = forcedTests(client);
-  if (forced !== undefined) {
-    for (const name of Object.keys(forced)) {
-      if (Object.hasOwn(assignments, name)) assignments[name] = forced[name] === true;
+  const given = experimentOverrides(client);
+  if (given !== undefined) {
+    for (const name of Object.keys(given)) {
+      if (Object.hasOwn(assignments, name)) assignments[name] = given[name] === true;
     }
   }
   return assignments;

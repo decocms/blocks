@@ -352,7 +352,7 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
       blocks: {},
       content: snap({
         campaigns: {
-          __resolveType: "date-windows",
+          __resolveType: "calendar",
           from: { start: "2026-11-27" },
           until: { end: "2026-12-01T00:00:00-05:00" },
           always: {},
@@ -361,7 +361,7 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     });
     const check = async (now: string, campaign: string) => {
       vi.setSystemTime(new Date(now));
-      const [v] = await cms.forRelease().resolve({ __resolveType: "date", campaign });
+      const [v] = await cms.forRelease().resolve({ __resolveType: "campaign", name: campaign });
       return v;
     };
     expect(await check("2026-11-27T00:00:00Z", "from")).toBe(true);

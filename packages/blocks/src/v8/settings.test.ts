@@ -415,14 +415,14 @@ describe("cms.settings(): always the release in memory", () => {
         traceSampleRate: {
           __resolveType: "multivariate",
           variants: [
-            { rule: { __resolveType: "date", campaign: "sampling" }, value: lazy(1) },
+            { rule: { __resolveType: "campaign", name: "sampling" }, value: lazy(1) },
             { rule: { __resolveType: "always" }, value: lazy(0) },
           ],
         },
       },
     });
     content.blocks.campaigns = {
-      __resolveType: "date-windows",
+      __resolveType: "calendar",
       sampling: { start: "2026-10-05T12:00:30Z" },
     };
     const cms = createCMS({

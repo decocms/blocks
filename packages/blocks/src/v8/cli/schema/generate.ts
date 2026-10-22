@@ -110,14 +110,14 @@ export interface NameStates { [name: string]: boolean }
 
 /**
  * Built-in blocks a field can take, by the interface in BUILT_IN_TYPES_SOURCE
- * their value has: `split-traffic` and `date-windows` resolve to name →
+ * their value has: `split-traffic` and `calendar` resolve to name →
  * true/false, so a field typed `Assignments` (or any `Record<string,
  * boolean>`) can hold the saved `experiments` or `campaigns` block. A block
  * map that declares the name replaces it.
  */
 const BUILT_IN_RETURNS: Record<string, string> = {
   "split-traffic": "NameStates",
-  "date-windows": "NameStates",
+  calendar: "NameStates",
 };
 
 /** The package version, written into the schema's `version`. */
@@ -284,7 +284,14 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
   // -------------------------------------------------------------------------
   // 2. Fields → blocks: which functions' return types fit an object field.
   // -------------------------------------------------------------------------
-  const STRUCTURAL = new Set<string>(["lazy", "multivariate", "secret", "always", "never", "date"]);
+  const STRUCTURAL = new Set<string>([
+    "lazy",
+    "multivariate",
+    "secret",
+    "always",
+    "never",
+    "campaign",
+  ]);
   const candidates: Pick<BlockInfo, "key" | "returnType">[] = infos.filter(
     (info) =>
       info.group !== "sections" &&
