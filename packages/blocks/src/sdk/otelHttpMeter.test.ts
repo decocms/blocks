@@ -97,7 +97,7 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     vi.restoreAllMocks();
   });
 
-  it("counterInc accumulates per attr-key and exports cumulative sum", async () => {
+  it("counterInc accumulates per attr-key and exports delta sum", async () => {
     const { impl, calls } = captureFetch();
     const meter = buildAdapter({ fetchImpl: impl });
 
@@ -113,7 +113,7 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     const m = payload.resourceMetrics[0].scopeMetrics[0].metrics[0];
     expect(m.name).toBe("deco.http.requests");
     expect(m.sum?.isMonotonic).toBe(true);
-    expect(m.sum?.aggregationTemporality).toBe(2);
+    expect(m.sum?.aggregationTemporality).toBe(1);
     expect(m.sum?.dataPoints).toHaveLength(2);
 
     // Sort for stable assertion order.
@@ -122,6 +122,29 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     );
     expect(points[0].asDouble).toBe(2); // GET+2xx
     expect(points[1].asDouble).toBe(1); // POST+5xx
+  });
+
+  it("each flush carries only its own window; idle series are not re-sent", async () => {
+    const { impl, calls } = captureFetch();
+    let mockNow = 1_000;
+    const meter = buildAdapter({ fetchImpl: impl, nowMs: () => mockNow });
+
+    meter.histogramRecord("lat", 10, { route: "/a" });
+    meter.histogramRecord("lat", 20, { route: "/b" });
+    await meter.flush(true);
+
+    mockNow = 7_000;
+    meter.histogramRecord("lat", 30, { route: "/a" });
+    await meter.flush(true);
+
+    expect(calls).toHaveLength(2);
+    const second = JSON.parse(calls[1].init!.body as string) as OtlpPayload;
+    const h = second.resourceMetrics[0].scopeMetrics[0].metrics[0].histogram!;
+    expect(h.aggregationTemporality).toBe(1);
+    expect(h.dataPoints).toHaveLength(1); // `/b` was idle — not re-exported
+    expect(h.dataPoints[0].count).toBe("1");
+    expect(h.dataPoints[0].startTimeUnixNano).toBe("1000000000"); // previous flush
+    expect(h.dataPoints[0].timeUnixNano).toBe("7000000000");
   });
 
   it("histogramRecord assigns buckets correctly and reports count/sum/min/max", async () => {
@@ -152,7 +175,7 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
 
     const payload = JSON.parse(calls[0].init!.body as string) as OtlpPayload;
     const m = payload.resourceMetrics[0].scopeMetrics[0].metrics[0];
-    expect(m.histogram?.aggregationTemporality).toBe(2);
+    expect(m.histogram?.aggregationTemporality).toBe(1);
     expect(m.histogram?.dataPoints).toHaveLength(1);
     const dp = m.histogram!.dataPoints[0];
     expect(dp.count).toBe("12");
@@ -244,6 +267,8 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     meter.counterInc("a", 1, { k: "1" });
     await meter.flush();
     expect(calls).toHaveLength(1);
+    // Delta: the flushed window is gone from the buffer.
+    expect(meter.pendingDatapointCount()).toBe(0);
 
     // 2nd flush at t=2s — cooldown not elapsed AND buffer below cap → no-op
     mockNow += 2000;
@@ -254,6 +279,7 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     // 3rd flush at t=2.5s — still under cooldown but buffer at cap (3) → flush
     mockNow += 500;
     meter.counterInc("a", 1, { k: "3" });
+    meter.counterInc("a", 1, { k: "4" });
     expect(meter.pendingDatapointCount()).toBe(3);
     await meter.flush();
     expect(calls).toHaveLength(2);

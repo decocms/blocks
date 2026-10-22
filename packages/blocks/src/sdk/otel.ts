@@ -945,9 +945,14 @@ export function bootObservability(opts: OtelOptions, env: Record<string, unknown
   const otlpEndpoint = (env[otlpEnvVar] as string | undefined) ?? "";
   const otlpEnabled = opts.otlpMetricsEnabled !== false && otlpEndpoint.length > 0;
   if (otlpEnabled) {
+    // Metrics drop `service.instance.id`: delta points from different
+    // isolates are meant to be summed, and a per-isolate UUID would split
+    // them back into one series per isolate (decocms/blocks#750). Logs and
+    // traces keep it for per-instance attribution.
+    const { [ATTR_SERVICE_INSTANCE_ID]: _instanceId, ...metricsResource } = floor;
     state.otlpMeter = createOtlpHttpMeterAdapter({
       endpoint: otlpEndpoint,
-      resourceAttributes: floor,
+      resourceAttributes: metricsResource,
       scopeVersion: decoRuntimeVersion,
       headers: otlpHeaders,
       fetchImpl: opts.otlpMetricsFetchImpl,
