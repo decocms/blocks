@@ -424,7 +424,7 @@ describe("abTestingRoutes at a Worker's global scope", () => {
 describe("abTestingRoutes in createDecoWorker", () => {
   let n = 0;
 
-  /** A site's page cache, keyed by URL (the README's recipe, smaller). */
+  /** A site's page cache, keyed by URL (the example worker entry's, smaller). */
   function sitePageCache(calls: string[]): PageCache {
     const cache = new MemoryCache();
     return async (page) => {

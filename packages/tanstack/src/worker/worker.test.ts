@@ -44,7 +44,7 @@ function setup(
   respond?: (request: Request) => Response | Promise<Response>,
 ) {
   const entry = recordingEntry(respond);
-  // A site's own page cache, as the README's recipe wires one (smaller).
+  // A site's own page cache, as the example worker entry wires one (smaller).
   const { store, seen, pageCache } = testPageCache();
   const worker = createDecoWorker({
     serverEntry: entry,

@@ -10,6 +10,7 @@ import { siteBlocksVersion } from "./framework";
 import { BINDING_NAMES, MOVES, rewriteImports, V8_API, v7ImageUrl } from "./imports";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
+import { reportWorkerEntry, WORKER_ENTRY_EXAMPLE } from "./scaffold";
 import { reencryptSecrets } from "./secrets";
 import { foldSiteSettings } from "./siteSettings";
 import { locateAppModule, vendorModule } from "./vendor";
@@ -771,5 +772,35 @@ describe("v7's image URLs by 7.x release", () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the worker entry report", () => {
+  it("points a worker entry with no v7 createDecoWorkerEntry call at the example too", () => {
+    const report = createReport();
+    reportWorkerEntry(
+      site({ "src/worker-entry.ts": "export default { fetch: () => new Response() };\n" }),
+      report,
+    );
+    const note = report.manual.find((n) => n.subject === "src/worker-entry.ts");
+    expect(note?.message).toContain(WORKER_ENTRY_EXAMPLE);
+    expect(note?.message).toContain("no v7 createDecoWorkerEntry call");
+  });
+
+  it("points a site with no worker entry at the example", () => {
+    const report = createReport();
+    reportWorkerEntry(site({ "package.json": {} }), report);
+    expect(report.manual.find((n) => n.subject === "src/worker-entry.ts")?.message).toContain(
+      WORKER_ENTRY_EXAMPLE,
+    );
+  });
+
+  it("says nothing once the entry is on createDecoWorker", () => {
+    const report = createReport();
+    reportWorkerEntry(
+      site({ "src/worker-entry.ts": "export default createDecoWorker({ cms });\n" }),
+      report,
+    );
+    expect(report.manual).toEqual([]);
   });
 });

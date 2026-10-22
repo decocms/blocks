@@ -1096,14 +1096,20 @@ export function reportWorkerEntry(root: string, report: Report): void {
     if (main && /\.(ts|tsx|js|mjs)$/.test(main)) rel = path.posix.normalize(main);
   }
   const file = path.join(root, rel);
-  const options = fs.existsSync(file) ? v7WorkerOptions(fs.readFileSync(file, "utf8")) : [];
-  if (options === undefined) return;
-  const carry = options.map(
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  // Already on v8 (a second run): nothing to copy.
+  if (/\bcreateDecoWorker\s*\(/.test(text)) return;
+  const options = v7WorkerOptions(text);
+  const carry = (options ?? []).map(
     (name) => `${name} → ${V7_WORKER_OPTIONS[name] ?? "see the import map"}`,
   );
+  const kept =
+    text && options === undefined
+      ? ". The current file has no v7 createDecoWorkerEntry call: move what it still does into the copy by hand"
+      : "";
   report.manual.push({
     step: "scaffold",
     subject: rel,
-    message: `copy ${WORKER_ENTRY_EXAMPLE} here: createDecoWorker behind the site's own page cache (the Cache API, v7's cache profiles, v7's POST /_cache/purge with the PURGE_TOKEN secret), and declare __BUILD_HASH__ once (declare const __BUILD_HASH__: string;)${carry.length ? `. v7's createDecoWorkerEntry set, to carry over by hand from git: ${carry.join("; ")}` : ""}`,
+    message: `copy ${WORKER_ENTRY_EXAMPLE} here: createDecoWorker behind the site's own page cache (the Cache API, v7's cache profiles, v7's POST /_cache/purge with the PURGE_TOKEN secret), and declare __BUILD_HASH__ once (declare const __BUILD_HASH__: string;)${carry.length ? `. v7's createDecoWorkerEntry set, to carry over by hand from git: ${carry.join("; ")}` : ""}${kept}`,
   });
 }
