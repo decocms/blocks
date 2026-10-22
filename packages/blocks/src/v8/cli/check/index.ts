@@ -21,7 +21,13 @@ import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
-import { CALENDAR_TYPE, CAMPAIGN_RULE, CAMPAIGNS_BLOCK } from "../../builtins/campaigns.ts";
+import {
+  CALENDAR_TYPE,
+  CAMPAIGN_RULE,
+  CAMPAIGNS_BLOCK,
+  campaignTime,
+  lacksOffset,
+} from "../../builtins/campaigns.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
   EXPERIMENT_RULE,
@@ -440,20 +446,37 @@ class Checker {
     return { ...saved, ...block };
   }
 
-  /** Each campaign of a `campaigns` block whose end isn't after its start. */
+  /**
+   * Each campaign of a `campaigns` block with a bound that has a time but no
+   * offset (read as UTC), or whose end isn't after its start.
+   */
   private checkCampaignWindows(ctx: Context, entry: Record<string, Json>): void {
     for (const key of Object.keys(entry).sort()) {
       if (key === "__resolveType") continue;
       const window = entry[key];
       if (!isObject(window)) continue;
       const { start, end } = window;
+      const at = (bound: string) =>
+        joinPath("", `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}/${bound}`);
+      for (const [bound, value] of [
+        ["start", start],
+        ["end", end],
+      ] as const) {
+        if (!lacksOffset(value)) continue;
+        this.report(
+          ctx,
+          at(bound),
+          `the campaign "${key}" ${bound}s at ${JSON.stringify(value)}, which has no offset, so it is read as UTC: add your store's offset on that date, like ${JSON.stringify(`${value}-03:00`)}`,
+          "warning",
+        );
+      }
       if (typeof start !== "string" || typeof end !== "string") continue;
-      const from = Date.parse(start);
-      const until = Date.parse(end);
-      if (Number.isNaN(from) || Number.isNaN(until) || until > from) continue;
+      const from = campaignTime(start);
+      const until = campaignTime(end);
+      if (typeof from !== "number" || typeof until !== "number" || until > from) continue;
       this.report(
         ctx,
-        joinPath("", `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}/end`),
+        at("end"),
         `the campaign "${key}" ends before it starts, so it never runs: set an end after the start`,
         "warning",
       );

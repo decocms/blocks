@@ -346,7 +346,7 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     expect(b).toHaveBeenCalledTimes(1);
   });
 
-  it("X18 matchers-and-variants: date reads its campaign: start inclusive, end exclusive, a date without time is midnight UTC", async () => {
+  it("X18 matchers-and-variants: a campaign reads its window: start inclusive, end exclusive, a date without time is midnight UTC", async () => {
     vi.useFakeTimers();
     const cms = createCMS({
       blocks: {},

@@ -244,6 +244,31 @@ describe("a client's date and the campaigns it is given", () => {
     expect(await title(client)).toBe("Regular");
   });
 
+  it("cmp-15: a bound reads the same on every runtime: a date-time without an offset is UTC, and only ISO 8601 reads", async () => {
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: snapshotWith({
+        utc: { start: "2026-11-27T00:00:00" },
+        other: { start: "Nov 27 2026" },
+        "no-such-day": { start: "2026-02-30T00:00:00Z" },
+      }),
+    });
+    const at = async (date: string) => {
+      const [value] = await cms.client({ date: new Date(date) }).resolve("campaigns");
+      return { ...(value as Record<string, boolean>) };
+    };
+    expect(await at("2026-11-27T00:00:00Z")).toEqual({
+      utc: true,
+      other: false,
+      "no-such-day": false,
+    });
+    expect(await at("2026-11-26T23:59:59Z")).toEqual({
+      utc: false,
+      other: false,
+      "no-such-day": false,
+    });
+  });
+
   it("cmp-14: given every test and campaign and no visitor, a client is fully decided", async () => {
     const content = snapshotWith({ "black-friday": BLACK_FRIDAY, xmas: {} });
     content.blocks.experiments = { __resolveType: "split-traffic", "hero-copy": 50, all: 100 };

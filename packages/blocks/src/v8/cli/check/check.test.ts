@@ -532,7 +532,9 @@ describe("formats and character counts", () => {
       'campaigns.json a.start: "not a date" isn\'t a valid date-time',
       'campaigns.json b.start: "2026-02-30T10:00" isn\'t a valid date-time',
     ]);
-    expect(run(campaigns("2026-11-27T09:00", "2026-11-27T09:00:00.000-03:00"))).toEqual([]);
+    expect(lines(run(campaigns("2026-11-27T09:00", "2026-11-27T09:00:00.000-03:00")))).toEqual([
+      'campaigns.json warning a.start: the campaign "a" starts at "2026-11-27T09:00", which has no offset, so it is read as UTC: add your store\'s offset on that date, like "2026-11-27T09:00-03:00"',
+    ]);
     // image-uri is a widget, not a rule: any string goes.
     expect(run({ Hero: { ...hero, image: "/assets/a b.png" } })).toEqual([]);
   });
@@ -1051,6 +1053,17 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     expect(lines(run({ campaigns: backwards }))).toEqual([
       'campaigns.json warning flash.end: the campaign "flash" ends before it starts, so it never runs: set an end after the start',
       'campaigns.json warning sale.end: the campaign "sale" ends before it starts, so it never runs: set an end after the start',
+    ]);
+  });
+
+  it("warns about a bound with a time and no offset: it is read as UTC, not the server's time zone", () => {
+    const local = {
+      __resolveType: "calendar",
+      sale: { start: "2026-11-27T00:00:00", end: "2026-12-01T00:00Z" },
+      day: { start: "2026-11-27T00:00:00+00:00", end: "2026-11-28T00:00:00.5Z" },
+    };
+    expect(lines(run({ campaigns: local }))).toEqual([
+      'campaigns.json warning sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it is read as UTC: add your store\'s offset on that date, like "2026-11-27T00:00:00-03:00"',
     ]);
   });
 
