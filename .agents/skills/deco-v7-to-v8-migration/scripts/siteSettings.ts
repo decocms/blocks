@@ -96,7 +96,7 @@ function isPrereleaseBlock(node: unknown, type: string): boolean {
  * `wrangler.*` first, else from `.env`/`.dev.vars` and the Vite config's
  * fallback. `undefined` when there's none, or several that disagree.
  */
-function v7SiteName(root: string): { name?: string; candidates: string[] } {
+export function v7SiteName(root: string): { name?: string; candidates: string[] } {
   const read = (file: string) => {
     const full = path.join(root, file);
     return fs.existsSync(full) ? fs.readFileSync(full, "utf8") : "";

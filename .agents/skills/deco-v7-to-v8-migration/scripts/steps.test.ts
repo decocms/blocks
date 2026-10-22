@@ -328,7 +328,7 @@ describe("imports", () => {
     ]);
     const note = (subject: string) => notes.find((n) => n.startsWith(subject)) ?? "";
     expect(note("@decocms/tanstack {createDecoWorkerEntry}")).toContain(
-      "createDecoWorker({ serverEntry, cms, site, buildHash }) from @decocms/tanstack/worker",
+      "createDecoWorker({ serverEntry, cms, site, pageCache }) from @decocms/tanstack/worker",
     );
     expect(note("@decocms/tanstack {kvLoader}")).toContain("createCMS({ site, token })");
     expect(note("@decocms/blocks/hooks {LiveControls}")).toContain("StudioBridge");

@@ -322,7 +322,7 @@ const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
   {
     specifier: /^@decocms\/tanstack$/,
     names: ["createDecoWorkerEntry"],
-    hint: "createDecoWorker({ serverEntry, cms, site, buildHash }) from @decocms/tanstack/worker: drafts and their host allowlist, the edge cache, liveness, Studio framing, CMS redirects and cookies are built in; what the site's entry did differently goes in its options (segment, csp, cacheProfiles, preload, routes)",
+    hint: "createDecoWorker({ serverEntry, cms, site, pageCache }) from @decocms/tanstack/worker: drafts and their host allowlist, liveness, Studio framing, CMS redirects and cookies are built in; the page cache is the site's own (pageCache: the worker-entry recipe in @decocms/tanstack's README, which the script writes with v7's buildSegment); what else the site's entry did goes in its options (csp, preload, routes)",
   },
   {
     specifier: /^@decocms\/tanstack$/,
@@ -475,7 +475,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/blocks\/sdk\/(cacheHeaders|responseCache|cacheStorage|mergeCacheControl)$/,
-    "on TanStack Start, createDecoWorker's edge cache (cacheProfiles changes DEFAULT_CACHE_PROFILES, from @decocms/tanstack/worker); a Next.js site keeps its own cache headers",
+    "on TanStack Start, the page cache in the site's worker entry (the recipe in @decocms/tanstack's README: its PROFILES are v7's, change them there); a Next.js site keeps its own cache headers",
   ],
   [
     /^@decocms\/blocks\/sdk\/csp$/,
@@ -499,7 +499,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/tanstack\/sdk\/cdnSegment$/,
-    "createDecoWorker's segment option; DecoDocument publishes the __cseg token and decoServerFnFetch sends it",
+    "the segment of the site's page cache (buildSegment in the worker entry); the cache passes the __cseg token to render({ csegToken }), DecoDocument publishes it and decoServerFnFetch sends it",
   ],
   [
     /^@decocms\/tanstack\/sdk\/cookiePassthrough$/,

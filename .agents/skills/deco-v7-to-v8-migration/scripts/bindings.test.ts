@@ -99,6 +99,44 @@ function typeErrors(dir: string, pkgs: string[]): string[] {
     });
 }
 
+/** A v7 storefront's worker entry: its segment, its CSP, the helpers they use, and what v8 drops. */
+const V7_WORKER_ENTRY = [
+  'import "./setup";',
+  'import handler, { createServerEntry } from "@tanstack/react-start/server-entry";',
+  'import { createDecoWorkerEntry } from "@decocms/tanstack";',
+  'import { instrumentWorker } from "@decocms/blocks/sdk/otel";',
+  'import { detectDevice } from "@decocms/blocks/sdk/useDevice";',
+  'import { handleMeta, corsHeaders } from "@decocms/blocks-admin";',
+  "",
+  "const serverEntry = createServerEntry({ fetch: handler.fetch });",
+  "",
+  "const CSP_DIRECTIVES = [\"img-src 'self' data: https:\", \"connect-src 'self'\"];",
+  "",
+  "/** A cookie's value. */",
+  "function readCookie(request: Request, name: string): string | undefined {",
+  '  const match = (request.headers.get("cookie") ?? "").match(new RegExp("(?:^|; )" + name + "=([^;]*)"));',
+  "  return match?.[1];",
+  "}",
+  "",
+  "const decoWorker = createDecoWorkerEntry(serverEntry, {",
+  "  observability: false,",
+  "  admin: { handleMeta, corsHeaders },",
+  "  csp: CSP_DIRECTIVES,",
+  "  buildSegment: (request) => {",
+  '    const device = detectDevice(request.headers.get("user-agent") ?? "") === "desktop" ? "desktop" : "mobile";',
+  "    return {",
+  "      device,",
+  '      ...(readCookie(request, "customer_token") ? { loggedIn: true } : {}),',
+  '      salesChannel: readCookie(request, "sc") ?? "1",',
+  "    };",
+  "  },",
+  "  proxyHandler: async () => null,",
+  "});",
+  "",
+  "export default instrumentWorker(decoWorker);",
+  "",
+].join("\n");
+
 const IPHONE =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
 
@@ -335,6 +373,16 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     write("src/setup/section-loaders.ts", SECTION_LOADERS);
     writeInvokeFixture(write);
     write(
+      "src/vite-env.d.ts",
+      "interface ImportMeta {\n  readonly env: { readonly DEV: boolean };\n}\n",
+    );
+    write("wrangler.jsonc", {
+      name: "acme",
+      main: "./src/worker-entry.ts",
+      vars: { DECO_SITE_NAME: "acme" },
+    });
+    write("src/worker-entry.ts", V7_WORKER_ENTRY);
+    write(
       "src/types/cloudflare.d.ts",
       'declare module "cloudflare:workers" {\n  export const env: Record<string, unknown>;\n}\n',
     );
@@ -439,6 +487,26 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     const note = report.manual.find((n) => n.step === "apps");
     expect(note?.message).toContain("set VTEX_APP_KEY, VTEX_APP_TOKEN");
     expect(report.manual.some((n) => n.subject.startsWith("site/apps/deco/vtex.ts"))).toBe(false);
+  });
+
+  it("writes the worker entry: the site's own page cache, with v7's segment and CSP", () => {
+    const entry = read("src/worker-entry.ts");
+    expect(entry).toContain("pageCache,");
+    expect(entry).toContain('site: "acme",');
+    expect(entry).toContain("csp: { reportOnly: CSP_DIRECTIVES },");
+    expect(entry).toContain("const CSP_DIRECTIVES = [");
+    expect(entry).toContain("function readCookie(request: Request, name: string)");
+    expect(entry).toContain('salesChannel: readCookie(request, "sc") ?? "1",');
+    expect(entry).not.toContain("createDecoWorkerEntry");
+    expect(entry).not.toContain("instrumentWorker");
+    expect(entry).not.toContain("@decocms/blocks/sdk/useDevice");
+    expect(read("src/build-hash.d.ts")).toContain("declare const __BUILD_HASH__: string;");
+    const left = report.manual.find(
+      (n) =>
+        n.subject === "src/worker-entry.ts" &&
+        n.message.startsWith("v7's createDecoWorkerEntry options"),
+    );
+    expect(left?.message).toContain("not carried: proxyHandler.");
   });
 
   it("writes the page setup: the CMS, a page server function on the page's URL, the catch-all route", () => {

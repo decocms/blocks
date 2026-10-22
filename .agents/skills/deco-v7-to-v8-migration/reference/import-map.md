@@ -45,15 +45,15 @@ An import that mixes moved and other names is split; the rest is reported.
 | `@decocms/apps-salesforce`, `@decocms/apps/salesforce` | `@decocms/apps-sfmc-personalization` |
 | `@decocms/apps-website`, `@decocms/apps/website` | SEO, sitemaps, redirects live in your platform template |
 | any other `@decocms/apps-<x>`, `@decocms/apps/<x>` | apps are thin upstream clients: call `create<X>Client` from your own code (`/next/upstream-clients`) |
-| `@decocms/blocks/sdk/cacheHeaders`, `/responseCache`, `/cacheStorage`, `/mergeCacheControl` | on TanStack, `createDecoWorker`'s edge cache (`cacheProfiles` over `DEFAULT_CACHE_PROFILES`); a Next.js site keeps its own |
+| `@decocms/blocks/sdk/cacheHeaders`, `/responseCache`, `/cacheStorage`, `/mergeCacheControl` | on TanStack, the page cache in the site's worker entry (the README recipe the script writes: `PROFILES` are v7's); a Next.js site keeps its own |
 | `@decocms/blocks/sdk/csp`, `/sdk/redirects` | `createDecoWorker`'s `csp` option; the worker applies CMS redirects |
-| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, site, buildHash })` from `@decocms/tanstack/worker` (`reference/framework-code.md`) |
+| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, site, pageCache })` from `@decocms/tanstack/worker`, behind the site's own page cache: the script rewrites the worker entry as the README's recipe with v7's `buildSegment` and `csp` (`reference/framework-code.md`) |
 | `DecoRootLayout`, `PreviewProviders`, `DraftPreviewIndicator` (`@decocms/tanstack`) | `DecoDocument` from `@decocms/tanstack/react` |
 | `cmsRouteConfig`, `loadCmsPage`, `DecoPageRenderer`, … (`@decocms/tanstack`) | `createCMS` and `matchRoute` (`/next/tanstack-start-descriptors`), the draft from `contentClient(cms)` (`@decocms/tanstack/server`) |
 | `decoInvokeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig` | delete: the worker answers 404 on v7's admin paths |
 | `setupTanstackFastDeploy`, `kvLoader` | `createCMS({ site, token })` (`reference/hosted-releases.md`) |
 | `@decocms/tanstack/vite` (`decoVitePlugin`) | `decoTanstack({ buildHash })` from `@decocms/tanstack/vite` |
-| `@decocms/tanstack/sdk/startEntry`, `/sdk/cdnSegment`, `/sdk/cookiePassthrough` | `decoServerFnFetch` in `createStart`; the worker's `segment`; the worker's Set-Cookie handling |
+| `@decocms/tanstack/sdk/startEntry`, `/sdk/cdnSegment`, `/sdk/cookiePassthrough` | `decoServerFnFetch` in `createStart`; `buildSegment` in the worker entry's page cache; the worker's Set-Cookie handling |
 | `createDecoPage`, `DecoPageRenderer`, `DecoRootLayout`, … (`@decocms/nextjs`) | `createCMS` (`/next/nextjs`); `bindDraft` and `contentClient` from `@decocms/nextjs/server`; `StudioBridge` in the root layout |
 | `DraftPreviewIndicator` (`@decocms/nextjs`) | the same name in v8, showing what `bindDraft` bound: call that first |
 | `@decocms/nextjs/middleware` | `decideDraft` … `applyDraft` (or `draftProxy`) from `@decocms/nextjs/proxy` |
