@@ -17,6 +17,7 @@ import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "./migrate";
 import type { Report } from "./report";
+import { WORKER_ENTRY_EXAMPLE } from "./scaffold";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const PACKAGES = path.join(REPO, "packages");
@@ -489,24 +490,15 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(report.manual.some((n) => n.subject.startsWith("site/apps/deco/vtex.ts"))).toBe(false);
   });
 
-  it("writes the worker entry: the site's own page cache, with v7's segment and CSP", () => {
-    const entry = read("src/worker-entry.ts");
-    expect(entry).toContain("pageCache,");
-    expect(entry).not.toContain("site:");
-    expect(entry).toContain("csp: { reportOnly: CSP_DIRECTIVES },");
-    expect(entry).toContain("const CSP_DIRECTIVES = [");
-    expect(entry).toContain("function readCookie(request: Request, name: string)");
-    expect(entry).toContain('salesChannel: readCookie(request, "sc") ?? "1",');
-    expect(entry).not.toContain("createDecoWorkerEntry");
-    expect(entry).not.toContain("instrumentWorker");
-    expect(entry).not.toContain("@decocms/blocks/sdk/useDevice");
-    expect(read("src/build-hash.d.ts")).toContain("declare const __BUILD_HASH__: string;");
-    const left = report.manual.find(
-      (n) =>
-        n.subject === "src/worker-entry.ts" &&
-        n.message.startsWith("v7's createDecoWorkerEntry options"),
-    );
-    expect(left?.message).toContain("not carried: proxyHandler.");
+  it("leaves the worker entry, pointing at the example to copy and what v7's options set", () => {
+    // The script writes no worker entry: v7's stays for the person to replace.
+    expect(read("src/worker-entry.ts")).toContain("createDecoWorkerEntry(serverEntry, {");
+    const note = report.manual.find((n) => n.subject === "src/worker-entry.ts");
+    expect(note?.message).toContain(WORKER_ENTRY_EXAMPLE);
+    expect(note?.message).toContain("buildSegment → the example's buildSegment");
+    expect(note?.message).toContain("csp → createDecoWorker's csp");
+    expect(note?.message).toContain("proxyHandler → createDecoWorker's routes");
+    expect(note?.message).toContain("admin → nothing");
   });
 
   it("writes the page setup: the CMS, a page server function on the page's URL, the catch-all route", () => {
@@ -627,7 +619,13 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(report.manual.some((n) => n.subject === "experiments")).toBe(false);
   });
 
-  it("type-checks against the v8 packages", () => {
+  it("type-checks against the v8 packages, with the example worker entry copied in", () => {
+    // The step the report asks for: the example's worker entry, and __BUILD_HASH__ declared.
+    fs.copyFileSync(
+      path.join(REPO, "examples/tanstack-worker-smoke/src/worker-entry.ts"),
+      path.join(root, "src/worker-entry.ts"),
+    );
+    write("src/build-hash.d.ts", "declare const __BUILD_HASH__: string;\n");
     expect(typeErrors(root, PKGS)).toEqual([]);
   }, 120_000);
 });

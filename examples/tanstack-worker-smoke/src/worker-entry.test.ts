@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
- * The worker entry's page cache and purge (the recipe in @decocms/tanstack's
- * README, which this file is): the real `createDecoWorker` and the recipe,
- * with the Cache API, the content and TanStack Start's server entry replaced
+ * The worker entry's page cache and purge (the one copy of the recipe
+ * @decocms/tanstack's README links to): the real `createDecoWorker` and the
+ * recipe, with the Cache API, the content and TanStack Start's server entry replaced
  * by test doubles.
  */
 import { createCMS, type Snapshot } from "@decocms/blocks";

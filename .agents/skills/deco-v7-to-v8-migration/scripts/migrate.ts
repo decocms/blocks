@@ -19,9 +19,9 @@
  *    each call site; `ctx.invoke`, app state and `useSection` → the stubs in
  *    `src/migration-stubs.ts`;
  * 5. scaffold: `src/cms.ts`, the page loader and the catch-all route for the
- *    binding, replacing v7's page routes; on TanStack Start, the worker entry
- *    (`./workerEntry.ts`): `createDecoWorker` behind the site's own page
- *    cache, the README's recipe, with v7's `buildSegment` and `csp`;
+ *    binding, replacing v7's page routes; on TanStack Start, a report line
+ *    pointing at the example worker entry to copy, with what v7's
+ *    `createDecoWorkerEntry` configured (the script writes no worker entry);
  * 6. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
  * 7. scripts: `deco schema && deco content` before dev and build, and
@@ -47,13 +47,12 @@ import { rewriteImports } from "./imports";
 import { rewriteInvokes, vtexInvokeMapKeysUsed } from "./invoke";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
-import { writeScaffold } from "./scaffold";
+import { reportWorkerEntry, writeScaffold } from "./scaffold";
 import { reencryptSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
 import { rewriteLoaderContext, rewritePartialImports, writeStubs } from "./stubs";
 import { VtexInvokeChoiceNeeded, type VtexInvokeMode } from "./vtexInvoke";
-import { writeWorkerEntry } from "./workerEntry";
 
 interface MigrateOptions {
   /** The app root: the folder with the site's package.json. */
@@ -164,7 +163,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   rewriteDeviceReads(root, report);
   writeScaffold(root, report);
   if (siteFramework(root) === "tanstack") {
-    writeWorkerEntry(root, report);
+    reportWorkerEntry(root, report);
   }
   rewriteImports(root, report, vendored);
   addScripts(root, report);

@@ -126,7 +126,7 @@ export interface DecoWorkerOptions<Env = unknown> {
   /** The site's Content-Security-Policy. Studio's `frame-ancestors` is always added. */
   csp?: CspOptions;
   /**
-   * The site's own page cache (the README's worker-entry recipe), called for
+   * The site's own page cache (the example worker entry the README links), called for
    * every page and server-function request `isCacheable` accepts. Without
    * it nothing is cached: every request renders.
    */

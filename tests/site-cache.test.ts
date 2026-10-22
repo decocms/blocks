@@ -1,33 +1,16 @@
 // @vitest-environment node
 /**
  * The page cache is the site's on both bindings, built from the same pieces:
- *
- * - the worker-entry recipe in `@decocms/tanstack`'s README is
- *   `examples/tanstack-worker-smoke/src/worker-entry.ts` byte for byte, so
- *   the copy a site pastes is the one the example runs and tests;
- * - `readAssignments` and `assignmentsKey` give the same answers from
- *   `@decocms/tanstack/worker` and `@decocms/nextjs/proxy` (each binding keeps
- *   its own copy: they never import each other), so a site's key reads the
- *   same on either.
+ * `readAssignments` and `assignmentsKey` give the same answers from
+ * `@decocms/tanstack/worker` and `@decocms/nextjs/proxy` (each binding keeps
+ * its own copy: they never import each other), so a site's key reads the
+ * same on either.
  */
-import { readFileSync } from "node:fs";
 import { createCMS, type Snapshot } from "@decocms/blocks";
 import { assign, newVisitor, type Visitor } from "@decocms/blocks/experiments";
 import * as next from "@decocms/nextjs/proxy";
 import * as tanstack from "@decocms/tanstack/worker";
 import { describe, expect, it } from "vitest";
-
-const root = new URL("../", import.meta.url);
-const read = (path: string) => readFileSync(new URL(path, root), "utf8");
-
-describe("the TanStack worker-entry recipe", () => {
-  it("the README's copy is the example's worker entry, byte for byte", () => {
-    const readme = read("packages/tanstack/README.md");
-    const blocks = [...readme.matchAll(/```ts\n([\s\S]*?)```/g)].map((m) => m[1]);
-    const recipe = read("examples/tanstack-worker-smoke/src/worker-entry.ts");
-    expect(blocks).toContain(recipe);
-  });
-});
 
 describe("readAssignments and assignmentsKey, on both bindings", () => {
   const cms = createCMS({

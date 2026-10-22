@@ -330,7 +330,7 @@ const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
   {
     specifier: /^@decocms\/tanstack$/,
     names: ["createDecoWorkerEntry"],
-    hint: "createDecoWorker({ serverEntry, cms, pageCache }) from @decocms/tanstack/worker: drafts on the hosts Studio lists, liveness, Studio framing, CMS redirects and cookies are built in; the page cache is the site's own (pageCache: the worker-entry recipe in @decocms/tanstack's README, which the script writes with v7's buildSegment); what else the site's entry did goes in its options (csp, preload, routes)",
+    hint: "createDecoWorker({ serverEntry, cms, pageCache }) from @decocms/tanstack/worker: drafts on the hosts Studio lists, liveness, Studio framing, CMS redirects and cookies are built in; the page cache is the site's own (pageCache: copy examples/tanstack-worker-smoke/src/worker-entry.ts from decocms/blocks, the report lists what v7's options configured); what else the site's entry did goes in its options (csp, preload, routes)",
   },
   {
     specifier: /^@decocms\/tanstack$/,

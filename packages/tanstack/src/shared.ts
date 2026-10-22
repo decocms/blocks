@@ -24,6 +24,6 @@ export const PAGE_STATUS_HEADER = "x-page-status";
 /**
  * The response header a page sets when a loader it depends on failed: a
  * site's page cache never stores that response, and serves a stale copy
- * instead when it has one (the README's worker-entry recipe).
+ * instead when it has one (the example worker entry the README links).
  */
 export const DEGRADED_HEADER = "x-deco-degraded";

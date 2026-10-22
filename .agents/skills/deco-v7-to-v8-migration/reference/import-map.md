@@ -45,9 +45,9 @@ An import that mixes moved and other names is split; the rest is reported.
 | `@decocms/apps-salesforce`, `@decocms/apps/salesforce` | `@decocms/apps-sfmc-personalization` |
 | `@decocms/apps-website`, `@decocms/apps/website` | SEO, sitemaps, redirects live in your platform template |
 | any other `@decocms/apps-<x>`, `@decocms/apps/<x>` | apps are thin upstream clients: call `create<X>Client` from your own code (`/next/upstream-clients`) |
-| `@decocms/blocks/sdk/cacheHeaders`, `/responseCache`, `/cacheStorage`, `/mergeCacheControl` | on TanStack, the page cache in the site's worker entry (the README recipe the script writes: `PROFILES` are v7's); a Next.js site keeps its own |
+| `@decocms/blocks/sdk/cacheHeaders`, `/responseCache`, `/cacheStorage`, `/mergeCacheControl` | on TanStack, the page cache in the site's worker entry (the example worker entry you copy: `PROFILES` are v7's); a Next.js site keeps its own |
 | `@decocms/blocks/sdk/csp`, `/sdk/redirects` | `createDecoWorker`'s `csp` option; the worker applies CMS redirects |
-| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, pageCache })` from `@decocms/tanstack/worker`, behind the site's own page cache: the script rewrites the worker entry as the README's recipe with v7's `buildSegment` and `csp` (`reference/framework-code.md`) |
+| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, pageCache })` from `@decocms/tanstack/worker`, behind the site's own page cache: copy the example worker entry and carry v7's `buildSegment` and `csp` over by hand, as the report lists (`reference/framework-code.md`) |
 | `DecoRootLayout`, `PreviewProviders`, `DraftPreviewIndicator` (`@decocms/tanstack`) | `DecoDocument` from `@decocms/tanstack/react` |
 | `cmsRouteConfig`, `loadCmsPage`, `DecoPageRenderer`, … (`@decocms/tanstack`) | `createCMS` and `matchRoute` (`/next/tanstack-start-descriptors`), the draft from `contentClient(cms)` (`@decocms/tanstack/server`) |
 | `decoInvokeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig` | delete: the worker answers 404 on v7's admin paths |

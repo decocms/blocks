@@ -1037,3 +1037,73 @@ export function writeScaffold(root: string, report: Report): void {
     });
   }
 }
+
+/** The worker entry with the site-owned page cache that a TanStack site copies (the one copy). */
+export const WORKER_ENTRY_EXAMPLE =
+  "https://github.com/decocms/blocks/blob/main/examples/tanstack-worker-smoke/src/worker-entry.ts";
+
+/** Where each v7 `createDecoWorkerEntry` option goes, by hand. */
+const V7_WORKER_OPTIONS: Record<string, string> = {
+  buildSegment: "the example's buildSegment (return loggedIn: true for a signed-in shopper)",
+  csp: "createDecoWorker's csp ({ reportOnly: [...] } as v7 sent it by default)",
+  securityHeaders: "createDecoWorker's csp",
+  cspMode: "createDecoWorker's csp",
+  proxyHandler: "createDecoWorker's routes",
+  purgeTokenEnv: "the example's env.PURGE_TOKEN",
+  admin: "nothing: the worker answers 404 on v7's admin paths",
+  observability: "nothing: the worker records its own request metric",
+};
+
+/** The option names of the file's `createDecoWorkerEntry(serverEntry, { … })` call, or `undefined` with no call. */
+function v7WorkerOptions(text: string): string[] | undefined {
+  const file = ts.createSourceFile("worker-entry.ts", text, ts.ScriptTarget.Latest, true);
+  let found: string[] | undefined;
+  const visit = (node: ts.Node) => {
+    if (found) return;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "createDecoWorkerEntry"
+    ) {
+      const options = node.arguments[1];
+      found = [];
+      if (options && ts.isObjectLiteralExpression(options)) {
+        for (const p of options.properties) {
+          if (p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) {
+            found.push(p.name.text);
+          }
+        }
+      }
+      return;
+    }
+    node.forEachChild(visit);
+  };
+  visit(file);
+  return found;
+}
+
+/**
+ * TanStack Start: points the person at the example worker entry, which they
+ * copy, and lists what the site's v7 `createDecoWorkerEntry` call configured,
+ * to carry over by hand. The script writes no worker entry.
+ */
+export function reportWorkerEntry(root: string, report: Report): void {
+  let rel = "src/worker-entry.ts";
+  for (const name of ["wrangler.jsonc", "wrangler.json"]) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) continue;
+    const main = fs.readFileSync(file, "utf8").match(/"main"\s*:\s*"([^"]+)"/)?.[1];
+    if (main && /\.(ts|tsx|js|mjs)$/.test(main)) rel = path.posix.normalize(main);
+  }
+  const file = path.join(root, rel);
+  const options = fs.existsSync(file) ? v7WorkerOptions(fs.readFileSync(file, "utf8")) : [];
+  if (options === undefined) return;
+  const carry = options.map(
+    (name) => `${name} → ${V7_WORKER_OPTIONS[name] ?? "see the import map"}`,
+  );
+  report.manual.push({
+    step: "scaffold",
+    subject: rel,
+    message: `copy ${WORKER_ENTRY_EXAMPLE} here: createDecoWorker behind the site's own page cache (the Cache API, v7's cache profiles, v7's POST /_cache/purge with the PURGE_TOKEN secret), and declare __BUILD_HASH__ once (declare const __BUILD_HASH__: string;)${carry.length ? `. v7's createDecoWorkerEntry set, to carry over by hand from git: ${carry.join("; ")}` : ""}`,
+  });
+}
