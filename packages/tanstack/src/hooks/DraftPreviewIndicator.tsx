@@ -26,11 +26,24 @@
  *
  * The badge itself starts hidden and reveals via a client effect (fails
  * closed), so the visible chip never participates in the hydration diff.
+ *
+ * ## Loaded only while drafting
+ *
+ * `DecoRootLayout` mounts this on every page, so a static import put the badge
+ * — and the deco mark it embeds as a base64 PNG, ~22 KB gzipped — in every
+ * page's JS for every shopper, though it only ever renders for an editor
+ * previewing a draft. It is a lazy chunk now: requested only when a pointer
+ * exists, behind a `Suspense` with no fallback (the chip starts hidden anyway).
  */
-import { DraftPreviewBadge } from "@decocms/blocks/preview";
+
 import { getRequestNonce } from "@decocms/blocks/sdk/nonce";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
+import { lazy, Suspense } from "react";
 import { DRAFT_POINTER_BAG_KEY, DRAFT_POINTER_GLOBAL } from "../sdk/draftShared";
+
+const DraftPreviewBadge = lazy(() =>
+  import("@decocms/blocks/preview").then((m) => ({ default: m.DraftPreviewBadge })),
+);
 
 /**
  * The active draft pointer. Server: the request bag (set by `bindRequestDraft`).
@@ -58,7 +71,9 @@ export function DraftPreviewIndicator() {
           __html: `window.${DRAFT_POINTER_GLOBAL}=${JSON.stringify(pointer)}`,
         }}
       />
-      <DraftPreviewBadge pointer={pointer} />
+      <Suspense fallback={null}>
+        <DraftPreviewBadge pointer={pointer} />
+      </Suspense>
     </>
   );
 }

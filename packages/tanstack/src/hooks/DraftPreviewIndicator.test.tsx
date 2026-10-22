@@ -2,7 +2,7 @@ import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DRAFT_POINTER_BAG_KEY, DRAFT_POINTER_GLOBAL } from "../sdk/draftShared";
 import { DraftPreviewIndicator } from "./DraftPreviewIndicator";
@@ -47,10 +47,14 @@ describe("DraftPreviewIndicator — client", () => {
     win[DRAFT_POINTER_GLOBAL] = undefined;
   });
 
-  it("mounts the badge from the published global (cookie-nav, no bag on the client)", () => {
+  it("mounts the badge from the published global (cookie-nav, no bag on the client)", async () => {
     win[DRAFT_POINTER_GLOBAL] = POINTER;
-    act(() => root.render(<DraftPreviewIndicator />));
-    expect(container.textContent).toContain("Preview mode");
+    // The badge is a lazy chunk: let it resolve before asserting.
+    await act(async () => {
+      root.render(<DraftPreviewIndicator />);
+      await import("@decocms/blocks/preview");
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain("Preview mode"));
   });
 
   it("renders nothing when no pointer is published", () => {
