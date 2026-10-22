@@ -676,7 +676,7 @@
               "hosts": {
                 "type": "array",
                 "title": "Hosts",
-                "description": "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, every host (or the hosts code allows).",
+                "description": "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, only the hosts code allows, if any: previews from the site editor work only on the hosts listed here or in code.",
                 "items": {
                   "type": "string"
                 }
@@ -790,13 +790,13 @@
               "type": "string",
               "format": "date-time",
               "title": "Start",
-              "description": "The campaign runs from this moment on (empty: since always)"
+              "description": "The campaign runs from this moment on: a date and time with your store's offset (empty: since always)"
             },
             "end": {
               "type": "string",
               "format": "date-time",
               "title": "End",
-              "description": "The campaign stops at this moment (empty: never)"
+              "description": "The campaign stops at this moment: a date and time with your store's offset (empty: never)"
             }
           }
         },
