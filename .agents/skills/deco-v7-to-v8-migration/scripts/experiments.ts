@@ -61,7 +61,7 @@ export function reportTestsAndDates(root: string, report: Report): void {
     report.manual.push({
       step: "content",
       subject: "date rules",
-      message: `date rules (in ${quoted([...dates].map((n) => files[n] ?? n))}) weren't moved, and deco check rejects them until they are: put each window in the saved block campaigns (type calendar) and write each rule as { "__resolveType": "campaign", "name": … } naming its campaign (a prerelease { "__resolveType": "date", "campaign": … } becomes that rule with the same name) (Schedule a campaign, ${SCHEDULE_A_CAMPAIGN})`,
+      message: `date rules (in ${quoted([...dates].map((n) => files[n] ?? n))}) weren't moved, and deco check rejects them until they are: put each window in the saved block campaigns (type calendar), each start and end a date and time with the store's offset (like 2026-11-27T00:00-03:00: v7 read a date-time without one in the server's time zone, and deco check rejects it), and write each rule as { "__resolveType": "campaign", "name": … } naming its campaign (a prerelease { "__resolveType": "date", "campaign": … } becomes that rule with the same name) (Schedule a campaign, ${SCHEDULE_A_CAMPAIGN})`,
     });
   }
 }

@@ -227,8 +227,8 @@ describe("how it works", () => {
         },
         campaigns: {
           __resolveType: "calendar",
-          on: { start: "2000-01-01", end: "2999-01-01" },
-          off: { end: "2000-01-01" },
+          on: { start: "2000-01-01T00:00Z", end: "2999-01-01T00:00Z" },
+          off: { end: "2000-01-01T00:00Z" },
         },
       }),
     });

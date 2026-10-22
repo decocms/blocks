@@ -532,9 +532,7 @@ describe("formats and character counts", () => {
       'campaigns.json a.start: "not a date" isn\'t a valid date-time',
       'campaigns.json b.start: "2026-02-30T10:00" isn\'t a valid date-time',
     ]);
-    expect(lines(run(campaigns("2026-11-27T09:00", "2026-11-27T09:00:00.000-03:00")))).toEqual([
-      'campaigns.json warning a.start: the campaign "a" starts at "2026-11-27T09:00", which has no offset, so it is read as UTC: add your store\'s offset on that date, like "2026-11-27T09:00-03:00"',
-    ]);
+    expect(lines(run(campaigns("2026-11-27T09:00Z", "2026-11-27T09:00:00.000-03:00")))).toEqual([]);
     // image-uri is a widget, not a rule: any string goes.
     expect(run({ Hero: { ...hero, image: "/assets/a b.png" } })).toEqual([]);
   });
@@ -1056,14 +1054,19 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     ]);
   });
 
-  it("warns about a bound with a time and no offset: it is read as UTC, not the server's time zone", () => {
+  it("rejects a bound without an offset, a date alone included: it never runs; the message says to add the store's offset", () => {
     const local = {
       __resolveType: "calendar",
       sale: { start: "2026-11-27T00:00:00", end: "2026-12-01T00:00Z" },
       day: { start: "2026-11-27T00:00:00+00:00", end: "2026-11-28T00:00:00.5Z" },
+      dates: { start: "2026-11-27", end: "2026-11-28 09:30" },
+      spaced: { start: "2026-11-27 09:30z" },
     };
     expect(lines(run({ campaigns: local }))).toEqual([
-      'campaigns.json warning sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it is read as UTC: add your store\'s offset on that date, like "2026-11-27T00:00:00-03:00"',
+      'campaigns.json dates.start: the campaign "dates" starts at "2026-11-27", a date without a time or offset, so it never runs: add the time and your store\'s offset, like "2026-11-27T00:00-03:00"',
+      'campaigns.json dates.end: the campaign "dates" ends at "2026-11-28 09:30", which has no offset, so it never runs: add your store\'s offset, like "2026-11-28T09:30-03:00"',
+      'campaigns.json sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it never runs: add your store\'s offset, like "2026-11-27T00:00:00-03:00"',
+      'campaigns.json spaced.start: the campaign "spaced" starts at "2026-11-27 09:30z", which isn\'t written as a campaign reads it, so it never runs: write the date, "T", the time and the offset as Z or ±hh:mm, like "2026-11-27T09:30Z"',
     ]);
   });
 

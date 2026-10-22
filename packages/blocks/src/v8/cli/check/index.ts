@@ -26,7 +26,6 @@ import {
   CAMPAIGN_RULE,
   CAMPAIGNS_BLOCK,
   campaignTime,
-  lacksOffset,
 } from "../../builtins/campaigns.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
@@ -262,6 +261,35 @@ const STANDARD_FORMATS: Record<string, (value: string) => boolean> = {
   uri: (value) => /^[a-z][a-z0-9+.-]*:/i.test(value) && URL.canParse(value),
 };
 
+/** The offset the examples in campaign messages show (São Paulo), to replace with the store's own. */
+const CAMPAIGN_EXAMPLE_OFFSET = "-03:00";
+
+/**
+ * Why `deco check` rejects a campaign bound the runtime can't read
+ * (`campaignTime` is null), or null when it reads or is left to the generic
+ * date-time format error (not a date at all). A date or a date-time without
+ * an offset names a different moment depending on where it is read, so the
+ * message says to add the store's offset.
+ */
+function unreadableBound(campaign: string, bound: "start" | "end", value: unknown): string | null {
+  if (typeof value !== "string" || value === "" || campaignTime(value) !== null) return null;
+  const verb = bound === "start" ? "starts" : "ends";
+  const what = `the campaign "${campaign}" ${verb} at ${JSON.stringify(value)}`;
+  if (isDate(value)) {
+    const like = `${value}T00:00${CAMPAIGN_EXAMPLE_OFFSET}`;
+    return `${what}, a date without a time or offset, so it never runs: add the time and your store's offset, like ${JSON.stringify(like)}`;
+  }
+  if (!STANDARD_FORMATS["date-time"]?.(value)) return null;
+  const iso = `${value.slice(0, 10)}T${value.slice(11)}`;
+  if (!/(?:z|[+-]\d{2}:?\d{2})$/i.test(value)) {
+    const like = `${iso}${CAMPAIGN_EXAMPLE_OFFSET}`;
+    return `${what}, which has no offset, so it never runs: add your store's offset, like ${JSON.stringify(like)}`;
+  }
+  const fixed = iso.replace(/z$/i, "Z").replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const like = campaignTime(fixed) === null ? `${value.slice(0, 10)}T00:00Z` : fixed;
+  return `${what}, which isn't written as a campaign reads it, so it never runs: write the date, "T", the time and the offset as Z or ±hh:mm, like ${JSON.stringify(like)}`;
+}
+
 function formatsFor(doc: Json): Record<string, true | ((value: string) => boolean)> {
   const formats: Record<string, true | ((value: string) => boolean)> = { ...STANDARD_FORMATS };
   const seen = new Set<object>();
@@ -447,10 +475,14 @@ class Checker {
   }
 
   /**
-   * Each campaign of a `campaigns` block with a bound that has a time but no
-   * offset (read as UTC), or whose end isn't after its start.
+   * Each campaign of a `campaigns` block with a bound the runtime can't read
+   * (a date without a time, a date-time without an offset, or one not written
+   * as ISO 8601: `campaignTime`), which is an error since that campaign never
+   * runs, or whose end isn't after its start. Returns the paths of the dates
+   * reported here, whose generic format error says less and is dropped.
    */
-  private checkCampaignWindows(ctx: Context, entry: Record<string, Json>): void {
+  private checkCampaignWindows(ctx: Context, entry: Record<string, Json>): Set<string> {
+    const reported = new Set<string>();
     for (const key of Object.keys(entry).sort()) {
       if (key === "__resolveType") continue;
       const window = entry[key];
@@ -462,13 +494,10 @@ class Checker {
         ["start", start],
         ["end", end],
       ] as const) {
-        if (!lacksOffset(value)) continue;
-        this.report(
-          ctx,
-          at(bound),
-          `the campaign "${key}" ${bound}s at ${JSON.stringify(value)}, which has no offset, so it is read as UTC: add your store's offset on that date, like ${JSON.stringify(`${value}-03:00`)}`,
-          "warning",
-        );
+        const problem = unreadableBound(key, bound, value);
+        if (problem === null) continue;
+        reported.add(at(bound));
+        this.report(ctx, at(bound), problem);
       }
       if (typeof start !== "string" || typeof end !== "string") continue;
       const from = campaignTime(start);
@@ -481,6 +510,7 @@ class Checker {
         "warning",
       );
     }
+    return reported;
   }
 
   private report(
@@ -850,7 +880,16 @@ class Checker {
             "warning",
           );
         } else {
-          this.checkCampaignWindows(ctx, entry);
+          const dates = this.checkCampaignWindows(ctx, entry);
+          const before = problems.length;
+          this.checkBlock(ctx, entry, "", null);
+          const found = problems.splice(before);
+          problems.push(
+            ...found.filter(
+              (p) => !(dates.has(p.path) && p.message.endsWith("isn't a valid date-time")),
+            ),
+          );
+          continue;
         }
       }
       this.checkBlock(ctx, entry, "", null);

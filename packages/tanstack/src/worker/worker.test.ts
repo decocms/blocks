@@ -486,7 +486,7 @@ describe("the visitor", () => {
     const cms = testCMS(
       snapshot({
         experiments: { all: 100, none: 0 },
-        campaigns: { sale: {}, later: { start: "2999-01-01" } },
+        campaigns: { sale: {}, later: { start: "2999-01-01T00:00Z" } },
       }),
     );
     let assignments: unknown;

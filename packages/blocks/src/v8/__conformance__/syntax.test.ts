@@ -666,7 +666,7 @@ describe("built-in blocks", () => {
     expect(await client.resolve({ __resolveType: "never" })).toEqual([false, null]);
   });
 
-  it("builtin-05/mv-05: a calendar campaign runs from start (inclusive) until end (exclusive); dates without time are UTC midnight", async () => {
+  it("builtin-05/mv-05: a calendar campaign runs from start (inclusive) until end (exclusive); a date without a time or offset never runs", async () => {
     vi.useFakeTimers();
     const at = async (now: string, window: Record<string, unknown>) => {
       vi.setSystemTime(new Date(now));
@@ -682,9 +682,9 @@ describe("built-in blocks", () => {
     expect(await at("2026-11-27T04:59:59Z", window)).toBe(false);
     expect(await at("2026-12-01T05:00:00Z", window)).toBe(false);
     expect(await at("2030-01-01T00:00:00Z", {})).toBe(true);
-    expect(await at("2026-11-27T00:00:00Z", { start: "2026-11-27" })).toBe(true);
-    expect(await at("2026-11-26T23:59:59Z", { start: "2026-11-27" })).toBe(false);
-    expect(await at("2026-11-27T00:00:00Z", { end: "2026-11-27" })).toBe(false);
+    expect(await at("2026-11-28T00:00:00Z", { start: "2026-11-27" })).toBe(false);
+    expect(await at("2026-11-26T23:59:59Z", { end: "2026-11-27" })).toBe(false);
+    expect(await at("2026-11-28T00:00:00Z", { start: "2026-11-27T00:00:00" })).toBe(false);
   });
 
   it("builtin-06: page resolves seo and every section; Page/Route/Seo are exported", async () => {

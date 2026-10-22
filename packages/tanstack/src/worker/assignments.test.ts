@@ -126,7 +126,7 @@ describe("liveAssignmentKeys", () => {
     const cms = testCMS(
       snapshot({
         experiments: { a: 50, b: 50 },
-        campaigns: { sale: {}, later: { start: "2999-01-01" } },
+        campaigns: { sale: {}, later: { start: "2999-01-01T00:00Z" } },
       }),
     );
     expect((await liveAssignmentKeys(cms)).sort()).toEqual(

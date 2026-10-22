@@ -50,8 +50,8 @@ export const calendar = (windows: Record<string, unknown> = {}): Campaigns => {
  * Whether `at` (ms since the epoch) is inside `window`, `{ start?, end? }`:
  * from `start` (inclusive) until `end` (exclusive); an empty or absent bound
  * is open. A window that isn't an object, or a bound that isn't an ISO 8601
- * date or date-time, is outside, so a typo can't switch a campaign on. See
- * `campaignTime` for how a bound reads.
+ * date-time with an offset, is outside, so a typo can't switch a campaign
+ * on. See `campaignTime` for how a bound reads.
  */
 function inside(window: unknown, at: number): boolean {
   if (typeof window !== "object" || window === null || Array.isArray(window)) return false;
@@ -62,24 +62,24 @@ function inside(window: unknown, at: number): boolean {
   return (from === undefined || at >= from) && (until === undefined || at < until);
 }
 
-/** An ISO 8601 date, or date-time with or without its offset (`Z` or `±hh:mm`). */
-const ISO_RE = /^(\d{4}-\d{2}-\d{2})(T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+/** An ISO 8601 date-time with its offset (`Z` or `±hh:mm`). */
+const ISO_RE = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * A campaign bound's time in ms since the epoch: `undefined` when absent or
- * empty (open), `null` when it can't be one. Only ISO 8601 reads, the same on
- * every runtime: a date without a time is midnight UTC, and so is a date-time
- * without an offset (never the runtime's own time zone, which differs between
- * a server, a browser and a phone). Anything else, such as `"Nov 27 2026"`,
- * never runs.
+ * empty (open), `null` when it can't be one. A bound is an ISO 8601
+ * date-time with an explicit offset (`Z` or `±hh:mm`), so it names the same
+ * moment on every runtime. A date without a time, a date-time without an
+ * offset (whose moment depends on where it is read), a day the calendar
+ * doesn't have and anything else, such as `"Nov 27 2026"`, can't be one,
+ * so that campaign never runs.
  */
 export function campaignTime(value: unknown): number | undefined | null {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string") return null;
   const match = ISO_RE.exec(value);
   if (match === null || !isCalendarDate(match[1] as string)) return null;
-  const utc = match[2] !== undefined && match[3] === undefined ? `${value}Z` : value;
-  const time = Date.parse(utc);
+  const time = Date.parse(value);
   return Number.isNaN(time) ? null : time;
 }
 
@@ -88,18 +88,6 @@ function isCalendarDate(date: string): boolean {
   const [y, m, d] = date.split("-").map(Number) as [number, number, number];
   const day = new Date(Date.UTC(y, m - 1, d));
   return day.getUTCFullYear() === y && day.getUTCMonth() === m - 1 && day.getUTCDate() === d;
-}
-
-/** Whether a bound is a date-time without an offset (read as UTC: `campaignTime`). */
-export function lacksOffset(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const match = ISO_RE.exec(value);
-  return (
-    match !== null &&
-    match[2] !== undefined &&
-    match[3] === undefined &&
-    campaignTime(value) !== null
-  );
 }
 
 /** Inputs of the built-in `campaign` rule. */

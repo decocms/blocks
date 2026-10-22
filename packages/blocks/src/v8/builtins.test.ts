@@ -114,18 +114,22 @@ describe("calendar — start inclusive, end exclusive", () => {
     );
   });
 
-  it("a date without a time means midnight UTC", async () => {
-    expect(await running({ start: "2026-11-27" }, "2026-11-26T23:59:59Z")).toBe(false);
-    expect(await running({ start: "2026-11-27" }, "2026-11-27T00:00:00Z")).toBe(true);
+  it("a date without a time, or a date-time without an offset, never runs", async () => {
+    for (const now of ["2026-11-26T12:00:00Z", "2026-11-28T12:00:00Z"]) {
+      expect(await running({ start: "2026-11-27" }, now)).toBe(false);
+      expect(await running({ end: "2026-11-27" }, now)).toBe(false);
+      expect(await running({ start: "2026-11-27T00:00:00" }, now)).toBe(false);
+      expect(await running({ end: "2026-11-27T00:00" }, now)).toBe(false);
+    }
   });
 
   it("both bounds are optional; empty or null is open", async () => {
     const now = "2026-06-01T00:00:00Z";
     expect(await running({}, now)).toBe(true);
     expect(await running({ start: "", end: null }, now)).toBe(true);
-    expect(await running({ start: "2026-01-01" }, now)).toBe(true);
-    expect(await running({ end: "2027-01-01" }, now)).toBe(true);
-    expect(await running({ end: "2026-01-01" }, now)).toBe(false);
+    expect(await running({ start: "2026-01-01T00:00Z" }, now)).toBe(true);
+    expect(await running({ end: "2027-01-01T00:00Z" }, now)).toBe(true);
+    expect(await running({ end: "2026-01-01T00:00Z" }, now)).toBe(false);
   });
 
   it("an unparseable bound, a bound that isn't a string, or a window that isn't an object never runs", async () => {
@@ -133,7 +137,7 @@ describe("calendar — start inclusive, end exclusive", () => {
     expect(await running({ start: "not a date" }, now)).toBe(false);
     expect(await running({ end: "soon" }, now)).toBe(false);
     expect(await running({ start: 0 }, now)).toBe(false);
-    expect(await running("2026-01-01", now)).toBe(false);
+    expect(await running("2026-01-01T00:00Z", now)).toBe(false);
     expect(await running(null, now)).toBe(false);
   });
 

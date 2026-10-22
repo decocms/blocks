@@ -346,14 +346,15 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     expect(b).toHaveBeenCalledTimes(1);
   });
 
-  it("X18 matchers-and-variants: a campaign reads its window: start inclusive, end exclusive, a date without time is midnight UTC", async () => {
+  it("X18 matchers-and-variants: a campaign reads its window: start inclusive, end exclusive, a date without time never runs", async () => {
     vi.useFakeTimers();
     const cms = createCMS({
       blocks: {},
       content: snap({
         campaigns: {
           __resolveType: "calendar",
-          from: { start: "2026-11-27" },
+          from: { start: "2026-11-27T00:00:00Z" },
+          day: { start: "2026-11-27" },
           until: { end: "2026-12-01T00:00:00-05:00" },
           always: {},
         },
@@ -369,6 +370,8 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     expect(await check("2026-12-01T05:00:00Z", "until")).toBe(false);
     expect(await check("2026-12-01T04:59:59Z", "until")).toBe(true);
     expect(await check("2030-01-01T00:00:00Z", "always")).toBe(true);
+    expect(await check("2026-11-27T00:00:00Z", "day")).toBe(false);
+    expect(await check("2030-01-01T00:00:00Z", "day")).toBe(false);
   });
 
   it("X19 built-in-blocks: a built-in never fails with UNKNOWN_BLOCK (secret without key is BLOCK_FAILED); a block-map key replaces a built-in", async () => {

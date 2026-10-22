@@ -81,13 +81,15 @@ const CAMPAIGN_DATES = {
       type: "string",
       format: "date-time",
       title: "Start",
-      description: "The campaign runs from this moment on (empty: since always)",
+      description:
+        "The campaign runs from this moment on: a date and time with your store's offset (empty: since always)",
     },
     end: {
       type: "string",
       format: "date-time",
       title: "End",
-      description: "The campaign stops at this moment (empty: never)",
+      description:
+        "The campaign stops at this moment: a date and time with your store's offset (empty: never)",
     },
   },
 };

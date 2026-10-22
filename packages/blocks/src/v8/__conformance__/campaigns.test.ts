@@ -67,7 +67,10 @@ describe("the saved block campaigns", () => {
     at(DURING);
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: snapshotWith({ "black-friday": BLACK_FRIDAY, xmas: { start: "2026-12-24" } }),
+      content: snapshotWith({
+        "black-friday": BLACK_FRIDAY,
+        xmas: { start: "2026-12-24T00:00:00-03:00" },
+      }),
     });
     const [campaigns, error] = await cms.client().resolve("campaigns");
     expect(error).toBeNull();
@@ -244,11 +247,13 @@ describe("a client's date and the campaigns it is given", () => {
     expect(await title(client)).toBe("Regular");
   });
 
-  it("cmp-15: a bound reads the same on every runtime: a date-time without an offset is UTC, and only ISO 8601 reads", async () => {
+  it("cmp-15: a bound is an ISO 8601 date-time with its offset; a date, a date-time without an offset or anything else never runs", async () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       content: snapshotWith({
-        utc: { start: "2026-11-27T00:00:00" },
+        utc: { start: "2026-11-27T00:00:00Z" },
+        "no-offset": { start: "2026-11-27T00:00:00" },
+        "date-only": { start: "2026-11-27" },
         other: { start: "Nov 27 2026" },
         "no-such-day": { start: "2026-02-30T00:00:00Z" },
       }),
@@ -257,16 +262,10 @@ describe("a client's date and the campaigns it is given", () => {
       const [value] = await cms.client({ date: new Date(date) }).resolve("campaigns");
       return { ...(value as Record<string, boolean>) };
     };
-    expect(await at("2026-11-27T00:00:00Z")).toEqual({
-      utc: true,
-      other: false,
-      "no-such-day": false,
-    });
-    expect(await at("2026-11-26T23:59:59Z")).toEqual({
-      utc: false,
-      other: false,
-      "no-such-day": false,
-    });
+    const never = { "no-offset": false, "date-only": false, other: false, "no-such-day": false };
+    expect(await at("2026-11-27T00:00:00Z")).toEqual({ utc: true, ...never });
+    expect(await at("2026-11-26T23:59:59Z")).toEqual({ utc: false, ...never });
+    expect(await at("2027-06-01T00:00:00Z")).toEqual({ utc: true, ...never });
   });
 
   it("cmp-14: given every test and campaign and no visitor, a client is fully decided", async () => {
