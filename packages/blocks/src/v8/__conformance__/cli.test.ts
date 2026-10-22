@@ -2014,15 +2014,17 @@ describe("studio-compatibility.mdx", () => {
       ...STORE_FILES,
       ".deco/index.ts": `
 import type { Blocks, Page } from "../src/deco";
-const page = (props: Page & { campaign?: string }) => props;
+const page = (props: Page & { pageOwnField?: string }) => props;
 export default { page } satisfies Blocks;
 `,
     });
     expect((await deco(["schema"], f.root)).code).toBe(0);
     const m = JSON.parse(f.read(".deco/schema.gen.json"));
-    expect(m.manifest.blocks.pages.page.namespace).not.toBe("deco");
-    const pageProps = JSON.stringify(m.schema.definitions);
-    expect(pageProps).toContain("campaign");
+    const entry = m.manifest.blocks.pages.page;
+    expect(entry.namespace).not.toBe("deco");
+    // The page's form is the site's own: its field is there, under the page's own definition.
+    const definition = m.schema.definitions[entry.$ref.replace("#/definitions/", "")];
+    expect(definition.properties).toHaveProperty("pageOwnField");
   }, 60_000);
 
   it("sc-05b: deco check names each built-in the block map replaces and what relies on it, as a warning", async () => {
