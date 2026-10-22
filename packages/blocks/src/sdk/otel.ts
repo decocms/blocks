@@ -928,8 +928,8 @@ export function bootObservability(opts: OtelOptions, env: Record<string, unknown
   //    via the per-site dataset.
   //  - OTLP/HTTP (env `DECO_OTEL_METRICS_ENDPOINT`): SRE-grade rollups
   //    landed in ClickHouse `otel_metrics_{sum,gauge,histogram}` via the
-  //    `deco-otel-ingest` Worker. Cumulative temporality, per-isolate
-  //    buffer flushed by `ctx.waitUntil` in `instrumentWorker`.
+  //    `deco-otel-ingest` Worker. Delta temporality, per-isolate
+  //    buffer drained on each flush by `ctx.waitUntil` in `instrumentWorker`.
   //
   // The two emitters are NOT redundant — AE keeps per-request per-path
   // dimensions; OTLP carries the same metric names at coarser cardinality

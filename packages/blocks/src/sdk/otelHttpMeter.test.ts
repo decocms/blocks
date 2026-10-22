@@ -124,6 +124,20 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
     expect(points[1].asDouble).toBe(1); // POST+5xx
   });
 
+  it("kind-mismatch is still caught after the buffer was flushed", async () => {
+    const onError = vi.fn();
+    const { impl, calls } = captureFetch();
+    const meter = buildAdapter({ fetchImpl: impl, onError });
+
+    meter.counterInc("x", 1);
+    await meter.flush(true);
+    meter.histogramRecord("x", 5);
+
+    expect(onError).toHaveBeenCalledWith("kind-mismatch", expect.any(Error));
+    expect(meter.pendingDatapointCount()).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
   it("each flush carries only its own window; idle series are not re-sent", async () => {
     const { impl, calls } = captureFetch();
     let mockNow = 1_000;
@@ -233,8 +247,8 @@ describe("createOtlpHttpMeterAdapter — buffer + flush", () => {
 
   it("non-200 HTTP response surfaces via onError but does not throw", async () => {
     const onError = vi.fn();
-    const non200: typeof fetch = vi.fn(async () =>
-      new Response("oops", { status: 500 }),
+    const non200: typeof fetch = vi.fn(
+      async () => new Response("oops", { status: 500 }),
     ) as unknown as typeof fetch;
     const meter = buildAdapter({ fetchImpl: non200, onError });
     meter.counterInc("x", 1);

@@ -184,6 +184,9 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
 
   // Buffer state — per-isolate, swapped out on every flush (DELTA temporality).
   const metrics = new Map<string, MetricEntry>();
+  // Kind each name was first recorded as. Outlives the per-flush reset so a
+  // name can't come back as a different kind in a later window.
+  const kinds = new Map<string, MetricKind>();
   // Start of the current delta window — counters/histograms report it as
   // their startTime. Advances when a flush snapshots the buffer.
   let windowStartMs = now();
@@ -215,16 +218,13 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     name: string,
     kind: MetricKind,
   ): { entry: MetricEntry | null; isNewName: boolean } {
-    const existing = metrics.get(name);
-    if (!existing) return { entry: null, isNewName: true };
-    if (existing.kind !== kind) {
-      onError?.(
-        "kind-mismatch",
-        new Error(`metric "${name}" already registered as ${existing.kind}`),
-      );
+    const registered = kinds.get(name);
+    if (registered && registered !== kind) {
+      onError?.("kind-mismatch", new Error(`metric "${name}" already registered as ${registered}`));
       return { entry: null, isNewName: false };
     }
-    return { entry: existing, isNewName: false };
+    const existing = metrics.get(name);
+    return existing ? { entry: existing, isNewName: false } : { entry: null, isNewName: true };
   }
 
   function materializeEntry(name: string, kind: MetricKind): MetricEntry {
@@ -233,6 +233,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     else if (kind === "gauge") entry.gauge = new Map();
     else entry.histogram = new Map();
     metrics.set(name, entry);
+    kinds.set(name, kind);
     return entry;
   }
 
