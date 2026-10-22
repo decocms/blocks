@@ -18,6 +18,7 @@
  */
 
 import { getDeploymentId, redirectKey, type StoredRedirect } from "@decocms/blocks/cms";
+import { setSpanAttribute, withTracing } from "@decocms/blocks/sdk/observability";
 import { normalizePath, type Redirect, selectExactRedirect } from "@decocms/blocks/sdk/redirects";
 import { getFastDeployKV } from "./kvHydration";
 
@@ -103,12 +104,18 @@ export async function lookupExactRedirect(
   if (!deploymentId) return null;
 
   const key = redirectKey(deploymentId, normalizePath(pathname));
-  const cached = peek(key);
-  const stored = cached !== undefined ? cached.value : await read(kv, key);
-  if (cached === undefined) remember(key, stored);
-  if (!stored) return null;
+  // Runs on every page request before the response cache lookup, so a cold
+  // KV read here lands on TTFB even for cache HITs — the span makes it visible.
+  return withTracing("deco.redirect.lookup", async () => {
+    const cached = peek(key);
+    setSpanAttribute("redirect.memo", cached !== undefined ? "hit" : "miss");
+    const stored = cached !== undefined ? cached.value : await read(kv, key);
+    if (cached === undefined) remember(key, stored);
+    setSpanAttribute("redirect.found", !!stored);
+    if (!stored) return null;
 
-  return selectExactRedirect(stored, pathname);
+    return selectExactRedirect(stored, pathname);
+  });
 }
 
 async function read(
