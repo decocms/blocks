@@ -998,7 +998,7 @@ describe("purge", () => {
   const as = (v: Visitor) => ({ headers: { cookie: `deco_segment=${serializeVisitor(v)}` } });
   const TABLET_UA = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) Mobile/15E148";
 
-  it("v7's request: a Bearer token and { paths, countries, salesChannels, regionIds }; v7's answer", async () => {
+  it("v7's request: a Bearer token and { paths }, the site's own segment parts in segments; v7's answer", async () => {
     const { get, worker, ctx } = setup({
       purgeToken: (env) => (env as { T?: string }).T,
       segment: (r) => ({
@@ -1016,9 +1016,11 @@ describe("purge", () => {
     const res = await worker.fetch(
       purgeRequest({
         paths: ["/shoes"],
-        countries: ["BR", "US"],
-        salesChannels: ["1", "2"],
-        regionIds: ["south"],
+        segments: [
+          { device: "desktop" },
+          { device: "desktop", salesChannel: "2" },
+          { device: "desktop", salesChannel: "2", regionId: "south" },
+        ],
       }),
       { T: "secret" },
       ctx,
@@ -1036,6 +1038,28 @@ describe("purge", () => {
       expect((await get(path, init)).headers.get("x-cache")).toBe("MISS");
     }
     expect((await get("/hats")).headers.get("x-cache")).toBe("HIT");
+  });
+
+  it("the framework names no commerce segment: v7's salesChannels, regionIds and countries are not read", async () => {
+    const { get, worker, ctx } = setup({
+      purgeToken: () => "secret",
+      segment: (r) => ({ salesChannel: r.headers.get("x-sc") ?? undefined }),
+    });
+    await get("/shoes");
+    await get("/shoes", { headers: { "x-sc": "2" } });
+    const res = await worker.fetch(
+      purgeRequest({
+        paths: ["/shoes"],
+        salesChannels: ["2"],
+        regionIds: ["south"],
+        countries: ["BR"],
+      }),
+      {},
+      ctx,
+    );
+    // The devices only: the site lists its own parts in segments.
+    expect(await res.json()).toEqual({ purged: ["/shoes (device=desktop)"], total: 1 });
+    expect((await get("/shoes", { headers: { "x-sc": "2" } })).headers.get("x-cache")).toBe("HIT");
   });
 
   it("exact paths only, as v7: /shoes never drops /shoes?page=2", async () => {
@@ -1141,55 +1165,38 @@ describe("purge", () => {
     expect(cache.pageKeys()).toEqual([]);
   });
 
-  it("drops the page's navigation data (its server-function page loads), for that exact path", async () => {
+  it("navigation data (server-function page loads) isn't purged: it expires with its cache lifetime, as in v7", async () => {
     const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
       Response.json({ ok: true }),
     );
-    const load = (href: string, fn = "abc") =>
-      `/_serverFn/${fn}?payload=${encodeURIComponent(JSON.stringify({ data: { href, pathname: href.split("?")[0] } }))}`;
-    const paths = [load("/shoes"), load("/shoes", "def"), load("/shoes?page=2"), load("/hats")];
-    for (const path of paths) {
-      expect((await get(path)).headers.get("x-cache")).toBe("MISS");
-      expect((await get(path)).headers.get("x-cache")).toBe("HIT");
-    }
+    const load = `/_serverFn/abc?payload=${encodeURIComponent(JSON.stringify({ data: { href: "/shoes", pathname: "/shoes" } }))}`;
+    await get("/shoes");
+    await get(load);
+    const deletes = vi.spyOn(cache, "delete");
     const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
-    expect(await res.json()).toEqual({
-      purged: ["/shoes (device=desktop, navigation)", "/shoes (device=desktop, navigation)"],
-      total: 2,
-    });
-    expect((await get(load("/shoes"))).headers.get("x-cache")).toBe("MISS");
-    expect((await get(load("/shoes", "def"))).headers.get("x-cache")).toBe("MISS");
-    expect((await get(load("/shoes?page=2"))).headers.get("x-cache")).toBe("HIT");
-    expect((await get(load("/hats"))).headers.get("x-cache")).toBe("HIT");
+    expect(await res.json()).toEqual({ purged: ["/shoes (device=desktop)"], total: 1 });
+    // The page copies only: each device as a navigation and a fetch.
+    expect(deletes).toHaveBeenCalledTimes(3 * 2);
+    expect((await get(load)).headers.get("x-cache")).toBe("HIT");
   });
 
-  it("the purge's keys are the stored keys byte for byte: devices, segment parts, tests, fetch, navigation data with tracking params and __cseg", async () => {
+  it("the purge's keys are the stored keys byte for byte: devices, segment parts, tests, fetch, tracking params and __cseg", async () => {
     const experiments = { t0: 50, t1: 50 };
-    const { get, worker, ctx } = setup(
-      {
-        cms: testCMS(snapshot({ experiments })),
-        purgeToken: () => "secret",
-        segment: (r) => ({
-          salesChannel: r.headers.get("x-sc") ?? undefined,
-          regionId: r.headers.get("x-region") ?? undefined,
-        }),
-      },
-      () => Response.json({ ok: true }),
-    );
-    const load = (href: string, fn: string, query = "") =>
-      `/_serverFn/${fn}?payload=${encodeURIComponent(JSON.stringify({ data: { href, pathname: href.split("?")[0] } }))}${query}`;
+    const { get, worker, ctx } = setup({
+      cms: testCMS(snapshot({ experiments })),
+      purgeToken: () => "secret",
+      segment: (r) => ({
+        salesChannel: r.headers.get("x-sc") ?? undefined,
+        regionId: r.headers.get("x-region") ?? undefined,
+      }),
+    });
     const visitors = Array.from({ length: 16 }, () => newVisitor());
     const parts: RequestInit[] = [
       {},
       { headers: { "x-sc": "2" } },
       { headers: { "x-sc": "2", "x-region": "south" } },
     ];
-    const urls = [
-      "/shoes",
-      "/shoes?utm_source=mail&gclid=x",
-      load("/shoes", "abc", "&utm_medium=x"),
-      load("/shoes?skuId=9", "def", `&${CSEG_PARAM}=stale`),
-    ];
+    const urls = ["/shoes", "/shoes?utm_source=mail&gclid=x", `/shoes?${CSEG_PARAM}=stale`];
     for (const ua of [DESKTOP_UA, PHONE_UA, TABLET_UA]) {
       for (const init of parts) {
         for (const v of visitors.slice(0, 4)) {
@@ -1202,47 +1209,16 @@ describe("purge", () => {
       }
     }
     await get("/hats");
-    await get(load("/hats", "abc"));
     const stored = cache.pageKeys().length;
-    const res = await worker.fetch(
-      purgeRequest({ paths: ["/shoes"], salesChannels: ["2"], regionIds: ["south"] }),
-      {},
-      ctx,
-    );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { total: number }).total).toBe(stored - 2);
-    expect(cache.pageKeys().sort()).toEqual([
-      expect.stringContaining(`${ORIGIN}/_serverFn/abc?`),
-      expect.stringContaining(`${ORIGIN}/hats?`),
+    const segments = ["mobile", "tablet", "desktop"].flatMap((device) => [
+      { device },
+      { device, salesChannel: "2" },
+      { device, salesChannel: "2", regionId: "south" },
     ]);
-  });
-
-  it("page loads stored at the same moment both have their shapes kept", async () => {
-    const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
-      Response.json({ ok: true }),
-    );
-    const load = (fn: string) =>
-      `/_serverFn/${fn}?payload=${encodeURIComponent(JSON.stringify({ data: { href: "/shoes" } }))}`;
-    await Promise.all(["abc", "def", "ghi"].map((fn) => get(load(fn))));
-    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
-    expect(((await res.json()) as { total: number }).total).toBe(3);
-    expect(cache.pageKeys()).toEqual([]);
-  });
-
-  it("a kept shape the edge cache evicted is kept again on the next page load stored", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(T0);
-    const { get, worker, ctx } = setup({ purgeToken: () => "secret" }, () =>
-      Response.json({ ok: true }),
-    );
-    const load = (href: string) =>
-      `/_serverFn/abc?payload=${encodeURIComponent(JSON.stringify({ data: { href } }))}`;
-    await get(load("/hats"));
-    await cache.delete(new Request(`${ORIGIN}/_cache/navigation-shapes`));
-    vi.setSystemTime(T0 + 10 * 60_000);
-    await get(load("/shoes"));
-    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"] }), {}, ctx);
-    expect(((await res.json()) as { total: number }).total).toBe(1);
+    const res = await worker.fetch(purgeRequest({ paths: ["/shoes"], segments }), {}, ctx);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { total: number }).total).toBe(stored - 1);
+    expect(cache.pageKeys()).toEqual([expect.stringContaining(`${ORIGIN}/hats?`)]);
   });
 
   it("a page's request is one cache lookup: no extra entry is read", async () => {

@@ -25,16 +25,14 @@ export class MemoryCache {
     return this.entries.delete(key.url);
   }
 
-  /** The stored copies' keys (the kept navigation shapes left out). */
+  /** The stored copies' keys. */
   pageKeys(): string[] {
-    return [...this.entries.keys()].filter((key) => !key.includes("/_cache/navigation-shapes"));
+    return [...this.entries.keys()];
   }
 
-  /** The stored copies (the kept navigation shapes left out). */
+  /** The stored copies. */
   pages(): Response[] {
-    return [...this.entries]
-      .filter(([key]) => !key.includes("/_cache/navigation-shapes"))
-      .map(([, response]) => response);
+    return [...this.entries.values()];
   }
 }
 

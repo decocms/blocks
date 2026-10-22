@@ -47,7 +47,6 @@ import {
   PRIVATE_NO_CACHE,
   profileOf,
   resolveProfiles,
-  serverFnPagePath,
 } from "./cacheProfiles.ts";
 import { dedupeSetCookies, hasOnlySafeCookies, withoutSafeCookies } from "./cookies.ts";
 import { decideDraft, type PreviewPolicy } from "./drafts.ts";
@@ -186,20 +185,6 @@ const TRACKING_PARAMS = new Set([
 ]);
 const DEFAULT_SAFE_COOKIES = ["_deco_bucket"];
 const STORED_AT = "X-Deco-Stored-At";
-/**
- * Where the worker keeps the shapes of the server-function requests that
- * load a page (their URL with the page's path taken out), learnt as it stores
- * them, so a purge can name a path's navigation data key by key.
- */
-const NAVIGATION_SHAPES_PATH = "/_cache/navigation-shapes";
-/** The most shapes kept: a site has one or two page loaders; this bounds a flood of made-up payloads. */
-const MAX_NAVIGATION_SHAPES = 32;
-const SHAPES_TTL = 60 * 60 * 24 * 365;
-/** How long an isolate trusts that a shape it kept is still in the list. */
-const SHAPES_RECHECK_MS = 5 * 60_000;
-/** Stand-ins for the page's path and pathname in a shape's payload. */
-const PAGE_TOKEN = "\u0000deco:page";
-const PATHNAME_TOKEN = "\u0000deco:pathname";
 const DEVICES: readonly Device[] = ["mobile", "tablet", "desktop"];
 const DECISIONS = new Set<string>(["HIT", "STALE-HIT", "STALE-ERROR", "MISS", "BYPASS"]);
 /** Paths the worker (or TanStack Start) serves under a fixed template, for `http.route`. */
@@ -280,84 +265,6 @@ function sameString(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function shapesKey(origin: string): Request {
-  return new Request(new URL(NAVIGATION_SHAPES_PATH, origin).toString(), { method: "GET" });
-}
-
-/** Replaces each string of a JSON value that `swap` answers for. */
-function mapStrings(value: unknown, swap: (s: string) => string): unknown {
-  if (typeof value === "string") return swap(value);
-  if (Array.isArray(value)) return value.map((v) => mapStrings(v, swap));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mapStrings(v, swap)]));
-  }
-  return value;
-}
-
-const pathnameOf = (path: string): string => {
-  const q = path.indexOf("?");
-  return q < 0 ? path : path.slice(0, q);
-};
-
-/**
- * The shape of a server-function page load: its path and query, tracking
- * params and `__cseg` left out, with the page's path (and pathname) in the
- * payload replaced by stand-ins. `null` for any other request.
- */
-function navigationShape(url: URL): string | null {
-  const payload = url.searchParams.get("payload");
-  if (!payload) return null;
-  const canonical = canonicalizeServerFnPayload(payload);
-  const probe = new URL(url);
-  probe.searchParams.set("payload", canonical);
-  const page = serverFnPagePath(probe);
-  if (page === null) return null;
-  const pathname = pathnameOf(page);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(canonical);
-  } catch {
-    return null;
-  }
-  const shaped = mapStrings(parsed, (s) =>
-    s === page ? PAGE_TOKEN : s === pathname ? PATHNAME_TOKEN : s,
-  );
-  const shape = new URL(url.pathname + url.search, "http://x");
-  for (const name of [...shape.searchParams.keys()]) {
-    if (TRACKING_PARAMS.has(name.toLowerCase())) shape.searchParams.delete(name);
-  }
-  shape.searchParams.delete(CSEG_PARAM);
-  shape.searchParams.set("payload", JSON.stringify(shaped));
-  return shape.pathname + shape.search;
-}
-
-/** The server-function URL a shape takes for `path`. */
-function navigationUrl(shape: string, path: string, origin: string): URL | null {
-  const url = new URL(shape, origin);
-  try {
-    const parsed = JSON.parse(url.searchParams.get("payload") ?? "");
-    const pathname = pathnameOf(path);
-    const filled = mapStrings(parsed, (s) =>
-      s === PAGE_TOKEN ? path : s === PATHNAME_TOKEN ? pathname : s,
-    );
-    url.searchParams.set("payload", JSON.stringify(filled));
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-async function readShapes(cache: Cache, origin: string): Promise<string[]> {
-  const entry = await cache.match(shapesKey(origin));
-  if (!entry) return [];
-  try {
-    const list: unknown = await entry.json();
-    return Array.isArray(list) ? list.filter((s): s is string => typeof s === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
 function mutable(response: Response): Response {
   return new Response(response.body, response);
 }
@@ -435,68 +342,15 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return new Request(key.toString(), { method: "GET" });
   }
 
-  // When this isolate last saw each navigation shape kept in the edge cache.
-  const knownShapes = new Map<string, number>();
-  // The kept list is read, added to and written back one change at a time, so
-  // two page loads stored at once don't each write a list without the other.
-  let shapesWrites: Promise<void> = Promise.resolve();
-
-  /**
-   * Adds a page load's shape to the kept list. Checked again every
-   * `SHAPES_RECHECK_MS`, so a list the edge cache evicted (or another isolate
-   * overwrote) gets the shape back on the next page load stored.
-   */
-  function rememberShape(cache: Cache, url: URL): Promise<void> {
-    const shape = navigationShape(url);
-    if (shape === null) return Promise.resolve();
-    const seen = knownShapes.get(shape);
-    if (seen !== undefined && Date.now() - seen < SHAPES_RECHECK_MS) return Promise.resolve();
-    knownShapes.set(shape, Date.now());
-    const write = shapesWrites.then(async () => {
-      const shapes = await readShapes(cache, url.origin);
-      // A full list is left as it is: the shapes seen first are the site's own loaders.
-      if (!shapes.includes(shape) && shapes.length < MAX_NAVIGATION_SHAPES) {
-        shapes.push(shape);
-        await cache.put(
-          shapesKey(url.origin),
-          Response.json(shapes, { headers: { "Cache-Control": `public, max-age=${SHAPES_TTL}` } }),
-        );
-      }
-    });
-    shapesWrites = write.catch(() => {});
-    return write.catch((error: unknown) => {
-      // Not kept: the next page load stored tries again.
-      knownShapes.delete(shape);
-      throw error;
-    });
-  }
-
-  /**
-   * The segments a purge drops: the body's `segments` as they are; otherwise
-   * each device, alone and with v7's `salesChannels` and `regionIds` as the
-   * `salesChannel` and `regionId` parts. v7's `countries` were their own key
-   * part (`__cf_geo`), which the v8 key doesn't have: accepted and ignored.
-   */
+  /** The segments a purge drops: the body's own `segments`, or each device. */
   function purgeSegments(body: Record<string, unknown>): Segment[] {
-    const strings = (v: unknown): string[] =>
-      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x !== "") : [];
+    if (!Array.isArray(body.segments)) return DEVICES.map((device) => ({ device }));
     const out = new Map<string, Segment>();
-    const add = (segment: Record<string, string | undefined>) => {
+    for (const s of body.segments) {
+      if (!s || typeof s !== "object") continue;
       const clean: Record<string, string> = {};
-      for (const [k, v] of Object.entries(segment)) if (typeof v === "string" && v) clean[k] = v;
+      for (const [k, v] of Object.entries(s)) if (typeof v === "string" && v) clean[k] = v;
       out.set(segmentKey(clean), clean);
-    };
-    if (Array.isArray(body.segments)) {
-      for (const s of body.segments) if (s && typeof s === "object") add(s as Segment);
-      return [...out.values()];
-    }
-    const channels = strings(body.salesChannels);
-    const regions = strings(body.regionIds);
-    for (const device of DEVICES) {
-      add({ device });
-      for (const salesChannel of channels.length ? channels : [undefined]) {
-        for (const regionId of [undefined, ...regions]) add({ device, salesChannel, regionId });
-      }
     }
     return [...out.values()];
   }
@@ -529,8 +383,9 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     // Exact keys, as v7: each path as given (`/shoes` never drops
     // `/shoes?page=2`), under the current version, for every segment, every
     // assignments key a request can carry now (each subset of the saved tests,
-    // with the running campaigns and with none), as a navigation, a
-    // programmatic fetch and the page's navigation data (one per shape kept).
+    // with the running campaigns and with none), as a navigation and a
+    // programmatic fetch. Navigation data (server-function page loads) isn't
+    // purged: it expires with its cache lifetime, as in v7.
     const version = await cacheVersion();
     const segments = purgeSegments(body);
     const assignments = await liveAssignmentKeys(cms);
@@ -548,26 +403,16 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
         },
         { status: 503 },
       );
-    let shapes: string[];
-    try {
-      shapes = await readShapes(cache, origin);
-    } catch {
-      return stopped(0);
-    }
     for (const [i, path] of paths.entries()) {
       const page = new URL(path, origin);
-      const variants: [Request, URL, string | null][] = [
-        [new Request(page), page, null],
-        [new Request(page, { headers: { "sec-fetch-dest": "empty" } }), page, "fetch"],
+      const variants: [Request, string | null][] = [
+        [new Request(page), null],
+        [new Request(page, { headers: { "sec-fetch-dest": "empty" } }), "fetch"],
       ];
-      for (const shape of shapes) {
-        const nav = navigationUrl(shape, path, origin);
-        if (nav) variants.push([new Request(nav), nav, "navigation"]);
-      }
       for (const segment of segments) {
         for (const assigned of assignments) {
-          for (const [req, url, tag] of variants) {
-            const key = cacheKey(url, req, version, segment, assigned);
+          for (const [req, tag] of variants) {
+            const key = cacheKey(page, req, version, segment, assigned);
             let gone: boolean;
             try {
               gone = await cache.delete(key);
@@ -886,8 +731,6 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
 
     const store = (resp: Response) => {
       if (!cache) return;
-      // A page load's shape, so a purge of its page can name this entry.
-      if (serverFnPagePath(url) !== null) ctx.waitUntil(rememberShape(cache, url).catch(() => {}));
       const ttl = edge.fresh + Math.max(edge.swr, edge.sie);
       const copy = resp.headers.has("set-cookie")
         ? withoutSafeCookies(resp, safeCookies)
