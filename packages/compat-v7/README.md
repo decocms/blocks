@@ -143,14 +143,14 @@ return { ...page, device: requestDevice() };
 import { DeviceProvider } from "@decocms/compat-v7/tanstack";
 <DeviceProvider value={page.device}>{sections}</DeviceProvider>
 
-// src/worker-entry.ts
-segment: (request) => ({ ...cohortSegment(request) }),
+// src/worker-entry.ts: the segment of the site's own page cache
+const segment = (request: Request) => ({ device: …, ...cohortSegment(request) });
 ```
 
 - `matcherContext(pageUrl?)` gives every matcher the request being served (TanStack Start's `getRequest()`), the page's URL and one `flags` array per request. On a client-side navigation the request is the server-function call, so pass the page's URL there, as v7 matched the page being navigated to; without it, that call throws.
-- `commitSegmentCookie()` sets `deco_segment` on the response with the decisions the matchers made, merged over the visitor's cookie: `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`, v7's bytes. Nothing when the cookie already says the same. Call it in the server function, after the page resolved. `createDecoWorker` never stores a response that sets it, as v7's worker didn't: keep `deco_segment` out of `safeCookies`.
+- `commitSegmentCookie()` sets `deco_segment` on the response with the decisions the matchers made, merged over the visitor's cookie: `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`, v7's bytes. Nothing when the cookie already says the same. Call it in the server function, after the page resolved. A site's page cache never stores a response that sets it, as v7's worker didn't: keep `deco_segment` out of the cookies its cache strips and stores (the worker-entry recipe in `@decocms/tanstack`'s README stores no response that sets a cookie other than its `SAFE_COOKIES`).
 - `cohortSegment(request)` is v7's A/B split of the edge cache (`{ abf: <token> }` for a visitor in a test, `{}` otherwise), so each group keeps its own cached page and everyone else shares one.
-- `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
+- `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker-entry recipe's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
 
 ### The A/B split with the legacy origin
 

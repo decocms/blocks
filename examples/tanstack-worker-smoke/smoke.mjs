@@ -130,7 +130,7 @@ try {
 
   const draft = await get(`/summer-shirt/p?__draft=${encodeURIComponent(POINTER)}`);
   const draftBody = await draft.text();
-  check("a draft is never cached", draft.headers.get("x-cache") === "BYPASS");
+  check("a draft never reaches the site's page cache", !draft.headers.has("x-cache"), draft.headers.get("x-cache"));
   check("a draft is noindex", draft.headers.get("x-robots-tag") === "noindex, nofollow");
   check("a draft is no-store", draft.headers.get("cache-control") === "no-store, private");
   check("a draft link stores its cookie", (draft.headers.get("set-cookie") ?? "").startsWith("__deco_draft="));
@@ -145,6 +145,9 @@ try {
     `${oldRelease.status} ${oldRelease.headers.get("cache-control")} ${oldRelease.headers.getSetCookie().join(" | ")}`,
   );
   check("the draft page publishes the draft for the badge", draftBody.includes("window.__DECO_DRAFT="));
+
+  const purge = await get("/_cache/purge", { method: "POST", body: JSON.stringify({ paths: ["/summer-shirt/p"] }) });
+  check("the purge route answers 401 without the PURGE_TOKEN secret", purge.status === 401, purge.status);
 } catch (error) {
   console.error(error);
   failures.push("crashed");

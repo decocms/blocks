@@ -1,6 +1,7 @@
 /**
  * A request's assignments (what its content gives it), as one cache-key
- * part: the version it reads (a Studio link's draft or release SHA, with its preview time `__at`
+ * part for a site's own page cache (the README's worker-entry recipe; the
+ * worker caches nothing itself): the version it reads (a Studio link's draft or release SHA, with its preview time `__at`
  * and forced tests), the tests of the saved `experiments` block its visitor
  * is in, and the campaigns of the saved `campaigns` block running at its
  * moment. Two requests with the same assignments render the same content, so
@@ -91,7 +92,7 @@ export async function readAssignments(
 }
 
 /**
- * Every assignments key a live request can carry now, for a purge: each
+ * Every assignments key a live request can carry now, for a site's purge: each
  * subset of the tests in the saved `experiments` block (the empty one
  * included), with the campaigns running now and with none. Previews are
  * never cached, so no version. A site without either block has one: `""`.

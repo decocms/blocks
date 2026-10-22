@@ -5,8 +5,8 @@
 
 /**
  * The query parameter `decoServerFnFetch` adds to a server-function URL: the
- * page's CDN segment token, which the worker checks before it lets the CDN
- * cache the response. `__d` is avoided: v7 used it as a debug flag.
+ * page's CDN segment token, which a site's page cache checks before it lets
+ * the CDN cache the response. `__d` is avoided: v7 used it as a debug flag.
  */
 export const CSEG_PARAM = "__cseg";
 
@@ -22,8 +22,8 @@ export const CSEG_GLOBAL = "__DECO_CSEG";
 export const PAGE_STATUS_HEADER = "x-page-status";
 
 /**
- * The response header a page sets when a loader it depends on failed: the
- * worker never stores that response, and serves a stale copy instead when it
- * has one.
+ * The response header a page sets when a loader it depends on failed: a
+ * site's page cache never stores that response, and serves a stale copy
+ * instead when it has one (the README's worker-entry recipe).
  */
 export const DEGRADED_HEADER = "x-deco-degraded";

@@ -1,11 +1,12 @@
 /**
- * Test doubles for the worker's tests: the Cache API, an execution context
- * that collects `waitUntil` work, a CMS over an in-memory release, and a
- * server entry that records what it was asked. Not exported by the package.
+ * Test doubles for the worker's tests: a site's page cache over an in-memory
+ * Cache API, an execution context that collects `waitUntil` work, a CMS over
+ * an in-memory release, and a server entry that records what it was asked.
+ * Not exported by the package.
  */
 import { type Blocks, type CMS, createCMS, type Snapshot } from "@decocms/blocks";
 import { currentScope, type RequestScope } from "@decocms/tanstack/scope";
-import type { ExecutionContextLike } from "./index.ts";
+import type { ExecutionContextLike, PageCache, PageRequest } from "./index.ts";
 
 export class MemoryCache {
   readonly entries = new Map<string, Response>();
@@ -36,14 +37,28 @@ export class MemoryCache {
   }
 }
 
-export function installCache(): MemoryCache {
-  const cache = new MemoryCache();
-  (globalThis as unknown as { caches: unknown }).caches = { default: cache };
-  return cache;
-}
-
-export function uninstallCache(): void {
-  delete (globalThis as unknown as { caches?: unknown }).caches;
+/**
+ * The smallest site page cache: keyed by URL and device, `X-Cache` `HIT` or
+ * `MISS`, storing a 200 that sets no cookie. `seen` holds each request it
+ * was called for. The full recipe and its tests are
+ * `examples/tanstack-worker-smoke`'s worker entry.
+ */
+export function testPageCache() {
+  const store = new MemoryCache();
+  const seen: PageRequest[] = [];
+  const pageCache: PageCache = async (page) => {
+    seen.push(page);
+    const key = new Request(`${page.url.href}#${page.device}`);
+    const hit = await store.match(key);
+    const response = hit ?? (await page.render({ csegToken: "a1b2c3d4" }));
+    if (!hit && response.status === 200 && !response.headers.has("set-cookie")) {
+      await store.put(key, response.clone());
+    }
+    const out = new Response(response.body, response);
+    out.headers.set("X-Cache", hit ? "HIT" : "MISS");
+    return out;
+  };
+  return { store, seen, pageCache };
 }
 
 export class TestContext implements ExecutionContextLike {

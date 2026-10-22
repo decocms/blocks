@@ -10,12 +10,13 @@
  * - v7's exported helpers on the same inputs;
  * - inside the real `createDecoWorker`: the "worker" bucket's page gets the
  *   bucket cookie once, the worker's own headers once, the page is rendered
- *   once (no loop), and cached pages are tagged too.
+ *   once (no loop), and pages the site's own cache (`pageCache`) serves are
+ *   tagged too.
  */
 import { type CMS, createCMS, type Snapshot } from "@decocms/blocks";
 import { newVisitor, serializeVisitor } from "@decocms/blocks/experiments";
-import { createDecoWorker } from "@decocms/tanstack/worker";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDecoWorker, type PageCache } from "@decocms/tanstack/worker";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { v7Loader } from "../__tests__/loadV7";
 import { pick, rng } from "../__tests__/v7";
 import {
@@ -421,12 +422,22 @@ describe("abTestingRoutes at a Worker's global scope", () => {
 });
 
 describe("abTestingRoutes in createDecoWorker", () => {
-  let cache: MemoryCache;
   let n = 0;
-  beforeEach(() => {
-    cache = new MemoryCache();
-    vi.stubGlobal("caches", { default: cache });
-  });
+
+  /** A site's page cache, keyed by URL (the README's recipe, smaller). */
+  function sitePageCache(calls: string[]): PageCache {
+    const cache = new MemoryCache();
+    return async (page) => {
+      calls.push(page.url.pathname);
+      const key = new Request(page.url.href);
+      const hit = await cache.match(key);
+      const response = hit ?? (await page.render());
+      if (!hit && response.status === 200) await cache.put(key, response.clone());
+      const out = new Response(response.body, response);
+      out.headers.set("X-Cache", hit ? "HIT" : "MISS");
+      return out;
+    };
+  }
 
   function setup(config: Partial<ABTestConfig> = {}, kv: SiteConfig | null = null) {
     n += 1;
@@ -441,7 +452,7 @@ describe("abTestingRoutes in createDecoWorker", () => {
       return new Response(`<p>${LEGACY}</p>`, { headers: { "content-type": "text/html" } });
     });
     const abTesting = abTestingRoutes<Record<string, unknown>>({ worker: () => worker, ...config });
-    const onCache = vi.fn();
+    const cached: string[] = [];
     const worker = createDecoWorker<Record<string, unknown>>({
       serverEntry: {
         fetch: (request: Request) => {
@@ -451,9 +462,8 @@ describe("abTestingRoutes in createDecoWorker", () => {
       },
       cms,
       site: "loja",
-      buildHash: "b1",
       preload: { styles: ["/assets/app.css"], fonts: ["/fonts/a.woff2"] },
-      onCache,
+      pageCache: sitePageCache(cached),
       routes: async (request, env, ctx) =>
         (await abTesting(request, env, ctx)) ??
         (new URL(request.url).pathname === "/site-route" ? new Response("site route") : null),
@@ -469,14 +479,14 @@ describe("abTestingRoutes in createDecoWorker", () => {
       await Promise.allSettled(work.splice(0));
       return res;
     };
-    return { get, rendered, legacy, onCache };
+    return { get, rendered, legacy, cached };
   }
 
   const config: SiteConfig = { workerName: "w", fallbackOrigin: LEGACY, abTest: { ratio: 0.5 } };
   const links = (res: Response) => (res.headers.get("link") ?? "").split(/,\s*(?=<)/);
 
   it("the worker bucket: the page once, tagged, with the worker's headers once", async () => {
-    const { get, rendered, legacy, onCache } = setup({}, config);
+    const { get, rendered, legacy, cached } = setup({}, config);
     const res = await get("/p", { cookie: "_deco_bucket=worker:50" });
     expect(await res.text()).toBe("<p>v8</p>");
     expect(res.headers.get("x-deco-bucket")).toBe("worker");
@@ -489,7 +499,7 @@ describe("abTestingRoutes in createDecoWorker", () => {
     expect(res.headers.get("x-cache")).toBe("MISS");
     expect(rendered).toEqual(["/p"]);
     expect(legacy).toEqual([]);
-    expect(onCache).toHaveBeenCalledTimes(1);
+    expect(cached).toEqual(["/p"]);
 
     // A cached page is tagged too, and the override sets the cookie.
     const hit = await get("/p", { cookie: "_deco_bucket=worker:50" });

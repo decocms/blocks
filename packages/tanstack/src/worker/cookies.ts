@@ -1,30 +1,4 @@
-/** Set-Cookie handling: which cookies a cached response may carry, and one header per cookie. */
-
-function cookieName(setCookie: string): string {
-  const eq = setCookie.indexOf("=");
-  return eq > 0 ? setCookie.slice(0, eq).trim() : "";
-}
-
-/** Whether every cookie the response sets is one a shared (cached) response may set. */
-export function hasOnlySafeCookies(response: Response, safe: ReadonlySet<string>): boolean {
-  return response.headers.getSetCookie().every((c) => {
-    const name = cookieName(c);
-    return name === "" || safe.has(name);
-  });
-}
-
-/** A copy for the cache without the safe cookies; the visitor still gets them. */
-export function withoutSafeCookies(response: Response, safe: ReadonlySet<string>): Response {
-  const copy = response.clone();
-  const cookies = response.headers.getSetCookie();
-  if (cookies.length === 0) return copy;
-  copy.headers.delete("set-cookie");
-  for (const c of cookies) {
-    const name = cookieName(c);
-    if (name && !safe.has(name)) copy.headers.append("set-cookie", c);
-  }
-  return copy;
-}
+/** Set-Cookie handling: one header per cookie. */
 
 /**
  * A Set-Cookie's identity: name + Domain + Path, the way the browser keys its

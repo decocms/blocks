@@ -49,7 +49,8 @@ export function isServerFnCall(request: Request = getRequest()): boolean {
 
 /**
  * Marks a server function's response as per-visitor (`Cache-Control: private,
- * no-store`): the worker never stores it and the CDN never keeps it. Only when
+ * no-store`): a site's page cache never stores it (the README's recipe) and
+ * the CDN never keeps it. Only when
  * the browser called the function over HTTP; while a document renders the
  * function is a plain call and the header would land on the page.
  */
