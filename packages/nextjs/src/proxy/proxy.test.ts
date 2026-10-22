@@ -58,7 +58,6 @@ describe("decideDraft", () => {
     const real = testCMS();
     const cms = {
       readVersion: vi.fn(async () => ({ version: POINTER })),
-      settings: vi.fn(() => real.settings()),
       forRelease: vi.fn(() => real.forRelease()),
     };
     expect(await decideDraft(cms, new NextRequest("https://shop.example.com/shoes?q="))).toEqual({
@@ -66,26 +65,26 @@ describe("decideDraft", () => {
       setCookie: null,
     });
     expect(cms.readVersion).not.toHaveBeenCalled();
-    expect(cms.settings).not.toHaveBeenCalled();
     expect(cms.forRelease).not.toHaveBeenCalled();
   });
 
-  it("?__draft=off ends the preview on any host, kill switch included", async () => {
+  it("?__draft=off ends the preview on any host, one that may not preview included", async () => {
     const off = new NextRequest("https://shop.example.com/?__draft=off");
-    const d = await decideDraft(testCMS(), off, { previewHosts: "none" });
+    const d = await decideDraft(testCMS(snapshot()), off);
     expect(d.version?.version ?? null).toBe(null);
     expect(d.setCookie).toContain("Max-Age=0");
   });
 
   it("a host outside the allowlist gets the release", async () => {
     const cms = testCMS(snapshot({ previewHosts: ["staging.shop.example.com"] }));
-    expect(await decideDraft(cms, draftLink(), { site: "acme" })).toEqual({
+    expect(await decideDraft(cms, draftLink())).toEqual({
       version: null,
       setCookie: null,
     });
-    expect(
-      (await decideDraft(cms, draftLink("/", "acme.deco.site"), { site: "acme" })).version?.version,
-    ).toBe(POINTER);
+    expect(await decideDraft(cms, draftLink("/", "acme.deco.site"))).toEqual({
+      version: null,
+      setCookie: null,
+    });
     expect(
       (await decideDraft(cms, draftLink("/", "staging.shop.example.com"))).version?.version ?? null,
     ).toBe(POINTER);
@@ -178,7 +177,7 @@ describe("applyDraft", () => {
 
 describe("draftProxy", () => {
   it("drafted: rewritten, forwarded, cookie and headers", async () => {
-    const res = await draftProxy(testCMS(), { site: "acme" })(draftLink());
+    const res = await draftProxy(testCMS())(draftLink());
     expect(new URL(res.headers.get("x-middleware-rewrite")!).pathname).toBe("/_draft/shoes");
     expect(res.headers.get("set-cookie")).toContain("__deco_draft=");
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");

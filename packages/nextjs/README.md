@@ -18,9 +18,9 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 ## Drafts
 
 ```ts
-// src/cms.config.ts: the options both CMS handles share, and where drafts preview
-export const cmsConfig = { content };
-export const preview = { site: "my-store" };
+// src/cms.config.ts: the options both CMS handles share (with `site`, hosted releases and
+// the preview hosts Studio writes into them)
+export const cmsConfig = { content, site: "my-store" };
 
 // src/cms.ts and src/cms.proxy.ts
 export const cms = createCMS({ blocks, ...cmsConfig });
@@ -29,7 +29,7 @@ export const proxyCms = createCMS({ blocks: {}, ...cmsConfig }); // no block map
 // src/proxy.ts
 export async function proxy(request: NextRequest) {
   if (isDraftRoutePath(request.nextUrl.pathname)) return new NextResponse(null, { status: 404 });
-  const draft = await decideDraft(proxyCms, request, preview);
+  const draft = await decideDraft(proxyCms, request);
   const visitor = decideVisitor(request, draft);
   const assignments = await decideAssignments(proxyCms, draft, visitor);
   const headers = assignmentsRequestHeaders(
@@ -45,14 +45,14 @@ export async function proxy(request: NextRequest) {
 // src/app/%5Fdraft/[[...path]]/page.tsx: the dynamic draft route (a literal `_draft` folder never routes)
 export const dynamic = "force-dynamic";
 export default async function DraftPage({ params, searchParams }) {
-  await bindDraft(cms, { searchParams: await searchParams, ...preview });
+  await bindDraft(cms, { searchParams: await searchParams });
   const client = contentClient(cms);
   // … resolve and render the page as on the published route …
   return <>{page}<DraftPreviewIndicator /></>;
 }
 ```
 
-Published pages stay cached (ISR, below): the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted version on `x-deco-version` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A layout that reads content goes with its route, so the cached pages read no request: under the draft route (`app/%5Fdraft/layout.tsx`) it calls `bindDraft(cms, preview)` and `contentClient(cms)`, which read the forwarded headers; under the assignments route (`app/%5Fassignments/[assignments]/layout.tsx`) it reads through `await assignedClient(cms, (await params).assignments)`. `bindDraft` reads `headers()`, and a cached page that reads a request header renders on every request instead, so never call it in the root layout or on the assignments route.
+Published pages stay cached (ISR, below): the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted version on `x-deco-version` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A layout that reads content goes with its route, so the cached pages read no request: under the draft route (`app/%5Fdraft/layout.tsx`) it calls `bindDraft(cms)` and `contentClient(cms)`, which read the forwarded headers; under the assignments route (`app/%5Fassignments/[assignments]/layout.tsx`) it reads through `await assignedClient(cms, (await params).assignments)`. `bindDraft` reads `headers()`, and a cached page that reads a request header renders on every request instead, so never call it in the root layout or on the assignments route.
 
 A draft link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time (`__at`) and tests and campaigns switched on or off (`__test`, `__campaign`), which `cms.readVersion` reads as the client's `date`, `experiments` and `campaigns`. All of it passes the same host check and renders on the draft route: a visitor on the live site never picks a version. A preview may switch on a test at 0%.
 
@@ -60,7 +60,7 @@ A draft link can carry a published release's commit SHA instead of a draft (Stud
 
 The proxy decides once per request. `decideVisitor(request, draft)` reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor); `applyVisitor` sends its cookie on a first visit only, never from a preview. `decideAssignments(proxyCms, draft, visitor)` then decides each test and campaign on or off: `cms.client({ visitor, version, date, experiments, campaigns })` with the visitor and the Studio link's version, moment and switched tests and campaigns, resolving the saved `experiments` and `campaigns` blocks. `visitorRequestHeaders` and `assignmentsRequestHeaders` forward them on `x-deco-visitor` and `x-deco-assignments` (`draftRequestHeaders` always removes copies sent from outside).
 
-On the page, `bindDraft` binds the version and what the proxy forwarded (on the current release it reads the request only when the release saves an `experiments` or `campaigns` block, and a test at 0% stays off whatever the header says), and `contentClient(cms)` builds `cms.client({ version, experiments, campaigns })` from them: the page decides nothing again. The pages trust those headers: behind the proxy they hold what it decided, and a request that reaches a page without it (a `matcher` that leaves the route out, or a site without the proxy) is read the same way, with whatever `x-deco-version` and `x-deco-assignments` it arrives with. Which routes go through the proxy, and how the others are protected, is the site's call. A cached page reads no request: the CMS's pages render on [the assignments route](#the-assignments-route), with the tests and campaigns the proxy decided in the path.
+On the page, `bindDraft` binds the version and what the proxy forwarded (on the current release it binds the visitor and the assignments only when the release saves an `experiments` or `campaigns` block, and a test at 0% stays off whatever the header says), and `contentClient(cms)` builds `cms.client({ version, experiments, campaigns })` from them: the page decides nothing again. The pages trust those headers: behind the proxy they hold what it decided, and a request that reaches a page without it (a `matcher` that leaves the route out, or a site without the proxy) is read the same way, with whatever `x-deco-version` and `x-deco-assignments` it arrives with. Which routes go through the proxy, and how the others are protected, is the site's call. A cached page reads no request: the CMS's pages render on [the assignments route](#the-assignments-route), with the tests and campaigns the proxy decided in the path.
 
 The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on the request's assignments, never on the visitor: `assignmentsKey(assignments)` from `@decocms/nextjs/proxy`, with what `decideAssignments` gave, is the version, the tests on and the campaigns running (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the assignments route](#the-assignments-route).
 
@@ -117,7 +117,7 @@ export default async function Page({ params }) {
 
 ### Draft hosts
 
-v7's allowlist. A draft link (`?__draft=`) previews on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s; a site that declares none has none, as in v7 and as `cms.readVersion` reads it; `deco check` warns until it lists some) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. `previewHosts: [...]` replaces the declared list (v7's `DECO_ALLOWED_PREVIEW_HOSTS`, such as `["localhost:3000"]` in development); `previewHosts: "none"` turns previews off on every host. Hosts compare exactly, port included, on the host the visitor asked for (`x-forwarded-host`, else `host`). Pass the same options to `decideDraft` and `bindDraft`. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
+A draft link (`?__draft=`) previews on the hosts the CMS allows, which `cms.readVersion` checks: the addresses Studio writes into the current release's metadata (`previewHosts` in `latest.json`, read with `createCMS`'s `site`), plus `createCMS({ preview: { hosts } })` for content that isn't remote, such as `["localhost"]` in local development. The site lists nothing else; with neither, no host previews. The host is the one the visitor asked for (`x-forwarded-host`, else `host`); the proxy and `bindDraft` ask the same CMS. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
 
 ## The layout
 

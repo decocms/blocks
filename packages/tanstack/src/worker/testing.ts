@@ -73,7 +73,7 @@ export class TestContext implements ExecutionContextLike {
 
 /**
  * A release with a page, a redirect, a block that varies on the `buy-button`
- * test and, when given, the `CMS` block's preview hosts and the saved
+ * test and, when given, the preview hosts Studio writes into its metadata and the saved
  * `experiments` and `campaigns` blocks.
  */
 export function snapshot(
@@ -95,16 +95,15 @@ export function snapshot(
       ],
     },
   };
-  if (options.previewHosts) {
-    blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
-  }
   if (options.experiments) {
     blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
   }
   if (options.campaigns) {
     blocks.campaigns = { __resolveType: "calendar", ...options.campaigns };
   }
-  return { revision: options.revision ?? "rev-1", blocks } as Snapshot;
+  const release = { revision: options.revision ?? "rev-1", blocks } as Snapshot;
+  if (options.previewHosts) release.previewHosts = options.previewHosts;
+  return release;
 }
 
 let cmsCount = 0;

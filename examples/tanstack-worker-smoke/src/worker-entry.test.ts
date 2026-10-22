@@ -108,7 +108,6 @@ function content(options: {
 }) {
   const blocks: Record<string, unknown> = {
     Home: { __resolveType: "page", path: "/", sections: [] },
-    CMS: { __resolveType: "cms-settings", preview: { hosts: ["store.example.com"] } },
   };
   if (options.experiments)
     blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
@@ -116,7 +115,13 @@ function content(options: {
   roots += 1;
   doubles.cms = createCMS({
     blocks: {},
-    content: { revision: "rev-1", blocks, root: `/recipe-${roots}` } as Snapshot & { root: string },
+    content: {
+      revision: "rev-1",
+      blocks,
+      root: `/recipe-${roots}`,
+      // Studio's release metadata: where the store previews.
+      previewHosts: ["store.example.com"],
+    } as Snapshot & { root: string },
   });
 }
 

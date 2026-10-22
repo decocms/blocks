@@ -9,10 +9,10 @@
  * - A missing block, a block of another type, or a section that fails to
  *   resolve gives that section's defaults, still capped. Nothing rejects.
  * - Telemetry rates are the lower of content's and `telemetry.limits`.
- * - Preview hosts: content's entries that fall within code's `preview.hosts`
- *   (all of them when code sets none); without the field, code's list, or
- *   none: a site previews only where it declares (PO 2026-10-22), never on
- *   every host by default. `["*"]`, declared, still means every host.
+ * - Preview hosts aren't content: Studio writes them into the release
+ *   metadata (PO 2026-10-22), and `previewHosts` merges them with code's
+ *   `preview.hosts` (for content that isn't remote). With neither, no host.
+ *   `["*"]` still means every host.
  */
 import {
   analyticsSection,
@@ -20,18 +20,19 @@ import {
   SETTINGS_TYPE,
   telemetrySection,
 } from "./builtins/data.ts";
-import { formatHostPattern, type HostPattern, parseHostPattern, patternWithin } from "./hosts.ts";
+import { formatHostPattern, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { isPlainObject } from "./json.ts";
 import type { Client, CMSConfig, EffectiveSettings, Snapshot } from "./types.ts";
 
 /** What code allows: the caps every section's content is held to. */
 export interface SettingsCaps {
-  /** Code's `preview.hosts`, parsed; `undefined` when code sets none. */
-  hosts: readonly HostPattern[] | undefined;
   limits: { errorSampleRate: number; traceSampleRate: number };
 }
 
-const SECTIONS = ["preview", "telemetry", "analytics"] as const;
+/** The settings a release's `CMS` block holds: every section but `preview`, which isn't content. */
+export type SavedSettings = Omit<EffectiveSettings, "preview">;
+
+const SECTIONS = ["telemetry", "analytics"] as const;
 
 /**
  * Code's `preview.hosts`, parsed. Throws a `TypeError` on anything that isn't
@@ -67,7 +68,7 @@ function parseCodePatterns(
 }
 
 /** The settings with nothing saved: every default, capped. */
-export function defaultSettings(caps: SettingsCaps): EffectiveSettings {
+export function defaultSettings(caps: SettingsCaps): SavedSettings {
   return effectiveSettings({}, caps);
 }
 
@@ -80,7 +81,7 @@ export async function readSettings(
   snapshot: Snapshot | undefined,
   client: () => Client,
   caps: SettingsCaps,
-): Promise<EffectiveSettings> {
+): Promise<SavedSettings> {
   try {
     const entry = snapshot?.blocks[SETTINGS_BLOCK];
     if (!isPlainObject(entry) || entry.__resolveType !== SETTINGS_TYPE) {
@@ -120,10 +121,9 @@ function holdsBlock(value: unknown): boolean {
  * The settings, deep-frozen: one object per release is handed to every caller,
  * so a caller that writes to it would change it for every request.
  */
-function effectiveSettings(value: Record<string, unknown>, caps: SettingsCaps): EffectiveSettings {
+function effectiveSettings(value: Record<string, unknown>, caps: SettingsCaps): SavedSettings {
   const telemetry = telemetrySection(value.telemetry);
   return deepFreeze({
-    preview: { hosts: effectiveHosts(value.preview, caps.hosts) },
     telemetry: {
       ...telemetry,
       errorSampleRate: Math.min(telemetry.errorSampleRate, caps.limits.errorSampleRate),
@@ -133,7 +133,7 @@ function effectiveSettings(value: Record<string, unknown>, caps: SettingsCaps): 
   });
 }
 
-function deepFreeze<T>(value: T): T {
+export function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
     for (const child of Object.values(value)) deepFreeze(child);
@@ -141,17 +141,19 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function effectiveHosts(preview: unknown, code: readonly HostPattern[] | undefined): string[] {
-  const saved = isPlainObject(preview) && Array.isArray(preview.hosts) ? preview.hosts : undefined;
-  if (saved === undefined) return code ? unique(code.map(formatHostPattern)) : [];
-  const kept: string[] = [];
-  for (const raw of saved) {
-    const pattern = parseHostPattern(raw);
-    if (pattern === null) continue; // not a pattern: left out
-    if (code && !code.some((cap) => patternWithin(pattern, cap))) continue;
-    kept.push(formatHostPattern(pattern));
-  }
-  return unique(kept);
+/**
+ * The preview hosts in effect: the current release's `previewHosts` (from the
+ * release metadata Studio writes; entries that aren't host patterns left out)
+ * and code's `preview.hosts`, in their normal form, each once.
+ */
+export function previewHosts(
+  release: readonly string[] | undefined,
+  code: readonly HostPattern[] | undefined,
+): string[] {
+  const patterns = [...(release ?? []).map((raw) => parseHostPattern(raw)), ...(code ?? [])].filter(
+    (pattern): pattern is HostPattern => pattern !== null,
+  );
+  return unique(patterns.map(formatHostPattern));
 }
 
 function unique(values: string[]): string[] {

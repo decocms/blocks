@@ -43,8 +43,8 @@ const lines = (problems: Problem[]) =>
   );
 
 const hero = { __resolveType: "hero", title: "Summer", size: "md" };
-/** A CMS block that declares preview hosts, so deco check has no preview-hosts warning to give. */
-const PREVIEWS = { __resolveType: "cms-settings", preview: { hosts: ["localhost:3000"] } };
+/** A CMS block with nothing in it. */
+const SETTINGS = { __resolveType: "cms-settings" };
 const page = (sections: unknown[], extra: Record<string, unknown> = {}) => ({
   __resolveType: "page",
   name: "Home",
@@ -620,7 +620,7 @@ describe("deco check", () => {
     const fixture = createFixture(STORE_FILES);
     try {
       await writeSchema(decoPaths(fixture.root));
-      fixture.write(".deco/blocks/CMS.json", PREVIEWS);
+      fixture.write(".deco/blocks/CMS.json", SETTINGS);
       fixture.write(".deco/blocks/HomePage.json", page([{ __resolveType: "hero", size: "md" }]));
       fixture.write(".deco/blocks/Promo.json", { __resolveType: "promo-banner" });
       const out = recorder();
@@ -654,33 +654,23 @@ describe("deco check", () => {
     }
   }, 60_000);
 
-  it("warns, calmly, when the site declares no preview hosts: the site editor's previews won't open until it does", () => {
+  it("asks nothing about preview hosts (Studio keeps them); a CMS block still holding them gets a calm warning", () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
       ".deco/blocks/Hero.json": { __resolveType: "hero", title: "Summer", size: "md" },
     });
-    const warning =
-      ".deco/blocks/CMS.json\n  warning: preview.hosts: no preview hosts yet, so previews from the site editor won't open on this site: " +
-      'list the hosts they may open on, such as "localhost:3000" or "staging.example.com" ' +
-      "(hosts the site's code lists, in createCMS's preview.hosts or the binding's previewHosts, count too)";
     try {
       const out = recorder();
       expect(check({ cwd: fixture.root, reporter: out })).toBe(0);
-      expect(out.text()).toBe(`${warning}\n1 saved block checked: 0 errors, 1 warning`);
-      // A CMS block without a preview list is no declaration either.
-      fixture.write(".deco/blocks/CMS.json", { __resolveType: "cms-settings", telemetry: {} });
-      const settings = recorder();
-      expect(check({ cwd: fixture.root, reporter: settings })).toBe(0);
-      expect(settings.text()).toBe(`${warning}\n2 saved blocks checked: 0 errors, 1 warning`);
-      // A list, even an empty one (previews off), is.
-      for (const hosts of [["localhost:3000"], []]) {
-        fixture.write(".deco/blocks/CMS.json", {
-          __resolveType: "cms-settings",
-          preview: { hosts },
-        });
-        const declared = recorder();
-        expect(check({ cwd: fixture.root, reporter: declared })).toBe(0);
-        expect(declared.text()).toBe("2 saved blocks checked: 0 errors, 0 warnings");
+      expect(out.text()).toBe("1 saved block checked: 0 errors, 0 warnings");
+      for (const preview of [{ hosts: ["localhost:3000"] }, { hosts: [] }, "anything"]) {
+        fixture.write(".deco/blocks/CMS.json", { __resolveType: "cms-settings", preview });
+        const left = recorder();
+        expect(check({ cwd: fixture.root, reporter: left })).toBe(0);
+        expect(left.text()).toBe(
+          ".deco/blocks/CMS.json\n  warning: preview: the site editor now keeps the addresses this site can be previewed on, " +
+            "so this field isn't read any more: you can delete it\n2 saved blocks checked: 0 errors, 1 warning",
+        );
       }
     } finally {
       fixture.remove();
@@ -755,7 +745,7 @@ describe("deco check --color", () => {
   it("marks a clean run with a green check, the counts green", async () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
-      ".deco/blocks/CMS.json": PREVIEWS,
+      ".deco/blocks/CMS.json": SETTINGS,
       ".deco/blocks/Hero.json": hero,
     });
     try {
@@ -778,7 +768,7 @@ describe("deco check --color", () => {
   it("colours errors red and warnings yellow, with the same exit codes", async () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
-      ".deco/blocks/CMS.json": PREVIEWS,
+      ".deco/blocks/CMS.json": SETTINGS,
       ".deco/blocks/Promo.json": { __resolveType: "promo-banner" },
     });
     try {
@@ -826,7 +816,6 @@ describe("the CMS settings block", () => {
       run({
         CMS: {
           __resolveType: "cms-settings",
-          preview: { hosts: ["staging.example.com", "*.preview.example.com"] },
           telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
           analytics: {
             __resolveType: "multivariate",
@@ -1107,6 +1096,56 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
       'campaigns.json spaced.start: the campaign "spaced" starts at "2026-11-27 09:30z", which isn\'t written as a campaign reads it, so it never runs: write the date, "T", the time and the offset as Z or ±hh:mm, like "2026-11-27T09:30Z"',
     ]);
   });
+
+  it("checks the dates of every calendar block wherever it is: inline in a section's props, another saved block, a reference's overrides", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; campaigns?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const inline = {
+        __resolveType: "hero",
+        title: "Hi",
+        campaigns: {
+          __resolveType: "calendar",
+          sale: { start: "2026-11-27T00:00:00", end: "2026-11-26T00:00Z" },
+        },
+      };
+      const overridden = {
+        __resolveType: "hero",
+        title: "Hi",
+        campaigns: { __resolveType: "campaigns", flash: { start: "2026-11-27" } },
+      };
+      const promo = { __resolveType: "calendar", week: { end: "2026-12-01 10:00" } };
+      expect(
+        lines(
+          checkContent(
+            own,
+            saved({
+              campaigns,
+              promo,
+              HomePage: page([inline]),
+              Other: page([overridden], { path: "/other" }),
+            }),
+          ),
+        ),
+      ).toEqual([
+        'HomePage.json sections[0].campaigns.sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it never runs: add your store\'s offset, like "2026-11-27T00:00:00-03:00"',
+        'Other.json sections[0].campaigns.flash.start: the campaign "flash" starts at "2026-11-27", a date without a time or offset, so it never runs: add the time and your store\'s offset, like "2026-11-27T00:00-03:00"',
+        'promo.json week.end: the campaign "week" ends at "2026-12-01 10:00", which has no offset, so it never runs: add your store\'s offset, like "2026-12-01T10:00-03:00"',
+      ]);
+      // A readable window inline passes, and one ending before it starts is a warning there too.
+      inline.campaigns.sale.start = "2026-11-27T00:00:00-03:00";
+      expect(lines(checkContent(own, saved({ campaigns, HomePage: page([inline]) })))).toEqual([
+        'HomePage.json warning sections[0].campaigns.sale.end: the campaign "sale" ends before it starts, so it never runs: set an end after the start',
+      ]);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
 
   it("calendar and campaign are reserved names; campaigns is not", () => {
     expect(lines(run({ campaigns, calendar: { ...campaigns } }))).toContain(

@@ -461,7 +461,6 @@ describe("abTestingRoutes in createDecoWorker", () => {
         },
       },
       cms,
-      site: "loja",
       preload: { styles: ["/assets/app.css"], fonts: ["/fonts/a.woff2"] },
       pageCache: sitePageCache(cached),
       routes: async (request, env, ctx) =>

@@ -492,7 +492,7 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
   it("writes the worker entry: the site's own page cache, with v7's segment and CSP", () => {
     const entry = read("src/worker-entry.ts");
     expect(entry).toContain("pageCache,");
-    expect(entry).toContain('site: "acme",');
+    expect(entry).not.toContain("site:");
     expect(entry).toContain("csp: { reportOnly: CSP_DIRECTIVES },");
     expect(entry).toContain("const CSP_DIRECTIVES = [");
     expect(entry).toContain("function readCookie(request: Request, name: string)");

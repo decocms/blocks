@@ -42,6 +42,13 @@ export type Snapshot = {
    * module, a build outside git), the bundled content counts as the oldest.
    */
   committedAt?: string;
+  /**
+   * The hosts this release may be previewed on (host patterns), as Studio
+   * wrote them into the release metadata on delivery.decocms.com
+   * (`latest.json` and `revisions/<sha>.json`). Previews are checked against
+   * the current release's list; the bundled content has none.
+   */
+  previewHosts?: string[];
 };
 
 /**
@@ -163,15 +170,18 @@ export interface Variant<T> {
  * caps (see /next/built-in-blocks#cms-settings).
  */
 export interface CMSSettings {
-  /** Host patterns previews are allowed on, within `createCMS`'s `preview.hosts`; left out, code's list, or none. */
-  preview?: { hosts?: string[] };
   telemetry?: Telemetry;
   analytics?: Analytics;
 }
 
 /** What `cms.settings()` returns: every section, defaults filled in, caps applied. */
 export interface EffectiveSettings {
-  /** `["*"]` means every host; an empty list, none. */
+  /**
+   * The hosts previews are allowed on, as known in memory: the current
+   * release's `previewHosts` (Studio writes them into the release metadata)
+   * plus `createCMS`'s `preview.hosts`. `["*"]` means every host; an empty
+   * list, none.
+   */
   preview: { hosts: string[] };
   telemetry: Required<Telemetry>;
   analytics: Required<Analytics>;
@@ -271,8 +281,10 @@ export interface CMSConfig {
   telemetry?: false | TelemetryConfig;
   preview?: {
     /**
-     * The most content may allow previews on, in the host pattern format
-     * (/next/api-reference#host-patterns). Without it, content may allow any host.
+     * Hosts previews are allowed on besides the release's own (Studio writes
+     * those into the release metadata), in the host pattern format
+     * (/next/api-reference#host-patterns): for content that isn't remote,
+     * such as bundled content in local development (`["localhost"]`).
      */
     hosts?: string[];
     /**
@@ -425,8 +437,12 @@ export interface CMS {
    * with the preview's moment (`__at`) and switched tests (`__test`) and
    * campaigns (`__campaign`) as `date`, `experiments` and `campaigns`.
    * `null` when neither is present, for `?__draft=off`, on a host outside
-   * `settings().preview.hosts`, and for a value that doesn't parse (ignored,
-   * as if absent): in each case the request gets the current release.
+   * the preview hosts (the current release's `previewHosts`, which Studio
+   * writes into the release metadata, plus `createCMS`'s `preview.hosts`;
+   * with neither, no host), and for a value that doesn't parse (ignored,
+   * as if absent): in each case the request gets the current release. A
+   * draft and an older release's SHA are both checked against the current
+   * release's list.
    *
    * ```ts
    * const client = cms.client({ visitor, ...(await cms.readVersion(request)) });

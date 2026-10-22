@@ -57,6 +57,19 @@ export function peekRelease(source: Snapshot | Loader): Snapshot | undefined {
  */
 export const READ_REVISION: unique symbol = Symbol.for("decocms.blocks.readRevision");
 
+/**
+ * An internal hook `remoteLoader` has: the current release's preview hosts
+ * from the release metadata (`latest.json`), read once when this process
+ * hasn't read them yet; `undefined` when they can't be read.
+ */
+export const PREVIEW_HOSTS: unique symbol = Symbol.for("decocms.blocks.previewHosts");
+
+/** A release's `previewHosts` as Studio wrote them: the strings of a list; `undefined` for anything else. */
+export function previewHostsOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((host): host is string => typeof host === "string");
+}
+
 export function isSnapshot(content: unknown): content is Snapshot {
   return (
     isPlainObject(content) &&
@@ -64,7 +77,8 @@ export function isSnapshot(content: unknown): content is Snapshot {
     isPlainObject(content.blocks) &&
     (content.aliases === undefined || isPlainObject(content.aliases)) &&
     (content.schemaHash === undefined || typeof content.schemaHash === "string") &&
-    (content.committedAt === undefined || typeof content.committedAt === "string")
+    (content.committedAt === undefined || typeof content.committedAt === "string") &&
+    (content.previewHosts === undefined || Array.isArray(content.previewHosts))
   );
 }
 
@@ -195,6 +209,25 @@ export class ContentStore {
    */
   current(): Snapshot | undefined {
     return peekRelease(this.#source) ?? this.#latest;
+  }
+
+  /**
+   * The current release's preview hosts: what the source's release metadata
+   * says (`remoteLoader` reads it once if it hasn't yet), else the release in
+   * memory's own `previewHosts`. `peek` reads memory only, never the network.
+   */
+  async previewHosts(peek = false): Promise<readonly string[] | undefined> {
+    const source = this.#source;
+    const read = isLoader(source)
+      ? (source as { [PREVIEW_HOSTS]?: (peek: boolean) => Promise<string[] | undefined> })[
+          PREVIEW_HOSTS
+        ]
+      : undefined;
+    if (typeof read === "function") {
+      const hosts = await read.call(source, peek).catch(() => undefined);
+      if (hosts !== undefined) return hosts;
+    }
+    return previewHostsOf(this.current()?.previewHosts);
   }
 
   /** Asks the source for newer content; never throws, and concurrent calls share one check. */

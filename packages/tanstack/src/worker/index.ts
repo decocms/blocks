@@ -50,7 +50,7 @@ import { VISITOR_HEADER } from "../visitor.ts";
 import { type RequestAssignments, readAssignments } from "./assignments.ts";
 import { isCacheable } from "./cache.ts";
 import { dedupeSetCookies } from "./cookies.ts";
-import { type DraftDecision, decideDraft, type PreviewPolicy } from "./drafts.ts";
+import { type DraftDecision, decideDraft } from "./drafts.ts";
 import { type CspOptions, htmlSecurityHeaders } from "./security.ts";
 import { type Device, detectDevice } from "./segment.ts";
 import { isServerFnPath } from "./serverFn.ts";
@@ -121,8 +121,6 @@ export interface DecoWorkerOptions<Env = unknown> {
   serverEntry: ServerEntry;
   /** The site's CMS: drafts, the CMS redirects, the page templates of the request metric. */
   cms: CMS;
-  /** The site's name: `<site>.deco.site` and `<site>.deco-cx.workers.dev` may preview drafts. */
-  site: string;
   /** Local development (`import.meta.env.DEV`): `pageCache` is never called, loopback may frame the site. */
   dev?: boolean;
   /** The site's Content-Security-Policy. Studio's `frame-ancestors` is always added. */
@@ -139,14 +137,6 @@ export interface DecoWorkerOptions<Env = unknown> {
    * checkout, an A/B test's other site), and these are this app's assets.
    */
   preload?: { styles?: readonly string[]; fonts?: readonly string[] };
-  /**
-   * v7's `DECO_ALLOWED_PREVIEW_HOSTS`: replaces the site's declared preview
-   * hosts (the `CMS` block's), exact hosts with their port
-   * (`["localhost:5173"]` for local development); the site's Deco hosts stay
-   * allowed. `"none"` turns draft previews off on every host. Without it and
-   * without hosts in the `CMS` block, drafts preview only on the Deco hosts.
-   */
-  previewHosts?: readonly string[] | "none";
   /**
    * The escape hatch, after the CMS redirects and before anything else: answer
    * a request yourself (a commerce proxy, a sitemap, an A/B route) or return
@@ -236,7 +226,6 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   const { cms, serverEntry } = options;
   const dev = options.dev === true;
   const securityHeaders = htmlSecurityHeaders(options.csp, dev);
-  const policy: PreviewPolicy = { site: options.site, previewHosts: options.previewHosts };
   const preloadLinks = [
     ...(options.preload?.styles ?? []).map((href) => `<${href}>; rel=preload; as=style`),
     ...(options.preload?.fonts ?? []).map((href) => `<${href}>; rel=preload; as=font; crossorigin`),
@@ -514,7 +503,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   ): Promise<{ response: Response; served: Served; draft: boolean }> {
     let decision: DraftDecision = { version: null, setCookie: null };
     try {
-      decision = await decideDraft(cms, incoming, policy);
+      decision = await decideDraft(cms, incoming);
     } catch {
       // The settings didn't load: the request gets the release.
     }

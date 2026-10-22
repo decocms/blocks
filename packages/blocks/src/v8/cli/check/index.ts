@@ -91,6 +91,10 @@ const FOLDED_BUILT_INS: Record<string, string> = {
   "date-windows": `the built-in is now "${CALENDAR_TYPE}": set the saved block "${CAMPAIGNS_BLOCK}" to { "__resolveType": "${CALENDAR_TYPE}", … }`,
 };
 
+/** A `CMS` block saved with preview hosts, which Studio keeps now (in the release it publishes). */
+const PREVIEW_FIELD_GONE =
+  "the site editor now keeps the addresses this site can be previewed on, so this field isn't read any more: you can delete it";
+
 /** The prerelease `date` rule, which the `campaign` rule replaced. */
 const OLD_DATE_RULE = "date";
 
@@ -247,8 +251,10 @@ function isDate(value: string): boolean {
 /**
  * The formats `deco check` enforces: the standard ones the schema's widgets
  * write (`@format date`, `date-time`, `uri`). A date-time is a date, `T` (or a
- * space) and a time whose seconds and zone are optional, since that is what
- * the site editor's date-time picker saves. Every other format names a
+ * space) and a time whose seconds and zone are optional: content written by
+ * hand or by older tools may leave them out (the site editor's date-time
+ * picker saves the offset, as in `2026-11-27T00:00:00-03:00`). A campaign
+ * bound needs the offset, which `unreadableBound` checks. Every other format names a
  * site-editor widget (`image-uri`, `color`, `rich-text`, …), not a rule, so it
  * accepts any string.
  */
@@ -474,14 +480,39 @@ class Checker {
     return { ...saved, ...block };
   }
 
+  /** Whether `type` is the built-in `calendar` (not one the block map replaces). */
+  private isCalendar(type: unknown): boolean {
+    return this.canonicalType(type as string) === CALENDAR_TYPE && this.isOwnBuiltIn(CALENDAR_TYPE);
+  }
+
   /**
-   * Each campaign of a `campaigns` block with a bound the runtime can't read
+   * A `calendar` block wherever it is (the saved block `campaigns`, another
+   * saved block, or inline in a section's props): its props, then the dates
+   * of every campaign in it, whose own messages replace the generic
+   * date-time format error at the same path.
+   */
+  private checkCalendar(ctx: Context, block: Record<string, Json>, path: string): void {
+    const before = ctx.problems.length;
+    this.checkProps(ctx, block, path, true);
+    const found = ctx.problems.splice(before);
+    const dates = this.checkCampaignWindows(ctx, block, path);
+    ctx.problems.push(
+      ...found.filter((p) => !(dates.has(p.path) && p.message.endsWith("isn't a valid date-time"))),
+    );
+  }
+
+  /**
+   * Each campaign of a `calendar` block with a bound the runtime can't read
    * (a date without a time, a date-time without an offset, or one not written
    * as ISO 8601: `campaignTime`), which is an error since that campaign never
    * runs, or whose end isn't after its start. Returns the paths of the dates
    * reported here, whose generic format error says less and is dropped.
    */
-  private checkCampaignWindows(ctx: Context, entry: Record<string, Json>): Set<string> {
+  private checkCampaignWindows(
+    ctx: Context,
+    entry: Record<string, Json>,
+    path: string,
+  ): Set<string> {
     const reported = new Set<string>();
     for (const key of Object.keys(entry).sort()) {
       if (key === "__resolveType") continue;
@@ -489,7 +520,7 @@ class Checker {
       if (!isObject(window)) continue;
       const { start, end } = window;
       const at = (bound: string) =>
-        joinPath("", `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}/${bound}`);
+        joinPath(path, `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}/${bound}`);
       for (const [bound, value] of [
         ["start", start],
         ["end", end],
@@ -664,7 +695,8 @@ class Checker {
         const target = this.saved.blocks[name];
         const targetType = String(target.__resolveType);
         const merged = { ...target, ...block, __resolveType: targetType };
-        if (this.canonicalType(targetType)) this.checkProps(ctx, merged, path, true);
+        if (this.isCalendar(targetType)) this.checkCalendar(ctx, merged, path);
+        else if (this.canonicalType(targetType)) this.checkProps(ctx, merged, path, true);
       }
       return;
     }
@@ -681,6 +713,10 @@ class Checker {
       return;
     }
 
+    if (this.isCalendar(name)) {
+      this.checkCalendar(ctx, block, path);
+      return;
+    }
     switch (type) {
       case "multivariate":
         this.checkVariants(ctx, block, path, field);
@@ -879,18 +915,22 @@ class Checker {
               `"${CALENDAR_TYPE}"; with type "${entry.__resolveType}" every campaign rule is false`,
             "warning",
           );
-        } else {
-          const dates = this.checkCampaignWindows(ctx, entry);
-          const before = problems.length;
-          this.checkBlock(ctx, entry, "", null);
-          const found = problems.splice(before);
-          problems.push(
-            ...found.filter(
-              (p) => !(dates.has(p.path) && p.message.endsWith("isn't a valid date-time")),
-            ),
-          );
-          continue;
         }
+      }
+      if (
+        name === SETTINGS_BLOCK &&
+        entry.__resolveType === SETTINGS_TYPE &&
+        Object.hasOwn(entry, "preview")
+      ) {
+        // Saved by an earlier version: Studio now keeps where the site previews.
+        const before = problems.length;
+        this.checkBlock(ctx, entry, "", null);
+        const found = problems.splice(before);
+        problems.push(
+          ...found.filter((p) => p.path !== "preview" && !p.path.startsWith("preview.")),
+        );
+        this.report(ctx, "preview", PREVIEW_FIELD_GONE, "warning");
+        continue;
       }
       this.checkBlock(ctx, entry, "", null);
     }
@@ -979,30 +1019,6 @@ export function checkContent(meta: DecoMeta, saved: SavedBlocks): Problem[] {
 }
 
 /**
- * A warning when the saved `CMS` block declares no preview hosts: a site
- * previews only on the hosts it declares (`cms.readVersion` reads no version
- * elsewhere), so the site editor's previews won't open until it lists them.
- * Only content is read here; hosts the site's code lists count too, which the
- * message says. An explicit list, even an empty one (previews off), or a
- * `preview` with variants is a declaration.
- */
-export function previewHostsProblem(saved: SavedBlocks): Problem | null {
-  const entry = own(saved.blocks, SETTINGS_BLOCK);
-  const preview =
-    isObject(entry) && entry.__resolveType === SETTINGS_TYPE ? entry.preview : undefined;
-  if (isObject(preview) && (Object.hasOwn(preview, "hosts") || isBlock(preview))) return null;
-  const file = own(saved.files, SETTINGS_BLOCK) ?? `${SETTINGS_BLOCK}.json`;
-  return {
-    file: `.deco/blocks/${file}`,
-    path: "preview.hosts",
-    message:
-      "no preview hosts yet, so previews from the site editor won't open on this site: list the hosts they may open on, " +
-      'such as "localhost:3000" or "staging.example.com" (hosts the site\'s code lists, in createCMS\'s preview.hosts or the binding\'s previewHosts, count too)',
-    severity: "warning",
-  };
-}
-
-/**
  * Print problems grouped per file, the format the docs show. With colour, the
  * same text plus escapes: file bold, path dim, an error's message red and the
  * word `warning` yellow.
@@ -1078,8 +1094,6 @@ export function check(options: CheckOptions = {}): number {
   const meta = readSchemaFile(paths.schema);
   const saved = readSavedBlocks(paths.blocks);
   const problems = checkContent(meta, saved);
-  const previews = previewHostsProblem(saved);
-  if (previews !== null) problems.push(previews);
   const errors = problems.filter((p) => p.severity === "error").length;
   const warnings = problems.length - errors;
   if (problems.length > 0) {

@@ -274,7 +274,7 @@ assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
-assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
+assert<Equal<CMSSettings, { telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
 assert<Equal<CMS["forRelease"], () => Client>>();
@@ -325,13 +325,13 @@ export { r1, r2, r3 };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt? }", () => {
+  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt?, previewHosts? }", () => {
     const errors = typecheck({
       "snapshot.ts": `
 import type { Snapshot } from "@decocms/blocks";
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assert = <T extends true>() => {};
-assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string }>>();
+assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string; previewHosts?: string[] }>>();
 `,
     });
     expect(errors).toEqual([]);

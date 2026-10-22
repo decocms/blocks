@@ -353,20 +353,17 @@ describe("migrate", () => {
       __resolveType: "cms-settings",
       telemetry: { errorSampleRate: 0.01 },
     });
-    expect(manual("settings").join("\n")).toContain("DECO_ALLOWED_PREVIEW_HOSTS");
+    expect(manual("settings").join("\n")).toContain("DECO_OTEL_* sampling");
+    expect(manual("settings").join("\n")).not.toMatch(/preview/i);
   });
 
   it("leaves a tree that passes deco schema, deco content and deco check", async () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
     expect(await content({ root, reporter: quiet })).toBe(0);
     expect(check({ root, reporter: quiet })).toBe(0);
-    // v7 declared no preview hosts, so none were written: only that warning, which the report names too.
-    expect(quiet.text).toEqual([
-      expect.stringMatching(
-        /^\.deco\/blocks\/CMS\.json\n {2}warning: preview\.hosts: no preview hosts yet/,
-      ),
-    ]);
-    expect(report.manual.some((n) => n.subject === "preview hosts")).toBe(true);
+    // Nothing to warn about: preview hosts are Studio's, not the site's.
+    expect(quiet.text).toEqual([]);
+    expect(report.manual.some((n) => /preview host/i.test(n.subject))).toBe(false);
     // deco schema runs the TypeScript compiler: seconds on a loaded machine.
   }, 30_000);
 

@@ -83,10 +83,7 @@ describe("runCli", () => {
       fixture.write(`apps/store/${file}`, content);
     fixture.write("apps/store/src/deco.ts", fixture.read("src/deco.ts"));
     fixture.write("apps/store/.deco/blocks/Summer.json", hero);
-    fixture.write("apps/store/.deco/blocks/CMS.json", {
-      __resolveType: "cms-settings",
-      preview: { hosts: ["localhost:3000"] },
-    });
+    fixture.write("apps/store/.deco/blocks/CMS.json", { __resolveType: "cms-settings" });
     const out = recorder();
     const args = ["--root", "apps/store"];
     expect(await runCli(["schema", ...args], { cwd: fixture.root, reporter: out })).toBe(0);

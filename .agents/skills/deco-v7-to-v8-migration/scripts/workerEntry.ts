@@ -491,7 +491,6 @@ async function purge(request: Request, env: Env): Promise<Response> {
 const worker = createDecoWorker<Env>({
   serverEntry: createServerEntry({ fetch: handler.fetch }),
   cms,
-  site: "tanstack-worker-smoke",
   dev: import.meta.env.DEV,
   pageCache,
 });
@@ -514,7 +513,6 @@ const ANCHORS = {
   imports: 'import { cms } from "./cms";\n',
   declarations: "\ninterface Env {\n",
   segment: `const buildSegment: (request: Request) => SiteSegment = ${DEFAULT_SEGMENT};`,
-  site: '  site: "tanstack-worker-smoke",\n',
   csp: "  dev: import.meta.env.DEV,\n",
 } as const;
 
@@ -529,8 +527,6 @@ function recipeNames(): Set<string> {
 }
 
 export interface WorkerEntryParts {
-  /** The site's name in Deco (`createDecoWorker`'s `site`). */
-  site: string;
   /** v7's `buildSegment`, as an expression of type `(request: Request) => SiteSegment`. */
   segment?: string;
   /** v7's `csp` directives, as an expression of type `string[]`. */
@@ -558,7 +554,6 @@ export function workerEntryRecipe(parts: WorkerEntryParts): string {
   if (parts.segment !== undefined) {
     replace(ANCHORS.segment, ANCHORS.segment.replace(DEFAULT_SEGMENT, parts.segment));
   }
-  replace(ANCHORS.site, `  site: ${JSON.stringify(parts.site)},\n`);
   if (parts.csp !== undefined) {
     replace(
       ANCHORS.csp,
@@ -668,12 +663,11 @@ function importWith(decl: ts.ImportDeclaration, keep: Set<string>, file: ts.Sour
 /** The parts of the recipe the v7 entry fills, and the v7 options it doesn't carry. */
 export function v7WorkerEntryParts(
   text: string,
-  site: string,
 ): { parts: WorkerEntryParts; leftOut: string[] } | undefined {
   const file = ts.createSourceFile("worker-entry.ts", text, ts.ScriptTarget.Latest, true);
   const options = v7Options(file);
   if (!options) return undefined;
-  const parts: WorkerEntryParts = { site };
+  const parts: WorkerEntryParts = {};
   const leftOut: string[] = [];
   const used = new Set<string>();
   for (const p of options.properties) {
@@ -736,11 +730,11 @@ function workerEntryFile(root: string): string {
  * `createDecoWorkerEntry` call carried. An entry that isn't v7's is kept and
  * reported.
  */
-export function writeWorkerEntry(root: string, report: Report, site: string): void {
+export function writeWorkerEntry(root: string, report: Report): void {
   const file = workerEntryFile(root);
   const rel = path.relative(root, file).split(path.sep).join("/");
   const old = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
-  const fromV7 = old === undefined ? undefined : v7WorkerEntryParts(old, site);
+  const fromV7 = old === undefined ? undefined : v7WorkerEntryParts(old);
   if (old !== undefined && fromV7 === undefined) {
     report.manual.push({
       step: "scaffold",
@@ -750,7 +744,7 @@ export function writeWorkerEntry(root: string, report: Report, site: string): vo
     });
     return;
   }
-  const parts = fromV7?.parts ?? { site };
+  const parts = fromV7?.parts ?? {};
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, workerEntryRecipe(parts));
   declareBuildHash(root, report);
@@ -768,13 +762,6 @@ export function writeWorkerEntry(root: string, report: Report, site: string): vo
       step: "scaffold",
       subject: rel,
       message: `v7's createDecoWorkerEntry options not carried: ${fromV7.leftOut.join(", ")}. Move what the site still needs from git (a proxyHandler becomes createDecoWorker's routes; securityHeaders and cspMode its csp; purgeTokenEnv the recipe's env.PURGE_TOKEN; a cache profile change the recipe's PROFILES); wrappers around the v7 worker (instrumentWorker, withABTesting) are gone with it: see the import map`,
-    });
-  }
-  if (site === "<site>") {
-    report.manual.push({
-      step: "scaffold",
-      subject: rel,
-      message: "set site: \"<site>\" to the site's name in Deco (DECO_SITE_NAME wasn't found)",
     });
   }
 }

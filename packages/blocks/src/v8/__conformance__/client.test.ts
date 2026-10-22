@@ -178,7 +178,7 @@ describe("cms.readVersion", () => {
     expect(await cms.readVersion(request(`?__draft=${OLD}`))).toBeNull();
   });
 
-  it("rv-04: a site that declares no preview hosts has none: no version is read, on any host", async () => {
+  it("rv-04: with no preview hosts in the release nor in code, none: no version is read, on any host", async () => {
     const link = `?__draft=${OLD}`;
     const none = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect((await none.settings()).preview.hosts).toEqual([]);
@@ -186,14 +186,17 @@ describe("cms.readVersion", () => {
     expect(await none.readVersion(request("", `__deco_draft=${OLD}`))).toBeNull();
     expect(await none.draftPointer(request(link))).toBeNull();
     expect(await none.draftCookie(request(link))).toBeNull();
-    // Declared in the CMS block (content) or in createCMS (code), it reads.
+    // A CMS block's preview field (an earlier version's) doesn't count.
+    const saved = docsSnapshot();
+    saved.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["shop.example.com"] } };
+    expect(
+      await createCMS({ blocks: docsBlocks(), content: saved }).readVersion(request(link)),
+    ).toBeNull();
+    // In the release (Studio writes them into its metadata) or in createCMS (code), it reads.
     const content = docsSnapshot();
-    content.blocks.CMS = {
-      __resolveType: "cms-settings",
-      preview: { hosts: ["shop.example.com"] },
-    };
-    const inContent = createCMS({ blocks: docsBlocks(), content });
-    expect(await inContent.readVersion(request(link))).toEqual({ version: OLD });
+    content.previewHosts = ["shop.example.com"];
+    const inRelease = createCMS({ blocks: docsBlocks(), content });
+    expect(await inRelease.readVersion(request(link))).toEqual({ version: OLD });
     const inCode = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),

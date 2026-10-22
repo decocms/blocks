@@ -524,7 +524,7 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
       expect(meta.manifest.blocks.content["cms-settings"]).toBeDefined();
       const settings = meta.schema.definitions[toBase64("cms-settings")] as any;
       expect(Object.keys(settings.properties).sort()).toEqual(
-        ["__resolveType", "analytics", "preview", "telemetry"].sort(),
+        ["__resolveType", "analytics", "telemetry"].sort(),
       );
       const definition = settings.properties.telemetry;
       const props = definition.properties ?? definition;

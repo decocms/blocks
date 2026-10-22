@@ -50,7 +50,7 @@ import { createReport, type Report } from "./report";
 import { writeScaffold } from "./scaffold";
 import { reencryptSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
-import { foldSiteSettings, v7SiteName } from "./siteSettings";
+import { foldSiteSettings } from "./siteSettings";
 import { rewriteLoaderContext, rewritePartialImports, writeStubs } from "./stubs";
 import { VtexInvokeChoiceNeeded, type VtexInvokeMode } from "./vtexInvoke";
 import { writeWorkerEntry } from "./workerEntry";
@@ -164,7 +164,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   rewriteDeviceReads(root, report);
   writeScaffold(root, report);
   if (siteFramework(root) === "tanstack") {
-    writeWorkerEntry(root, report, v7SiteName(root).name ?? "<site>");
+    writeWorkerEntry(root, report);
   }
   rewriteImports(root, report, vendored);
   addScripts(root, report);

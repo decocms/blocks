@@ -472,7 +472,6 @@ async function purge(request: Request, env: Env): Promise<Response> {
 const worker = createDecoWorker<Env>({
   serverEntry: createServerEntry({ fetch: handler.fetch }),
   cms,
-  site: "tanstack-worker-smoke",
   dev: import.meta.env.DEV,
   pageCache,
 });

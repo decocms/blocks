@@ -21,13 +21,12 @@ describe("the worker-entry recipe", () => {
     expect(RECIPE).toBe(example);
   });
 
-  it("with the example's name and nothing from v7, it is the recipe", () => {
-    expect(workerEntryRecipe({ site: "tanstack-worker-smoke" })).toBe(RECIPE);
+  it("with nothing from v7, it is the recipe", () => {
+    expect(workerEntryRecipe({})).toBe(RECIPE);
   });
 
-  it("puts the site's name, segment, CSP, imports and declarations in", () => {
+  it("puts the segment, CSP, imports and declarations in", () => {
     const out = workerEntryRecipe({
-      site: "acme",
       segment:
         '(request) => ({ device: "desktop", region: request.headers.get("cf-region") ?? "" })',
       csp: "CSP",
@@ -39,7 +38,7 @@ describe("the worker-entry recipe", () => {
     expect(out).toContain(
       'const buildSegment: (request: Request) => SiteSegment = (request) => ({ device: "desktop", region: request.headers.get("cf-region") ?? "" });',
     );
-    expect(out).toContain('  site: "acme",\n  dev: import.meta.env.DEV,\n');
+    expect(out).toContain("  cms,\n  dev: import.meta.env.DEV,\n");
     expect(out).toContain("  csp: { reportOnly: CSP },\n  pageCache,\n");
   });
 });
@@ -66,7 +65,7 @@ describe("what a v7 entry carries", () => {
   ].join("\n");
 
   it("the segment (a method becomes a function), the CSP, and only the imports and declarations they use", () => {
-    const found = v7WorkerEntryParts(V7, "acme");
+    const found = v7WorkerEntryParts(V7);
     expect(found?.parts.segment).toBe(
       'function (request) {\n    return { device: detectDevice(""), loggedIn: !!getCookies(request.headers).token };\n  }',
     );
@@ -83,8 +82,6 @@ describe("what a v7 entry carries", () => {
   });
 
   it("an entry with no createDecoWorkerEntry call isn't v7's", () => {
-    expect(v7WorkerEntryParts('export default { fetch: () => new Response("") };', "acme")).toBe(
-      undefined,
-    );
+    expect(v7WorkerEntryParts('export default { fetch: () => new Response("") };')).toBe(undefined);
   });
 });

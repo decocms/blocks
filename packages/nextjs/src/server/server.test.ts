@@ -73,18 +73,18 @@ describe("bindDraft", () => {
   it("the same host allowlist as the proxy, on the visitor's host", async () => {
     const cms = testCMS(snapshot({ previewHosts: ["staging.shop.example.com"] }));
     serve({ "x-deco-version": POINTER });
-    expect(await bindDraft(cms, { site: "acme" })).toBe(false); // a forged header on a host that may not preview
+    expect(await bindDraft(cms)).toBe(false); // a forged header on a host that may not preview
     serve({ "x-deco-version": POINTER, "x-forwarded-host": "acme.deco.site" });
-    expect(await bindDraft(cms, { site: "acme" })).toBe(true);
-    serve({ "x-deco-version": POINTER, "x-forwarded-host": "acme.deco.site" });
-    expect(await bindDraft(cms, { site: "acme", previewHosts: "none" })).toBe(false);
+    expect(await bindDraft(cms)).toBe(false);
+    serve({ "x-deco-version": POINTER, "x-forwarded-host": "staging.shop.example.com" });
+    expect(await bindDraft(cms)).toBe(true);
   });
 
-  it("with previews off everywhere it never reads the request, so a cached (ISR) page stays cached", async () => {
+  it("with no preview hosts in the release, a draft cookie binds nothing", async () => {
     serve(cookie);
     expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
-    expect(await bindDraft(testCMS(), { previewHosts: "none" })).toBe(false);
-    expect(request.reads).toBe(0);
+    expect(await bindDraft(testCMS(snapshot()))).toBe(false);
+    expect(activeDraftPointer()).toBe(null);
   });
 });
 
@@ -170,10 +170,10 @@ describe("the visitor the proxy forwarded", () => {
     expect(activeDraftPointer()).toBe(sha);
   });
 
-  it("a release with no experiments never reads the header, so a cached (ISR) page stays cached", async () => {
+  it("a release with no experiments binds no visitor: the request is read once, for the version only", async () => {
     serve({ "x-deco-visitor": serializeVisitor(newVisitor()) });
     expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
-    expect(request.reads).toBe(0);
+    expect(request.reads).toBe(1);
     const cms = { client: vi.fn(() => "client") };
     contentClient(cms as never);
     expect(cms.client).toHaveBeenLastCalledWith({ visitor: null, version: null });

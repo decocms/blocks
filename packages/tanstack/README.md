@@ -15,20 +15,19 @@ import { cms } from "./cms";
 export default createDecoWorker({
   serverEntry: createServerEntry({ fetch: handler.fetch }),
   cms,
-  site: "my-store",
   dev: import.meta.env.DEV,
 });
 ```
 
-Always on: `/deco/_liveness`; 404 for v7's admin paths; Studio may frame the site (`frame-ancestors`, no `X-Frame-Options`) and the security headers; drafts (the host allowlist, the draft cookie, `no-store`, `noindex`); the CMS redirects; one `Set-Cookie` per cookie; `x-page-status`; `CDN-Cache-Control: no-store` on every response that names none; and `http.server.request.duration` for every request, in the CMS's telemetry through `recordServerRequest` from `@decocms/blocks/metrics` (nothing without a `token` or an `endpoint`, and then the page template is never looked up), labelled `http.route` (the content's page template, `redirect` for every CMS redirect, a fixed one such as `/_serverFn/*` or `/assets/*`, otherwise `unmatched`), `http.request.method`, `status_class`, `cache` (`DRAFT` for a preview; otherwise the `X-Cache` your `pageCache` answered with, `HIT` for `HIT`, `STALE-HIT` and `STALE-ERROR`, `MISS`, else `BYPASS`) and `device`.
+Always on: `/deco/_liveness`; 404 for v7's admin paths; Studio may frame the site (`frame-ancestors`, no `X-Frame-Options`) and the security headers; drafts (the CMS's preview hosts, the draft cookie, `no-store`, `noindex`); the CMS redirects; one `Set-Cookie` per cookie; `x-page-status`; `CDN-Cache-Control: no-store` on every response that names none; and `http.server.request.duration` for every request, in the CMS's telemetry through `recordServerRequest` from `@decocms/blocks/metrics` (nothing without a `token` or an `endpoint`, and then the page template is never looked up), labelled `http.route` (the content's page template, `redirect` for every CMS redirect, a fixed one such as `/_serverFn/*` or `/assets/*`, otherwise `unmatched`), `http.request.method`, `status_class`, `cache` (`DRAFT` for a preview; otherwise the `X-Cache` your `pageCache` answered with, `HIT` for `HIT`, `STALE-HIT` and `STALE-ERROR`, `MISS`, else `BYPASS`) and `device`.
 
-Options, each for a value a site needs to change: `csp`, `pageCache`, `preload`, `previewHosts` and `routes`.
+Options, each for a value a site needs to change: `csp`, `pageCache`, `preload` and `routes`.
 
 The worker caches no page: the page cache is the site's, as on Next.js. Without `pageCache` every request renders. [The page cache](#the-page-cache) below is a complete worker entry with one.
 
 ### Draft hosts
 
-A draft link (`?__draft=`) previews where v7 allowed it: on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. A site that declares no hosts previews only on those two (`cms.readVersion` reads no version without declared hosts, and `deco check` warns until the site lists some). `previewHosts: [...]` replaces the declared list with exact hosts (`["localhost:5173"]` for local development), as v7's `DECO_ALLOWED_PREVIEW_HOSTS` did; `previewHosts: "none"` turns previews off on every host. The same link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time (`__at`) and tests and campaigns switched on or off (`__test`, `__campaign`), which `cms.readVersion` reads as the client's `date`, `experiments` and `campaigns`; all of it passes the same host check, so a visitor on the live site never picks a version. The worker passes the accepted version, alone, to the app in the `x-deco-version` request header (`requestVersion(request)` reads it in a `routes` handler).
+A draft link (`?__draft=`) previews on the hosts the CMS allows, which `cms.readVersion` checks: the addresses Studio writes into the current release's metadata (`previewHosts` in `latest.json`, so `createCMS` needs the site's `site` for them), plus `createCMS({ preview: { hosts } })` for content that isn't remote, such as `["localhost"]` in local development. The site lists nothing else; with neither, no host previews. A link on any other host gets the release, never an error. The same link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time (`__at`) and tests and campaigns switched on or off (`__test`, `__campaign`), which `cms.readVersion` reads as the client's `date`, `experiments` and `campaigns`; all of it passes the same host check, so a visitor on the live site never picks a version. The worker passes the accepted version, alone, to the app in the `x-deco-version` request header (`requestVersion(request)` reads it in a `routes` handler).
 
 ### The visitor, the assignments and the client
 
@@ -526,7 +525,6 @@ async function purge(request: Request, env: Env): Promise<Response> {
 const worker = createDecoWorker<Env>({
   serverEntry: createServerEntry({ fetch: handler.fetch }),
   cms,
-  site: "tanstack-worker-smoke",
   dev: import.meta.env.DEV,
   pageCache,
 });

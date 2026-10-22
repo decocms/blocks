@@ -65,20 +65,14 @@ import {
   draftLinkValue,
   endsPreview,
   hasDraftSignal,
-  type PreviewPolicy,
   requestLike,
 } from "../drafts.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 
-export {
-  inferredPreviewHosts,
-  type PreviewPolicy,
-  previewHostDecision,
-  requestLike,
-} from "../drafts.ts";
+export { requestLike } from "../drafts.ts";
 
-/** What the draft decision needs from the CMS: the site's declared preview hosts and their check. */
-export type CMSHandle = Pick<CMS, "readVersion" | "settings" | "forRelease">;
+/** What the draft decision needs from the CMS: its preview host check, and the release. */
+export type CMSHandle = Pick<CMS, "readVersion" | "forRelease">;
 
 /** What the proxy does with a request's draft state. */
 export interface DraftDecision {
@@ -110,21 +104,20 @@ export { DRAFT_ROUTE_PREFIX, VERSION_HEADER } from "../draft.ts";
 const INERT: DraftDecision = Object.freeze({ version: null, setCookie: null });
 
 /**
- * The version a request renders and the cookie its response sets, under
- * `policy` (the same options the pages pass to `bindDraft`). A request with
+ * The version a request renders and the cookie its response sets, on a host
+ * the CMS allows (as the pages' `bindDraft` checks again). A request with
  * no `?__draft=` and no draft cookie never reaches the CMS.
  */
 export async function decideDraft(
   cms: CMSHandle,
   request: NextRequest | Request,
-  policy: PreviewPolicy = {},
 ): Promise<DraftDecision> {
   const url = new URL(request.url);
   const like = requestLike(request.headers, url.pathname + url.search, url.host);
   if (like === null || !hasDraftSignal(like)) return INERT;
   // Ending a preview is allowed on any host, so a cookie set earlier always goes.
   if (endsPreview(like)) return { version: null, setCookie: draftCookie("", ["Max-Age=0"]) };
-  const version = await allowedDraft(cms, like, policy);
+  const version = await allowedDraft(cms, like);
   if (version === null) return INERT;
   const link = draftLinkValue(like);
   return { version, setCookie: link ? draftCookie(encodeURIComponent(link)) : null };
@@ -333,7 +326,7 @@ export function applyDraft<R extends Response>(response: R, decision: DraftDecis
   return response;
 }
 
-export interface DraftProxyOptions extends PreviewPolicy {
+export interface DraftProxyOptions {
   /**
    * Which drafted requests go to the draft route (a statically rendered
    * page's). Default: every drafted request outside the draft route. Return
@@ -351,7 +344,7 @@ export interface DraftProxyOptions extends PreviewPolicy {
 
 /**
  * The whole flow for a site with no proxy of its own:
- * `export const proxy = draftProxy(proxyCms, { site: "my-store" })`. Every
+ * `export const proxy = draftProxy(proxyCms)`. Every
  * request it forwards carries the version, the visitor and the assignments
  * it decided.
  */
@@ -359,12 +352,12 @@ export function draftProxy(
   cms: CMSHandle & Pick<CMS, "client">,
   options: DraftProxyOptions = {},
 ): (request: NextRequest) => Promise<NextResponse> {
-  const { rewrite = () => true, assignments, ...policy } = options;
+  const { rewrite = () => true, assignments } = options;
   return async (request) => {
     if (assignments && isAssignmentsRoutePath(request.nextUrl.pathname)) {
       return new NextResponse(null, { status: 404 });
     }
-    const decision = await decideDraft(cms, request, policy);
+    const decision = await decideDraft(cms, request);
     const visitor = decideVisitor(request, decision);
     const onAssignmentsRoute = decision.version === null && assignments?.(request) === true;
     const rewritten = onAssignmentsRoute

@@ -48,9 +48,8 @@ function setup(
   const { store, seen, pageCache } = testPageCache();
   const worker = createDecoWorker({
     serverEntry: entry,
-    // The test store declares its own host, so a draft link on ORIGIN previews.
+    // Studio lists the test store's host in the release, so a draft link on ORIGIN previews.
     cms: testCMS(snapshot({ previewHosts: ["store.example.com"] })),
-    site: "acme",
     pageCache,
     ...options,
   });
@@ -600,7 +599,7 @@ describe("the version: an old release from a Studio link", () => {
   });
 });
 
-describe("the draft host allowlist (v7's, in the worker)", () => {
+describe("the draft hosts: the release's, as the CMS reads them", () => {
   const link = (host: string) => `https://${host}/?__draft=${encodeURIComponent(POINTER)}`;
 
   async function previews(options: Partial<DecoWorkerOptions>, host: string): Promise<boolean> {
@@ -613,86 +612,43 @@ describe("the draft host allowlist (v7's, in the worker)", () => {
     return rendered;
   }
 
-  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, and blocks' own)", async () => {
+  it("with no preview hosts in the release, no host previews, the site's Deco hosts included", async () => {
     const cms = testCMS(snapshot());
-    expect((await cms.settings()).preview.hosts).toEqual([]); // none declared, none allowed
-    for (const host of ["store.example.com", "www.store.example.com", "localhost:5173"]) {
+    expect((await cms.settings()).preview.hosts).toEqual([]);
+    for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
       expect(await previews({ cms }, host), host).toBe(false);
     }
-    for (const host of ["acme.deco.site", "acme.deco-cx.workers.dev"]) {
-      expect(await previews({ cms }, host), host).toBe(true);
-    }
-    expect(await previews({ cms, previewHosts: ["localhost:5173"] }, "localhost:5173")).toBe(true);
   });
 
-  it('a CMS block that declares "*" previews on every host', async () => {
+  it('a release whose hosts are "*" previews on every host', async () => {
     const cms = testCMS(snapshot({ previewHosts: ["*"] }));
     for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
       expect(await previews({ cms }, host), host).toBe(true);
     }
   });
 
-  it("the CMS block's preview hosts: only those, plus the site's Deco hosts", async () => {
-    const cms = testCMS(snapshot({ previewHosts: ["staging.store.example.com"] }));
-    for (const host of [
-      "staging.store.example.com",
-      "acme.deco.site",
-      "acme.deco-cx.workers.dev",
-    ]) {
+  it("the release's preview hosts: only those, wildcards as the CMS matches them", async () => {
+    const cms = testCMS(snapshot({ previewHosts: ["staging.store.example.com", "*.deco.site"] }));
+    for (const host of ["staging.store.example.com", "acme.deco.site", "acme.deco.site:8443"]) {
       expect(await previews({ cms }, host), host).toBe(true);
     }
     for (const host of [
       "store.example.com",
-      "other.deco.site",
-      "xacme.deco.site",
-      "www.acme.deco.site",
-      "acme.deco.site.attacker.example",
-      "1a2b3c-acme.deco-cx.workers.dev",
-      "acme.deco.site:8443",
       "deco.site",
+      "acme.deco.site.attacker.example",
+      "acme.deco-cx.workers.dev",
     ]) {
       expect(await previews({ cms }, host), host).toBe(false);
     }
   });
 
-  it("the Deco hosts are named after site, case-insensitively, and exactly", async () => {
-    const cms = testCMS(snapshot({ previewHosts: [] }));
-    expect(await previews({ cms, site: "Acme" }, "ACME.deco.site")).toBe(true);
-    expect(await previews({ cms, site: "acme" }, "store.example.com")).toBe(false);
-  });
-
-  it("previewHosts replaces the CMS block's list (v7's DECO_ALLOWED_PREVIEW_HOSTS); the Deco hosts stay", async () => {
-    const cms = testCMS(snapshot({ previewHosts: ["staging.store.example.com"] }));
-    const previewHosts = ["localhost:5173", "Preview.Store.Example.com"];
-    expect(await previews({ cms, previewHosts }, "localhost:5173")).toBe(true);
-    expect(await previews({ cms, previewHosts }, "preview.store.example.com")).toBe(true);
-    expect(await previews({ cms, previewHosts }, "acme.deco.site")).toBe(true);
-    expect(await previews({ cms, previewHosts }, "staging.store.example.com")).toBe(false);
-    expect(await previews({ cms, previewHosts }, "localhost:5174")).toBe(false);
-  });
-
-  it("an empty previewHosts list leaves only the Deco hosts (v7's default)", async () => {
-    expect(await previews({ previewHosts: [] }, "store.example.com")).toBe(false);
-    expect(await previews({ previewHosts: [] }, "acme.deco.site")).toBe(true);
-  });
-
-  it('previewHosts: "none" is the kill switch: no host previews, the Deco hosts and "*" included', async () => {
-    const cms = testCMS(snapshot({ previewHosts: ["*"] }));
-    for (const host of ["acme.deco.site", "acme.deco-cx.workers.dev", "store.example.com"]) {
-      expect(await previews({ cms, previewHosts: "none" }, host), host).toBe(false);
-      expect(await previews({ cms, previewHosts: ["localhost:5173", "none"] }, host), host).toBe(
-        false,
-      );
-    }
-  });
-
   it("a refused host still ends a preview (?__draft=off expires the cookie anywhere)", async () => {
-    const { get } = setup({ previewHosts: "none" });
+    const { get } = setup({ cms: testCMS(snapshot()) });
     expect((await get("/?__draft=off")).headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
   it("a refused draft request is the release, and may be cached", async () => {
-    const { get, entry, seen } = setup({ previewHosts: "none" });
+    const { get, entry, seen } = setup({ cms: testCMS(snapshot()) });
     await get(`/?__draft=${encodeURIComponent(POINTER)}`);
     expect(seen).toHaveLength(1);
     expect(entry.served.every((s) => !s.headers.has("x-deco-version"))).toBe(true);

@@ -9,13 +9,13 @@
  *   across restarts: every boot starts from the fallback.
  * - `update()` (the CMS calls it in the background, on first use and then
  *   every interval) reads `sites/<site>/latest.json`,
- *   `{ revision, schemaHash, publishedAt }`. Whoever is newer wins: when it
+ *   `{ revision, schemaHash, publishedAt, previewHosts }`. Whoever is newer wins: when it
  *   names a revision other than the one this process last swapped in, its
  *   `schemaHash` equals the fallback's, and its `publishedAt` is later than
  *   the fallback's `committedAt` (the commit time of the git HEAD
  *   `deco content` built it from), it downloads
- *   `sites/<site>/revisions/<revision>.json`, `{ revision, schemaHash, blocks }`,
- *   and swaps it in whole. Otherwise, and on any error, memory stays as it is.
+ *   `sites/<site>/revisions/<revision>.json`,
+ *   `{ revision, schemaHash, blocks, previewHosts }`, and swaps it in whole. Otherwise, and on any error, memory stays as it is.
  *   A fallback without a `schemaHash` never swaps; one without a `committedAt`
  *   (a custom loader, an older content module, a build outside git) counts as
  *   the oldest. Studio writes `publishedAt` on Publish, on "Make current" (a
@@ -25,6 +25,15 @@
  *   a publish still loses to it.
  *   Pointers aren't ordered among themselves, and the fallback's content is
  *   never compared: only the two timestamps are.
+ * - `previewHosts` (host patterns) is where the site may be previewed: Studio
+ *   knows the site's addresses and writes them into the release metadata
+ *   whenever it writes `latest.json` or a revision (delivery is trusted).
+ *   Previews are checked against the current release's list: the last
+ *   `latest.json` read, whether or not its revision was swapped in (a newer
+ *   bundle still previews where Studio says), else the swapped-in revision's.
+ *   A preview request before this process has read `latest.json` reads it
+ *   then (only `latest.json`, once, shared); a read older than the interval
+ *   is read again the same way, so `dev: true` follows Studio too.
  * - With `dev: true`, it never swaps, so local files win. `createCMS` passes
  *   its `dev` option, or `NODE_ENV === "development"` when the site omits it;
  *   this loader reads no environment itself.
@@ -41,7 +50,15 @@
  * Instances are process-wide singletons, like `createCMS`'s.
  */
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
-import { BoundedMap, isSnapshot, PEEK_RELEASE, peekRelease, READ_REVISION } from "./content.ts";
+import {
+  BoundedMap,
+  isSnapshot,
+  PEEK_RELEASE,
+  PREVIEW_HOSTS,
+  peekRelease,
+  previewHostsOf,
+  READ_REVISION,
+} from "./content.ts";
 import { errors } from "./errors.ts";
 import { clearGlobals, contentIdentity } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
@@ -61,6 +78,10 @@ const CACHED_REVISIONS = 3;
 // OPEN: a revision is the git commit SHA; only SHA-1 (40 hex) object names are accepted.
 const REVISION = /^[0-9a-f]{40}$/;
 const SCHEMA_HASH = /^[0-9a-f]{64}$/;
+/** How long a failed read of the preview hosts waits before a preview request tries again. */
+const PREVIEW_HOSTS_RETRY_MS = 10_000;
+/** How old the preview hosts may get before a preview request reads them again (without `interval`). */
+const PREVIEW_HOSTS_MAX_AGE_MS = 60_000;
 
 interface RemoteLoaderOptions {
   site?: string;
@@ -75,6 +96,15 @@ interface Latest {
   revision: string;
   schemaHash: string;
   publishedAt: string;
+  /** Where the site may be previewed; `undefined` when Studio wrote none. */
+  previewHosts: string[] | undefined;
+}
+
+/** A revision file's body. */
+interface Revision {
+  blocks: Record<string, unknown>;
+  schemaHash: string;
+  previewHosts: string[] | undefined;
 }
 
 class RemoteLoader implements Loader {
@@ -89,6 +119,12 @@ class RemoteLoader implements Loader {
   readonly #dev: boolean;
   /** Published releases read by SHA; immutable, so a hit is never revalidated. */
   readonly #revisions = new BoundedMap<string, Promise<Snapshot>>(CACHED_REVISIONS);
+  /** The preview hosts of the last `latest.json` read, and when it was read. */
+  #hosts: { list: string[] | undefined; at: number } | undefined;
+  /** A read of `latest.json` for its preview hosts, in flight. */
+  #hostsRead: Promise<void> | undefined;
+  /** When that read last failed. */
+  #hostsFailedAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     fallback: Snapshot | Loader,
@@ -129,11 +165,42 @@ class RemoteLoader implements Loader {
     // OPEN: a process that already swapped a release in keeps it (memory stays as it is).
     if (!isNewer(latest.publishedAt, fallback.committedAt)) return { updated: false };
     if (latest.revision === this.#current?.revision) return { updated: false };
-    const blocks = await this.#revision(site, latest);
-    const next: Snapshot = { revision: latest.revision, blocks, schemaHash: latest.schemaHash };
+    const revision = await this.#revision(site, latest);
+    const next: Snapshot = {
+      revision: latest.revision,
+      blocks: revision.blocks,
+      schemaHash: latest.schemaHash,
+    };
+    if (revision.previewHosts !== undefined) next.previewHosts = revision.previewHosts;
     if (fallback.aliases !== undefined) next.aliases = fallback.aliases;
     this.#current = next;
     return { updated: true };
+  }
+
+  /**
+   * The current release's preview hosts (see `PREVIEW_HOSTS`): the last
+   * `latest.json` read's, reading it first when there is none yet or it is
+   * older than the interval (`peek`: never). `undefined` when `latest.json`
+   * names none or can't be read: the swapped-in revision's list counts then.
+   */
+  async [PREVIEW_HOSTS](peek = false): Promise<string[] | undefined> {
+    const known = this.#hosts;
+    const maxAge = this.interval ?? PREVIEW_HOSTS_MAX_AGE_MS;
+    const stale = known === undefined || Date.now() - known.at >= maxAge;
+    if (!peek && stale && Date.now() - this.#hostsFailedAt >= PREVIEW_HOSTS_RETRY_MS) {
+      this.#hostsRead ??= this.#latest(encodeURIComponent(this.#site))
+        .then(
+          () => undefined,
+          () => {
+            this.#hostsFailedAt = Date.now();
+          },
+        )
+        .finally(() => {
+          this.#hostsRead = undefined;
+        });
+      await this.#hostsRead;
+    }
+    return (this.#hosts?.list ?? this.#current?.previewHosts)?.slice();
   }
 
   /** A published release by its commit SHA (see `READ_REVISION`). */
@@ -163,13 +230,15 @@ class RemoteLoader implements Loader {
     const held = this.#revisions.get(sha);
     if (held !== undefined) return held;
     const site = encodeURIComponent(this.#site);
-    const pending = this.#fetchRevision(site, sha, "the revision asked for").then(
-      (body): Snapshot => ({
+    const pending = this.#fetchRevision(site, sha, "the revision asked for").then((body) => {
+      const snapshot: Snapshot = {
         revision: sha,
         blocks: body.blocks,
         schemaHash: body.schemaHash,
-      }),
-    );
+      };
+      if (body.previewHosts !== undefined) snapshot.previewHosts = body.previewHosts;
+      return snapshot;
+    });
     this.#revisions.set(sha, pending);
     pending.catch(() => {
       if (this.#revisions.get(sha) === pending) this.#revisions.delete(sha);
@@ -177,11 +246,7 @@ class RemoteLoader implements Loader {
     return pending;
   }
 
-  async #fetchRevision(
-    site: string,
-    sha: string,
-    expected: string,
-  ): Promise<{ blocks: Record<string, unknown>; schemaHash: string }> {
+  async #fetchRevision(site: string, sha: string, expected: string): Promise<Revision> {
     const label = `revision ${sha}`;
     const response = await fetchWithTimeout(
       `${deliveryOrigin()}/sites/${site}/revisions/${sha}.json`,
@@ -199,7 +264,11 @@ class RemoteLoader implements Loader {
     ) {
       throw new Error(`${label}: unexpected format, or not ${expected}`);
     }
-    return { blocks: body.blocks, schemaHash: body.schemaHash };
+    return {
+      blocks: body.blocks,
+      schemaHash: body.schemaHash,
+      previewHosts: previewHostsOf(body.previewHosts),
+    };
   }
 
   async #loadFallback(): Promise<Snapshot> {
@@ -227,15 +296,23 @@ class RemoteLoader implements Loader {
     ) {
       throw new Error("latest.json: unexpected format");
     }
-    return body as unknown as Latest;
+    const previewHosts = previewHostsOf(body.previewHosts);
+    // The current release's metadata, whether or not its revision is swapped in.
+    this.#hosts = { list: previewHosts, at: Date.now() };
+    return {
+      revision: body.revision,
+      schemaHash: body.schemaHash,
+      publishedAt: body.publishedAt,
+      previewHosts,
+    };
   }
 
-  async #revision(site: string, latest: Latest): Promise<Record<string, unknown>> {
+  async #revision(site: string, latest: Latest): Promise<Revision> {
     const body = await this.#fetchRevision(site, latest.revision, "the revision latest.json names");
     if (body.schemaHash !== latest.schemaHash) {
       throw new Error(`revision ${latest.revision}: not the schema latest.json names`);
     }
-    return body.blocks;
+    return body;
   }
 }
 

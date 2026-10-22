@@ -1,23 +1,12 @@
 /**
- * Which hosts may render drafts: v7's allowlist (`@decocms/blocks` 7.x
- * `cms/draftSource.ts`: `readAllowedHosts`, `isDraftHostAllowed`,
- * `isDraftPreviewEnabled`), ported as is. v7 read its override from the
- * `DECO_ALLOWED_PREVIEW_HOSTS` variable; here it is the `previewHosts` option,
- * and the site passes the same options to the proxy (`decideDraft`) and to
- * its pages (`bindDraft`).
+ * Which hosts may render drafts: the ones the CMS allows (`cms.readVersion`):
+ * the addresses Studio writes into the current release's metadata, plus
+ * `createCMS`'s `preview.hosts` for content that isn't remote (local
+ * development). The site declares nothing here (PO 2026-10-22). The proxy
+ * (`decideDraft`) and the pages (`bindDraft`) ask the same CMS.
  *
- * - The site's own preview hosts: the ones it declares, in the `CMS` block or
- *   as `createCMS({ preview: { hosts } })` (matched as `cms.readVersion`
- *   matches them). A site that declares none has none, as in v7 (and as
- *   `cms.readVersion` reads it: no declared hosts, no version).
- * - The hosts Deco runs the site on, named after the site and always added:
- *   `<site>.deco.site` and `<site>.deco-cx.workers.dev`, exact.
- * - `previewHosts: [...]` replaces the site's own list (the inferred hosts are
- *   still added); `previewHosts: "none"` turns previews off on every host.
- *
- * Hosts compare exactly, lowercased, port included (`localhost:3000`). The
- * host is the one the visitor asked for: `x-forwarded-host` behind a proxy,
- * else `host`.
+ * The host is the one the visitor asked for: `x-forwarded-host` behind a
+ * proxy, else `host`.
  *
  * The draft itself is the capability: a host check only bounds where a draft
  * link works. A request the check refuses gets the release, never an error.
@@ -33,58 +22,6 @@
  */
 import { type CMS, parseVersion, type RequestLike, type RequestVersion } from "@decocms/blocks";
 import { DRAFT_COOKIE, DRAFT_PARAM } from "./draft.ts";
-
-export interface PreviewPolicy {
-  /** The site's name: `<site>.deco.site` and `<site>.deco-cx.workers.dev` may preview. */
-  site?: string;
-  /** Replaces the `CMS` block's preview hosts; `"none"` turns previews off everywhere. */
-  previewHosts?: readonly string[] | "none";
-}
-
-/** The hosts Deco runs `site` on, which may always preview (unless previews are off). */
-export function inferredPreviewHosts(site: string | undefined): string[] {
-  const s = (site ?? "").trim().toLowerCase();
-  return s ? [`${s}.deco.site`, `${s}.deco-cx.workers.dev`] : [];
-}
-
-function overrideHosts(policy: PreviewPolicy): string[] {
-  if (policy.previewHosts === "none") return ["none"];
-  return (policy.previewHosts ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean);
-}
-
-/**
- * Whether `host` may preview without asking the CMS: `true` (an override or
- * inferred host), `false` (previews off, or the override leaves it out), or
- * `"cms"` when only the site's declared preview hosts can say (none declared:
- * `false`, as `cms.readVersion` answers).
- */
-export function previewHostDecision(host: string, policy: PreviewPolicy): boolean | "cms" {
-  const override = overrideHosts(policy);
-  if (override.includes("none")) return false;
-  const h = host.trim().toLowerCase();
-  if (h === "") return false;
-  if (inferredPreviewHosts(policy.site).includes(h)) return true;
-  if (policy.previewHosts !== undefined) return override.includes(h);
-  return "cms";
-}
-
-/**
- * Whether any host may preview (v7's `isDraftPreviewEnabled`): a page checks
- * it before it reads the request's headers, so a site with previews off never
- * turns a static page dynamic. `false` for `previewHosts: "none"`; `true` with
- * a site name or an override list; otherwise whether the site declares
- * preview hosts and they allow any.
- */
-export async function isDraftPreviewEnabled(
-  cms: Pick<CMS, "settings">,
-  policy: PreviewPolicy,
-): Promise<boolean> {
-  const override = overrideHosts(policy);
-  if (override.includes("none")) return false;
-  if (inferredPreviewHosts(policy.site).length > 0) return true;
-  if (policy.previewHosts !== undefined) return override.length > 0;
-  return (await cms.settings()).preview.hosts.length > 0;
-}
 
 const DRAFT_OFF = "off";
 
@@ -158,27 +95,17 @@ export function requestLike(
 }
 
 /**
- * What `request` renders under `policy` (a draft pointer or a release's
- * commit SHA, with the preview's moment and switched tests and campaigns),
- * or `null` for the current release: what its Studio link carries, on a host
- * the policy (or, when only it can say, the `CMS` block) allows.
+ * What `request` renders (a draft pointer or a release's commit SHA, with
+ * the preview's moment and switched tests and campaigns), or `null` for the
+ * current release: what its Studio link carries, on a host the CMS allows.
  */
 export async function allowedDraft(
   cms: Pick<CMS, "readVersion">,
   request: RequestLike,
-  policy: PreviewPolicy,
 ): Promise<RequestVersion | null> {
   const read = readDraftVersion(request);
   if (read === null) return null;
-  let host: string;
-  try {
-    host = new URL(request.url).host;
-  } catch {
-    return null;
-  }
-  const decision = previewHostDecision(host, policy);
-  const allowed = decision === "cms" ? (await cms.readVersion(request)) !== null : decision;
-  return allowed ? read : null;
+  return (await cms.readVersion(request)) === null ? null : read;
 }
 
 /**

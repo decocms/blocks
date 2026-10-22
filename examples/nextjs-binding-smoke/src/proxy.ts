@@ -13,7 +13,6 @@ import {
   visitorRequestHeaders,
 } from "@decocms/nextjs/proxy";
 import { type NextRequest, NextResponse } from "next/server";
-import { preview } from "./cms.config";
 import { proxyCms } from "./cms.proxy";
 
 export async function proxy(request: NextRequest) {
@@ -25,7 +24,7 @@ export async function proxy(request: NextRequest) {
   }
   // The version: a Studio link's draft or old release, on a host that may preview, with the
   // preview's moment and switched tests and campaigns.
-  const draft = await decideDraft(proxyCms, request, preview);
+  const draft = await decideDraft(proxyCms, request);
   // The visitor: the deco_segment cookie, or a new one (its cookie goes out on a first visit).
   const visitor = decideVisitor(request, draft);
   // Published pages are cached (ISR), so a CMS page renders on the assignments route,

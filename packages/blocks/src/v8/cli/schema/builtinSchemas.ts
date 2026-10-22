@@ -45,7 +45,7 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
   redirect: { title: "Redirect", description: "Sends one URL to another" },
   "cms-settings": {
     title: "CMS settings",
-    description: "Preview hosts, telemetry and analytics: the saved block named CMS",
+    description: "Telemetry and analytics: the saved block named CMS",
     icon: "settings",
   },
   "split-traffic": {
@@ -234,19 +234,6 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
       return {
         type: "object",
         properties: {
-          preview: {
-            type: "object",
-            title: "Preview",
-            properties: {
-              hosts: {
-                type: "array",
-                title: "Hosts",
-                description:
-                  "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, only the hosts code allows, if any: previews from the site editor work only on the hosts listed here or in code.",
-                items: { type: "string" },
-              },
-            },
-          },
           telemetry: {
             type: "object",
             title: "Telemetry",

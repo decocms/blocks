@@ -1,19 +1,8 @@
 /**
- * Which hosts may render drafts: v7's allowlist (`@decocms/blocks` 7.x
- * `cms/draftSource.ts`: `readAllowedHosts`, `isDraftHostAllowed`,
- * `isDraftPreviewEnabled`), ported as is. v7 read its override from the
- * `DECO_ALLOWED_PREVIEW_HOSTS` variable; here it is the `previewHosts` option.
- *
- * - The site's own preview hosts: the ones it declares, in the `CMS` block or
- *   as `createCMS({ preview: { hosts } })` (matched as `cms.readVersion`
- *   matches them). A site that declares none has none, as in v7 (and as
- *   `cms.readVersion` reads it: no declared hosts, no version).
- * - The hosts Deco runs the site on, named after the site and always added:
- *   `<site>.deco.site` and `<site>.deco-cx.workers.dev`, exact.
- * - `previewHosts: [...]` replaces the site's own list (the inferred hosts are
- *   still added); `previewHosts: "none"` turns previews off on every host.
- *
- * Hosts compare exactly, lowercased, port included (`localhost:5173`).
+ * Which hosts may render drafts: the ones the CMS allows (`cms.readVersion`):
+ * the addresses Studio writes into the current release's metadata, plus
+ * `createCMS`'s `preview.hosts` for content that isn't remote (local
+ * development). The site declares nothing here (PO 2026-10-22).
  *
  * The draft itself is the capability: a host check only bounds where a draft
  * link works. A request the check refuses gets the release, never an error.
@@ -27,38 +16,6 @@
  */
 import { type CMS, parseVersion, type RequestVersion } from "@decocms/blocks";
 import { DRAFT_COOKIE, DRAFT_PARAM } from "../draft.ts";
-
-export interface PreviewPolicy {
-  /** The site's name: `<site>.deco.site` and `<site>.deco-cx.workers.dev` may preview. */
-  site?: string;
-  /** Replaces the `CMS` block's preview hosts; `"none"` turns previews off everywhere. */
-  previewHosts?: readonly string[] | "none";
-}
-
-/** The hosts Deco runs `site` on, which may always preview (unless previews are off). */
-export function inferredPreviewHosts(site: string | undefined): string[] {
-  const s = (site ?? "").trim().toLowerCase();
-  return s ? [`${s}.deco.site`, `${s}.deco-cx.workers.dev`] : [];
-}
-
-/**
- * Whether `host` may preview without asking the CMS: `true` (an override or
- * inferred host), `false` (previews off, or the override leaves it out), or
- * `"cms"` when only the site's declared preview hosts can say (none declared:
- * `false`, as `cms.readVersion` answers).
- */
-export function previewHostDecision(host: string, policy: PreviewPolicy): boolean | "cms" {
-  const override =
-    policy.previewHosts === "none"
-      ? ["none"]
-      : (policy.previewHosts ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean);
-  if (override.includes("none")) return false;
-  const h = host.trim().toLowerCase();
-  if (h === "") return false;
-  if (inferredPreviewHosts(policy.site).includes(h)) return true;
-  if (policy.previewHosts !== undefined) return override.includes(h);
-  return "cms";
-}
 
 const DRAFT_OFF = "off";
 
@@ -118,11 +75,10 @@ export interface DraftDecision {
   setCookie: string | null;
 }
 
-/** The version a request renders, and the cookie its response sets, under `policy`. */
+/** The version a request renders, and the cookie its response sets. */
 export async function decideDraft(
   cms: Pick<CMS, "readVersion">,
   request: Request,
-  policy: PreviewPolicy,
 ): Promise<DraftDecision> {
   const url = new URL(request.url);
   const param = draftParam(url);
@@ -130,9 +86,7 @@ export async function decideDraft(
   if (param === DRAFT_OFF) return { version: null, setCookie: serializeCookie("", ["Max-Age=0"]) };
   const version = readDraftVersion(request);
   if (version === null) return { version: null, setCookie: null };
-  const decision = previewHostDecision(url.host, policy);
-  const allowed = decision === "cms" ? (await cms.readVersion(request)) !== null : decision;
-  if (!allowed) return { version: null, setCookie: null };
+  if ((await cms.readVersion(request)) === null) return { version: null, setCookie: null };
   // The link's own value goes in the cookie, its preview parameters with it.
   const fromLink = param !== null && parseVersion(param) !== null;
   return {

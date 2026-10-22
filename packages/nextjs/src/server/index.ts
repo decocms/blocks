@@ -12,15 +12,15 @@
  *
  * ```tsx
  * export default async function Page({ searchParams }) {
- *   await bindDraft(cms, { searchParams: await searchParams, site: "my-store" });
+ *   await bindDraft(cms, { searchParams: await searchParams });
  *   const client = contentClient(cms);
  *   …
  *   return <>{sections}<DraftPreviewIndicator /></>;
  * }
  * ```
  *
- * The host check is the proxy's (`decideDraft`), repeated here with the same
- * options, so a route the proxy doesn't match, or a forged `x-deco-version`,
+ * The host check is the proxy's (`decideDraft`), repeated here against the
+ * same CMS, so a route the proxy doesn't match, or a forged `x-deco-version`,
  * still gets the release on a host that may not preview. On the release, a
  * test at 0% stays off whatever `x-deco-assignments` says.
  */
@@ -35,7 +35,7 @@ import {
   withoutDarkTests,
 } from "../assignments.ts";
 import { DRAFT_PARAM, VERSION_HEADER } from "../draft.ts";
-import { allowedDraft, isDraftPreviewEnabled, type PreviewPolicy, requestLike } from "../drafts.ts";
+import { allowedDraft, requestLike } from "../drafts.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 
@@ -45,18 +45,18 @@ export {
   type PathAssignments,
   parseAssignmentsSegment,
 } from "../assignments.ts";
-export { type PreviewPolicy, requestLike } from "../drafts.ts";
+export { requestLike } from "../drafts.ts";
 export { activeDraftPointer };
 
 /** A page's `searchParams` prop, awaited. */
 export type SearchParams = Record<string, string | string[] | undefined>;
 
-export interface BindDraftOptions extends PreviewPolicy {
+export interface BindDraftOptions {
   /** The page's own `searchParams` (a layout has none: it reads the proxy's `x-deco-version`). */
   searchParams?: SearchParams;
 }
 
-type BindCMS = Pick<CMS, "readVersion" | "settings" | "forRelease">;
+type BindCMS = Pick<CMS, "readVersion" | "forRelease">;
 
 function firstParam(searchParams: SearchParams | undefined, key: string): string | null {
   const raw = searchParams?.[key];
@@ -67,12 +67,11 @@ function firstParam(searchParams: SearchParams | undefined, key: string): string
  * Binds what the request reads: the version, if any (the page's own
  * `?__draft=` first, `off` leaving preview, then the version the proxy
  * forwarded on `x-deco-version`, then the draft cookie, each on a host the
- * options allow), and what the proxy decided (`x-deco-assignments`) and the
+ * CMS allows), and what the proxy decided (`x-deco-assignments`) and the
  * visitor it read (`x-deco-visitor`). Returns whether a version was bound:
  * a draft, or a published release's commit SHA (Studio's "Preview this
- * version"). On the release it reads the headers only when the content saves
- * tests or campaigns, so with previews off on every host and neither a cached
- * (ISR) page stays cached.
+ * version"). It reads the request's headers, so it belongs on the draft
+ * route; a cached (ISR) page reads what its path names (`assignedClient`).
  */
 export async function bindDraft(cms: BindCMS, options: BindDraftOptions = {}): Promise<boolean> {
   if (await bindVersion(cms, options)) {
@@ -120,15 +119,14 @@ async function variesByVisitor(cms: Pick<CMS, "forRelease">): Promise<boolean> {
 }
 
 async function bindVersion(cms: BindCMS, options: BindDraftOptions): Promise<boolean> {
-  const { searchParams, ...policy } = options;
-  if (!(await isDraftPreviewEnabled(cms, policy))) return false;
+  const { searchParams } = options;
   const param = firstParam(searchParams, DRAFT_PARAM);
   if (param === "off") return false;
   const requestHeaders = await headers();
   const forwarded = param ?? requestHeaders.get(VERSION_HEADER);
   const query = forwarded ? `?${DRAFT_PARAM}=${encodeURIComponent(forwarded)}` : "";
   const request = requestLike(requestHeaders as Headers, `/${query}`);
-  const version = request ? await allowedDraft(cms, request, policy) : null;
+  const version = request ? await allowedDraft(cms, request) : null;
   if (version === null) return false;
   draftSlot().version = version;
   return true;

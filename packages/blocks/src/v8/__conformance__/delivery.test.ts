@@ -110,6 +110,8 @@ function deliveryApi() {
   const objects = new Map<string, unknown>();
   const gates = new Map<string, Deferred>();
   let failAll = false;
+  /** The site's addresses, as Studio writes them into the release metadata; `undefined`: none written. */
+  let hosts: string[] | undefined;
   const requests: { url: string; headers: Record<string, string>; init?: RequestInit }[] = [];
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
@@ -132,6 +134,7 @@ function deliveryApi() {
     revision,
     schemaHash,
     publishedAt: new Date().toISOString(),
+    ...(hosts === undefined ? {} : { previewHosts: hosts }),
   });
   return {
     fetch,
@@ -141,13 +144,22 @@ function deliveryApi() {
     publish(snapshot: Snapshot, body?: unknown, schemaHash = SCHEMA) {
       objects.set(
         `/sites/acme/revisions/${snapshot.revision}.json`,
-        body ?? { revision: snapshot.revision, schemaHash, blocks: snapshot.blocks },
+        body ?? {
+          revision: snapshot.revision,
+          schemaHash,
+          blocks: snapshot.blocks,
+          ...(hosts === undefined ? {} : { previewHosts: hosts }),
+        },
       );
       objects.set("/sites/acme/latest.json", latest(snapshot.revision, schemaHash));
     },
     /** Studio's "Make current" (or a pointer to a revision that isn't there): `latest.json` only. */
     point(revision: string, schemaHash = SCHEMA) {
       objects.set("/sites/acme/latest.json", latest(revision, schemaHash));
+    },
+    /** The preview hosts Studio writes into what it publishes from now on. */
+    previewHosts(list: string[] | undefined) {
+      hosts = list;
     },
     setLatest(value: unknown) {
       objects.set("/sites/acme/latest.json", value);
@@ -1506,21 +1518,18 @@ describe("hosted-drafts", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("HD-18: preview hosts from the release's CMS block: a draft previews on staging only, every other host serves the release", async () => {
+  it("HD-18: preview hosts from the release metadata: a draft previews on staging only, every other host serves the release", async () => {
     const api = deliveryApi();
-    // The draft tries to allow its own host: settings come from the release, so it can't.
+    // The draft tries to allow its own host: hosts come from the release metadata, so it can't.
     const POINTER = api.draft({
       set: {
         SummerSEO: seoEntry("Preview"),
         CMS: { __resolveType: "cms-settings", preview: { hosts: ["*"] } },
       },
     });
-    const release = docsSnapshot();
-    release.blocks.CMS = {
-      __resolveType: "cms-settings",
-      preview: { hosts: ["staging.store.example.com"] },
-    };
-    const cms = createCMS({ blocks: docsBlocks(), content: release, site: SITE });
+    api.previewHosts(["staging.store.example.com"]);
+    api.point("0".repeat(40)); // Studio's metadata; this process keeps serving the bundle
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
     const pick = async (request: Request) => {
       const pointer = await cms.draftPointer(request);
       const cookie = await cms.draftCookie(request);
@@ -1530,7 +1539,7 @@ describe("hosted-drafts", () => {
     const staging = await pick(new Request(`https://staging.store.example.com/${q}`));
     expect(await titleOf(staging.client)).toBe("Preview");
     expect(staging.cookie).not.toBeNull();
-    // A preview of that draft doesn't change the settings either.
+    // A preview of that draft doesn't change the hosts either.
     expect((await cms.settings()).preview.hosts).toEqual(["staging.store.example.com"]);
     const live = await pick(new Request(`https://store.example.com/${q}`));
     expect(await titleOf(live.client)).toBe("Sunny!");
@@ -1546,6 +1555,135 @@ describe("hosted-drafts", () => {
 });
 
 // ---------------------------------------------------------------------------
+// releases-and-drafts.mdx › where a site can be previewed (PO 2026-10-22)
+// ---------------------------------------------------------------------------
+
+describe("preview hosts in the release metadata", () => {
+  const link = (host: string, version = POINTER) =>
+    new Request(`https://${host}/?__draft=${encodeURIComponent(version)}`);
+
+  it("PH-1: Studio writes previewHosts into latest.json and the revision; previews are honoured only on those hosts, wildcards included", async () => {
+    const api = deliveryApi();
+    api.previewHosts(["staging.example.com", "*.deco.site", "localhost"]);
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    // A request that asks for no preview reads no metadata.
+    expect(await cms.readVersion(new Request("https://www.example.com/"))).toBeNull();
+    expect(api.latestFetches()).toBe(0);
+    // The first preview request reads latest.json (only it, once) before answering.
+    for (const host of ["staging.example.com", "acme.deco.site", "localhost:5173"]) {
+      expect(await cms.draftPointer(link(host)), host).toBe(POINTER);
+    }
+    for (const host of ["www.example.com", "deco.site", "staging.example.com.attacker.com"]) {
+      expect(await cms.draftPointer(link(host)), host).toBeNull();
+      expect(await cms.draftCookie(link(host)), host).toBeNull();
+    }
+    expect(api.latestFetches()).toBe(1);
+    expect(api.assetFetches()).toBe(0);
+    expect((await cms.settings()).preview.hosts).toEqual([
+      "staging.example.com",
+      "*.deco.site",
+      "localhost",
+    ]);
+    // The background check keeps them current: Studio changes the site's addresses on the next publish.
+    api.previewHosts(["www.example.com"]);
+    api.publish(await hashed("Next"));
+    expect(await cms.update()).toEqual({ updated: true });
+    expect(await cms.draftPointer(link("www.example.com"))).toBe(POINTER);
+    expect(await cms.draftPointer(link("staging.example.com"))).toBeNull();
+  });
+
+  it("PH-2: with none in the metadata (an empty list, or none written) and none in code, no previews, never an error", async () => {
+    for (const hosts of [[], undefined]) {
+      resetForTests();
+      const api = deliveryApi();
+      api.previewHosts(hosts);
+      api.publish(await hashed("Published"));
+      // The CMS block's preview field, an earlier version's, doesn't count either.
+      const bundled = docsSnapshot();
+      bundled.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
+      const cms = createCMS({ blocks: docsBlocks(), content: bundled, site: SITE });
+      expect(await cms.readVersion(link("staging.example.com")), String(hosts)).toBeNull();
+      expect(await cms.draftCookie(link("staging.example.com"))).toBeNull();
+      expect((await cms.settings()).preview.hosts).toEqual([]);
+      // Ending a preview still works on any host.
+      expect(
+        await cms.draftCookie(new Request("https://staging.example.com/?__draft=off")),
+      ).toMatch(/Max-Age=0/);
+    }
+    // Delivery unreachable: no previews, the release serves, nothing rejects.
+    resetForTests();
+    const down = deliveryApi();
+    down.fail(true);
+    const offline = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    expect(await offline.readVersion(link("staging.example.com"))).toBeNull();
+    expect(await titleOf(offline.forRelease())).toBe("Sunny!");
+  });
+
+  it("PH-3: a release SHA preview, like a draft, is checked against the current release's hosts, not the old release's", async () => {
+    const api = deliveryApi();
+    api.previewHosts(["old.example.com"]);
+    const old = await hashed("Old");
+    api.publish(old);
+    api.previewHosts(["new.example.com"]);
+    api.publish(await hashed("Current"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    expect(await cms.readVersion(link("old.example.com", old.revision))).toBeNull();
+    const read = await cms.readVersion(link("new.example.com", old.revision));
+    expect(read).toEqual({ version: old.revision });
+    // The old release itself carries its own list; reading it changes nothing.
+    expect(await titleOf(cms.client({ version: old.revision }))).toBe("Old");
+    expect(await cms.readVersion(link("old.example.com", old.revision))).toBeNull();
+  });
+
+  it("PH-4: the current release's hosts count whether or not this process swapped it in (a newer bundle still previews where Studio says)", async () => {
+    const api = deliveryApi();
+    api.previewHosts(["staging.example.com"]);
+    api.point("1".repeat(40), "6".repeat(64)); // built with another schema: never swapped in
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(await cms.draftPointer(link("staging.example.com"))).toBe(POINTER);
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+  });
+
+  it("PH-5: createCMS's preview.hosts is for content that isn't remote; with a site it adds to the release's", async () => {
+    // Bundled content, no site (local development): code's list alone.
+    const local = createCMS({
+      blocks: docsBlocks(),
+      content: unhashedSnapshot(),
+      preview: { hosts: ["localhost"] },
+    });
+    expect(await local.draftPointer(link("localhost:3000"))).toBe(POINTER);
+    expect(await local.draftPointer(link("staging.example.com"))).toBeNull();
+    // With a site, both lists count.
+    resetForTests();
+    const api = deliveryApi();
+    api.previewHosts(["staging.example.com"]);
+    api.publish(await hashed("Published"));
+    const hosted = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      site: SITE,
+      preview: { hosts: ["localhost"] },
+    });
+    expect(await hosted.draftPointer(link("localhost:3000"))).toBe(POINTER);
+    expect(await hosted.draftPointer(link("staging.example.com"))).toBe(POINTER);
+    expect(await hosted.draftPointer(link("www.example.com"))).toBeNull();
+  });
+
+  it("PH-6: dev: true never swaps a release in, but previews still follow the metadata Studio writes", async () => {
+    const api = deliveryApi();
+    api.previewHosts(["localhost"]);
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE, dev: true });
+    expect(await cms.draftPointer(link("localhost:5173"))).toBe(POINTER);
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    expect(api.assetFetches()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // api-reference.mdx › cms.settings() with hosted releases
 // ---------------------------------------------------------------------------
 
@@ -1554,7 +1692,6 @@ describe("CMS settings from hosted releases", () => {
     const snapshot = docsSnapshot();
     snapshot.blocks.CMS = {
       __resolveType: "cms-settings",
-      preview: { hosts: ["staging.example.com"] },
       analytics: { collector: "https://bundled.example/events" },
     };
     return snapshot;
@@ -1565,30 +1702,34 @@ describe("CMS settings from hosted releases", () => {
     api.fail(true);
     const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
     const settings = await cms.settings();
-    expect(settings.preview.hosts).toEqual(["staging.example.com"]);
+    expect(settings.preview.hosts).toEqual([]);
     expect(settings.analytics.collector).toBe("https://bundled.example/events");
     expect(api.fetch).not.toHaveBeenCalled();
-    // Drafts are gated by them even while the Deco API can't be reached.
+    // No preview hosts while the Deco API can't be reached: the release serves, nothing rejects.
     const link = `?__draft=${encodeURIComponent("delivery.decocms.com/x@v")}`;
     expect(await cms.draftPointer(new Request(`https://www.example.com/${link}`))).toBeNull();
-    expect(api.fetch).not.toHaveBeenCalled();
     // A request serves the bundled release; the failed background check changes nothing.
     expect(await titleOf(cms.forRelease())).toBe("Sunny!");
     await flush(50);
-    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+    expect((await cms.settings()).analytics.collector).toBe("https://bundled.example/events");
   });
 
   it("S-2: a newer release's settings arrive with the background check, never before", async () => {
     const api = deliveryApi();
     const next = await hashed("Published", {
-      CMS: { __resolveType: "cms-settings", preview: { hosts: ["www.example.com"] } },
+      CMS: { __resolveType: "cms-settings", analytics: { collector: "https://next.example/e" } },
     });
+    api.previewHosts(["www.example.com"]);
     api.publish(next);
     const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
-    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+    const before = await cms.settings();
+    expect(before.analytics.collector).toBe("https://bundled.example/events");
+    expect(before.preview.hosts).toEqual([]);
     expect(api.fetch).not.toHaveBeenCalled();
     expect(await cms.update()).toEqual({ updated: true });
-    expect((await cms.settings()).preview.hosts).toEqual(["www.example.com"]);
+    const after = await cms.settings();
+    expect(after.analytics.collector).toBe("https://next.example/e");
+    expect(after.preview.hosts).toEqual(["www.example.com"]);
   });
 });
 

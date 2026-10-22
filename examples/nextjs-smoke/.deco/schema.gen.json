@@ -655,7 +655,7 @@
       },
       "Y21zLXNldHRpbmdz": {
         "title": "cms-settings",
-        "description": "Preview hosts, telemetry and analytics: the saved block named CMS",
+        "description": "Telemetry and analytics: the saved block named CMS",
         "icon": "settings",
         "type": "object",
         "required": [
@@ -668,20 +668,6 @@
               "cms-settings"
             ],
             "default": "cms-settings"
-          },
-          "preview": {
-            "type": "object",
-            "title": "Preview",
-            "properties": {
-              "hosts": {
-                "type": "array",
-                "title": "Hosts",
-                "description": "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, only the hosts code allows, if any: previews from the site editor work only on the hosts listed here or in code.",
-                "items": {
-                  "type": "string"
-                }
-              }
-            }
           },
           "telemetry": {
             "type": "object",

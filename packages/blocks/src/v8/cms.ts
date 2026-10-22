@@ -20,10 +20,13 @@ import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
 import {
+  deepFreeze,
   defaultSettings,
   isStatic,
   parseCodeHosts,
+  previewHosts,
   readSettings,
+  type SavedSettings,
   type SettingsCaps,
 } from "./settings.ts";
 import {
@@ -78,7 +81,9 @@ class CMSInstance {
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
   /** Settings of a `CMS` block with nothing to run, per release snapshot. */
-  #staticSettings = new WeakMap<Snapshot, EffectiveSettings>();
+  #staticSettings = new WeakMap<Snapshot, SavedSettings>();
+  /** Code's `preview.hosts`, parsed: added to the release's own preview hosts. */
+  readonly #codeHosts: readonly HostPattern[] | undefined;
   /** The release and time telemetry last read its section. */
   #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
   /** One handle per block map, so the same config returns the same object. */
@@ -94,10 +99,8 @@ class CMSInstance {
     this.#interval = interval;
     this.#store = new ContentStore(contentOf(config), parseDraftHosts(config.preview));
     this.fingerprint = fingerprintOf(config, interval);
-    this.#caps = {
-      hosts: parseCodeHosts(config.preview),
-      limits: telemetryLimits(config.telemetry),
-    };
+    this.#codeHosts = parseCodeHosts(config.preview);
+    this.#caps = { limits: telemetryLimits(config.telemetry) };
     const destination = resolveDestination(config.telemetry, config.site, config.token);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);
@@ -156,22 +159,26 @@ class CMSInstance {
    * `CMS` block resolves on each call, so a field with variants is decided
    * where it's called; one with nothing to run is resolved once per release.
    */
-  settings(blocks: Blocks): Promise<EffectiveSettings> {
-    return this.#settingsOf(blocks, this.#store.current());
+  async settings(blocks: Blocks): Promise<EffectiveSettings> {
+    const [saved, hosts] = await Promise.all([
+      this.#settingsOf(blocks, this.#store.current()),
+      this.#store.previewHosts(true),
+    ]);
+    return deepFreeze({ ...saved, preview: { hosts: previewHosts(hosts, this.#codeHosts) } });
   }
 
-  async readVersion(blocks: Blocks, request: RequestLike): Promise<RequestVersion | null> {
+  async readVersion(request: RequestLike): Promise<RequestVersion | null> {
     const version = readVersion(request);
     if (version === null) return null;
-    return (await this.#previewAllowed(blocks, request)) ? version : null;
+    return (await this.#previewAllowed(request)) ? version : null;
   }
 
-  async draftCookie(blocks: Blocks, request: RequestLike): Promise<string | null> {
+  async draftCookie(request: RequestLike): Promise<string | null> {
     const cookie = draftCookieFor(request);
     if (cookie === null) return null;
     // Ending a preview is allowed anywhere, so a cookie set before a host was removed still goes.
     if (endsPreview(request)) return cookie;
-    return (await this.#previewAllowed(blocks, request)) ? cookie : null;
+    return (await this.#previewAllowed(request)) ? cookie : null;
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -200,7 +207,7 @@ class CMSInstance {
     this.#telemetryRead = undefined;
   }
 
-  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<EffectiveSettings> {
+  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<SavedSettings> {
     if (snapshot === undefined) return defaultSettings(this.#caps);
     const cached = this.#staticSettings.get(snapshot);
     if (cached !== undefined) return cached;
@@ -225,9 +232,12 @@ class CMSInstance {
     return settings;
   }
 
-  /** Whether the release's preview hosts allow this request's host. */
-  async #previewAllowed(blocks: Blocks, request: RequestLike): Promise<boolean> {
-    const { hosts } = (await this.settings(blocks)).preview;
+  /**
+   * Whether the current release's preview hosts (the release metadata's,
+   * read once if this process hasn't yet) or code's allow this request's host.
+   */
+  async #previewAllowed(request: RequestLike): Promise<boolean> {
+    const hosts = previewHosts(await this.#store.previewHosts(), this.#codeHosts);
     const patterns = hosts
       .map((raw) => parseHostPattern(raw))
       .filter((pattern): pattern is HostPattern => pattern !== null);
@@ -345,15 +355,15 @@ class CMSHandle implements CMS {
   }
 
   readVersion(request: RequestLike): Promise<RequestVersion | null> {
-    return this.#instance.readVersion(this.#blocks, request);
+    return this.#instance.readVersion(request);
   }
 
   async draftPointer(request: RequestLike): Promise<string | null> {
-    return (await this.#instance.readVersion(this.#blocks, request))?.version ?? null;
+    return (await this.#instance.readVersion(request))?.version ?? null;
   }
 
   draftCookie(request: RequestLike): Promise<string | null> {
-    return this.#instance.draftCookie(this.#blocks, request);
+    return this.#instance.draftCookie(request);
   }
 }
 

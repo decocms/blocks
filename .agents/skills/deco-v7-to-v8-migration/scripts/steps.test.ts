@@ -328,7 +328,7 @@ describe("imports", () => {
     ]);
     const note = (subject: string) => notes.find((n) => n.startsWith(subject)) ?? "";
     expect(note("@decocms/tanstack {createDecoWorkerEntry}")).toContain(
-      "createDecoWorker({ serverEntry, cms, site, pageCache }) from @decocms/tanstack/worker",
+      "createDecoWorker({ serverEntry, cms, pageCache }) from @decocms/tanstack/worker",
     );
     expect(note("@decocms/tanstack {kvLoader}")).toContain("createCMS({ site, token })");
     expect(note("@decocms/blocks/hooks {LiveControls}")).toContain("StudioBridge");
@@ -514,7 +514,7 @@ describe("site settings", () => {
         .map((f) => [f, fs.readFileSync(path.join(root, ".deco/blocks", f), "utf8")]),
     );
 
-  it("folds a v7 site's preview hosts and OneDollarStats collector into CMS.json; a second run changes nothing", () => {
+  it("folds OneDollarStats' collector into CMS.json and leaves v7's preview hosts alone (Studio keeps them now); a second run changes nothing", () => {
     site({
       "package.json": { name: "site" },
       ".deco/blocks/site.json": {
@@ -533,17 +533,18 @@ export function Root() {
     foldSiteSettings(root, report);
     expect(read("CMS.json")).toEqual({
       __resolveType: "cms-settings",
-      preview: { hosts: ["staging.example.com", "localhost:5173"] },
       analytics: { collector: "https://stats.example.com/events" },
     });
-    // previewHosts moved; the rest of the Site block stays.
+    // The Site block is untouched: preview hosts aren't content any more.
     expect(read("site.json")).toEqual({
       __resolveType: "site/apps/site.ts",
       theme: { primary: "#000" },
+      previewHosts: ["staging.example.com", "localhost:5173"],
     });
     expect(report.done.map((n) => n.subject)).toEqual([".deco/blocks/CMS.json"]);
     const manual = report.manual.map((n) => n.subject);
-    expect(manual).toContain("DECO_ALLOWED_PREVIEW_HOSTS");
+    expect(manual).not.toContain("DECO_ALLOWED_PREVIEW_HOSTS");
+    expect(JSON.stringify(report)).not.toMatch(/preview/i);
     expect(manual).toContain("DECO_OTEL_* sampling");
     expect(manual).toContain("DECO_ANALYTICS_ENABLED, ONEDOLLAR_ENABLED, ONEDOLLAR_COLLECTOR");
     expect(manual).not.toContain("preview hosts");
@@ -555,97 +556,22 @@ export function Root() {
     expect(again.done).toEqual([]);
   });
 
-  it("trims and lowercases v7's entries, and reports one that isn't a host", () => {
-    site({
-      "package.json": { name: "site" },
-      ".deco/blocks/site.json": {
-        __resolveType: "site/apps/site.ts",
-        previewHosts: [
-          " Staging.Example.com ",
-          "localhost:3100",
-          "https://bad.example.com/",
-          "*.x.com",
-        ],
-      },
-    });
-    const report = createReport();
-    foldSiteSettings(root, report);
-    expect(read("CMS.json").preview).toEqual({ hosts: ["staging.example.com", "localhost:3100"] });
-    const bad = report.manual.filter((n) => n.subject === ".deco/blocks/site.json");
-    expect(bad.map((n) => n.message).join("\n")).toContain("https://bad.example.com/");
-    expect(bad.map((n) => n.message).join("\n")).toContain("*.x.com");
-  });
-
-  it("on TanStack Start, writes only the site's own hosts and names the site the worker needs", () => {
-    site({
-      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
-      "wrangler.jsonc": `{ "vars": { "DECO_SITE_NAME": "acme" } }`,
-      ".env": "DECO_SITE_NAME=other\n",
-      ".deco/blocks/site.json": {
-        __resolveType: "site/apps/site.ts",
-        previewHosts: ["staging.example.com", "acme.deco.site"],
-      },
-    });
-    const report = createReport();
-    foldSiteSettings(root, report);
-    // The Deco hosts come from createDecoWorker's site, not from content.
-    expect(read("CMS.json").preview).toEqual({ hosts: ["staging.example.com", "acme.deco.site"] });
-    const note = report.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
-    expect(note).toContain('pass site: "acme" to createDecoWorker');
-    expect(note).toContain("acme.deco-cx.workers.dev");
-    expect(note).not.toContain("previewHosts: []");
-    const allowed = report.manual.find((n) => n.subject === "DECO_ALLOWED_PREVIEW_HOSTS")?.message;
-    expect(allowed).toContain("previewHosts option of createDecoWorker");
-    const before = snapshotDir();
-    foldSiteSettings(root, createReport());
-    expect(snapshotDir()).toEqual(before);
-  });
-
-  it("without a site name, the note asks for it; a Next.js site is told the Deco hosts are new", () => {
-    site({
-      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
-      ".deco/blocks/site.json": {
-        __resolveType: "site/apps/site.ts",
-        previewHosts: ["a.example.com"],
-      },
-    });
-    const report = createReport();
-    foldSiteSettings(root, report);
-    expect(read("CMS.json").preview).toEqual({ hosts: ["a.example.com"] });
-    const note = report.manual.find((n) => n.subject === "preview hosts");
-    expect(note?.message).toContain('site: "<site>"');
-    expect(note?.message).toContain("DECO_SITE_NAME wasn't found");
-
-    fs.rmSync(root, { recursive: true, force: true });
-    site({
-      "package.json": { name: "site", dependencies: { "@decocms/nextjs": "7.0.0" } },
-      ".env": "DECO_SITE_NAME=acme\n",
-      ".deco/blocks/site.json": {
-        __resolveType: "site/apps/site.ts",
-        previewHosts: ["a.example.com"],
-      },
-    });
-    const next = createReport();
-    foldSiteSettings(root, next);
-    expect(read("CMS.json").preview).toEqual({ hosts: ["a.example.com"] });
-    const nextNote = next.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
-    expect(nextNote).toContain('pass site: "acme" to decideDraft and bindDraft');
-    expect(nextNote).toContain("v7's Next.js binding didn't");
-  });
-
-  it("with no previewHosts on a named TanStack site, writes no list: the worker keeps v7's two hosts with no extra option", () => {
-    site({
-      "package.json": { name: "site", dependencies: { "@decocms/tanstack": "7.0.0" } },
-      ".env": "DECO_SITE_NAME=acme\n",
-      ".deco/blocks/pages-home.json": home,
-    });
-    const report = createReport();
-    foldSiteSettings(root, report);
-    expect(exists("CMS.json")).toBe(false);
-    const note = report.manual.find((n) => n.subject === "preview hosts")?.message ?? "";
-    expect(note).toContain('pass site: "acme" to createDecoWorker');
-    expect(note).toContain("allows only those two, as v7 did");
-    expect(note).not.toContain("previewHosts: []");
+  it("says nothing about preview hosts, on TanStack Start or Next.js, with or without v7's list", () => {
+    for (const binding of ["@decocms/tanstack", "@decocms/nextjs"]) {
+      for (const previewHosts of [undefined, ["staging.example.com", "acme.deco.site"]]) {
+        fs.rmSync(root, { recursive: true, force: true });
+        site({
+          "package.json": { name: "site", dependencies: { [binding]: "7.0.0" } },
+          ".env": "DECO_SITE_NAME=acme\n",
+          ".deco/blocks/site.json": { __resolveType: "site/apps/site.ts", previewHosts },
+          ".deco/blocks/pages-home.json": home,
+        });
+        const report = createReport();
+        foldSiteSettings(root, report);
+        expect(exists("CMS.json")).toBe(false);
+        expect(JSON.stringify(report)).not.toMatch(/preview/i);
+      }
+    }
   });
 
   it("reads a Site block named Site, and collectorAddress={'…'}", () => {
@@ -657,7 +583,6 @@ export function Root() {
     foldSiteSettings(root, createReport());
     expect(read("CMS.json")).toEqual({
       __resolveType: "cms-settings",
-      preview: { hosts: [] },
       analytics: { collector: "https://c.example/e" },
     });
   });
@@ -707,8 +632,6 @@ export function Root() {
         ],
       },
     });
-    // A prerelease site with no preview hosts gets the behaviour-change note.
-    expect(report.manual.map((n) => n.subject)).toContain("preview hosts");
     const before = snapshotDir();
     foldSiteSettings(root, createReport());
     expect(snapshotDir()).toEqual(before);
@@ -740,9 +663,9 @@ export function Root() {
       telemetry: { metrics: false, errorSampleRate: 0.01 },
     });
     expect(exists("Telemetry.json")).toBe(false);
-    // The Site block's different list is left for a person, untouched.
+    // The Site block is untouched, and nothing is reported about it.
     expect(read("site.json").previewHosts).toEqual(["v7.example.com"]);
-    expect(report.manual.map((n) => n.subject)).toContain(".deco/blocks/site.json");
+    expect(report.manual.map((n) => n.subject)).not.toContain(".deco/blocks/site.json");
   });
 
   it("writes nothing when there's nothing to fold; a v7 Analytics section named Analytics is left alone", () => {
@@ -759,7 +682,6 @@ export function Root() {
     foldSiteSettings(root, report);
     expect(snapshotDir()).toEqual(before);
     expect(report.done).toEqual([]);
-    expect(report.manual.map((n) => n.subject)).toContain("preview hosts");
   });
 
   it("never replaces a CMS block of another type; leftover telemetry/analytics blocks are reported", () => {
