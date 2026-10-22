@@ -928,8 +928,8 @@ export function bootObservability(opts: OtelOptions, env: Record<string, unknown
   //    via the per-site dataset.
   //  - OTLP/HTTP (env `DECO_OTEL_METRICS_ENDPOINT`): SRE-grade rollups
   //    landed in ClickHouse `otel_metrics_{sum,gauge,histogram}` via the
-  //    `deco-otel-ingest` Worker. Cumulative temporality, per-isolate
-  //    buffer flushed by `ctx.waitUntil` in `instrumentWorker`.
+  //    `deco-otel-ingest` Worker. Delta temporality, per-isolate
+  //    buffer drained on each flush by `ctx.waitUntil` in `instrumentWorker`.
   //
   // The two emitters are NOT redundant — AE keeps per-request per-path
   // dimensions; OTLP carries the same metric names at coarser cardinality
@@ -945,9 +945,14 @@ export function bootObservability(opts: OtelOptions, env: Record<string, unknown
   const otlpEndpoint = (env[otlpEnvVar] as string | undefined) ?? "";
   const otlpEnabled = opts.otlpMetricsEnabled !== false && otlpEndpoint.length > 0;
   if (otlpEnabled) {
+    // Metrics drop `service.instance.id`: delta points from different
+    // isolates are meant to be summed, and a per-isolate UUID would split
+    // them back into one series per isolate (decocms/blocks#750). Logs and
+    // traces keep it for per-instance attribution.
+    const { [ATTR_SERVICE_INSTANCE_ID]: _instanceId, ...metricsResource } = floor;
     state.otlpMeter = createOtlpHttpMeterAdapter({
       endpoint: otlpEndpoint,
-      resourceAttributes: floor,
+      resourceAttributes: metricsResource,
       scopeVersion: decoRuntimeVersion,
       headers: otlpHeaders,
       fetchImpl: opts.otlpMetricsFetchImpl,
