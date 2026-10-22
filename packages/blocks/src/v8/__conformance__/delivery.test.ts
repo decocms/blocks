@@ -1757,6 +1757,23 @@ describe("preview hosts in the release metadata", () => {
       expect(await cms.draftPointer(link("www.example.com")), label).toBeNull();
     }
   });
+
+  it("PH-10: once this process has read a list, a 404 for latest.json is a failed read: the list stays enforced", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const api = deliveryApi();
+    api.previewHosts(["staging.example.com"]);
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    expect(await cms.draftPointer(link("www.example.com"))).toBeNull();
+    // The CDN answers 404 for a published site (a fault): the list read before still applies.
+    api.setLatest(new Response("not found", { status: 404 }));
+    now += 120_000;
+    expect(await cms.update()).toEqual({ updated: false });
+    expect(await cms.draftPointer(link("www.example.com"))).toBeNull();
+    expect(await cms.draftPointer(link("staging.example.com"))).toBe(POINTER);
+    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,8 @@
  *   `previewHosts` (published before Studio wrote the list; its next publish
  *   writes one). A read that fails (a network error, a 5xx, a malformed
  *   `latest.json`) isn't "no list": until a read succeeds, previews stay
- *   closed, and a later failure keeps the last answer.
+ *   closed, and a later failure keeps the last answer (a 404 once a list
+ *   was read is a failure too: a published site stays published).
  *   A preview request before this process has read `latest.json` reads it
  *   then (only `latest.json`, once, shared); a read older than the interval
  *   is read again the same way, so `dev: true` follows Studio too.
@@ -299,7 +300,11 @@ class RemoteLoader implements Loader {
     if (!response.ok) {
       await response.body?.cancel();
       // Not published yet: no list, so previews are allowed on every host (PO 2026-10-22).
-      if (response.status === 404) this.#hosts = { list: "every", at: Date.now() };
+      // A site this process has read a list for can't be unpublished: a 404 then
+      // (a CDN fault, a publish caught mid-write) is a failed read, so it keeps the list.
+      if (response.status === 404 && !Array.isArray(this.#hosts?.list)) {
+        this.#hosts = { list: "every", at: Date.now() };
+      }
       throw new Error(`latest.json: HTTP ${response.status}`);
     }
     const body: unknown = await response.json();
