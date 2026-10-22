@@ -59,7 +59,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /\/sections\/Seo\//,
-    "an SEO section: register a block under this name. In a page's seo field it returns the block map's PageSeo type (.deco/index.ts), the fields the page's head shows (the built-in page's seo field takes any block returning SEO fields: a title or a description, strings); in sections, a descriptor or nothing. v7's SeoV2 also merged the website app's seo settings (defaults, titleTemplate, descriptionTemplate) into its fields, and v7's head took fields from sections registered with registerSeoSections too: carry those into the block (/next/renames-and-migrations#rename-a-type-with-an-alias)",
+    "an SEO section: register a block under this name. In a page's seo field it returns the block map's PageSeo type (.deco/index.ts), the fields the page's head shows (the built-in page's seo field takes any block returning only optional SEO fields: a title or a description, strings); in sections, a descriptor or nothing. v7's SeoV2 also merged the website app's seo settings (defaults, titleTemplate, descriptionTemplate) into its fields, and v7's head took fields from sections registered with registerSeoSections too: carry those into the block (/next/renames-and-migrations#rename-a-type-with-an-alias)",
   ],
   [
     ANALYTICS_SECTION,

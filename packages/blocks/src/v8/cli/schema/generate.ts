@@ -399,8 +399,9 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     };
   }
 
-  // The page's seo field: blocks that return a Seo, or SEO fields of their own
-  // (a migrated site's all-optional PageSeo), so any site's SEO block fits it.
+  // The page's seo field: blocks that return a Seo, or only optional SEO
+  // fields of their own (a migrated site's PageSeo); loaders of content that
+  // happens to carry a title stay out.
   const seoRefs = candidates
     .filter((c) => returnFits(c.returnType, seoType) || hasSeoFields(c.returnType, seoFieldsType))
     .map((c) => ({ $ref: `#/definitions/${toBase64(c.key)}` }));
@@ -489,21 +490,24 @@ function sameNamedType(a: Type, b: Type): boolean {
 }
 
 /**
- * Does a function returning `returnType` fit a field of type `field`? The
- * TypeScript rule (assignability of the awaited, non-null types), except for
- * weak target types, which need the same named type.
- */
-/**
- * Whether a block returns SEO fields: an object (not a list) with a `title`
- * or a `description`, every one of them a string when set.
+ * Whether a block returns SEO fields of its own: an object (not a list) whose
+ * every property is optional, such as a migrated site's PageSeo, with a
+ * `title` or a `description`, each a string when set. A loader whose result
+ * has required fields (a blog post's `title` and `excerpt`, a category's
+ * `name`) is content, not SEO, and stays out.
  */
 function hasSeoFields(returnType: Type, seoFields: Type): boolean {
   const source = nonNullable(returnType);
-  if (source.isArray() || !source.isObject()) return false;
+  if (source.isArray() || !source.isObject() || !isWeakType(source)) return false;
   if (!source.getProperty("title") && !source.getProperty("description")) return false;
   return source.isAssignableTo(seoFields);
 }
 
+/**
+ * Does a function returning `returnType` fit a field of type `field`? The
+ * TypeScript rule (assignability of the awaited, non-null types), except for
+ * weak target types, which need the same named type.
+ */
 function returnFits(returnType: Type, field: Type): boolean {
   const source = nonNullable(returnType);
   const target = nonNullable(field);

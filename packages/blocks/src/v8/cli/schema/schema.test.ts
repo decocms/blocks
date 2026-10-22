@@ -282,7 +282,7 @@ describe("interchangeable blocks", () => {
 });
 
 describe("the built-in page with a descriptor site's blocks", () => {
-  it("takes descriptor sections and SEO blocks with optional fields, and stays Studio's page", async () => {
+  it("takes descriptor sections and SEO blocks with only optional fields, and stays Studio's page", async () => {
     const fixture = createFixture({
       "src/blocks.ts": [
         "export interface BlockDescriptor { component: string; props: Record<string, unknown> }",
@@ -291,8 +291,13 @@ describe("the built-in page with a descriptor site's blocks", () => {
         "export const seo = (props: PageSeo): PageSeo => props;",
         "export const price = (props: { sku: string }): { amount: number } => ({ amount: 1 });",
         "export const titled = (props: { n: number }): { title: number } => ({ title: props.n });",
+        // A blog's loaders: content with a title or a description, and required fields.
+        "export interface BlogPost { title: string; excerpt: string; image?: string; slug: string }",
+        "export interface Category { name: string; slug: string; description?: string }",
+        "export const blogPost = async (props: { slug: string }): Promise<BlogPost | null> => null;",
+        "export const blogCategory = async (props: { slug: string }): Promise<Category | null> => null;",
       ].join("\n"),
-      ".deco/index.ts": `import { hero, price, seo, titled } from "../src/blocks"; export default { hero, price, seo, titled };`,
+      ".deco/index.ts": `import { blogCategory, blogPost, hero, price, seo, titled } from "../src/blocks"; export default { hero, price, seo, titled, "blog-post": blogPost, "blog/loaders/Category.ts": blogCategory };`,
     });
     try {
       const { meta: m } = await generateSchema(decoPaths(fixture.root));
@@ -304,6 +309,8 @@ describe("the built-in page with a descriptor site's blocks", () => {
       expect(page.properties.seo.anyOf).toContainEqual(ref("seo"));
       expect(page.properties.seo.anyOf).not.toContainEqual(ref("price"));
       expect(page.properties.seo.anyOf).not.toContainEqual(ref("titled"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("blog-post"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("blog/loaders/Category.ts"));
       expect(m.manifest.blocks.pages.page).toMatchObject({ namespace: "deco" });
     } finally {
       fixture.remove();
