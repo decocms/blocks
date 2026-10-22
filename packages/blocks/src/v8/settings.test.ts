@@ -12,8 +12,9 @@ import { docsBlocks, docsSnapshot, fakeStudio } from "./testFixtures";
 import type { EffectiveSettings, Snapshot } from "./types";
 
 const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+/** The defaults of content with no remote site and no preview hosts anywhere: every host previews. */
 const DEFAULTS: EffectiveSettings = {
-  preview: { hosts: [] },
+  preview: { hosts: ["*"] },
   telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
   analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
 };
@@ -45,7 +46,7 @@ const request = (url: string, cookie?: string) =>
   new Request(url, { headers: cookie ? { cookie } : {} });
 
 describe("cms.settings(): defaults", () => {
-  it("with no CMS block and no preview hosts, every default; no host may preview", async () => {
+  it("with no CMS block, no remote site and no preview hosts, every default; every host may preview", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(await cms.settings()).toEqual(DEFAULTS);
   });
@@ -85,7 +86,7 @@ describe("cms.settings(): defaults", () => {
       }),
     });
     expect(await cms.settings()).toEqual({
-      preview: { hosts: [] },
+      preview: { hosts: ["*"] },
       telemetry: { enabled: true, metrics: false, errorSampleRate: 0.05, traceSampleRate: 0 },
       analytics: { collector: "https://stats.example.com/events", enabled: true },
     });
@@ -200,9 +201,10 @@ describe("cms.settings(): caps from code", () => {
   });
 
   it("the CMS block's preview field, saved by an earlier version, is ignored: Studio keeps the hosts", async () => {
+    // The release's list is empty (Studio wrote none): the old field opens nothing.
     const cms = createCMS({
       blocks: {},
-      content: withSettings({
+      content: withHosts([], "rev-1", {
         preview: {
           hosts: {
             __resolveType: "multivariate",
@@ -214,7 +216,7 @@ describe("cms.settings(): caps from code", () => {
     expect((await cms.settings()).preview.hosts).toEqual([]);
     const plain = createCMS({
       blocks: {},
-      content: withSettings({ preview: { hosts: ["*"] } }, "rev-2"),
+      content: withHosts([], "rev-2", { preview: { hosts: ["*"] } }),
     });
     const pointer = encodeURIComponent(POINTER);
     expect(await plain.draftPointer(request(`https://localhost/?__draft=${pointer}`))).toBeNull();

@@ -80,11 +80,12 @@ describe("bindDraft", () => {
     expect(await bindDraft(cms)).toBe(true);
   });
 
-  it("with no preview hosts in the release, a draft cookie binds nothing", async () => {
+  it("with an empty list in the release, a draft cookie binds nothing; with no list, it binds", async () => {
     serve(cookie);
     expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
-    expect(await bindDraft(testCMS(snapshot()))).toBe(false);
     expect(activeDraftPointer()).toBe(null);
+    expect(await bindDraft(testCMS(snapshot()))).toBe(true);
+    expect(activeDraftPointer()).toBe(POINTER);
   });
 });
 

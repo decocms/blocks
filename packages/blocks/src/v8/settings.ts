@@ -11,8 +11,10 @@
  * - Telemetry rates are the lower of content's and `telemetry.limits`.
  * - Preview hosts aren't content: Studio writes them into the release
  *   metadata (PO 2026-10-22), and `previewHosts` merges them with code's
- *   `preview.hosts` (for content that isn't remote). With neither, no host.
- *   `["*"]` still means every host.
+ *   `preview.hosts`. A remote site with no list published (no `latest.json`
+ *   yet, or one without `previewHosts`): every host. Content with no remote
+ *   site: code's list, else every host. Metadata that couldn't be read:
+ *   code's list alone, or none. `["*"]` means every host.
  */
 import {
   analyticsSection,
@@ -20,7 +22,8 @@ import {
   SETTINGS_TYPE,
   telemetrySection,
 } from "./builtins/data.ts";
-import { formatHostPattern, type HostPattern, parseHostPattern } from "./hosts.ts";
+import type { ReleasePreviewHosts } from "./content.ts";
+import { EVERY_HOST, formatHostPattern, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { isPlainObject } from "./json.ts";
 import type { Client, CMSConfig, EffectiveSettings, Snapshot } from "./types.ts";
 
@@ -142,15 +145,21 @@ export function deepFreeze<T>(value: T): T {
 }
 
 /**
- * The preview hosts in effect: the current release's `previewHosts` (from the
- * release metadata Studio writes; entries that aren't host patterns left out)
- * and code's `preview.hosts`, in their normal form, each once.
+ * The preview hosts in effect, in their normal form, each once:
+ * - the release has a list: it (entries that aren't host patterns left out)
+ *   plus code's `preview.hosts`;
+ * - a remote site published no list (`"every"`): every host (`["*"]`);
+ * - no remote site (`"local"`): code's `preview.hosts` when set, else every host;
+ * - the release metadata couldn't be read (`"unknown"`): code's alone, or
+ *   none, so a failed read never opens previews.
  */
 export function previewHosts(
-  release: readonly string[] | undefined,
+  release: ReleasePreviewHosts,
   code: readonly HostPattern[] | undefined,
 ): string[] {
-  const patterns = [...(release ?? []).map((raw) => parseHostPattern(raw)), ...(code ?? [])].filter(
+  if (release === "every" || (release === "local" && code === undefined)) return [EVERY_HOST];
+  const listed = typeof release === "string" ? [] : release.map((raw) => parseHostPattern(raw));
+  const patterns = [...listed, ...(code ?? [])].filter(
     (pattern): pattern is HostPattern => pattern !== null,
   );
   return unique(patterns.map(formatHostPattern));

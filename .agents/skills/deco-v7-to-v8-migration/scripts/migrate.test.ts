@@ -197,6 +197,9 @@ beforeAll(async () => {
   const keys = await keyPair();
   privateKeyPem = keys.privateKeyPem;
   write(root, ".deco/secrets.pub", keys.publicKeyPem);
+  // v7's extra preview hosts: Studio knows the site's addresses now, so the migration drops them
+  // silently (the Site block's previewHosts: steps.test.ts).
+  write(root, ".env", "DECO_ALLOWED_PREVIEW_HOSTS=staging.example.com\n");
   write(root, ".deco/blocks/pages-home.json", {
     __resolveType: "website/pages/Page.tsx",
     name: "Home",
@@ -355,6 +358,12 @@ describe("migrate", () => {
     });
     expect(manual("settings").join("\n")).toContain("DECO_OTEL_* sampling");
     expect(manual("settings").join("\n")).not.toMatch(/preview/i);
+  });
+
+  it("drops v7's extra preview hosts silently: nothing in the report names them", () => {
+    expect(JSON.stringify(report)).not.toMatch(
+      /preview ?hosts|PREVIEW_HOSTS|staging\.example\.com/i,
+    );
   });
 
   it("leaves a tree that passes deco schema, deco content and deco check", async () => {

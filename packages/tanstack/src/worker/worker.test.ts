@@ -612,11 +612,16 @@ describe("the draft hosts: the release's, as the CMS reads them", () => {
     return rendered;
   }
 
-  it("with no preview hosts in the release, no host previews, the site's Deco hosts included", async () => {
-    const cms = testCMS(snapshot());
-    expect((await cms.settings()).preview.hosts).toEqual([]);
+  it("with no list in the release (no site published one), every host previews; an empty list, none", async () => {
+    const open = testCMS(snapshot());
+    expect((await open.settings()).preview.hosts).toEqual(["*"]);
     for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
-      expect(await previews({ cms }, host), host).toBe(false);
+      expect(await previews({ cms: open }, host), host).toBe(true);
+    }
+    const closed = testCMS(snapshot({ previewHosts: [] }));
+    expect((await closed.settings()).preview.hosts).toEqual([]);
+    for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
+      expect(await previews({ cms: closed }, host), host).toBe(false);
     }
   });
 
@@ -648,7 +653,7 @@ describe("the draft hosts: the release's, as the CMS reads them", () => {
   });
 
   it("a refused draft request is the release, and may be cached", async () => {
-    const { get, entry, seen } = setup({ cms: testCMS(snapshot()) });
+    const { get, entry, seen } = setup({ cms: testCMS(snapshot({ previewHosts: [] })) });
     await get(`/?__draft=${encodeURIComponent(POINTER)}`);
     expect(seen).toHaveLength(1);
     expect(entry.served.every((s) => !s.headers.has("x-deco-version"))).toBe(true);

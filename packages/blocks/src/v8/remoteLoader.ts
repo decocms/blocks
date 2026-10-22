@@ -30,7 +30,13 @@
  *   whenever it writes `latest.json` or a revision (delivery is trusted).
  *   Previews are checked against the current release's list: the last
  *   `latest.json` read, whether or not its revision was swapped in (a newer
- *   bundle still previews where Studio says), else the swapped-in revision's.
+ *   bundle still previews where Studio says). With no list to check
+ *   (PO 2026-10-22), previews are allowed on every host: a site with no
+ *   `latest.json` yet (a 404), or one whose `latest.json` has no
+ *   `previewHosts` (published before Studio wrote the list; its next publish
+ *   writes one). A read that fails (a network error, a 5xx, a malformed
+ *   `latest.json`) isn't "no list": until a read succeeds, previews stay
+ *   closed, and a later failure keeps the last answer.
  *   A preview request before this process has read `latest.json` reads it
  *   then (only `latest.json`, once, shared); a read older than the interval
  *   is read again the same way, so `dev: true` follows Studio too.
@@ -58,6 +64,7 @@ import {
   peekRelease,
   previewHostsOf,
   READ_REVISION,
+  type ReleasePreviewHosts,
 } from "./content.ts";
 import { errors } from "./errors.ts";
 import { clearGlobals, contentIdentity } from "./identity.ts";
@@ -119,8 +126,12 @@ class RemoteLoader implements Loader {
   readonly #dev: boolean;
   /** Published releases read by SHA; immutable, so a hit is never revalidated. */
   readonly #revisions = new BoundedMap<string, Promise<Snapshot>>(CACHED_REVISIONS);
-  /** The preview hosts of the last `latest.json` read, and when it was read. */
-  #hosts: { list: string[] | undefined; at: number } | undefined;
+  /**
+   * The preview hosts the last read of `latest.json` found (its list, or
+   * `"every"`: a 404, or no `previewHosts` in it), and when. A failed read
+   * leaves it as it was.
+   */
+  #hosts: { list: readonly string[] | "every"; at: number } | undefined;
   /** A read of `latest.json` for its preview hosts, in flight. */
   #hostsRead: Promise<void> | undefined;
   /** When that read last failed. */
@@ -179,11 +190,13 @@ class RemoteLoader implements Loader {
 
   /**
    * The current release's preview hosts (see `PREVIEW_HOSTS`): the last
-   * `latest.json` read's, reading it first when there is none yet or it is
-   * older than the interval (`peek`: never). `undefined` when `latest.json`
-   * names none or can't be read: the swapped-in revision's list counts then.
+   * successful read of `latest.json`, reading it first when there is none yet
+   * or it is older than the interval (`peek`: never). `"every"` when
+   * the site has no `latest.json` (a 404) or it names no `previewHosts`;
+   * `"unknown"` while no read has succeeded (a failed one is retried after a
+   * pause), so previews stay closed rather than open on an error.
    */
-  async [PREVIEW_HOSTS](peek = false): Promise<string[] | undefined> {
+  async [PREVIEW_HOSTS](peek = false): Promise<ReleasePreviewHosts> {
     const known = this.#hosts;
     const maxAge = this.interval ?? PREVIEW_HOSTS_MAX_AGE_MS;
     const stale = known === undefined || Date.now() - known.at >= maxAge;
@@ -192,7 +205,8 @@ class RemoteLoader implements Loader {
         .then(
           () => undefined,
           () => {
-            this.#hostsFailedAt = Date.now();
+            // A 404 is an answer (`#latest` recorded it), not a failure.
+            if (this.#hosts === known) this.#hostsFailedAt = Date.now();
           },
         )
         .finally(() => {
@@ -200,7 +214,9 @@ class RemoteLoader implements Loader {
         });
       await this.#hostsRead;
     }
-    return (this.#hosts?.list ?? this.#current?.previewHosts)?.slice();
+    const list = this.#hosts?.list;
+    if (list === undefined) return "unknown";
+    return list === "every" ? list : list.slice();
   }
 
   /** A published release by its commit SHA (see `READ_REVISION`). */
@@ -282,6 +298,8 @@ class RemoteLoader implements Loader {
     const response = await fetchWithTimeout(`${deliveryOrigin()}/sites/${site}/latest.json`);
     if (!response.ok) {
       await response.body?.cancel();
+      // Not published yet: no list, so previews are allowed on every host (PO 2026-10-22).
+      if (response.status === 404) this.#hosts = { list: "every", at: Date.now() };
       throw new Error(`latest.json: HTTP ${response.status}`);
     }
     const body: unknown = await response.json();
@@ -298,7 +316,8 @@ class RemoteLoader implements Loader {
     }
     const previewHosts = previewHostsOf(body.previewHosts);
     // The current release's metadata, whether or not its revision is swapped in.
-    this.#hosts = { list: previewHosts, at: Date.now() };
+    // No `previewHosts` (published before Studio wrote the list): every host, as with no latest.json.
+    this.#hosts = { list: previewHosts ?? "every", at: Date.now() };
     return {
       revision: body.revision,
       schemaHash: body.schemaHash,

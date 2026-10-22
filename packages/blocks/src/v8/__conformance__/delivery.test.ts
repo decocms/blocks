@@ -1593,31 +1593,22 @@ describe("preview hosts in the release metadata", () => {
     expect(await cms.draftPointer(link("staging.example.com"))).toBeNull();
   });
 
-  it("PH-2: with none in the metadata (an empty list, or none written) and none in code, no previews, never an error", async () => {
-    for (const hosts of [[], undefined]) {
-      resetForTests();
-      const api = deliveryApi();
-      api.previewHosts(hosts);
-      api.publish(await hashed("Published"));
-      // The CMS block's preview field, an earlier version's, doesn't count either.
-      const bundled = docsSnapshot();
-      bundled.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
-      const cms = createCMS({ blocks: docsBlocks(), content: bundled, site: SITE });
-      expect(await cms.readVersion(link("staging.example.com")), String(hosts)).toBeNull();
-      expect(await cms.draftCookie(link("staging.example.com"))).toBeNull();
-      expect((await cms.settings()).preview.hosts).toEqual([]);
-      // Ending a preview still works on any host.
-      expect(
-        await cms.draftCookie(new Request("https://staging.example.com/?__draft=off")),
-      ).toMatch(/Max-Age=0/);
-    }
-    // Delivery unreachable: no previews, the release serves, nothing rejects.
-    resetForTests();
-    const down = deliveryApi();
-    down.fail(true);
-    const offline = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
-    expect(await offline.readVersion(link("staging.example.com"))).toBeNull();
-    expect(await titleOf(offline.forRelease())).toBe("Sunny!");
+  it("PH-2: an empty list in the metadata (and none in code) allows no host, never an error", async () => {
+    const api = deliveryApi();
+    api.previewHosts([]);
+    api.publish(await hashed("Published"));
+    // The CMS block's preview field, an earlier version's, doesn't count either.
+    const bundled = docsSnapshot();
+    bundled.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
+    const cms = createCMS({ blocks: docsBlocks(), content: bundled, site: SITE });
+    expect(await cms.readVersion(link("staging.example.com"))).toBeNull();
+    expect(await cms.draftCookie(link("staging.example.com"))).toBeNull();
+    expect((await cms.settings()).preview.hosts).toEqual([]);
+    // Ending a preview still works on any host.
+    expect(await cms.draftCookie(new Request("https://staging.example.com/?__draft=off"))).toMatch(
+      /Max-Age=0/,
+    );
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
   });
 
   it("PH-3: a release SHA preview, like a draft, is checked against the current release's hosts, not the old release's", async () => {
@@ -1646,8 +1637,17 @@ describe("preview hosts in the release metadata", () => {
     expect(await titleOf(cms.forRelease())).toBe("Sunny!");
   });
 
-  it("PH-5: createCMS's preview.hosts is for content that isn't remote; with a site it adds to the release's", async () => {
-    // Bundled content, no site (local development): code's list alone.
+  it("PH-5: with no remote site, previews are allowed on every host, unless createCMS's preview.hosts lists hosts; with a site, that list adds to the release's", async () => {
+    // Bundled content, no site, no list: every host, no fetch.
+    const api = deliveryApi();
+    const open = createCMS({ blocks: docsBlocks(), content: unhashedSnapshot() });
+    for (const host of ["localhost:3000", "staging.example.com", "www.example.com"]) {
+      expect(await open.draftPointer(link(host)), host).toBe(POINTER);
+    }
+    expect((await open.settings()).preview.hosts).toEqual(["*"]);
+    expect(api.latestFetches()).toBe(0);
+    // No site, code lists hosts: that list is enforced.
+    resetForTests();
     const local = createCMS({
       blocks: docsBlocks(),
       content: unhashedSnapshot(),
@@ -1655,11 +1655,13 @@ describe("preview hosts in the release metadata", () => {
     });
     expect(await local.draftPointer(link("localhost:3000"))).toBe(POINTER);
     expect(await local.draftPointer(link("staging.example.com"))).toBeNull();
-    // With a site, both lists count.
+    expect(await local.draftCookie(link("staging.example.com"))).toBeNull();
+    expect((await local.settings()).preview.hosts).toEqual(["localhost"]);
+    // With a site and a list in the metadata, both lists count.
     resetForTests();
-    const api = deliveryApi();
-    api.previewHosts(["staging.example.com"]);
-    api.publish(await hashed("Published"));
+    const hostedApi = deliveryApi();
+    hostedApi.previewHosts(["staging.example.com"]);
+    hostedApi.publish(await hashed("Published"));
     const hosted = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
@@ -1680,6 +1682,80 @@ describe("preview hosts in the release metadata", () => {
     expect(await cms.update()).toEqual({ updated: false });
     expect(await titleOf(cms.forRelease())).toBe("Sunny!");
     expect(api.assetFetches()).toBe(0);
+  });
+
+  it("PH-7: a site with no latest.json on the CDN (not published yet) previews on every host", async () => {
+    for (const code of [undefined, ["localhost"]]) {
+      resetForTests();
+      const api = deliveryApi(); // nothing published: latest.json is a 404
+      const cms = createCMS({
+        blocks: docsBlocks(),
+        content: docsSnapshot(),
+        site: SITE,
+        ...(code ? { preview: { hosts: code } } : {}),
+      });
+      for (const host of ["staging.example.com", "www.example.com", "localhost:5173"]) {
+        expect(await cms.draftPointer(link(host)), `${host} ${code}`).toBe(POINTER);
+        expect(await cms.draftCookie(link(host)), host).not.toBeNull();
+      }
+      expect(api.latestFetches()).toBe(1);
+      expect((await cms.settings()).preview.hosts).toEqual(["*"]);
+      // Ending a preview still works.
+      expect(await cms.draftCookie(new Request("https://www.example.com/?__draft=off"))).toMatch(
+        /Max-Age=0/,
+      );
+      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    }
+  });
+
+  it("PH-8: a latest.json without previewHosts (published before Studio wrote the list) counts as no list: every host, until a publish writes one", async () => {
+    const api = deliveryApi();
+    api.previewHosts(undefined);
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    for (const host of ["staging.example.com", "www.example.com"]) {
+      expect(await cms.draftPointer(link(host)), host).toBe(POINTER);
+    }
+    expect((await cms.settings()).preview.hosts).toEqual(["*"]);
+    // The next publish writes the list: from then on it's enforced.
+    api.previewHosts(["staging.example.com"]);
+    api.publish(await hashed("Next"));
+    expect(await cms.update()).toEqual({ updated: true });
+    expect(await cms.draftPointer(link("staging.example.com"))).toBe(POINTER);
+    expect(await cms.draftPointer(link("www.example.com"))).toBeNull();
+    expect(await cms.draftCookie(link("www.example.com"))).toBeNull();
+  });
+
+  it("PH-9: a failed read of latest.json isn't a missing one: previews stay closed, and a later read retries", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const failures: [string, (api: ReturnType<typeof deliveryApi>) => void][] = [
+      ["network error", (api) => api.fail(true)],
+      ["5xx", (api) => api.setLatest(new Response("unavailable", { status: 503 }))],
+      ["malformed", (api) => api.setLatest({ revision: "not a sha" })],
+    ];
+    for (const [label, fail] of failures) {
+      resetForTests();
+      const api = deliveryApi();
+      fail(api);
+      const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+      expect(await cms.draftPointer(link("staging.example.com")), label).toBeNull();
+      expect(await cms.draftCookie(link("staging.example.com")), label).toBeNull();
+      expect((await cms.settings()).preview.hosts, label).toEqual([]);
+      // The release still serves, nothing rejects, and ending a preview works.
+      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+      expect(
+        await cms.draftCookie(new Request("https://staging.example.com/?__draft=off")),
+      ).toMatch(/Max-Age=0/);
+      // Delivery answers again: after the pause, the next preview request reads it.
+      const published = await hashed("Published");
+      api.previewHosts(["staging.example.com"]);
+      api.publish(published);
+      api.fail(false);
+      now += 10_000;
+      expect(await cms.draftPointer(link("staging.example.com")), label).toBe(POINTER);
+      expect(await cms.draftPointer(link("www.example.com")), label).toBeNull();
+    }
   });
 });
 

@@ -1,8 +1,9 @@
 /**
  * Which hosts may render drafts: the ones the CMS allows (`cms.readVersion`):
  * the addresses Studio writes into the current release's metadata, plus
- * `createCMS`'s `preview.hosts` for content that isn't remote (local
- * development). The site declares nothing here (PO 2026-10-22).
+ * `createCMS`'s `preview.hosts`; every host while the site has published no
+ * list, or with no `site` and no `preview.hosts`. The site declares nothing
+ * here (PO 2026-10-22).
  *
  * The draft itself is the capability: a host check only bounds where a draft
  * link works. A request the check refuses gets the release, never an error.

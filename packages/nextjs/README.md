@@ -117,7 +117,7 @@ export default async function Page({ params }) {
 
 ### Draft hosts
 
-A draft link (`?__draft=`) previews on the hosts the CMS allows, which `cms.readVersion` checks: the addresses Studio writes into the current release's metadata (`previewHosts` in `latest.json`, read with `createCMS`'s `site`), plus `createCMS({ preview: { hosts } })` for content that isn't remote, such as `["localhost"]` in local development. The site lists nothing else; with neither, no host previews. The host is the one the visitor asked for (`x-forwarded-host`, else `host`); the proxy and `bindDraft` ask the same CMS. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
+A draft link (`?__draft=`) previews on the hosts the CMS allows, which `cms.readVersion` checks: the addresses Studio writes into the current release's metadata (`previewHosts` in `latest.json`, read with `createCMS`'s `site`), plus `createCMS({ preview: { hosts } })`. The site lists nothing else. With no list, every host previews: a site with no `latest.json` on the CDN yet, or one published before Studio wrote `previewHosts` (its next publish writes the list), and content with no `site` unless `preview.hosts` lists hosts (such as `["localhost"]`). If `latest.json` can't be read (a network error, a 5xx, a malformed file), previews stay closed, besides `preview.hosts`, until a read succeeds. The host is the one the visitor asked for (`x-forwarded-host`, else `host`); the proxy and `bindDraft` ask the same CMS. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
 
 ## The layout
 

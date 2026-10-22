@@ -21,7 +21,7 @@ FastStore's CMS pages are SSG and its CLI forbids `middleware`/`proxy` and `/api
 
 ## Preview hosts and draft sources
 
-- Preview hosts come from Studio, in each release's metadata (`createCMS({ site })` reads them); the dev host goes in `createCMS({ preview: { hosts: ["localhost"] } })` when local content isn't hosted. v8 ignores v7's `DECO_ALLOWED_PREVIEW_HOSTS`: remove it from env files and harness env too.
+- Preview hosts come from Studio, in each release's metadata (`createCMS({ site })` reads them); until the first publish writes them, and for local content with no `site`, every host previews (`createCMS({ preview: { hosts: ["localhost"] } })` narrows local content to the dev host). v8 ignores v7's `DECO_ALLOWED_PREVIEW_HOSTS`: remove it from env files and harness env too.
 - Drafts need no site loader: `cms.forDraft` fetches the pointer itself, only from v7's preview API domains (`*.decocms.com` and the loopback hosts by default; `createCMS({ preview: { draftHosts } })` replaces the list. The SDK reads no environment variable, so v7's `DECO_PREVIEW_API_DOMAINS` is read by the site, if at all, and passed in). Delete any draft-fetching loader the site kept from v7.
 - If the site keeps v7's policy that a draft that fails to load falls back to the release, write that down: the docs say a failed draft is an error.
 

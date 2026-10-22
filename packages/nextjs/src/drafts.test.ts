@@ -16,11 +16,16 @@ async function previews(cms: ReturnType<typeof testCMS>, host: string): Promise<
 }
 
 describe("the draft hosts: the release's, as the CMS reads them", () => {
-  it("with no preview hosts in the release, no host previews, the site's Deco hosts included", async () => {
-    const cms = testCMS(snapshot());
-    expect((await cms.settings()).preview.hosts).toEqual([]);
+  it("with no list in the release (no site published one), every host previews; an empty list, none", async () => {
+    const open = testCMS(snapshot());
+    expect((await open.settings()).preview.hosts).toEqual(["*"]);
     for (const host of ["shop.example.com", "localhost:3000", "acme.deco.site"]) {
-      expect(await previews(cms, host), host).toBe(false);
+      expect(await previews(open, host), host).toBe(true);
+    }
+    const closed = testCMS(snapshot({ previewHosts: [] }));
+    expect((await closed.settings()).preview.hosts).toEqual([]);
+    for (const host of ["shop.example.com", "localhost:3000", "acme.deco.site"]) {
+      expect(await previews(closed, host), host).toBe(false);
     }
   });
 

@@ -179,8 +179,10 @@ export interface EffectiveSettings {
   /**
    * The hosts previews are allowed on, as known in memory: the current
    * release's `previewHosts` (Studio writes them into the release metadata)
-   * plus `createCMS`'s `preview.hosts`. `["*"]` means every host; an empty
-   * list, none.
+   * plus `createCMS`'s `preview.hosts`. A site with no list published (no
+   * `latest.json` yet, or one without `previewHosts`) and content with no
+   * remote site and no `preview.hosts` give `["*"]`, every host; an empty
+   * list, none (as before this process has read the release metadata).
    */
   preview: { hosts: string[] };
   telemetry: Required<Telemetry>;
@@ -283,8 +285,10 @@ export interface CMSConfig {
     /**
      * Hosts previews are allowed on besides the release's own (Studio writes
      * those into the release metadata), in the host pattern format
-     * (/next/api-reference#host-patterns): for content that isn't remote,
-     * such as bundled content in local development (`["localhost"]`).
+     * (/next/api-reference#host-patterns). Without `site`, the only list:
+     * left out, previews are allowed on every host. With `site`, it adds to
+     * the release's list; a site with no list published previews on every
+     * host anyway.
      */
     hosts?: string[];
     /**
@@ -439,7 +443,9 @@ export interface CMS {
    * `null` when neither is present, for `?__draft=off`, on a host outside
    * the preview hosts (the current release's `previewHosts`, which Studio
    * writes into the release metadata, plus `createCMS`'s `preview.hosts`;
-   * with neither, no host), and for a value that doesn't parse (ignored,
+   * every host while the site has published no list, or without `site` and
+   * `preview.hosts`; no host while the metadata can't be read, besides
+   * `preview.hosts`), and for a value that doesn't parse (ignored,
    * as if absent): in each case the request gets the current release. A
    * draft and an older release's SHA are both checked against the current
    * release's list.

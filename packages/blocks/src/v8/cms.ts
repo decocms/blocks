@@ -82,7 +82,7 @@ class CMSInstance {
   readonly #caps: SettingsCaps;
   /** Settings of a `CMS` block with nothing to run, per release snapshot. */
   #staticSettings = new WeakMap<Snapshot, SavedSettings>();
-  /** Code's `preview.hosts`, parsed: added to the release's own preview hosts. */
+  /** Code's `preview.hosts`, parsed: added to the release's own preview hosts, or the only list without a site. */
   readonly #codeHosts: readonly HostPattern[] | undefined;
   /** The release and time telemetry last read its section. */
   #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
@@ -235,6 +235,8 @@ class CMSInstance {
   /**
    * Whether the current release's preview hosts (the release metadata's,
    * read once if this process hasn't yet) or code's allow this request's host.
+   * No list published (or no remote site and no code list): every host; a
+   * failed read of the metadata: code's list alone (see `previewHosts`).
    */
   async #previewAllowed(request: RequestLike): Promise<boolean> {
     const hosts = previewHosts(await this.#store.previewHosts(), this.#codeHosts);

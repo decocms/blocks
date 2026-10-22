@@ -1,8 +1,9 @@
 /**
  * Which hosts may render drafts: the ones the CMS allows (`cms.readVersion`):
  * the addresses Studio writes into the current release's metadata, plus
- * `createCMS`'s `preview.hosts` for content that isn't remote (local
- * development). The site declares nothing here (PO 2026-10-22). The proxy
+ * `createCMS`'s `preview.hosts`; every host while the site has published no
+ * list, or with no `site` and no `preview.hosts`. The site declares nothing
+ * here (PO 2026-10-22). The proxy
  * (`decideDraft`) and the pages (`bindDraft`) ask the same CMS.
  *
  * The host is the one the visitor asked for: `x-forwarded-host` behind a

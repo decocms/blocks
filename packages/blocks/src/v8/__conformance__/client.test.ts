@@ -178,31 +178,35 @@ describe("cms.readVersion", () => {
     expect(await cms.readVersion(request(`?__draft=${OLD}`))).toBeNull();
   });
 
-  it("rv-04: with no preview hosts in the release nor in code, none: no version is read, on any host", async () => {
+  it("rv-04: with no remote site and no preview hosts in the release nor in code, every host reads a version; a list, the release's or code's, is enforced", async () => {
     const link = `?__draft=${OLD}`;
-    const none = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    expect((await none.settings()).preview.hosts).toEqual([]);
-    expect(await none.readVersion(request(link))).toBeNull();
-    expect(await none.readVersion(request("", `__deco_draft=${OLD}`))).toBeNull();
-    expect(await none.draftPointer(request(link))).toBeNull();
-    expect(await none.draftCookie(request(link))).toBeNull();
-    // A CMS block's preview field (an earlier version's) doesn't count.
-    const saved = docsSnapshot();
-    saved.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["shop.example.com"] } };
-    expect(
-      await createCMS({ blocks: docsBlocks(), content: saved }).readVersion(request(link)),
-    ).toBeNull();
-    // In the release (Studio writes them into its metadata) or in createCMS (code), it reads.
+    const open = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    expect((await open.settings()).preview.hosts).toEqual(["*"]);
+    expect(await open.readVersion(request(link))).toEqual({ version: OLD });
+    expect(await open.draftPointer(request(link))).toBe(OLD);
+    expect(await open.draftCookie(request(link))).not.toBeNull();
+    // In the release (Studio writes them into its metadata) or in createCMS (code), the list is enforced.
     const content = docsSnapshot();
     content.previewHosts = ["shop.example.com"];
     const inRelease = createCMS({ blocks: docsBlocks(), content });
     expect(await inRelease.readVersion(request(link))).toEqual({ version: OLD });
+    const elsewhere = new Request(`https://www.other.com/${link}`);
+    expect(await inRelease.readVersion(elsewhere)).toBeNull();
     const inCode = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),
       preview: { hosts: ["*.example.com"] },
     });
     expect(await inCode.readVersion(request(link))).toEqual({ version: OLD });
+    expect(await inCode.readVersion(elsewhere)).toBeNull();
+    // An empty list: none, on any host; a CMS block's preview field (an earlier version's) doesn't count.
+    const none = docsSnapshot();
+    none.previewHosts = [];
+    none.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["shop.example.com"] } };
+    const closed = createCMS({ blocks: docsBlocks(), content: none });
+    expect(await closed.readVersion(request(link))).toBeNull();
+    expect(await closed.readVersion(request("", `__deco_draft=${OLD}`))).toBeNull();
+    expect(await closed.draftCookie(request(link))).toBeNull();
   });
 
   it("rv-03: draftPointer is readVersion's version alone, under its earlier name; the cookie carries a SHA too", async () => {
