@@ -3,7 +3,7 @@
  * life, plus a memo of block results, and the inputs it was created with
  * (the visitor, the version, the moment it shows). Create one per request.
  */
-import { FORCED_TESTS } from "./current.ts";
+import { FORCED_TESTS, RUNNING_CAMPAIGNS } from "./current.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
 import type { Visitor } from "./experiments.ts";
 import { isBlock } from "./json.ts";
@@ -34,6 +34,8 @@ interface ClientOptions {
   now?: number;
   /** The tests a preview link forces on or off, by name. */
   forcedTests?: Readonly<Record<string, boolean>>;
+  /** The campaigns running, as decided in front of the page; `undefined` to check the windows. */
+  campaigns?: readonly string[];
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
 }
@@ -46,6 +48,7 @@ export class CMSClient implements Client {
   readonly #visitor: Visitor | null;
   readonly #now: number;
   readonly #forced: Readonly<Record<string, boolean>> | undefined;
+  readonly #campaigns: ReadonlySet<string> | undefined;
   #loaded: Promise<Loaded> | undefined;
   /** The revision loaded, once it is. */
   #revision: string | undefined;
@@ -55,6 +58,7 @@ export class CMSClient implements Client {
     this.#visitor = copyVisitor(options.visitor);
     this.#now = options.now ?? Date.now();
     this.#forced = options.forcedTests && Object.freeze({ ...options.forcedTests });
+    this.#campaigns = options.campaigns && new Set(options.campaigns);
   }
 
   get visitor(): Visitor | null {
@@ -72,6 +76,11 @@ export class CMSClient implements Client {
   /** Read by the built-in `split-traffic` (see ./current.ts). */
   get [FORCED_TESTS](): Readonly<Record<string, boolean>> | undefined {
     return this.#forced;
+  }
+
+  /** Read by the built-in `date-windows` (see ./current.ts). */
+  get [RUNNING_CAMPAIGNS](): ReadonlySet<string> | undefined {
+    return this.#campaigns;
   }
 
   async resolve<T = unknown>(target: unknown, options: ResolveOptions = {}): Promise<Result<T>> {

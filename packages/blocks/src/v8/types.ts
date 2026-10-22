@@ -370,6 +370,14 @@ export interface ClientOptions {
    * `<sha>?__at=…&__test=…`). Only a version from a Studio link carries them.
    */
   version?: string | null;
+  /**
+   * The campaigns running, by name, when something in front of the page
+   * already decided them (a proxy that keyed a cached page on them): the
+   * saved `campaigns` block answers these on and every other off, whatever
+   * `client.now`. A name the block doesn't have stays off. Leave it out to
+   * check each window at `client.now`.
+   */
+  campaigns?: readonly string[] | null;
 }
 
 export interface CMS {

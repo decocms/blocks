@@ -11,9 +11,12 @@
  *   `date-windows` is the only place date logic lives.
  *
  * The moment is the client's (`client.now`: a preview's time, or when the
- * client was created), read through `currentClient()` before any `await`.
+ * client was created), read through `currentClient()` before any `await`. A
+ * client given the running campaigns (`cms.client({ campaigns })`, what a
+ * proxy in front of a cached page decided) answers those instead, never a
+ * name the block doesn't have.
  */
-import { currentClient } from "../current.ts";
+import { currentClient, runningCampaigns } from "../current.ts";
 
 /** The saved block every `date` rule reads, and its built-in type. */
 export const CAMPAIGNS_BLOCK = "campaigns";
@@ -27,12 +30,17 @@ type Campaigns = Record<string, boolean>;
 
 /**
  * `date-windows`: each campaign and whether the current client's moment is
- * inside its window.
+ * inside its window, or, for a client given the running campaigns, whether
+ * it is one of them.
  */
 export const dateWindows = (windows: Record<string, unknown> = {}): Campaigns => {
-  const now = currentClient().now.getTime();
+  const client = currentClient();
+  const running = runningCampaigns(client);
+  const now = client.now.getTime();
   const out = Object.create(null) as Campaigns;
-  for (const name of Object.keys(windows)) out[name] = inside(windows[name], now);
+  for (const name of Object.keys(windows)) {
+    out[name] = running ? running.has(name) : inside(windows[name], now);
+  }
   return out;
 };
 

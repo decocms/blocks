@@ -199,6 +199,29 @@ describe("the date rule", () => {
   });
 });
 
+describe("a client given the running campaigns", () => {
+  it("cmp-11: cms.client({ campaigns }) shows those running and every other off, whatever its moment", async () => {
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: snapshotWith({ "black-friday": BLACK_FRIDAY, xmas: {} }),
+    });
+    at(BEFORE);
+    const before = cms.client({ campaigns: ["black-friday"] });
+    expect(await title(before)).toBe("Sale");
+    expect((await before.resolve("campaigns"))[0]).toEqual({ "black-friday": true, xmas: false });
+    at(DURING);
+    expect(await title(cms.client({ campaigns: [] }))).toBe("Regular");
+  });
+
+  it("cmp-12: a name the block doesn't have stays off", async () => {
+    at(DURING);
+    const cms = createCMS({ blocks: docsBlocks(), content: snapshotWith({ xmas: {} }) });
+    const client = cms.client({ campaigns: ["black-friday", "xmas"] });
+    expect((await client.resolve("campaigns"))[0]).toEqual({ xmas: true });
+    expect(await title(client)).toBe("Regular");
+  });
+});
+
 describe("the preview link: the moment and the tests it forces", () => {
   const OLD = "1".repeat(40);
   const SCHEMA = "a".repeat(64);

@@ -112,14 +112,24 @@ class CMSInstance {
    * published release by its commit SHA, or a draft pointer) and the visitor
    * it decides tests for, both passed in. It shows the moment the version's
    * preview sets (`__at`), else the moment it was created; the tests the
-   * preview forces (`__test`) go on top of the visitor's answers.
+   * preview forces (`__test`) go on top of the visitor's answers. Given
+   * `campaigns`, the `campaigns` block answers those running instead of
+   * checking the windows.
    */
   client(blocks: Blocks, options: ClientOptions = {}): Client {
     this.#scheduleUpdate();
     const version = typeof options.version === "string" ? options.version : undefined;
     const visitor = options.visitor ?? null;
+    const campaigns = Array.isArray(options.campaigns)
+      ? options.campaigns.filter((name): name is string => typeof name === "string")
+      : undefined;
     if (version === undefined) {
-      return this.#client(blocks, this.#release(blocks), { version, visitor, now: Date.now() });
+      return this.#client(blocks, this.#release(blocks), {
+        version,
+        visitor,
+        now: Date.now(),
+        campaigns,
+      });
     }
     const parsed = parseVersion(version);
     // A version that doesn't parse fails on the first read, as an invalid pointer always has.
@@ -128,6 +138,7 @@ class CMSInstance {
         version,
         visitor,
         now: Date.now(),
+        campaigns,
       });
     }
     const { variants, at, tests } = parsed.preview;
@@ -136,6 +147,7 @@ class CMSInstance {
       visitor,
       now: at === undefined ? Date.now() : Date.parse(at),
       forcedTests: tests,
+      campaigns,
     };
     const load =
       parsed.kind === "revision"
@@ -269,6 +281,7 @@ class CMSInstance {
       visitor: ClientOptions["visitor"];
       now: number;
       forcedTests?: Readonly<Record<string, boolean>>;
+      campaigns?: readonly string[];
     },
   ): Client {
     return new CMSClient({

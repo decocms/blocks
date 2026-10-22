@@ -26,6 +26,12 @@ const SLOT = Symbol.for("decocms.blocks.currentClient");
  */
 export const FORCED_TESTS: unique symbol = Symbol.for("decocms.blocks.forcedTests");
 
+/**
+ * The campaigns a client was given as running (`cms.client({ campaigns })`):
+ * read by the built-in `date-windows`. `Symbol.for`, like `FORCED_TESTS`.
+ */
+export const RUNNING_CAMPAIGNS: unique symbol = Symbol.for("decocms.blocks.runningCampaigns");
+
 interface Slot {
   /** Set while a block function runs synchronously. */
   active: Client | undefined;
@@ -71,6 +77,12 @@ export function runWithClient<R>(client: Client, fn: () => R): R {
   } finally {
     current.active = previous;
   }
+}
+
+/** The campaigns a client was given as running; `undefined` when it checks the windows itself. */
+export function runningCampaigns(client: Client): ReadonlySet<string> | undefined {
+  const running = (client as unknown as Record<symbol, unknown>)[RUNNING_CAMPAIGNS];
+  return running instanceof Set ? (running as ReadonlySet<string>) : undefined;
 }
 
 /** The tests a client's preview forces, by name; `undefined` when none. */
