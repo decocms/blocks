@@ -21,10 +21,21 @@ import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
+import {
+  CALENDAR_TYPE,
+  CAMPAIGN_RULE,
+  CAMPAIGNS_BLOCK,
+  campaignTime,
+} from "../../builtins/campaigns.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
+import {
+  EXPERIMENT_RULE,
+  EXPERIMENTS_BLOCK,
+  SPLIT_TRAFFIC_TYPE,
+} from "../../builtins/experiments.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
-import { isBuiltIn, storesPlainVariants } from "../builtins.ts";
+import { BUILT_IN_BLOCKS, BUILT_IN_USES, isBuiltIn, storesPlainVariants } from "../builtins.ts";
 import { paint } from "../color.ts";
 import { readSavedBlocks, type SavedBlocks } from "../content.ts";
 import { consoleReporter, type Reporter } from "../log.ts";
@@ -73,11 +84,35 @@ function blockDefinitionName(schema: Json): string | null {
   return e && e.length === 1 && typeof schema.title === "string" && !schema.format ? e[0] : null;
 }
 
-/** Prerelease built-ins folded into the CMS settings block, with no alias. */
+/** Prerelease built-ins folded into the CMS settings block, or renamed, with no alias. */
 const FOLDED_BUILT_INS: Record<string, string> = {
   telemetry: `the built-in is now the telemetry section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
   analytics: `the built-in is now the analytics section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
+  "date-windows": `the built-in is now "${CALENDAR_TYPE}": set the saved block "${CAMPAIGNS_BLOCK}" to { "__resolveType": "${CALENDAR_TYPE}", … }`,
 };
+
+/** A `CMS` block saved with preview hosts, which Studio keeps now (in the release it publishes). */
+const PREVIEW_FIELD_GONE =
+  "the site editor now keeps the addresses this site can be previewed on, so this field isn't read any more: you can delete it";
+
+/** The prerelease `date` rule, which the `campaign` rule replaced. */
+const OLD_DATE_RULE = "date";
+
+/**
+ * What to write instead of a prerelease `date` rule: one naming a campaign
+ * becomes a `campaign` rule; one with its dates inline moves them into a
+ * campaign first.
+ */
+function oldDateRuleProblem(block: Record<string, Json>): string {
+  const rule = `{ "__resolveType": "${CAMPAIGN_RULE}", "name": … }`;
+  if (typeof block.campaign === "string") {
+    return `unknown block type "${OLD_DATE_RULE}": the date rule is now "${CAMPAIGN_RULE}", so write { "__resolveType": "${CAMPAIGN_RULE}", "name": ${JSON.stringify(block.campaign)} }`;
+  }
+  if ("start" in block || "end" in block) {
+    return `unknown block type "${OLD_DATE_RULE}": this date rule has its dates inline; move them into a campaign of the saved block "${CAMPAIGNS_BLOCK}" (type "${CALENDAR_TYPE}") and write ${rule} naming it`;
+  }
+  return `unknown block type "${OLD_DATE_RULE}": the date rule is now "${CAMPAIGN_RULE}": write ${rule} naming a campaign of the saved block "${CAMPAIGNS_BLOCK}"`;
+}
 
 // ---------------------------------------------------------------------------
 // The validation document: the schema, with every field also accepting a block
@@ -216,8 +251,10 @@ function isDate(value: string): boolean {
 /**
  * The formats `deco check` enforces: the standard ones the schema's widgets
  * write (`@format date`, `date-time`, `uri`). A date-time is a date, `T` (or a
- * space) and a time whose seconds and zone are optional, since that is what
- * the site editor's date-time picker saves. Every other format names a
+ * space) and a time whose seconds and zone are optional: content written by
+ * hand or by older tools may leave them out (the site editor's date-time
+ * picker saves the offset, as in `2026-11-27T00:00:00-03:00`). A campaign
+ * bound needs the offset, which `unreadableBound` checks. Every other format names a
  * site-editor widget (`image-uri`, `color`, `rich-text`, …), not a rule, so it
  * accepts any string.
  */
@@ -229,6 +266,35 @@ const STANDARD_FORMATS: Record<string, (value: string) => boolean> = {
   },
   uri: (value) => /^[a-z][a-z0-9+.-]*:/i.test(value) && URL.canParse(value),
 };
+
+/** The offset the examples in campaign messages show (São Paulo), to replace with the store's own. */
+const CAMPAIGN_EXAMPLE_OFFSET = "-03:00";
+
+/**
+ * Why `deco check` rejects a campaign bound the runtime can't read
+ * (`campaignTime` is null), or null when it reads or is left to the generic
+ * date-time format error (not a date at all). A date or a date-time without
+ * an offset names a different moment depending on where it is read, so the
+ * message says to add the store's offset.
+ */
+function unreadableBound(campaign: string, bound: "start" | "end", value: unknown): string | null {
+  if (typeof value !== "string" || value === "" || campaignTime(value) !== null) return null;
+  const verb = bound === "start" ? "starts" : "ends";
+  const what = `the campaign "${campaign}" ${verb} at ${JSON.stringify(value)}`;
+  if (isDate(value)) {
+    const like = `${value}T00:00${CAMPAIGN_EXAMPLE_OFFSET}`;
+    return `${what}, a date without a time or offset, so it never runs: add the time and your store's offset, like ${JSON.stringify(like)}`;
+  }
+  if (!STANDARD_FORMATS["date-time"]?.(value)) return null;
+  const iso = `${value.slice(0, 10)}T${value.slice(11)}`;
+  if (!/(?:z|[+-]\d{2}:?\d{2})$/i.test(value)) {
+    const like = `${iso}${CAMPAIGN_EXAMPLE_OFFSET}`;
+    return `${what}, which has no offset, so it never runs: add your store's offset, like ${JSON.stringify(like)}`;
+  }
+  const fixed = iso.replace(/z$/i, "Z").replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const like = campaignTime(fixed) === null ? `${value.slice(0, 10)}T00:00Z` : fixed;
+  return `${what}, which isn't written as a campaign reads it, so it never runs: write the date, "T", the time and the offset as Z or ±hh:mm, like ${JSON.stringify(like)}`;
+}
 
 function formatsFor(doc: Json): Record<string, true | ((value: string) => boolean)> {
   const formats: Record<string, true | ((value: string) => boolean)> = { ...STANDARD_FORMATS };
@@ -372,6 +438,112 @@ class Checker {
     return this.underlyingType(entry.__resolveType, [...chain, name]);
   }
 
+  /**
+   * Whether `name` is the built-in itself here: the block map didn't define
+   * the same key (which replaces the built-in, schema included).
+   */
+  private isOwnBuiltIn(name: string): boolean {
+    return isBuiltIn(name) && this.siteNamespaceOf(name) === undefined;
+  }
+
+  /** The namespace of the block map's own entry named `name`, if it has one. */
+  private siteNamespaceOf(name: string): string | undefined {
+    for (const entries of Object.values(this.meta.manifest?.blocks ?? {})) {
+      const entry = own(entries, name) as { namespace?: unknown } | undefined;
+      if (entry && entry.namespace !== "deco") return String(entry.namespace ?? "site");
+    }
+    return undefined;
+  }
+
+  /**
+   * The names in the saved block `name` (the tests of `experiments`, the
+   * campaigns of `campaigns`), or null when there is no such block of `type`.
+   */
+  private savedNames(name: string, type: string): Set<string> | null {
+    const entry = own(this.saved.blocks, name);
+    if (!isBlock(entry) || this.canonicalType(entry.__resolveType) !== type) return null;
+    return new Set(Object.keys(entry).filter((key) => key !== "__resolveType"));
+  }
+
+  /**
+   * The inputs a built-in `rule` (`experiment`, `campaign`) gets: the block's own,
+   * inline or over the saved block it names (whose inputs it may override).
+   * Undefined for any other block, or when the block map replaces the built-in.
+   */
+  private ruleInputs(block: Json, rule: string): Record<string, Json> | undefined {
+    if (!isBlock(block) || !this.isOwnBuiltIn(rule)) return undefined;
+    if (this.canonicalType(block.__resolveType) !== null) {
+      return this.canonicalType(block.__resolveType) === rule ? block : undefined;
+    }
+    const saved = own(this.saved.blocks, block.__resolveType);
+    if (!isBlock(saved) || this.canonicalType(saved.__resolveType) !== rule) return undefined;
+    return { ...saved, ...block };
+  }
+
+  /** Whether `type` is the built-in `calendar` (not one the block map replaces). */
+  private isCalendar(type: unknown): boolean {
+    return this.canonicalType(type as string) === CALENDAR_TYPE && this.isOwnBuiltIn(CALENDAR_TYPE);
+  }
+
+  /**
+   * A `calendar` block wherever it is (the saved block `campaigns`, another
+   * saved block, or inline in a section's props): its props, then the dates
+   * of every campaign in it, whose own messages replace the generic
+   * date-time format error at the same path.
+   */
+  private checkCalendar(ctx: Context, block: Record<string, Json>, path: string): void {
+    const before = ctx.problems.length;
+    this.checkProps(ctx, block, path, true);
+    const found = ctx.problems.splice(before);
+    const dates = this.checkCampaignWindows(ctx, block, path);
+    ctx.problems.push(
+      ...found.filter((p) => !(dates.has(p.path) && p.message.endsWith("isn't a valid date-time"))),
+    );
+  }
+
+  /**
+   * Each campaign of a `calendar` block with a bound the runtime can't read
+   * (a date without a time, a date-time without an offset, or one not written
+   * as ISO 8601: `campaignTime`), which is an error since that campaign never
+   * runs, or whose end isn't after its start. Returns the paths of the dates
+   * reported here, whose generic format error says less and is dropped.
+   */
+  private checkCampaignWindows(
+    ctx: Context,
+    entry: Record<string, Json>,
+    path: string,
+  ): Set<string> {
+    const reported = new Set<string>();
+    for (const key of Object.keys(entry).sort()) {
+      if (key === "__resolveType") continue;
+      const window = entry[key];
+      if (!isObject(window)) continue;
+      const { start, end } = window;
+      const at = (bound: string) =>
+        joinPath(path, `/${key.replace(/~/g, "~0").replace(/\//g, "~1")}/${bound}`);
+      for (const [bound, value] of [
+        ["start", start],
+        ["end", end],
+      ] as const) {
+        const problem = unreadableBound(key, bound, value);
+        if (problem === null) continue;
+        reported.add(at(bound));
+        this.report(ctx, at(bound), problem);
+      }
+      if (typeof start !== "string" || typeof end !== "string") continue;
+      const from = campaignTime(start);
+      const until = campaignTime(end);
+      if (typeof from !== "number" || typeof until !== "number" || until > from) continue;
+      this.report(
+        ctx,
+        at("end"),
+        `the campaign "${key}" ends before it starts, so it never runs: set an end after the start`,
+        "warning",
+      );
+    }
+    return reported;
+  }
+
   private report(
     ctx: Context,
     path: string,
@@ -493,9 +665,11 @@ class Checker {
         this.report(
           ctx,
           path,
-          Object.hasOwn(FOLDED_BUILT_INS, name)
-            ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
-            : `unknown block type "${name}"`,
+          name === OLD_DATE_RULE
+            ? oldDateRuleProblem(block)
+            : Object.hasOwn(FOLDED_BUILT_INS, name)
+              ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
+              : `unknown block type "${name}"`,
         );
         return;
       }
@@ -521,7 +695,8 @@ class Checker {
         const target = this.saved.blocks[name];
         const targetType = String(target.__resolveType);
         const merged = { ...target, ...block, __resolveType: targetType };
-        if (this.canonicalType(targetType)) this.checkProps(ctx, merged, path, true);
+        if (this.isCalendar(targetType)) this.checkCalendar(ctx, merged, path);
+        else if (this.canonicalType(targetType)) this.checkProps(ctx, merged, path, true);
       }
       return;
     }
@@ -538,6 +713,10 @@ class Checker {
       return;
     }
 
+    if (this.isCalendar(name)) {
+      this.checkCalendar(ctx, block, path);
+      return;
+    }
     switch (type) {
       case "multivariate":
         this.checkVariants(ctx, block, path, field);
@@ -552,6 +731,47 @@ class Checker {
         this.checkProps(ctx, block, path, false);
         if ("ciphertext" in block && !isWellFormedCiphertext(block.ciphertext)) {
           this.report(ctx, joinPath(path, "/ciphertext"), CIPHERTEXT_PROBLEM);
+        }
+        return;
+      }
+      case EXPERIMENT_RULE: {
+        this.checkProps(ctx, block, path, true);
+        const name = this.ruleInputs(block, EXPERIMENT_RULE)?.name;
+        if (
+          typeof name === "string" &&
+          !this.savedNames(EXPERIMENTS_BLOCK, SPLIT_TRAFFIC_TYPE)?.has(name)
+        ) {
+          this.report(
+            ctx,
+            joinPath(path, "/name"),
+            `no test "${name}" in the saved block "${EXPERIMENTS_BLOCK}": this rule is always false`,
+            "warning",
+          );
+        }
+        return;
+      }
+      case CAMPAIGN_RULE: {
+        this.checkProps(ctx, block, path, true);
+        const inputs = this.ruleInputs(block, CAMPAIGN_RULE);
+        const campaign = inputs?.name;
+        if (inputs !== undefined && typeof campaign !== "string") {
+          this.report(
+            ctx,
+            path,
+            `this campaign rule names no campaign, so it is always false: name a campaign of the saved block "${CAMPAIGNS_BLOCK}" (name)`,
+            "warning",
+          );
+        }
+        if (
+          typeof campaign === "string" &&
+          !this.savedNames(CAMPAIGNS_BLOCK, CALENDAR_TYPE)?.has(campaign)
+        ) {
+          this.report(
+            ctx,
+            joinPath(path, "/name"),
+            `no campaign "${campaign}" in the saved block "${CAMPAIGNS_BLOCK}": this rule is always false`,
+            "warning",
+          );
         }
         return;
       }
@@ -674,9 +894,70 @@ class Checker {
           "warning",
         );
       }
+      if (
+        name === EXPERIMENTS_BLOCK &&
+        this.canonicalType(entry.__resolveType) !== SPLIT_TRAFFIC_TYPE
+      ) {
+        this.report(
+          ctx,
+          "",
+          `"${EXPERIMENTS_BLOCK}" is the saved block every experiment rule reads, of type ` +
+            `"${SPLIT_TRAFFIC_TYPE}"; with type "${entry.__resolveType}" every experiment rule is false`,
+          "warning",
+        );
+      }
+      if (name === CAMPAIGNS_BLOCK && this.isOwnBuiltIn(CALENDAR_TYPE)) {
+        if (this.canonicalType(entry.__resolveType) !== CALENDAR_TYPE) {
+          this.report(
+            ctx,
+            "",
+            `"${CAMPAIGNS_BLOCK}" is the saved block every campaign rule reads, of type ` +
+              `"${CALENDAR_TYPE}"; with type "${entry.__resolveType}" every campaign rule is false`,
+            "warning",
+          );
+        }
+      }
+      if (
+        name === SETTINGS_BLOCK &&
+        entry.__resolveType === SETTINGS_TYPE &&
+        Object.hasOwn(entry, "preview")
+      ) {
+        // Saved by an earlier version: Studio now keeps where the site previews.
+        const before = problems.length;
+        this.checkBlock(ctx, entry, "", null);
+        const found = problems.splice(before);
+        problems.push(
+          ...found.filter((p) => p.path !== "preview" && !p.path.startsWith("preview.")),
+        );
+        this.report(ctx, "preview", PREVIEW_FIELD_GONE, "warning");
+        continue;
+      }
       this.checkBlock(ctx, entry, "", null);
     }
+    problems.push(...this.builtInOverrides());
     problems.push(...this.routeProblems());
+    return problems;
+  }
+
+  /**
+   * A block map entry named after a built-in replaces it, schema included.
+   * Often deliberate (a site's own `page` with fields of its own), so a
+   * warning that says what relies on the built-in, never an error.
+   */
+  private builtInOverrides(): Problem[] {
+    const problems: Problem[] = [];
+    for (const name of BUILT_IN_BLOCKS) {
+      if (this.siteNamespaceOf(name) === undefined) continue;
+      problems.push({
+        file: ".deco/schema.gen.json",
+        path: name,
+        severity: "warning",
+        message:
+          `the block map has its own "${name}", in place of the built-in: ` +
+          `${BUILT_IN_USES[name] ?? "Studio relies on it"}. If that's intended, keep the ` +
+          "built-in's fields; to use the built-in again, rename yours",
+      });
+    }
     return problems;
   }
 

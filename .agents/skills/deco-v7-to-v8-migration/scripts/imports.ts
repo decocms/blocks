@@ -49,10 +49,12 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "BlockFunction",
     "Blocks",
     "Client",
+    "ClientOptions",
     "CMS",
     "CMSError",
     "CMSSettings",
     "createCMS",
+    "currentClient",
     "DraftPointer",
     "EffectiveSettings",
     "formatDraftPointer",
@@ -63,8 +65,10 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "matchRoute",
     "Page",
     "parseDraftPointer",
+    "parseVersion",
     "Redirect",
     "RequestLike",
+    "RequestVersion",
     "Result",
     "Route",
     "remoteLoader",
@@ -77,6 +81,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Variant",
   ]),
   "@decocms/blocks/fetch": "*",
+  // Who is in which A/B test: pure helpers a site's own code may call.
+  "@decocms/blocks/experiments": "*",
   "@decocms/blocks/analytics": "*",
   "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",
@@ -114,13 +120,15 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   // The v8 bindings. Subpaths v7 never had are whole; the rest list v8's names.
   // The draft names and Studio's origins live in each binding's root, not in @decocms/blocks.
   "@decocms/tanstack": new Set([
+    "ASSIGNMENTS_HEADER",
     "DRAFT_COOKIE",
-    "DRAFT_HEADER",
     "DRAFT_PARAM",
     "draftResponseHeaders",
     "isStudioOrigin",
     "STUDIO_FRAME_ANCESTORS",
     "STUDIO_ORIGINS",
+    "VERSION_HEADER",
+    "VISITOR_HEADER",
   ]),
   "@decocms/tanstack/worker": "*",
   "@decocms/tanstack/server": "*",
@@ -139,8 +147,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/nextjs/image-loader": "*",
   // v7's DraftPreviewIndicator kept its name but now shows what bindDraft bound: reported.
   "@decocms/nextjs": new Set([
+    "ASSIGNMENTS_HEADER",
     "DRAFT_COOKIE",
-    "DRAFT_HEADER",
     "DRAFT_PARAM",
     "DraftBadge",
     "DraftPreviewIndicatorProps",
@@ -152,6 +160,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "StudioBridgeProps",
     "StudioPage",
     "StudioPageInfo",
+    "VERSION_HEADER",
+    "VISITOR_HEADER",
   ]),
   "@decocms/nextjs/config": new Set([
     "DECO_DRAFT_HEADERS",
@@ -184,7 +194,6 @@ const IMAGE_URL_NAMES = [
 /** The draft names and Studio's origins: each binding's root exports them, `@decocms/blocks` doesn't. */
 export const BINDING_NAMES = [
   "DRAFT_COOKIE",
-  "DRAFT_HEADER",
   "DRAFT_PARAM",
   "draftResponseHeaders",
   "isStudioOrigin",
@@ -314,9 +323,14 @@ const V7_IMAGE_URL = "\u0001v7-image-url\u0001";
 const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
   ...COMPAT_NAME_HINTS,
   {
+    specifier: /^@decocms\/(blocks|tanstack|nextjs)$/,
+    names: ["DRAFT_HEADER"],
+    hint: "VERSION_HEADER (x-deco-version) from the site's binding root: the request header carrying the version alone (a draft pointer or a release SHA); what the proxy or worker decided rides on ASSIGNMENTS_HEADER (x-deco-assignments), and contentClient reads both",
+  },
+  {
     specifier: /^@decocms\/tanstack$/,
     names: ["createDecoWorkerEntry"],
-    hint: "createDecoWorker({ serverEntry, cms, site, buildHash }) from @decocms/tanstack/worker: drafts and their host allowlist, the edge cache, liveness, Studio framing, CMS redirects and cookies are built in; what the site's entry did differently goes in its options (segment, csp, cacheProfiles, preload, routes)",
+    hint: "createDecoWorker({ serverEntry, cms, pageCache }) from @decocms/tanstack/worker: drafts on the hosts Studio lists, liveness, Studio framing, CMS redirects and cookies are built in; the page cache is the site's own (pageCache: copy examples/tanstack-worker-smoke/src/worker-entry.ts from decocms/blocks, the report lists what v7's options configured); what else the site's entry did goes in its options (csp, preload, routes)",
   },
   {
     specifier: /^@decocms\/tanstack$/,
@@ -469,7 +483,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/blocks\/sdk\/(cacheHeaders|responseCache|cacheStorage|mergeCacheControl)$/,
-    "on TanStack Start, createDecoWorker's edge cache (cacheProfiles changes DEFAULT_CACHE_PROFILES, from @decocms/tanstack/worker); a Next.js site keeps its own cache headers",
+    "on TanStack Start, the page cache in the site's worker entry (the recipe in @decocms/tanstack's README: its PROFILES are v7's, change them there); a Next.js site keeps its own cache headers",
   ],
   [
     /^@decocms\/blocks\/sdk\/csp$/,
@@ -493,7 +507,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/tanstack\/sdk\/cdnSegment$/,
-    "createDecoWorker's segment option; DecoDocument publishes the __cseg token and decoServerFnFetch sends it",
+    "the segment of the site's page cache (buildSegment in the worker entry); the cache passes the __cseg token to render({ csegToken }), DecoDocument publishes it and decoServerFnFetch sends it",
   ],
   [
     /^@decocms\/tanstack\/sdk\/cookiePassthrough$/,
@@ -514,7 +528,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/nextjs\/middleware$/,
-    "draft previews in proxy.ts: decideDraft, draftRequestHeaders, rewriteToDraftRoute and applyDraft from @decocms/nextjs/proxy, or draftProxy",
+    "draft previews and the visitor in proxy.ts: decideDraft, decideVisitor, draftRequestHeaders, visitorRequestHeaders, rewriteToDraftRoute, applyDraft and applyVisitor from @decocms/nextjs/proxy, or draftProxy",
   ],
   [
     /^@decocms\/tanstack(\/|$)/,

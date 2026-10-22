@@ -54,11 +54,14 @@ const BUILT_INS = [
   "multivariate",
   "always",
   "never",
-  "date",
+  "experiment",
+  "campaign",
   "page",
   "redirect",
   "cms-settings",
   "secret",
+  "split-traffic",
+  "calendar",
 ];
 
 beforeEach(() => {
@@ -269,7 +272,7 @@ describe("blocks", () => {
     expect(error?.code).toBe("UNKNOWN_BLOCK");
   });
 
-  it("blocks-13/builtin-01: exactly nine built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
+  it("blocks-13/builtin-01: exactly twelve built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
     expect(Object.keys(builtIns).sort()).toEqual([...BUILT_INS].sort());
     const client = clientWith({});
     for (const name of BUILT_INS) {
@@ -663,21 +666,25 @@ describe("built-in blocks", () => {
     expect(await client.resolve({ __resolveType: "never" })).toEqual([false, null]);
   });
 
-  it("builtin-05/mv-05: date is true from start (inclusive) until end (exclusive); dates without time are UTC midnight", async () => {
+  it("builtin-05/mv-05: a calendar campaign runs from start (inclusive) until end (exclusive); a date without a time or offset never runs", async () => {
     vi.useFakeTimers();
-    const client = () => clientWith({});
-    const at = async (now: string, block: Record<string, unknown>) => {
+    const at = async (now: string, window: Record<string, unknown>) => {
       vi.setSystemTime(new Date(now));
-      return (await client().resolve({ __resolveType: "date", ...block }))[0];
+      resetForTests();
+      const client = clientWith({}, { campaigns: { __resolveType: "calendar", c: window } });
+      const [byDate] = await client.resolve({ __resolveType: "campaign", name: "c" });
+      const [campaigns] = await client.resolve<Record<string, boolean>>("campaigns");
+      expect(campaigns?.c).toBe(byDate);
+      return byDate;
     };
     const window = { start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" };
     expect(await at("2026-11-27T05:00:00Z", window)).toBe(true);
     expect(await at("2026-11-27T04:59:59Z", window)).toBe(false);
     expect(await at("2026-12-01T05:00:00Z", window)).toBe(false);
     expect(await at("2030-01-01T00:00:00Z", {})).toBe(true);
-    expect(await at("2026-11-27T00:00:00Z", { start: "2026-11-27" })).toBe(true);
-    expect(await at("2026-11-26T23:59:59Z", { start: "2026-11-27" })).toBe(false);
-    expect(await at("2026-11-27T00:00:00Z", { end: "2026-11-27" })).toBe(false);
+    expect(await at("2026-11-28T00:00:00Z", { start: "2026-11-27" })).toBe(false);
+    expect(await at("2026-11-26T23:59:59Z", { end: "2026-11-27" })).toBe(false);
+    expect(await at("2026-11-28T00:00:00Z", { start: "2026-11-27T00:00:00" })).toBe(false);
   });
 
   it("builtin-06: page resolves seo and every section; Page/Route/Seo are exported", async () => {
@@ -1012,11 +1019,7 @@ describe("matchers and variants", () => {
       __resolveType: "multivariate",
       variants: [
         {
-          rule: {
-            __resolveType: "date",
-            start: "2026-11-27T00:00:00-05:00",
-            end: "2026-12-01T00:00:00-05:00",
-          },
+          rule: { __resolveType: "campaign", name: "black-friday" },
           value: { __resolveType: "lazy", value: "Black Friday: 40% off everything" },
         },
         {
@@ -1027,13 +1030,18 @@ describe("matchers and variants", () => {
     },
     href: "/deals",
   };
+  const campaigns = {
+    __resolveType: "calendar",
+    "black-friday": { start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" },
+  };
 
   it("mv-01: the Black Friday example: PromoBanner gets a plain string, switched by date", async () => {
     vi.useFakeTimers();
     const title = async (now: string) => {
       vi.setSystemTime(new Date(now));
-      const [banner, error] =
-        await clientWith(blockMap).resolve<ReactElement<{ children: unknown }>>(blackFriday);
+      const [banner, error] = await clientWith(blockMap, { campaigns }).resolve<
+        ReactElement<{ children: unknown }>
+      >(blackFriday);
       expect(error).toBeNull();
       return banner?.props.children;
     };

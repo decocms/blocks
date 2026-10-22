@@ -909,7 +909,7 @@ describe("schema.mdx", () => {
     // The rule points at the matchers union: every boolean-returning function.
     const target = rule.$ref ? rule.$ref.replace("#/root/", "") : null;
     const ruleRefs = JSON.stringify(target ? meta.schema.root[target] : rule);
-    for (const m of ["always", "never", "date", "isWeekend"]) {
+    for (const m of ["always", "never", "campaign", "isWeekend"]) {
       expect(ruleRefs).toContain(refTo(m));
     }
     expect(ruleRefs).not.toContain(refTo("greeting"));
@@ -1990,14 +1990,16 @@ describe("studio-compatibility.mdx", () => {
       expect.arrayContaining(["everything", "asyncSection", "promoBanner", "productCard"]),
     );
     expect(Object.keys(g.matchers)).toEqual(
-      expect.arrayContaining(["isWeekend", "always", "never", "date"]),
+      expect.arrayContaining(["isWeekend", "always", "never", "campaign", "experiment"]),
     );
     expect(Object.keys(g.loaders)).toEqual(
       expect.arrayContaining(["catalogProduct", "syncProduct", "greeting", "multivariate", "lazy"]),
     );
     expect(Object.keys(g.pages)).toEqual(expect.arrayContaining(["page", "post"]));
     expect(Object.keys(g.redirects)).toContain("redirect");
-    expect(Object.keys(g.content)).toEqual(expect.arrayContaining(["seo", "hero", "cms-settings"]));
+    expect(Object.keys(g.content)).toEqual(
+      expect.arrayContaining(["seo", "hero", "cms-settings", "split-traffic"]),
+    );
   });
 
   it("sc-02: a render-descriptor-returning function is a section", async () => {
@@ -2012,15 +2014,40 @@ describe("studio-compatibility.mdx", () => {
       ...STORE_FILES,
       ".deco/index.ts": `
 import type { Blocks, Page } from "../src/deco";
-const page = (props: Page & { campaign?: string }) => props;
+const page = (props: Page & { pageOwnField?: string }) => props;
 export default { page } satisfies Blocks;
 `,
     });
     expect((await deco(["schema"], f.root)).code).toBe(0);
     const m = JSON.parse(f.read(".deco/schema.gen.json"));
-    expect(m.manifest.blocks.pages.page.namespace).not.toBe("deco");
-    const pageProps = JSON.stringify(m.schema.definitions);
-    expect(pageProps).toContain("campaign");
+    const entry = m.manifest.blocks.pages.page;
+    expect(entry.namespace).not.toBe("deco");
+    // The page's form is the site's own: its field is there, under the page's own definition.
+    const definition = m.schema.definitions[entry.$ref.replace("#/definitions/", "")];
+    expect(definition.properties).toHaveProperty("pageOwnField");
+  }, 60_000);
+
+  it("sc-05b: deco check names each built-in the block map replaces and what relies on it, as a warning", async () => {
+    const f = fixture({
+      ...STORE_FILES,
+      ".deco/index.ts": `
+import type { Blocks, Page } from "../src/deco";
+const page = (props: Page & { campaign?: string }) => props;
+const multivariate = (props: { variants: unknown[] }) => props.variants[0];
+export default { page, multivariate } satisfies Blocks;
+`,
+    });
+    expect((await deco(["schema"], f.root)).code).toBe(0);
+    const r = await deco(["check"], f.root);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(
+      `the block map has its own "page", in place of the built-in: Studio's page list and page editor rely on it. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+    );
+    expect(r.out).toContain(
+      `the block map has its own "multivariate", in place of the built-in: Studio's variants, the fields whose value changes by rule, rely on it.`,
+    );
+    // Only the two it replaced.
+    expect(r.out.match(/in place of the built-in/g)).toHaveLength(2);
   }, 60_000);
 
   it("sc-09: a key is a type if it's in the manifest, a saved block otherwise", async () => {

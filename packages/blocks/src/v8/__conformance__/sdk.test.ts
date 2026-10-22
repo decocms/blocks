@@ -33,8 +33,13 @@ import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures
 import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
-/** cms.draftPointer and cms.draftCookie, on a CMS with no settings: every host may preview. */
-const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+/** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
+const helpers = () =>
+  createCMS({
+    blocks: {},
+    content: { revision: "draft-helpers", blocks: {} },
+    preview: { hosts: ["*"] },
+  });
 const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
 const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
 const DRAFT_COOKIE = "__deco_draft";
@@ -126,9 +131,11 @@ function exportedNames(source: string, from: string): string[] {
 
 const DOCUMENTED_ROOT_VALUES = [
   "createCMS",
+  "currentClient",
   "formatDraftPointer",
   "matchRoute",
   "parseDraftPointer",
+  "parseVersion",
   "remoteLoader",
   "resetForTests",
 ].sort();
@@ -151,11 +158,13 @@ const DOCUMENTED_ROOT_TYPES = [
   "CMSSettings",
   "EffectiveSettings",
   "RequestLike",
+  "RequestVersion",
   "Match",
   "Result",
   "CMSError",
   "CMS",
   "Client",
+  "ClientOptions",
   "ListOptions",
   "TelemetryConfig",
 ];
@@ -230,7 +239,9 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
   type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
-  type CMSSettings, type EffectiveSettings, type RequestLike } from "@decocms/blocks";
+  type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, type RequestVersion,
+  currentClient, parseVersion } from "@decocms/blocks";
+import type { Assignments, Visitor } from "@decocms/blocks/experiments";
 import type { ReactNode } from "react";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -251,16 +262,38 @@ createCMS({ blocks, content, telemetry: { site: "s", token: "t" } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "forRelease" | "forDraft" | "update" | "settings" | "draftPointer" | "draftCookie">>();
+assert<Equal<keyof CMS, "client" | "forRelease" | "forDraft" | "update" | "settings" | "readVersion" | "draftPointer" | "draftCookie">>();
+assert<Equal<CMS["client"], (options?: ClientOptions) => Client>>();
+assert<Equal<CMS["readVersion"], (request: RequestLike) => Promise<RequestVersion | null>>>();
+assert<Equal<typeof parseVersion, (value: string | null | undefined) => RequestVersion | null>>();
+assert<Equal<
+  RequestVersion,
+  { version: string; date?: Date; experiments?: Assignments; campaigns?: Assignments }
+>>();
 assert<Equal<CMS["settings"], () => Promise<EffectiveSettings>>>();
 assert<Equal<CMS["draftPointer"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null>>>();
 assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
-assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetry; analytics?: Analytics }>>();
+assert<Equal<CMSSettings, { telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
+assert<Equal<CMS["forRelease"], () => Client>>();
+assert<Equal<
+  ClientOptions,
+  {
+    version?: string | null;
+    visitor?: Visitor | null;
+    date?: Date | null;
+    experiments?: Partial<Assignments> | null;
+    campaigns?: Partial<Assignments> | null;
+  }
+>>();
+assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
-assert<Equal<keyof Client, "resolve" | "list" | "revision">>();
+assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "date">>();
+assert<Equal<Client["visitor"], Visitor | null>>();
+assert<Equal<Client["version"], string | undefined>>();
+assert<Equal<Client["date"], Date>>();
 assert<Equal<Client["revision"], () => Promise<string>>>();
 declare const client: Client;
 const r1: Promise<Result<unknown>> = client.resolve("x");
@@ -275,6 +308,7 @@ assert<Equal<Loader["load"], () => Promise<Snapshot>>>();
 assert<Equal<Route, { name: string; path: string }>>();
 assert<Equal<Seo, { title: string; description: string }>>();
 assert<Equal<Page, { name: string; path: string; seo?: Seo; sections: ReactNode[] }>>();
+assert<Equal<Page<{ component: string }>, { name: string; path: string; seo?: Seo; sections: { component: string }[] }>>();
 assert<Equal<Redirect, { from: string; to: string; permanent: boolean; status?: 301 | 302 | 307 | 308; discardQueryParameters?: boolean }>>();
 assert<Equal<Secret, string & { readonly __secret: true }>>();
 assert<Equal<Lazy<number>, () => Promise<number>>>();
@@ -291,13 +325,13 @@ export { r1, r2, r3 };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt? }", () => {
+  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt?, previewHosts? }", () => {
     const errors = typecheck({
       "snapshot.ts": `
 import type { Snapshot } from "@decocms/blocks";
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assert = <T extends true>() => {};
-assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string }>>();
+assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string; previewHosts?: string[] }>>();
 `,
     });
     expect(errors).toEqual([]);
@@ -1381,7 +1415,11 @@ describe("AR-64 / AR-65 error codes and paths", () => {
 describe("RD-02 / RD-04 the draft client works like the release client", () => {
   it("forDraft reads the draft the pointer names; draftPointer picks the client", async () => {
     const { pointer } = studioDraft();
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      preview: { hosts: ["s"] },
+    });
     const pick = async (request: Request) => {
       const pointer = await cms.draftPointer(request);
       return pointer ? cms.forDraft(pointer) : cms.forRelease();
@@ -1637,7 +1675,7 @@ export { views };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("RN-06 resolution never sees the request: no requestScope, no Request/signal in createCMS or Client; only the draft helpers read one", () => {
+  it("RN-06 resolution never sees the request: no requestScope, no Request/signal in createCMS or Client; only the preview helpers read one", () => {
     const r = root as Record<string, unknown>;
     expect(Object.keys(r).filter((k) => /requestScope/i.test(k))).toEqual([]);
     expect(Object.keys(v8).filter((k) => /request/i.test(k))).toEqual([]);
@@ -1652,6 +1690,7 @@ export { views };
       .split("\n")
       .filter((line) => /^\s{2}\w+\(/.test(line) && /Request|signal/.test(line));
     expect(cmsMethods.map((line) => line.trim().split("(")[0])).toEqual([
+      "readVersion",
       "draftPointer",
       "draftCookie",
     ]);

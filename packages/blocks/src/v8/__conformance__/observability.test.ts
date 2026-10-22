@@ -524,7 +524,7 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
       expect(meta.manifest.blocks.content["cms-settings"]).toBeDefined();
       const settings = meta.schema.definitions[toBase64("cms-settings")] as any;
       expect(Object.keys(settings.properties).sort()).toEqual(
-        ["__resolveType", "analytics", "preview", "telemetry"].sort(),
+        ["__resolveType", "analytics", "telemetry"].sort(),
       );
       const definition = settings.properties.telemetry;
       const props = definition.properties ?? definition;
@@ -1049,7 +1049,7 @@ describe("caching (caching.mdx)", () => {
             __resolveType: "multivariate",
             variants: [
               {
-                rule: { __resolveType: "date", start: "2030-01-01T00:00:00Z" },
+                rule: { __resolveType: "campaign", name: "launch" },
                 value: { __resolveType: "lazy", value: "campaign" },
               },
               {
@@ -1057,6 +1057,10 @@ describe("caching (caching.mdx)", () => {
                 value: { __resolveType: "lazy", value: "default" },
               },
             ],
+          },
+          campaigns: {
+            __resolveType: "calendar",
+            launch: { start: "2030-01-01T00:00:00Z" },
           },
         },
       },

@@ -1,0 +1,5 @@
+{
+  "__resolveType": "calendar",
+  "summer-sale": { "start": "2020-01-01T00:00:00Z" },
+  "black-friday": { "start": "2099-11-27T00:00:00-03:00", "end": "2099-12-01T00:00:00-03:00" }
+}

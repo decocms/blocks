@@ -3,7 +3,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data";
 import { builtIns, RESERVED_NAMES } from "./builtins/index";
-import { date } from "./builtins/matchers";
 import { multivariate } from "./builtins/multivariate";
 import { createCMS, resetForTests } from "./cms";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
@@ -22,12 +21,15 @@ function client(blocks: Blocks = docsBlocks(), content: Snapshot = docsSnapshot(
 const lazyValue = (value: unknown) => ({ __resolveType: "lazy", value });
 
 describe("the built-in list", () => {
-  it("has the nine documented names", () => {
+  it("has the twelve documented names", () => {
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "always",
         "cms-settings",
-        "date",
+        "campaign",
+        "experiment",
+        "split-traffic",
+        "calendar",
         "lazy",
         "multivariate",
         "never",
@@ -45,7 +47,10 @@ describe("the built-in list", () => {
       "cms-settings",
       "always",
       "never",
-      "date",
+      "campaign",
+      "experiment",
+      "split-traffic",
+      "calendar",
       "multivariate",
       "lazy",
       "secret",
@@ -63,7 +68,27 @@ describe("always and never", () => {
   });
 });
 
-describe("date — start inclusive, end exclusive", () => {
+/** The docs' content with a saved `campaigns` block. */
+function withCampaigns(campaigns: Record<string, unknown>): Snapshot {
+  const base = docsSnapshot();
+  return {
+    ...base,
+    blocks: { ...base.blocks, campaigns: { __resolveType: "calendar", ...campaigns } },
+  };
+}
+
+/** Whether the campaign `c` with `window` runs at `now`, as a client made then resolves it. */
+async function running(window: unknown, now: string): Promise<unknown> {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(now));
+  resetForTests();
+  const [campaigns] = await client(docsBlocks(), withCampaigns({ c: window })).resolve<
+    Record<string, boolean>
+  >("campaigns");
+  return campaigns?.c;
+}
+
+describe("calendar — start inclusive, end exclusive", () => {
   const start = "2026-11-27T00:00:00-05:00";
   const end = "2026-12-01T00:00:00-05:00";
   const cases: [string, string, boolean][] = [
@@ -75,48 +100,54 @@ describe("date — start inclusive, end exclusive", () => {
     ["after end", "2026-12-02T00:00:00Z", false],
   ];
   for (const [label, now, expected] of cases) {
-    it(`${label}: ${expected}`, () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(now));
-      expect(date({ start, end })).toBe(expected);
+    it(`${label}: ${expected}`, async () => {
+      expect(await running({ start, end }, now)).toBe(expected);
     });
   }
 
-  it("honours the offset: New York is -04:00 in summer", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-04T03:59:59Z"));
-    expect(date({ start: "2026-07-04T00:00:00-04:00" })).toBe(false);
-    vi.setSystemTime(new Date("2026-07-04T04:00:00Z"));
-    expect(date({ start: "2026-07-04T00:00:00-04:00" })).toBe(true);
+  it("honours the offset: New York is -04:00 in summer", async () => {
+    expect(await running({ start: "2026-07-04T00:00:00-04:00" }, "2026-07-04T03:59:59Z")).toBe(
+      false,
+    );
+    expect(await running({ start: "2026-07-04T00:00:00-04:00" }, "2026-07-04T04:00:00Z")).toBe(
+      true,
+    );
   });
 
-  it("a date without a time means midnight UTC", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-11-26T23:59:59Z"));
-    expect(date({ start: "2026-11-27" })).toBe(false);
-    vi.setSystemTime(new Date("2026-11-27T00:00:00Z"));
-    expect(date({ start: "2026-11-27" })).toBe(true);
+  it("a date without a time, or a date-time without an offset, never runs", async () => {
+    for (const now of ["2026-11-26T12:00:00Z", "2026-11-28T12:00:00Z"]) {
+      expect(await running({ start: "2026-11-27" }, now)).toBe(false);
+      expect(await running({ end: "2026-11-27" }, now)).toBe(false);
+      expect(await running({ start: "2026-11-27T00:00:00" }, now)).toBe(false);
+      expect(await running({ end: "2026-11-27T00:00" }, now)).toBe(false);
+    }
   });
 
-  it("both bounds are optional", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-06-01T00:00:00Z"));
-    expect(date({})).toBe(true);
-    expect(date()).toBe(true);
-    expect(date({ start: "2026-01-01" })).toBe(true);
-    expect(date({ end: "2027-01-01" })).toBe(true);
-    expect(date({ end: "2026-01-01" })).toBe(false);
+  it("both bounds are optional; empty or null is open", async () => {
+    const now = "2026-06-01T00:00:00Z";
+    expect(await running({}, now)).toBe(true);
+    expect(await running({ start: "", end: null }, now)).toBe(true);
+    expect(await running({ start: "2026-01-01T00:00Z" }, now)).toBe(true);
+    expect(await running({ end: "2027-01-01T00:00Z" }, now)).toBe(true);
+    expect(await running({ end: "2026-01-01T00:00Z" }, now)).toBe(false);
   });
 
-  it("an unparseable bound never matches", () => {
-    expect(date({ start: "not a date" })).toBe(false);
-    expect(date({ end: "soon" })).toBe(false);
+  it("an unparseable bound, a bound that isn't a string, or a window that isn't an object never runs", async () => {
+    const now = "2026-06-01T00:00:00Z";
+    expect(await running({ start: "not a date" }, now)).toBe(false);
+    expect(await running({ end: "soon" }, now)).toBe(false);
+    expect(await running({ start: 0 }, now)).toBe(false);
+    expect(await running("2026-01-01T00:00Z", now)).toBe(false);
+    expect(await running(null, now)).toBe(false);
   });
 
-  it("resolves as a block", async () => {
-    vi.useFakeTimers();
+  it("the date rule reads its campaign; a rule without one is false", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-28T00:00:00Z"));
-    expect(await client({}).resolve({ __resolveType: "date", start, end })).toEqual([true, null]);
+    const c = client(docsBlocks(), withCampaigns({ bf: { start, end } }));
+    expect(await c.resolve({ __resolveType: "campaign", name: "bf" })).toEqual([true, null]);
+    expect(await c.resolve({ __resolveType: "campaign", name: "nope" })).toEqual([false, null]);
+    expect(await c.resolve({ __resolveType: "campaign", start, end })).toEqual([false, null]);
   });
 });
 
@@ -127,11 +158,7 @@ describe("multivariate", () => {
       __resolveType: "multivariate",
       variants: [
         {
-          rule: {
-            __resolveType: "date",
-            start: "2026-11-27T00:00:00-05:00",
-            end: "2026-12-01T00:00:00-05:00",
-          },
+          rule: { __resolveType: "campaign", name: "black-friday" },
           value: lazyValue("Black Friday: 40% off everything"),
         },
         { rule: { __resolveType: "always" }, value: lazyValue("Free shipping over $50") },
@@ -139,11 +166,14 @@ describe("multivariate", () => {
     },
     href: "/deals",
   };
+  const campaigns = withCampaigns({
+    "black-friday": { start: "2026-11-27T00:00:00-05:00", end: "2026-12-01T00:00:00-05:00" },
+  });
 
   it("schedules a campaign: the Black Friday title during the window", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-28T12:00:00Z"));
-    const [value] = await client().resolve(blackFriday);
+    const [value] = await client(docsBlocks(), campaigns).resolve(blackFriday);
     expect(value).toEqual({
       component: "promo-banner",
       props: { title: "Black Friday: 40% off everything", href: "/deals" },
@@ -153,7 +183,7 @@ describe("multivariate", () => {
   it("falls back to the always() variant outside it", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-12-01T05:00:00Z"));
-    const [value] = await client().resolve(blackFriday);
+    const [value] = await client(docsBlocks(), campaigns).resolve(blackFriday);
     expect(value).toEqual({
       component: "promo-banner",
       props: { title: "Free shipping over $50", href: "/deals" },

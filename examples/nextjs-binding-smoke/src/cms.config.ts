@@ -5,8 +5,10 @@ import content from "../.deco/blocks.gen";
 // NODE_ENV itself, so `next dev` serves the local content and `next start` the hosted release.
 // The smoke points telemetry at its local OTLP sink; the site sends none otherwise.
 const otlp = process.env.SMOKE_OTLP_ENDPOINT;
-export const cmsConfig = { content, telemetry: otlp ? { endpoint: otlp } : (false as const) };
-
-// Where drafts preview: only the hosts Deco runs the site on (v7's default for a site that
-// declares no preview hosts; the empty list says so explicitly), the same in the proxy and the pages.
-export const preview = { site: "binding-smoke", previewHosts: [] as string[] };
+// A hosted site previews where Studio's release metadata says; this bundled content lists the
+// host the smoke previews on (x-forwarded-host) in code.
+export const cmsConfig = {
+  content,
+  telemetry: otlp ? { endpoint: otlp } : (false as const),
+  preview: { hosts: ["binding-smoke.deco.site"] },
+};

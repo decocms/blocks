@@ -2,12 +2,20 @@ import "server-only";
 import { cache, type ReactNode } from "react";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { matchRoute, type Redirect } from "@decocms/blocks";
+import { assignedClient } from "@decocms/nextjs/server";
 import { client } from "./client.server";
+import { cms } from "./cms";
 import type { ResolvedPage, StoredPage } from "./model";
 import type { Post } from "./post";
 
-export const openPage = cache(async (pathname: string) => {
-  const c = await client();
+// `assignments`: the assignments route's segment. The page shows the tests and campaigns it names,
+// as the proxy decided them (assignedClient: cms.client({ experiments, campaigns }) with every test
+// and campaign on or off as named, and no visitor; a test at 0% and a name the content doesn't have
+// stay off, and a segment the proxy never writes is a 404). Without it, the request's own client
+// (a draft, and the tests and campaigns the proxy decided, which bindDraft bound).
+export const openPage = cache(async (pathname: string, assignments?: string) => {
+  const c = assignments === undefined ? await client() : await assignedClient(cms, assignments);
+  if (!c) notFound();
   const [pages, pagesError] = await c.list<StoredPage>("page");
   if (pagesError) throw pagesError;
   const [redirects, redirectsError] = await c.list<Redirect>("redirect");

@@ -530,7 +530,7 @@ describe("writeScaffold", () => {
     "export interface BlockDescriptor { component: string; props: Record<string, any> }",
     "export function loadSections() {}",
     "export function matchPage() {}",
-    "export default { x: (props: any) => matchers.random(props, matcherInput()) };",
+    "export default { x: (props: any) => matchers.device(props, matcherInput()) };",
     "",
   ].join("\n");
 
@@ -550,7 +550,7 @@ describe("writeScaffold", () => {
     expect(read("src/routes/$.tsx")).toBe("export const Route = 'mine';\n");
     expect(read("src/routes/index.tsx")).toContain('createFileRoute("/")');
     expect(exists("src/routes/deco/meta.ts")).toBe(false);
-    expect(read("src/open-page.server.ts")).toContain("commitSegmentCookie(request);");
+    expect(read("src/open-page.server.ts")).not.toContain("SegmentCookie");
     expect(report.manual.find((n) => n.subject.includes("src/cms.ts"))?.message).toContain("kept");
   });
 

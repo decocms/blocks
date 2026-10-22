@@ -346,19 +346,32 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     expect(b).toHaveBeenCalledTimes(1);
   });
 
-  it("X18 matchers-and-variants: date: start inclusive, end exclusive, a date without time is midnight UTC", async () => {
+  it("X18 matchers-and-variants: a campaign reads its window: start inclusive, end exclusive, a date without time never runs", async () => {
     vi.useFakeTimers();
-    const cms = createCMS({ blocks: {}, content: snap({}) });
-    const check = async (now: string, props: Record<string, string>) => {
+    const cms = createCMS({
+      blocks: {},
+      content: snap({
+        campaigns: {
+          __resolveType: "calendar",
+          from: { start: "2026-11-27T00:00:00Z" },
+          day: { start: "2026-11-27" },
+          until: { end: "2026-12-01T00:00:00-05:00" },
+          always: {},
+        },
+      }),
+    });
+    const check = async (now: string, campaign: string) => {
       vi.setSystemTime(new Date(now));
-      const [v] = await cms.forRelease().resolve({ __resolveType: "date", ...props });
+      const [v] = await cms.forRelease().resolve({ __resolveType: "campaign", name: campaign });
       return v;
     };
-    expect(await check("2026-11-27T00:00:00Z", { start: "2026-11-27" })).toBe(true);
-    expect(await check("2026-11-26T23:59:59Z", { start: "2026-11-27" })).toBe(false);
-    expect(await check("2026-12-01T05:00:00Z", { end: "2026-12-01T00:00:00-05:00" })).toBe(false);
-    expect(await check("2026-12-01T04:59:59Z", { end: "2026-12-01T00:00:00-05:00" })).toBe(true);
-    expect(await check("2030-01-01T00:00:00Z", {})).toBe(true);
+    expect(await check("2026-11-27T00:00:00Z", "from")).toBe(true);
+    expect(await check("2026-11-26T23:59:59Z", "from")).toBe(false);
+    expect(await check("2026-12-01T05:00:00Z", "until")).toBe(false);
+    expect(await check("2026-12-01T04:59:59Z", "until")).toBe(true);
+    expect(await check("2030-01-01T00:00:00Z", "always")).toBe(true);
+    expect(await check("2026-11-27T00:00:00Z", "day")).toBe(false);
+    expect(await check("2030-01-01T00:00:00Z", "day")).toBe(false);
   });
 
   it("X19 built-in-blocks: a built-in never fails with UNKNOWN_BLOCK (secret without key is BLOCK_FAILED); a block-map key replaces a built-in", async () => {
@@ -440,7 +453,11 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
   it("X24 api-reference › Draft pointers: ?__draft=off wins over the cookie; parse rejects schemes, stray @, unrooted paths", async () => {
     const req = (url: string, cookie?: string) =>
       new Request(url, { headers: cookie ? { cookie } : {} });
-    const cms = createCMS({ blocks: {}, content: { revision: "x24", blocks: {} } });
+    const cms = createCMS({
+      blocks: {},
+      content: { revision: "x24", blocks: {} },
+      preview: { hosts: ["*"] },
+    });
     expect(
       await cms.draftPointer(req("https://s.example/?__draft=off", "__deco_draft=h/p@v")),
     ).toBeNull();

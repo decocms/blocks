@@ -12,17 +12,21 @@ import { builtIns } from "./builtins/index.ts";
 import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
-import { draftCookieFor, endsPreview, parseDraftPointer, readDraftPointer } from "./draft.ts";
+import type { Overrides } from "./current.ts";
+import { draftCookieFor, endsPreview, parseClientVersion, readVersion } from "./draft.ts";
 import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
 import {
+  deepFreeze,
   defaultSettings,
   isStatic,
   parseCodeHosts,
+  previewHosts,
   readSettings,
+  type SavedSettings,
   type SettingsCaps,
 } from "./settings.ts";
 import {
@@ -34,11 +38,13 @@ import {
 import type {
   Blocks,
   Client,
+  ClientOptions,
   CMS,
   CMSConfig,
   EffectiveSettings,
   Loader,
   RequestLike,
+  RequestVersion,
   Snapshot,
 } from "./types.ts";
 import { forceVariants } from "./variants.ts";
@@ -75,13 +81,15 @@ class CMSInstance {
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
   /** Settings of a `CMS` block with nothing to run, per release snapshot. */
-  #staticSettings = new WeakMap<Snapshot, EffectiveSettings>();
+  #staticSettings = new WeakMap<Snapshot, SavedSettings>();
+  /** Code's `preview.hosts`, parsed: added to the release's own preview hosts, or the only list without a site. */
+  readonly #codeHosts: readonly HostPattern[] | undefined;
   /** The release and time telemetry last read its section. */
   #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
   /** One handle per block map, so the same config returns the same object. */
   readonly #handles = new WeakMap<Blocks, CMS>();
   /**
-   * When the next check is due. The first is on the first `forRelease()` or `forDraft()`, not
+   * When the next check is due. The first is on the first `client()`, not
    * at construction: Workers read `Date.now()` as 0 at module scope.
    */
   #nextCheck: number | undefined;
@@ -91,10 +99,8 @@ class CMSInstance {
     this.#interval = interval;
     this.#store = new ContentStore(contentOf(config), parseDraftHosts(config.preview));
     this.fingerprint = fingerprintOf(config, interval);
-    this.#caps = {
-      hosts: parseCodeHosts(config.preview),
-      limits: telemetryLimits(config.telemetry),
-    };
+    this.#codeHosts = parseCodeHosts(config.preview);
+    this.#caps = { limits: telemetryLimits(config.telemetry) };
     const destination = resolveDestination(config.telemetry, config.site, config.token);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);
@@ -106,17 +112,46 @@ class CMSInstance {
     this.#builtIns = Object.freeze({ ...builtIns, secret });
   }
 
-  forRelease(blocks: Blocks): Client {
+  /**
+   * A client for one request: the version it reads (the current release, a
+   * published release by its commit SHA, or a draft pointer), the visitor it
+   * decides tests for and the date it checks campaigns at (default: now),
+   * all passed in, with the tests and campaigns it is given on top.
+   */
+  client(blocks: Blocks, options: ClientOptions = {}): Client {
     this.#scheduleUpdate();
+    const version = typeof options.version === "string" ? options.version : undefined;
+    const date = options.date instanceof Date ? options.date.getTime() : Number.NaN;
+    const inputs = {
+      version,
+      visitor: options.visitor ?? null,
+      date: Number.isNaN(date) ? Date.now() : date,
+      experiments: overridesOf(options.experiments),
+      campaigns: overridesOf(options.campaigns),
+    };
+    if (version === undefined) return this.#client(blocks, this.#release(blocks), inputs);
+    const parsed = parseClientVersion(version);
+    // A version that doesn't parse fails on the first read, as an invalid pointer always has.
+    if (parsed === null) return this.#client(blocks, () => this.#store.draft(version), inputs);
+    if (parsed.kind === "revision") {
+      return this.#client(blocks, () => this.#store.revision(parsed.sha), inputs);
+    }
+    const { variants } = parsed.pointer;
+    const load = () => this.#store.draft(version);
+    if (variants === undefined) return this.#client(blocks, load, inputs);
+    return this.#client(blocks, () => load().then((s) => forceVariants(s, variants)), inputs);
+  }
+
+  /** Loads the current release, keeping telemetry on the release's settings. */
+  #release(blocks: Blocks): () => Promise<Snapshot> {
     const telemetry = this.#telemetry;
-    if (telemetry === undefined) return this.#client(blocks, () => this.#store.release());
-    return this.#client(blocks, () =>
+    if (telemetry === undefined) return () => this.#store.release();
+    return () =>
       this.#store.release().then(async (snapshot) => {
         telemetry.useRelease(snapshot);
         await this.#followTelemetrySettings(blocks, telemetry, snapshot);
         return snapshot;
-      }),
-    );
+      });
   }
 
   /**
@@ -124,35 +159,26 @@ class CMSInstance {
    * `CMS` block resolves on each call, so a field with variants is decided
    * where it's called; one with nothing to run is resolved once per release.
    */
-  settings(blocks: Blocks): Promise<EffectiveSettings> {
-    return this.#settingsOf(blocks, this.#store.current());
+  async settings(blocks: Blocks): Promise<EffectiveSettings> {
+    const [saved, hosts] = await Promise.all([
+      this.#settingsOf(blocks, this.#store.current()),
+      this.#store.previewHosts(true),
+    ]);
+    return deepFreeze({ ...saved, preview: { hosts: previewHosts(hosts, this.#codeHosts) } });
   }
 
-  async draftPointer(blocks: Blocks, request: RequestLike): Promise<string | null> {
-    const pointer = readDraftPointer(request);
-    if (pointer === null) return null;
-    return (await this.#previewAllowed(blocks, request)) ? pointer : null;
+  async readVersion(request: RequestLike): Promise<RequestVersion | null> {
+    const version = readVersion(request);
+    if (version === null) return null;
+    return (await this.#previewAllowed(request)) ? version : null;
   }
 
-  async draftCookie(blocks: Blocks, request: RequestLike): Promise<string | null> {
+  async draftCookie(request: RequestLike): Promise<string | null> {
     const cookie = draftCookieFor(request);
     if (cookie === null) return null;
     // Ending a preview is allowed anywhere, so a cookie set before a host was removed still goes.
     if (endsPreview(request)) return cookie;
-    return (await this.#previewAllowed(blocks, request)) ? cookie : null;
-  }
-
-  /**
-   * The draft, with the variants the pointer forces (even for a `local`
-   * pointer, which names no draft). A draft client is a production client
-   * reading a draft pointer, so it schedules the release check like any other.
-   */
-  forDraft(blocks: Blocks, pointer: string): Client {
-    this.#scheduleUpdate();
-    const load = () => this.#store.draft(pointer);
-    const variants = parseDraftPointer(pointer)?.variants;
-    if (variants === undefined) return this.#client(blocks, load);
-    return this.#client(blocks, () => load().then((snapshot) => forceVariants(snapshot, variants)));
+    return (await this.#previewAllowed(request)) ? cookie : null;
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -181,7 +207,7 @@ class CMSInstance {
     this.#telemetryRead = undefined;
   }
 
-  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<EffectiveSettings> {
+  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<SavedSettings> {
     if (snapshot === undefined) return defaultSettings(this.#caps);
     const cached = this.#staticSettings.get(snapshot);
     if (cached !== undefined) return cached;
@@ -192,6 +218,7 @@ class CMSInstance {
           load: () => Promise.resolve(snapshot),
           blocks,
           builtIns: this.#builtIns,
+          date: Date.now(),
           onCollision: (name) => this.#warnCollision(name),
         }),
       this.#caps,
@@ -205,9 +232,14 @@ class CMSInstance {
     return settings;
   }
 
-  /** Whether the release's preview hosts allow this request's host. */
-  async #previewAllowed(blocks: Blocks, request: RequestLike): Promise<boolean> {
-    const { hosts } = (await this.settings(blocks)).preview;
+  /**
+   * Whether the current release's preview hosts (the release metadata's,
+   * read once if this process hasn't yet) or code's allow this request's host.
+   * No list published (or no remote site and no code list): every host; a
+   * failed read of the metadata: code's list alone (see `previewHosts`).
+   */
+  async #previewAllowed(request: RequestLike): Promise<boolean> {
+    const hosts = previewHosts(await this.#store.previewHosts(), this.#codeHosts);
     const patterns = hosts
       .map((raw) => parseHostPattern(raw))
       .filter((pattern): pattern is HostPattern => pattern !== null);
@@ -235,11 +267,23 @@ class CMSInstance {
     if (last?.snapshot !== snapshot) await read;
   }
 
-  #client(blocks: Blocks, load: () => Promise<Snapshot>): Client {
+  /** A client with its inputs (each client copies its visitor, so none is shared). */
+  #client(
+    blocks: Blocks,
+    load: () => Promise<Snapshot>,
+    inputs: {
+      version: string | undefined;
+      visitor: ClientOptions["visitor"];
+      date: number;
+      experiments: Overrides | undefined;
+      campaigns: Overrides | undefined;
+    },
+  ): Client {
     return new CMSClient({
       load,
       blocks,
       builtIns: this.#builtIns,
+      ...inputs,
       onCollision: (name) => this.#warnCollision(name),
       telemetry: this.#telemetry?.forClient(),
     });
@@ -292,12 +336,16 @@ class CMSHandle implements CMS {
     return this.#instance;
   }
 
+  client(options: ClientOptions = {}): Client {
+    return this.#instance.client(this.#blocks, options);
+  }
+
   forRelease(): Client {
-    return this.#instance.forRelease(this.#blocks);
+    return this.#instance.client(this.#blocks);
   }
 
   forDraft(pointer: string): Client {
-    return this.#instance.forDraft(this.#blocks, pointer);
+    return this.#instance.client(this.#blocks, { version: pointer });
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -308,12 +356,16 @@ class CMSHandle implements CMS {
     return this.#instance.settings(this.#blocks);
   }
 
-  draftPointer(request: RequestLike): Promise<string | null> {
-    return this.#instance.draftPointer(this.#blocks, request);
+  readVersion(request: RequestLike): Promise<RequestVersion | null> {
+    return this.#instance.readVersion(request);
+  }
+
+  async draftPointer(request: RequestLike): Promise<string | null> {
+    return (await this.#instance.readVersion(request))?.version ?? null;
   }
 
   draftCookie(request: RequestLike): Promise<string | null> {
-    return this.#instance.draftCookie(this.#blocks, request);
+    return this.#instance.draftCookie(request);
   }
 }
 
@@ -386,6 +438,19 @@ export function adoptContent(content: Snapshot): number {
     adopted++;
   }
   return adopted;
+}
+
+/**
+ * A client's own frozen copy of the tests or campaigns it is given: the
+ * entries that are `true` or `false`; `undefined` for none.
+ */
+function overridesOf(given: unknown): Overrides | undefined {
+  if (typeof given !== "object" || given === null || Array.isArray(given)) return undefined;
+  const out = Object.create(null) as Record<string, boolean>;
+  for (const [name, on] of Object.entries(given as Record<string, unknown>)) {
+    if (typeof on === "boolean") out[name] = on;
+  }
+  return Object.freeze(out);
 }
 
 /** Clears every stored CMS instance, so a test starts clean. */

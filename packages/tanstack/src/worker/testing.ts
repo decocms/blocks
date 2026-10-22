@@ -1,11 +1,12 @@
 /**
- * Test doubles for the worker's tests: the Cache API, an execution context
- * that collects `waitUntil` work, a CMS over an in-memory release, and a
- * server entry that records what it was asked. Not exported by the package.
+ * Test doubles for the worker's tests: a site's page cache over an in-memory
+ * Cache API, an execution context that collects `waitUntil` work, a CMS over
+ * an in-memory release, and a server entry that records what it was asked.
+ * Not exported by the package.
  */
 import { type Blocks, type CMS, createCMS, type Snapshot } from "@decocms/blocks";
 import { currentScope, type RequestScope } from "@decocms/tanstack/scope";
-import type { ExecutionContextLike } from "./index.ts";
+import type { ExecutionContextLike, PageCache, PageRequest } from "./index.ts";
 
 export class MemoryCache {
   readonly entries = new Map<string, Response>();
@@ -24,16 +25,40 @@ export class MemoryCache {
   async delete(key: Request): Promise<boolean> {
     return this.entries.delete(key.url);
   }
+
+  /** The stored copies' keys. */
+  pageKeys(): string[] {
+    return [...this.entries.keys()];
+  }
+
+  /** The stored copies. */
+  pages(): Response[] {
+    return [...this.entries.values()];
+  }
 }
 
-export function installCache(): MemoryCache {
-  const cache = new MemoryCache();
-  (globalThis as unknown as { caches: unknown }).caches = { default: cache };
-  return cache;
-}
-
-export function uninstallCache(): void {
-  delete (globalThis as unknown as { caches?: unknown }).caches;
+/**
+ * The smallest site page cache: keyed by URL and device, `X-Cache` `HIT` or
+ * `MISS`, storing a 200 that sets no cookie. `seen` holds each request it
+ * was called for. The full recipe and its tests are
+ * `examples/tanstack-worker-smoke`'s worker entry.
+ */
+export function testPageCache() {
+  const store = new MemoryCache();
+  const seen: PageRequest[] = [];
+  const pageCache: PageCache = async (page) => {
+    seen.push(page);
+    const key = new Request(`${page.url.href}#${page.device}`);
+    const hit = await store.match(key);
+    const response = hit ?? (await page.render({ csegToken: "a1b2c3d4" }));
+    if (!hit && response.status === 200 && !response.headers.has("set-cookie")) {
+      await store.put(key, response.clone());
+    }
+    const out = new Response(response.body, response);
+    out.headers.set("X-Cache", hit ? "HIT" : "MISS");
+    return out;
+  };
+  return { store, seen, pageCache };
 }
 
 export class TestContext implements ExecutionContextLike {
@@ -46,16 +71,39 @@ export class TestContext implements ExecutionContextLike {
   }
 }
 
-/** A release with a page, a redirect and, when given, the `CMS` block's preview hosts. */
-export function snapshot(options: { revision?: string; previewHosts?: string[] } = {}): Snapshot {
+/**
+ * A release with a page, a redirect, a block that varies on the `buy-button`
+ * test and, when given, the preview hosts Studio writes into its metadata and the saved
+ * `experiments` and `campaigns` blocks.
+ */
+export function snapshot(
+  options: {
+    revision?: string;
+    previewHosts?: string[];
+    experiments?: Record<string, number>;
+    campaigns?: Record<string, { start?: string; end?: string }>;
+  } = {},
+): Snapshot {
   const blocks: Record<string, unknown> = {
     Home: { __resolveType: "page", path: "/", sections: [] },
     "Old shoes": { __resolveType: "redirect", from: "/old-shoes", to: "/shoes", permanent: true },
+    BuyButton: {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "experiment", name: "buy-button" }, value: "new" },
+        { rule: { __resolveType: "always" }, value: "old" },
+      ],
+    },
   };
-  if (options.previewHosts) {
-    blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: options.previewHosts } };
+  if (options.experiments) {
+    blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
   }
-  return { revision: options.revision ?? "rev-1", blocks } as Snapshot;
+  if (options.campaigns) {
+    blocks.campaigns = { __resolveType: "calendar", ...options.campaigns };
+  }
+  const release = { revision: options.revision ?? "rev-1", blocks } as Snapshot;
+  if (options.previewHosts) release.previewHosts = options.previewHosts;
+  return release;
 }
 
 let cmsCount = 0;

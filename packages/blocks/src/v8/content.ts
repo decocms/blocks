@@ -50,6 +50,44 @@ export function peekRelease(source: Snapshot | Loader): Snapshot | undefined {
   return typeof peek === "function" ? peek.call(source) : undefined;
 }
 
+/**
+ * An internal hook `remoteLoader` has: a published release by its commit SHA
+ * (`sites/<site>/revisions/<sha>.json`), kept in memory once read. Rejects
+ * with `LOADER_FAILED`, never falls back to another release.
+ */
+export const READ_REVISION: unique symbol = Symbol.for("decocms.blocks.readRevision");
+
+/**
+ * An internal hook `remoteLoader` has: the current release's preview hosts
+ * from the release metadata (`latest.json`), read once when this process
+ * hasn't read them yet (see `ReleasePreviewHosts`).
+ */
+export const PREVIEW_HOSTS: unique symbol = Symbol.for("decocms.blocks.previewHosts");
+
+/**
+ * What the current release says about where it may be previewed (PO 2026-10-22):
+ * - a list: the hosts Studio wrote (`previewHosts`), enforced;
+ * - `"every"`: a remote site with no list published, so every host: no
+ *   `latest.json` yet (a 404), or one without `previewHosts` (published
+ *   before Studio wrote the list; its next publish writes one);
+ * - `"local"`: content with no remote site (no release metadata at all):
+ *   `createCMS`'s `preview.hosts` when set, else every host;
+ * - `"unknown"`: the metadata couldn't be read (a network error, a 5xx, a
+ *   malformed `latest.json`). That isn't "missing": previews stay closed.
+ */
+export type ReleasePreviewHosts = readonly string[] | "every" | "local" | "unknown";
+
+/**
+ * A release's `previewHosts` as Studio wrote them: the strings of a list;
+ * `undefined` when the field is absent (no list written); an empty list (no
+ * host) for a field that isn't a list, so a malformed one never opens previews.
+ */
+export function previewHostsOf(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return [];
+  return value.filter((host): host is string => typeof host === "string");
+}
+
 export function isSnapshot(content: unknown): content is Snapshot {
   return (
     isPlainObject(content) &&
@@ -57,7 +95,8 @@ export function isSnapshot(content: unknown): content is Snapshot {
     isPlainObject(content.blocks) &&
     (content.aliases === undefined || isPlainObject(content.aliases)) &&
     (content.schemaHash === undefined || typeof content.schemaHash === "string") &&
-    (content.committedAt === undefined || typeof content.committedAt === "string")
+    (content.committedAt === undefined || typeof content.committedAt === "string") &&
+    (content.previewHosts === undefined || Array.isArray(content.previewHosts))
   );
 }
 
@@ -157,12 +196,57 @@ export class ContentStore {
   }
 
   /**
+   * A published release by its commit SHA: from the source's hosted releases
+   * (`remoteLoader`, which `createCMS` builds with `site`), or the content in
+   * memory when it is that revision. Anything else is `LOADER_FAILED`, never
+   * a silent fallback to the current release.
+   */
+  revision(sha: string): Promise<Snapshot> {
+    const source = this.#source;
+    const read = isLoader(source)
+      ? (source as { [READ_REVISION]?: (sha: string) => Promise<Snapshot> })[READ_REVISION]
+      : undefined;
+    if (typeof read === "function") {
+      return read.call(source, sha).catch((error: unknown) => {
+        if (isResolutionError(error)) throw error;
+        throw errors.loaderFailed(`the release ${sha} couldn't be read`, error);
+      });
+    }
+    return this.release().then((snapshot) => {
+      if (snapshot.revision === sha) return snapshot;
+      throw errors.loaderFailed(
+        `the release ${sha} isn't available: published releases are read from hosted releases (createCMS with site)`,
+      );
+    });
+  }
+
+  /**
    * The current release as it is in memory, without loading anything: the
    * content module, what a built-in loader holds, or the release this store
    * last loaded. `undefined` before a custom loader's first load.
    */
   current(): Snapshot | undefined {
     return peekRelease(this.#source) ?? this.#latest;
+  }
+
+  /**
+   * The current release's preview hosts (see `ReleasePreviewHosts`): what the
+   * source's release metadata says (`remoteLoader` reads it once if it hasn't
+   * yet; a failed read is `"unknown"`), else, for a source with no release
+   * metadata (no remote site), the release in memory's own `previewHosts`, or
+   * `"local"` without one. `peek` reads memory only, never the network.
+   */
+  async previewHosts(peek = false): Promise<ReleasePreviewHosts> {
+    const source = this.#source;
+    const read = isLoader(source)
+      ? (source as { [PREVIEW_HOSTS]?: (peek: boolean) => Promise<ReleasePreviewHosts> })[
+          PREVIEW_HOSTS
+        ]
+      : undefined;
+    if (typeof read === "function") {
+      return read.call(source, peek).catch((): ReleasePreviewHosts => "unknown");
+    }
+    return previewHostsOf(this.current()?.previewHosts) ?? "local";
   }
 
   /** Asks the source for newer content; never throws, and concurrent calls share one check. */
@@ -178,7 +262,7 @@ export class ContentStore {
         if (updated) {
           this.#release = undefined;
           // `#latest` stays: settings keep the release that was serving until
-          // the next one loads, never the defaults (which may allow every host).
+          // the next one loads, never the defaults (which allow no host).
           // Drafts are fetched again, so a preview follows the release too.
           this.#drafts.clear();
         }

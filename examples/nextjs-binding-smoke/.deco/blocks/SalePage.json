@@ -1,0 +1,31 @@
+{
+  "__resolveType": "page",
+  "name": "Sale",
+  "path": "/sale",
+  "sections": [
+    {
+      "__resolveType": "promo-banner",
+      "href": "/sale",
+      "title": {
+        "__resolveType": "multivariate",
+        "variants": [
+          { "rule": { "__resolveType": "experiment", "name": "new-banner" }, "value": { "__resolveType": "lazy", "value": "Banner B" } },
+          { "rule": { "__resolveType": "experiment", "name": "next-season" }, "value": { "__resolveType": "lazy", "value": "Next season" } },
+          { "rule": { "__resolveType": "always" }, "value": { "__resolveType": "lazy", "value": "Banner A" } }
+        ]
+      }
+    },
+    {
+      "__resolveType": "promo-banner",
+      "href": "/sale",
+      "title": {
+        "__resolveType": "multivariate",
+        "variants": [
+          { "rule": { "__resolveType": "campaign", "name": "black-friday" }, "value": { "__resolveType": "lazy", "value": "Black Friday" } },
+          { "rule": { "__resolveType": "campaign", "name": "summer-sale" }, "value": { "__resolveType": "lazy", "value": "Summer sale" } },
+          { "rule": { "__resolveType": "always" }, "value": { "__resolveType": "lazy", "value": "No campaign" } }
+        ]
+      }
+    }
+  ]
+}

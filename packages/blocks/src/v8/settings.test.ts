@@ -12,6 +12,7 @@ import { docsBlocks, docsSnapshot, fakeStudio } from "./testFixtures";
 import type { EffectiveSettings, Snapshot } from "./types";
 
 const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+/** The defaults of content with no remote site and no preview hosts anywhere: every host previews. */
 const DEFAULTS: EffectiveSettings = {
   preview: { hosts: ["*"] },
   telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
@@ -33,12 +34,19 @@ function withSettings(settings: Record<string, unknown> | undefined, revision = 
   return snapshot;
 }
 
+/** The docs' release carrying the preview hosts Studio wrote into its metadata. */
+function withHosts(previewHosts: unknown, revision = "rev-1", settings?: Record<string, unknown>) {
+  const snapshot = withSettings(settings, revision);
+  snapshot.previewHosts = previewHosts as string[];
+  return snapshot;
+}
+
 const lazy = (value: unknown) => ({ __resolveType: "lazy", value });
 const request = (url: string, cookie?: string) =>
   new Request(url, { headers: cookie ? { cookie } : {} });
 
 describe("cms.settings(): defaults", () => {
-  it("with no CMS block, every default; every host may preview", async () => {
+  it("with no CMS block, no remote site and no preview hosts, every default; every host may preview", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(await cms.settings()).toEqual(DEFAULTS);
   });
@@ -46,9 +54,10 @@ describe("cms.settings(): defaults", () => {
   it("the settings are deep-frozen: one caller can't change them for every request", async () => {
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: withSettings({ preview: { hosts: ["staging.example.com"] } }),
+      content: withHosts(["staging.example.com"]),
     });
     const settings = await cms.settings();
+    expect(settings.preview.hosts).toEqual(["staging.example.com"]);
     expect(Object.isFrozen(settings)).toBe(true);
     expect(Object.isFrozen(settings.preview)).toBe(true);
     expect(Object.isFrozen(settings.preview.hosts)).toBe(true);
@@ -145,7 +154,7 @@ describe("cms.settings(): caps from code", () => {
     expect((await cms.settings()).telemetry.errorSampleRate).toBe(0.1);
   });
 
-  it("without a preview field, code's list applies (in normal form)", async () => {
+  it("without preview hosts in the release, code's list applies (in normal form)", async () => {
     const cms = createCMS({
       blocks: {},
       content: withSettings({ telemetry: {} }),
@@ -154,47 +163,63 @@ describe("cms.settings(): caps from code", () => {
     expect((await cms.settings()).preview.hosts).toEqual(["*.example.com", "localhost:3000"]);
   });
 
-  it("content keeps only its entries that fall within code's list", async () => {
+  it("the release's preview hosts and code's list add up, each once", async () => {
     const cms = createCMS({
       blocks: {},
-      content: withSettings({
-        preview: {
-          hosts: [
-            "staging.example.com",
-            "*.preview.example.com",
-            "localhost:3000",
-            "localhost",
-            "store.attacker.com",
-            "staging.example.com.attacker.com",
-            "*",
-            "*.com",
-            "https://staging.example.com",
-          ],
-        },
-      }),
+      content: withHosts(["staging.example.com", "Localhost:3000", "*.preview.example.com"]),
       preview: { hosts: ["*.example.com", "localhost:3000"] },
     });
     expect((await cms.settings()).preview.hosts).toEqual([
       "staging.example.com",
-      "*.preview.example.com",
       "localhost:3000",
+      "*.preview.example.com",
+      "*.example.com",
     ]);
   });
 
-  it("without a cap, content may allow any valid pattern; invalid entries are left out", async () => {
+  it("the release's entries that aren't host patterns are left out; \"*\" is every host", async () => {
     const cms = createCMS({
       blocks: {},
-      content: withSettings({ preview: { hosts: ["Staging.Example.com.", "a b", "*.com", "*"] } }),
+      content: withHosts([
+        "Staging.Example.com.",
+        "a b",
+        "*.com",
+        42,
+        "https://x.example.com",
+        "*",
+      ]),
     });
     expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com", "*"]);
   });
 
   it("an empty list turns previews off", async () => {
-    const cms = createCMS({ blocks: {}, content: withSettings({ preview: { hosts: [] } }) });
+    const cms = createCMS({ blocks: {}, content: withHosts([]) });
     expect((await cms.settings()).preview.hosts).toEqual([]);
     const pointer = encodeURIComponent(POINTER);
     expect(await cms.draftPointer(request(`https://localhost/?__draft=${pointer}`))).toBeNull();
     expect(await cms.draftCookie(request(`https://localhost/?__draft=${pointer}`))).toBeNull();
+  });
+
+  it("the CMS block's preview field, saved by an earlier version, is ignored: Studio keeps the hosts", async () => {
+    // The release's list is empty (Studio wrote none): the old field opens nothing.
+    const cms = createCMS({
+      blocks: {},
+      content: withHosts([], "rev-1", {
+        preview: {
+          hosts: {
+            __resolveType: "multivariate",
+            variants: [{ rule: { __resolveType: "always" }, value: lazy(["*"]) }],
+          },
+        },
+      }),
+    });
+    expect((await cms.settings()).preview.hosts).toEqual([]);
+    const plain = createCMS({
+      blocks: {},
+      content: withHosts([], "rev-2", { preview: { hosts: ["*"] } }),
+    });
+    const pointer = encodeURIComponent(POINTER);
+    expect(await plain.draftPointer(request(`https://localhost/?__draft=${pointer}`))).toBeNull();
   });
 
   it("createCMS throws on a pattern code can't read, naming it", () => {
@@ -237,24 +262,6 @@ describe("cms.settings(): variants", () => {
     expect((await cms.settings()).telemetry.metrics).toBe(false);
   });
 
-  it("a single field can have variants", async () => {
-    const cms = createCMS({
-      blocks: {},
-      content: withSettings({
-        preview: {
-          hosts: {
-            __resolveType: "multivariate",
-            variants: [
-              { rule: { __resolveType: "never" }, value: lazy(["never.example.com"]) },
-              { rule: { __resolveType: "always" }, value: lazy(["staging.example.com"]) },
-            ],
-          },
-        },
-      }),
-    });
-    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
-  });
-
   it("the whole block can be a reference to a saved block's values", async () => {
     const snapshot = withSettings({ analytics: { __resolveType: "Collector" } });
     snapshot.blocks.Collector = {
@@ -272,31 +279,17 @@ describe("cms.settings(): variants", () => {
           throw new Error("no");
         },
       },
-      content: withSettings({
-        preview: { hosts: ["staging.example.com"] },
+      content: withHosts(["staging.example.com"], "rev-1", {
         telemetry: { __resolveType: "broken" },
         analytics: { enabled: false },
       }),
       preview: { hosts: ["*.example.com"] },
     });
     expect(await cms.settings()).toEqual({
-      preview: { hosts: ["staging.example.com"] },
+      preview: { hosts: ["staging.example.com", "*.example.com"] },
       telemetry: DEFAULTS.telemetry,
       analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false },
     });
-  });
-
-  it("a preview section that fails gets code's list, never every host", async () => {
-    const cms = createCMS({
-      blocks: {
-        broken: () => {
-          throw new Error("no");
-        },
-      },
-      content: withSettings({ preview: { __resolveType: "broken" } }),
-      preview: { hosts: ["staging.example.com"] },
-    });
-    expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
   });
 });
 
@@ -315,14 +308,14 @@ describe("cms.settings(): always the release in memory", () => {
   });
 
   it("after a custom loader's update, the old release's settings hold until the next one loads", async () => {
-    let current = withSettings({ preview: { hosts: ["staging.example.com"] } }, "rev-1");
+    let current = withHosts(["staging.example.com"], "rev-1");
     const cms = createCMS({
       blocks: docsBlocks(),
       content: { load: async () => current, update: async () => ({ updated: true }) },
     });
     const link = `?__draft=${encodeURIComponent(POINTER)}`;
     await cms.forRelease().revision();
-    current = withSettings({ preview: { hosts: ["next.example.com"] } }, "rev-2");
+    current = withHosts(["next.example.com"], "rev-2");
     expect(await cms.update()).toEqual({ updated: true });
     // Not the defaults (every host) in between: still the old release's hosts.
     expect((await cms.settings()).preview.hosts).toEqual(["staging.example.com"]);
@@ -332,10 +325,7 @@ describe("cms.settings(): always the release in memory", () => {
   });
 
   it("a draft that changes CMS changes neither the settings, nor its own preview gating", async () => {
-    const release = withSettings({
-      preview: { hosts: ["staging.example.com"] },
-      analytics: { enabled: true },
-    });
+    const release = withHosts(["staging.example.com"], "rev-1", { analytics: { enabled: true } });
     const studio = fakeStudio();
     vi.stubGlobal("fetch", vi.fn(studio.fetch));
     const pointer = studio.draft({
@@ -410,22 +400,24 @@ describe("cms.settings(): always the release in memory", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     let now = Date.parse("2026-10-05T12:00:00Z");
     vi.spyOn(Date, "now").mockImplementation(() => now);
+    const content = withSettings({
+      telemetry: {
+        traceSampleRate: {
+          __resolveType: "multivariate",
+          variants: [
+            { rule: { __resolveType: "campaign", name: "sampling" }, value: lazy(1) },
+            { rule: { __resolveType: "always" }, value: lazy(0) },
+          ],
+        },
+      },
+    });
+    content.blocks.campaigns = {
+      __resolveType: "calendar",
+      sampling: { start: "2026-10-05T12:00:30Z" },
+    };
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: withSettings({
-        telemetry: {
-          traceSampleRate: {
-            __resolveType: "multivariate",
-            variants: [
-              {
-                rule: { __resolveType: "date", start: "2026-10-05T12:00:30Z" },
-                value: lazy(1),
-              },
-              { rule: { __resolveType: "always" }, value: lazy(0) },
-            ],
-          },
-        },
-      }),
+      content,
       telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
     });
     await cms.forRelease().revision();
@@ -451,9 +443,7 @@ describe("cms.settings(): always the release in memory", () => {
 });
 
 describe("cms.draftPointer and cms.draftCookie on a host outside the list", () => {
-  const settings = withSettings({
-    preview: { hosts: ["staging.example.com", "*.preview.example.com"] },
-  });
+  const settings = withHosts(["staging.example.com", "*.preview.example.com"]);
   const pointer = encodeURIComponent(POINTER);
   const cookie = `__deco_draft=${pointer}`;
 
@@ -502,22 +492,25 @@ describe("cms.draftPointer and cms.draftCookie on a host outside the list", () =
     ).toBeNull();
   });
 
-  it("a cap in code keeps content from widening the list", async () => {
+  it("code's list adds hosts to the release's; neither narrows the other", async () => {
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: withSettings({ preview: { hosts: ["*", "store.example.com"] } }),
+      content: withHosts(["store.example.com"]),
       preview: { hosts: ["staging.example.com"] },
     });
-    expect((await cms.settings()).preview.hosts).toEqual([]);
+    expect((await cms.settings()).preview.hosts).toEqual([
+      "store.example.com",
+      "staging.example.com",
+    ]);
+    for (const host of ["store.example.com", "staging.example.com"]) {
+      expect(await cms.draftPointer(request(`https://${host}/?__draft=${pointer}`))).toBe(POINTER);
+    }
     expect(
-      await cms.draftPointer(request(`https://store.example.com/?__draft=${pointer}`)),
-    ).toBeNull();
-    expect(
-      await cms.draftPointer(request(`https://staging.example.com/?__draft=${pointer}`)),
+      await cms.draftPointer(request(`https://www.example.com/?__draft=${pointer}`)),
     ).toBeNull();
   });
 
-  it("a cap in code applies on its own when content has no preview field", async () => {
+  it("code's list alone allows previews of content that isn't remote (local development)", async () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       content: docsSnapshot(),

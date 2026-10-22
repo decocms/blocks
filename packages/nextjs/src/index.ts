@@ -11,7 +11,8 @@
  *   Outside Studio's frame, "." opens the page in Studio's editor.
  * - `StudioPage`: rendered inside each CMS page, `<StudioPage pathTemplate={page.path} />`,
  *   tells the bridge which page "." opens (the root layout doesn't re-render per page).
- * - `DRAFT_PARAM`, `DRAFT_COOKIE`, `DRAFT_HEADER`, `draftResponseHeaders`,
+ * - `DRAFT_PARAM`, `DRAFT_COOKIE`, `VERSION_HEADER`, `draftResponseHeaders`,
+ *   `VISITOR_HEADER`, `ASSIGNMENTS_HEADER`,
  *   `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS`, `isStudioOrigin`: for a site
  *   that needs them in its own code (a route that sets its own headers, a CSP
  *   it writes itself). The package's own copy: it never imports
@@ -23,10 +24,12 @@
  */
 
 export { DraftBadge, StudioPage, type StudioPageInfo } from "@decocms/blocks/preview";
+export { ASSIGNMENTS_HEADER } from "./assignments.ts";
 export {
   DraftPreviewIndicator,
   type DraftPreviewIndicatorProps,
 } from "./DraftPreviewIndicator.tsx";
-export { DRAFT_COOKIE, DRAFT_HEADER, DRAFT_PARAM, draftResponseHeaders } from "./draft.ts";
+export { DRAFT_COOKIE, DRAFT_PARAM, draftResponseHeaders, VERSION_HEADER } from "./draft.ts";
 export { StudioBridge, type StudioBridgeProps } from "./StudioBridge.ts";
 export { isStudioOrigin, STUDIO_FRAME_ANCESTORS, STUDIO_ORIGINS } from "./studio.ts";
+export { VISITOR_HEADER } from "./visitor.ts";

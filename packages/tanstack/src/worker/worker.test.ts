@@ -1,17 +1,21 @@
 // @vitest-environment node
 /**
- * `createDecoWorker` end to end, with the Cache API, the CMS and TanStack
+ * `createDecoWorker` end to end, with a site's page cache, the CMS and TanStack
  * Start's server entry replaced by test doubles: the header matrix of every
  * always-on behaviour, and each option a site uses.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CSEG_PARAM } from "../shared.ts";
-import { type CacheEvent, createDecoWorker, type DecoWorkerOptions } from "./index.ts";
-import { segmentToken } from "./segment.ts";
+import { newVisitor, parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  cacheVersion,
+  createDecoWorker,
+  type DecoWorkerOptions,
+  isCacheable,
+  type PageCache,
+  requestVersion,
+} from "./index.ts";
 import {
   html,
-  installCache,
-  type MemoryCache,
   POINTER,
   recordingEntry,
   recordMetrics,
@@ -19,23 +23,20 @@ import {
   snapshot,
   TestContext,
   testCMS,
-  uninstallCache,
+  testPageCache,
 } from "./testing.ts";
 
 const ORIGIN = "https://store.example.com";
 const DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) Chrome/130";
-/** A start time for fake clocks (a stored copy records when it was stored). */
-const T0 = 1_700_000_000_000;
 const PHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
 
-let cache: MemoryCache;
-beforeEach(() => {
-  cache = installCache();
-});
+/** A visitor who has been here before: their cookie, as the worker wrote it. */
+const RETURNING = `deco_segment=${serializeVisitor(newVisitor())}`;
+
 afterEach(() => {
-  uninstallCache();
   removeMetrics();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 function setup(
@@ -43,24 +44,30 @@ function setup(
   respond?: (request: Request) => Response | Promise<Response>,
 ) {
   const entry = recordingEntry(respond);
+  // A site's own page cache, as the example worker entry wires one (smaller).
+  const { store, seen, pageCache } = testPageCache();
   const worker = createDecoWorker({
     serverEntry: entry,
-    // The test store declares its own host, so a draft link on ORIGIN previews.
+    // Studio lists the test store's host in the release, so a draft link on ORIGIN previews.
     cms: testCMS(snapshot({ previewHosts: ["store.example.com"] })),
-    site: "acme",
-    buildHash: "abc123",
+    pageCache,
     ...options,
   });
   const ctx = new TestContext();
-  const get = async (path: string, init: RequestInit & { ua?: string } = {}) => {
+  const get = async (path: string, init: RequestInit & { ua?: string; firstVisit?: true } = {}) => {
     const headers = new Headers(init.headers);
     if (!headers.has("user-agent")) headers.set("user-agent", init.ua ?? DESKTOP_UA);
+    // A returning visitor unless the test says otherwise, so no visitor cookie joins its own.
+    const cookie = headers.get("cookie");
+    if (!init.firstVisit && !cookie?.includes("deco_segment=")) {
+      headers.set("cookie", cookie ? `${cookie}; ${RETURNING}` : RETURNING);
+    }
     const url = path.startsWith("http") ? path : `${ORIGIN}${path}`;
     const response = await worker.fetch(new Request(url, { ...init, headers }), {}, ctx);
     await ctx.settle();
     return response;
   };
-  return { worker, entry, ctx, get };
+  return { worker, entry, ctx, get, store, seen };
 }
 
 describe("always on: liveness and v7's admin paths", () => {
@@ -169,275 +176,155 @@ describe("always on: security headers and Studio framing", () => {
   });
 });
 
-describe("the edge cache", () => {
-  it("a page is a MISS, then a HIT from the cache, keyed on build, revision and segment", async () => {
-    const { get, entry } = setup();
-    const first = await get("/");
-    expect(first.headers.get("x-cache")).toBe("MISS");
-    expect(first.headers.get("x-cache-profile")).toBe("static");
-    expect(first.headers.get("x-cache-version")).toBe("abc123.rev-1");
-    expect(first.headers.get("x-cache-segment")).toBe("device=desktop");
-    expect(first.headers.get("cache-control")).toBe(
-      "public, max-age=120, s-maxage=900, stale-while-revalidate=1800, stale-if-error=7200",
+describe("pageCache: the site's own cache", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+
+  it("is called for page and server-function GETs of the current release only", async () => {
+    const { get, seen } = setup(
+      { routes: (r) => (new URL(r.url).pathname === "/api/x" ? new Response("x") : null) },
+      (request) =>
+        new URL(request.url).pathname.startsWith("/assets/")
+          ? new Response("x", { headers: { "content-type": "text/javascript" } })
+          : html(),
     );
-    expect(first.headers.get("cdn-cache-control")).toBe("no-store");
-    const second = await get("/");
-    expect(second.headers.get("x-cache")).toBe("HIT");
-    expect(await second.text()).toBe("<!doctype html><p>/</p>");
-    expect(entry.served).toHaveLength(1);
-    const [key] = [...cache.entries.keys()];
-    expect(key).toBe(`${ORIGIN}/?__v=abc123.rev-1&__seg=device%3Ddesktop`);
-  });
-
-  it("a new content revision gets new entries", async () => {
-    const entry = recordingEntry();
-    let revision = "rev-1";
-    const cms = testCMS();
-    const release = cms.forRelease.bind(cms);
-    vi.spyOn(cms, "forRelease").mockImplementation(() => {
-      const client = release();
-      client.revision = async () => revision;
-      return client;
-    });
-    const worker = createDecoWorker({ serverEntry: entry, cms, site: "acme", buildHash: "b" });
-    const ctx = new TestContext();
-    const get = async () => {
-      const r = await worker.fetch(new Request(`${ORIGIN}/`), {}, ctx);
-      await ctx.settle();
-      return r;
-    };
-    expect((await get()).headers.get("x-cache")).toBe("MISS");
-    expect((await get()).headers.get("x-cache")).toBe("HIT");
-    revision = "rev-2";
-    const after = await get();
-    expect(after.headers.get("x-cache")).toBe("MISS");
-    expect(after.headers.get("x-cache-version")).toBe("b.rev-2");
-  });
-
-  it("devices get their own entries; tracking params share one", async () => {
-    const { get, entry } = setup();
-    await get("/shoes?utm_source=x&gclid=1");
-    expect((await get("/shoes")).headers.get("x-cache")).toBe("HIT");
-    expect((await get("/shoes", { ua: PHONE_UA })).headers.get("x-cache")).toBe("MISS");
-    expect(entry.served).toHaveLength(2);
-  });
-
-  it("programmatic fetches (Sec-Fetch-Dest: empty) get their own entries", async () => {
-    const { get } = setup();
     await get("/shoes");
-    const fetched = await get("/shoes", { headers: { "sec-fetch-dest": "empty" } });
-    expect(fetched.headers.get("x-cache")).toBe("MISS");
-  });
-
-  it("stale-while-revalidate, then stale-if-error, then the origin's error", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(T0);
-    let fail = false;
-    const { get, entry } = setup({}, () => (fail ? new Response("boom", { status: 503 }) : html()));
-    await get("/shoes"); // listing: fresh 120, swr 900, sie 3600
-    vi.setSystemTime(T0 + 200_000);
-    const stale = await get("/shoes");
-    expect(stale.headers.get("x-cache")).toBe("STALE-HIT");
-    expect(entry.served).toHaveLength(2); // revalidated in the background
-    vi.setSystemTime(T0 + 200_000 + 1_100_000);
-    fail = true;
-    const error = await get("/shoes");
-    expect(error.headers.get("x-cache")).toBe("STALE-ERROR");
-    expect(error.headers.get("x-cache-origin-status")).toBe("503");
-    vi.setSystemTime(T0 + 200_000 + 5_000_000);
-    const gone = await get("/shoes");
-    expect(gone.status).toBe(503);
-    expect(gone.headers.get("x-cache")).toBe("BYPASS");
-    expect(gone.headers.get("cdn-cache-control")).toBe("no-store");
-  });
-
-  it("a degraded page is never stored, and a stale copy is preferred", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(T0);
-    let degraded = true;
-    const { get } = setup({}, () => html("x", degraded ? { "X-Deco-Degraded": "true" } : {}));
-    const first = await get("/shoes");
-    expect(first.headers.get("x-cache")).toBe("BYPASS");
-    expect(first.headers.get("cache-control")).toBe("private, no-cache, no-store, must-revalidate");
-    expect(cache.entries.size).toBe(0);
-    degraded = false;
-    await get("/shoes");
-    vi.setSystemTime(T0 + 2_000_000); // past swr, within sie
-    degraded = true;
-    const res = await get("/shoes");
-    expect(res.headers.get("x-cache")).toBe("STALE-ERROR");
-    expect(res.headers.get("x-cache-reason")).toBe("degraded");
-  });
-
-  it("a stored HIT drops Cloudflare's cf-cache-status", async () => {
-    const { get } = setup();
-    await get("/");
-    for (const response of cache.entries.values()) response.headers.set("cf-cache-status", "HIT");
-    const hit = await get("/");
-    expect(hit.headers.get("x-cache")).toBe("HIT");
-    expect(hit.headers.has("cf-cache-status")).toBe(false);
-  });
-
-  it("non-GET requests pass through, uncached", async () => {
-    const { get, entry } = setup();
-    const res = await get("/_serverFn/abc", { method: "POST", body: "{}" });
-    expect(res.headers.get("x-cache")).toBe("BYPASS");
-    expect(res.headers.get("cdn-cache-control")).toBe("no-store");
-    expect(entry.served[0]?.method).toBe("POST");
-  });
-
-  it("dev never caches and tells the browser to revalidate", async () => {
-    const { get } = setup({ dev: true });
-    await get("/");
-    const res = await get("/");
-    expect(res.headers.get("x-cache")).toBe("BYPASS");
-    expect(res.headers.get("cache-control")).toBe("no-cache");
-    expect(cache.entries.size).toBe(0);
-  });
-
-  it("cacheProfiles changes a profile's values", async () => {
-    const { get } = setup({
-      cacheProfiles: { static: { browser: { fresh: 300 }, edge: { fresh: 1800 } } },
-    });
-    expect((await get("/")).headers.get("cache-control")).toBe(
-      "public, max-age=300, s-maxage=1800, stale-while-revalidate=1800, stale-if-error=7200",
-    );
-  });
-});
-
-describe("per-visitor responses never reach the cache", () => {
-  it('segment "private" (a signed-in shopper) is never served from or stored in the cache', async () => {
-    const { get, entry } = setup({
-      segment: (r) => (r.headers.get("cookie")?.includes("session=") ? "private" : {}),
-    });
-    await get("/");
-    const signedIn = await get("/", { headers: { cookie: "session=1" } });
-    expect(signedIn.headers.get("x-cache")).toBe("BYPASS");
-    expect(signedIn.headers.get("cache-control")).toBe(
-      "private, no-cache, no-store, must-revalidate",
-    );
-    expect(entry.served).toHaveLength(2);
-    expect(cache.entries.size).toBe(1);
-  });
-
-  it("segment parts split the cache and show in X-Cache-Segment", async () => {
-    const { get } = setup({
-      segment: (r) => ({ region: r.headers.get("cf-region-code") ?? undefined }),
-    });
-    const sp = await get("/", { headers: { "cf-region-code": "SP" } });
-    expect(sp.headers.get("x-cache-segment")).toBe("device=desktop|region=SP");
-    expect((await get("/", { headers: { "cf-region-code": "RJ" } })).headers.get("x-cache")).toBe(
-      "MISS",
-    );
-    expect((await get("/", { headers: { "cf-region-code": "SP" } })).headers.get("x-cache")).toBe(
-      "HIT",
-    );
-  });
-
-  it("a segment may merge device classes", async () => {
-    const { get } = setup({
-      segment: (r) => ({
-        device: /iPhone|iPad|Android/.test(r.headers.get("user-agent") ?? "")
-          ? "mobile"
-          : "desktop",
-      }),
-    });
-    await get("/", { ua: PHONE_UA });
-    const tablet = await get("/", { ua: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)" });
-    expect(tablet.headers.get("x-cache")).toBe("HIT");
-  });
-
-  it("a request with Authorization is never cached", async () => {
-    const { get } = setup();
-    const res = await get("/", { headers: { authorization: "Bearer x" } });
-    expect(res.headers.get("x-cache")).toBe("BYPASS");
-    expect(cache.entries.size).toBe(0);
-  });
-
-  it("a private profile (/account, /cart) is never cached", async () => {
-    const { get } = setup();
-    for (const path of ["/account", "/cart/items", "/login"]) {
-      const res = await get(path);
-      expect(res.headers.get("x-cache"), path).toBe("BYPASS");
-      expect(res.headers.get("cache-control"), path).toBe(
-        "private, no-cache, no-store, must-revalidate",
-      );
-    }
-    expect(cache.entries.size).toBe(0);
-  });
-
-  it("a response that says private, or sets a cookie that isn't safe, is not stored", async () => {
-    const { get } = setup({}, (r) =>
-      new URL(r.url).pathname === "/a"
-        ? html("a", { "cache-control": "private" })
-        : html("b", { "set-cookie": "session=1; Path=/" }),
-    );
-    expect((await get("/a")).headers.get("x-cache")).toBe("BYPASS");
-    const b = await get("/b");
-    expect(b.headers.get("x-cache")).toBe("BYPASS");
-    expect(b.headers.get("set-cookie")).toBe("session=1; Path=/");
-    expect(cache.entries.size).toBe(0);
-  });
-
-  it("a safe cookie reaches the visitor but not the stored copy", async () => {
-    const { get } = setup({ safeCookies: ["vtex_segment"] }, () =>
-      html("x", { "set-cookie": "vtex_segment=abc; Path=/" }),
-    );
-    const res = await get("/");
-    expect(res.headers.get("x-cache")).toBe("MISS");
-    expect(res.headers.get("set-cookie")).toBe("vtex_segment=abc; Path=/");
-    const [stored] = [...cache.entries.values()];
-    expect(stored?.headers.has("set-cookie")).toBe(false);
-  });
-
-  it("server functions: a page load takes its page's profile, any other one is private", async () => {
-    const { get } = setup({}, () => Response.json({ ok: true }));
-    const page = await get(
+    await get(
       `/_serverFn/abc?payload=${encodeURIComponent(JSON.stringify({ data: { href: "/shoes" } }))}`,
     );
-    expect(page.headers.get("x-cache-profile")).toBe("listing");
-    expect(page.headers.get("x-cache")).toBe("MISS");
-    const cart = await get(
-      `/_serverFn/cart?payload=${encodeURIComponent(JSON.stringify({ data: {} }))}`,
-    );
-    expect(cart.headers.get("x-cache")).toBe("BYPASS");
-    expect(cart.headers.get("cache-control")).toBe("private, no-cache, no-store, must-revalidate");
+    await get("/shoes", { method: "POST", body: "{}" });
+    await get("/shoes", { method: "HEAD" });
+    await get("/shoes", { headers: { authorization: "Bearer x" } });
+    await get(`/shoes?__draft=${encodeURIComponent(POINTER)}`);
+    await get(`/shoes?__draft=${SHA}`);
+    await get("/_build/client.js");
+    await get("/assets/main-AbCdEf123.js");
+    await get("/old-shoes");
+    await get("/api/x");
+    await get("/deco/_liveness");
+    expect(seen.map((p) => `${p.request.method} ${p.url.pathname}`)).toEqual([
+      "GET /shoes",
+      "GET /_serverFn/abc",
+    ]);
   });
 
-  it("a page load's variant params (skuId) share one entry", async () => {
-    const { get } = setup({}, () => Response.json({ ok: true }));
-    const payload = (href: string) => encodeURIComponent(JSON.stringify({ data: { href } }));
-    await get(`/_serverFn/abc?payload=${payload("/shirt/p")}`);
-    const variant = await get(`/_serverFn/abc?payload=${payload("/shirt/p?skuId=42")}`);
-    expect(variant.headers.get("x-cache")).toBe("HIT");
+  it("never in development", async () => {
+    const { get, seen } = setup({ dev: true });
+    await get("/");
+    expect(seen).toHaveLength(0);
+  });
+
+  it("gets the visitor the app renders for: on a first visit, the one the cookie names", async () => {
+    const { get, seen, entry } = setup();
+    const res = await get("/", { firstVisit: true });
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith("deco_segment="));
+    const stored = parseVisitor(cookie?.split(";")[0]?.slice("deco_segment=".length) ?? null);
+    expect(seen[0]?.visitor.id).toBe(stored?.id);
+    expect(parseVisitor(entry.served[0]?.headers.get("x-deco-visitor") ?? null)?.id).toBe(
+      stored?.id,
+    );
+    expect(seen[0]?.device).toBe("desktop");
+    expect((await get("/", { ua: PHONE_UA })) && seen[1]?.device).toBe("mobile");
+  });
+
+  it("render() has no visitor cookie; the worker adds it to whatever pageCache answers", async () => {
+    let rendered: Response | undefined;
+    const pageCache: PageCache = async (page) => {
+      rendered = await page.render();
+      return new Response("from the site's cache", { headers: { "X-Cache": "HIT" } });
+    };
+    const { get } = setup({ pageCache });
+    const res = await get("/", { firstVisit: true });
+    expect(rendered?.headers.has("set-cookie")).toBe(false);
+    expect(await res.text()).toBe("from the site's cache");
+    expect(res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="))).toHaveLength(1);
+  });
+
+  it("render({ csegToken }) is the token the document publishes; render() has none", async () => {
+    const tokens: (string | undefined)[] = [];
+    const { get, entry } = setup({
+      pageCache: async (page) => page.render(tokens.length === 0 ? { csegToken: "a1b2c3d4" } : {}),
+    });
+    await get("/");
+    tokens.push("done");
+    await get("/");
+    expect(entry.served.map((s) => s.scope?.csegToken)).toEqual(["a1b2c3d4", undefined]);
+  });
+
+  it("its answer leaves like any other: security headers, no-store for the CDN unless it names its own", async () => {
+    const { get } = setup({
+      pageCache: async (page) => {
+        const res = await page.render();
+        const out = new Response(res.body, res);
+        if (page.url.pathname === "/shared")
+          out.headers.set("CDN-Cache-Control", "public, max-age=60");
+        return out;
+      },
+    });
+    const plain = await get("/");
+    expect(plain.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(plain.headers.get("x-content-type-options")).toBe("nosniff");
+    expect((await get("/shared")).headers.get("cdn-cache-control")).toBe("public, max-age=60");
+  });
+
+  it("a page request with Authorization never reaches it and answers private, whatever the app said", async () => {
+    const { get, seen } = setup({}, () =>
+      html("x", { "cache-control": "public, max-age=120, s-maxage=900" }),
+    );
+    const res = await get("/shoes", { headers: { authorization: "Bearer x" } });
+    expect(seen).toHaveLength(0);
+    expect(res.headers.get("cache-control")).toBe("private, no-cache, no-store, must-revalidate");
+    expect(res.headers.get("cdn-cache-control")).toBe("no-store");
+    const plain = await get("/shoes");
+    expect(plain.headers.get("cache-control")).not.toContain("private");
+  });
+
+  it("without one, nothing is cached: every request renders, headers as the app sent them", async () => {
+    const { get, entry } = setup({ pageCache: undefined }, () =>
+      html("x", { "cache-control": "public, max-age=60" }),
+    );
+    const a = await get("/");
+    await get("/");
+    expect(entry.served).toHaveLength(2);
+    expect(a.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(a.headers.has("x-cache")).toBe(false);
   });
 });
 
-describe("__cseg: the CDN caches navigation data only under a token that checks out", () => {
-  const payload = encodeURIComponent(JSON.stringify({ data: { href: "/shoes" } }));
-
-  it("the page's render gets the token; the matching server-function URL is CDN-cacheable", async () => {
-    const { get, entry } = setup({}, () => html());
-    await get("/");
-    const token = entry.served[0]?.scope?.csegToken;
-    expect(token).toBe(segmentToken({ device: "desktop" }, "abc123.rev-1"));
-    const ok = await get(`/_serverFn/abc?payload=${payload}&${CSEG_PARAM}=${token}`);
-    expect(ok.headers.get("cdn-cache-control")).toBe("public, max-age=120");
-    const forged = await get(`/_serverFn/abc?payload=${payload}&${CSEG_PARAM}=deadbeef`);
-    expect(forged.headers.get("cdn-cache-control")).toBe("no-store");
-    expect(forged.headers.get("x-cache")).toBe("HIT"); // the token is not part of the edge key
-    const otherDevice = await get(`/_serverFn/abc?payload=${payload}&${CSEG_PARAM}=${token}`, {
-      ua: PHONE_UA,
-    });
-    expect(otherDevice.headers.get("cdn-cache-control")).toBe("no-store");
+describe("the helpers a site's cache uses", () => {
+  it("isCacheable: a GET of the current release, outside dev, without Authorization, not /_build", () => {
+    const req = (path: string, init?: RequestInit) => new Request(`${ORIGIN}${path}`, init);
+    expect(isCacheable(req("/"), { version: null })).toBe(true);
+    expect(isCacheable(req("/"), { version: POINTER })).toBe(false);
+    expect(isCacheable(req("/"), { version: null, dev: true })).toBe(false);
+    expect(isCacheable(req("/", { method: "POST" }), { version: null })).toBe(false);
+    expect(isCacheable(req("/", { headers: { authorization: "x" } }), { version: null })).toBe(
+      false,
+    );
+    expect(isCacheable(req("/_build/x.js"), { version: null })).toBe(false);
   });
 
-  it("documents are never CDN-cacheable, and a private visitor gets no token", async () => {
-    const { get, entry } = setup({ segment: (r) => (r.headers.has("cookie") ? "private" : {}) });
-    const doc = await get("/");
-    expect(doc.headers.get("cdn-cache-control")).toBe("no-store");
-    await get("/", { headers: { cookie: "session=1" } });
-    expect(entry.served[1]?.scope?.csegToken).toBeUndefined();
+  it("cacheVersion is <build>.<revision>, the build alone when the content doesn't load", async () => {
+    expect(await cacheVersion(testCMS(snapshot({ revision: "rev-9" })), "abc123")).toBe(
+      "abc123.rev-9",
+    );
+    const broken = {
+      forRelease: () => ({ revision: () => Promise.reject(new Error("down")) }),
+    } as unknown as Parameters<typeof cacheVersion>[0];
+    expect(await cacheVersion(broken, "abc123")).toBe("abc123");
+  });
+
+  it("requestVersion reads the version the worker checked, on the request routes and pageCache get", async () => {
+    let seen: string | null | undefined;
+    const { get } = setup({
+      routes: (request) => {
+        seen = requestVersion(request);
+        return null;
+      },
+    });
+    await get(`/?__draft=${encodeURIComponent(POINTER)}`);
+    expect(seen).toBe(POINTER);
+    await get("/", { headers: { "x-deco-version": POINTER } });
+    expect(seen).toBe(null);
   });
 });
 
@@ -445,12 +332,12 @@ describe("drafts", () => {
   const draftUrl = `/?__draft=${encodeURIComponent(POINTER)}`;
 
   it("a draft link renders the draft: header to the app, cookie stored, never cached, noindex", async () => {
-    const { get, entry } = setup();
+    const { get, entry, seen } = setup();
     await get("/"); // a cached release copy exists
     const res = await get(draftUrl);
-    expect(entry.served.at(-1)?.headers.get("x-deco-draft")).toBe(POINTER);
+    expect(entry.served.at(-1)?.headers.get("x-deco-version")).toBe(POINTER);
     expect(entry.served.at(-1)?.scope?.draft).toBe(POINTER);
-    expect(res.headers.get("x-cache")).toBe("BYPASS");
+    expect(res.headers.has("x-cache")).toBe(false);
     expect(res.headers.get("cache-control")).toBe("no-store, private");
     expect(res.headers.get("cdn-cache-control")).toBe("no-store");
     expect(res.headers.get("vary")).toBe("Cookie");
@@ -458,6 +345,8 @@ describe("drafts", () => {
     expect(res.headers.get("set-cookie")).toBe(
       `__deco_draft=${encodeURIComponent(POINTER)}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned`,
     );
+    // The site's page cache saw the release request only, never the draft.
+    expect(seen.map((p) => p.url.search)).toEqual([""]);
   });
 
   it("a draft keeps the origin's Vary and adds Cookie", async () => {
@@ -471,7 +360,7 @@ describe("drafts", () => {
     const res = await get("/shoes", {
       headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
     });
-    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(POINTER);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(POINTER);
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(res.headers.has("set-cookie")).toBe(false);
   });
@@ -490,134 +379,284 @@ describe("drafts", () => {
     const res = await get("/?__draft=off", {
       headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
     });
-    expect(entry.served[0]?.headers.has("x-deco-draft")).toBe(false);
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
   it("a pointer that doesn't parse is no draft: the release, cached as usual", async () => {
-    const { get, entry } = setup();
+    const { get, entry, seen } = setup();
     const res = await get("/?__draft=junk");
-    expect(entry.served[0]?.headers.has("x-deco-draft")).toBe(false);
-    expect(res.headers.get("x-cache")).toBe("MISS");
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
+    expect(seen).toHaveLength(1);
     expect(res.headers.has("x-robots-tag")).toBe(false);
   });
 
-  it("an x-deco-draft header from outside never counts", async () => {
-    const { get, entry } = setup();
-    const res = await get("/", { headers: { "x-deco-draft": POINTER } });
-    expect(entry.served[0]?.headers.has("x-deco-draft")).toBe(false);
-    expect(res.headers.get("x-cache")).toBe("MISS");
+  it("an x-deco-version header from outside never counts", async () => {
+    const { get, entry, seen } = setup();
+    await get("/", { headers: { "x-deco-version": POINTER } });
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
+    expect(seen).toHaveLength(1);
   });
 
-  it("a draft request's server function bypasses the cache too", async () => {
-    const { get } = setup({}, () => Response.json({}));
+  it("a draft request's server function never reaches the site's cache either", async () => {
+    const { get, seen } = setup({}, () => Response.json({}));
     const payload = encodeURIComponent(JSON.stringify({ data: { href: "/shoes" } }));
     const res = await get(`/_serverFn/abc?payload=${payload}`, {
       headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
     });
-    expect(res.headers.get("x-cache")).toBe("BYPASS");
     expect(res.headers.get("cache-control")).toBe("no-store, private");
-    expect(cache.entries.size).toBe(0);
+    expect(seen).toHaveLength(0);
   });
 });
 
-describe("the draft host allowlist (v7's, in the worker)", () => {
+describe("the visitor", () => {
+  const segmentCookies = (res: Response) =>
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const cookieValue = (setCookie: string) => setCookie.split(";")[0] as string;
+  const forwarded = (headers: Headers | undefined) =>
+    parseVisitor(headers?.get("x-deco-visitor") ?? null);
+
+  it("a first visit: the app gets a new visitor, the response sets deco_segment once", async () => {
+    const { get, entry } = setup();
+    const res = await get("/", { firstVisit: true });
+    const visitor = forwarded(entry.served[0]?.headers);
+    expect(visitor?.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    const [cookie, ...more] = segmentCookies(res);
+    expect(more).toEqual([]);
+    expect(cookie).toMatch(/^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/);
+    expect(cookieValue(cookie as string)).toBe(`deco_segment=${serializeVisitor(visitor!)}`);
+  });
+
+  it("a returning visitor keeps their id and gets no cookie", async () => {
+    const { get, entry } = setup();
+    const [first] = segmentCookies(await get("/shoes", { firstVisit: true }));
+    const again = await get("/shoes", { headers: { cookie: cookieValue(first as string) } });
+    expect(segmentCookies(again)).toEqual([]);
+    expect(forwarded(entry.served.at(-1)?.headers)?.id).toBe(
+      forwarded(entry.served[0]?.headers)?.id,
+    );
+  });
+
+  it("a v7 visitor gets an id once, their stored decisions kept", async () => {
+    const v7 = btoa(
+      encodeURIComponent(
+        JSON.stringify({ active: ["hero"], inactiveDrawn: [], pct: { hero: 50 } }),
+      ),
+    );
+    const { get, entry } = setup();
+    const res = await get("/", { headers: { cookie: `deco_segment=${v7}` } });
+    const visitor = forwarded(entry.served[0]?.headers);
+    expect(visitor?.active).toEqual(["hero"]);
+    expect(segmentCookies(res)).toHaveLength(1);
+  });
+
+  it("a new visitor served from the site's cache still gets their cookie; the stored copy has none", async () => {
+    const { get, entry, store } = setup();
+    await get("/", { firstVisit: true });
+    const hit = await get("/", { firstVisit: true });
+    expect(hit.headers.get("x-cache")).toBe("HIT");
+    expect(entry.served).toHaveLength(1);
+    expect(segmentCookies(hit)).toHaveLength(1);
+    expect(store.entries.size).toBe(1);
+    for (const stored of store.entries.values())
+      expect(stored.headers.has("set-cookie")).toBe(false);
+  });
+
+  it("server-function calls get the visitor too", async () => {
+    const { get, entry } = setup({}, () => Response.json({}));
+    const res = await get("/_serverFn/abc", { method: "POST", firstVisit: true });
+    expect(forwarded(entry.served[0]?.headers)).not.toBe(null);
+    expect(segmentCookies(res)).toHaveLength(1);
+  });
+
+  it("an x-deco-visitor header from outside never reaches the app", async () => {
+    const forged = serializeVisitor({ ...newVisitor(), id: "AAAAAAAAAAAAAAAAAAAAAA" });
+    const init = { headers: { "x-deco-visitor": forged }, firstVisit: true } as const;
+    const page = setup();
+    await page.get("/", init);
+    expect(forwarded(page.entry.served[0]?.headers)?.id).not.toBe("AAAAAAAAAAAAAAAAAAAAAA");
+    const routed = setup({
+      routes: (request) => html(request.headers.get("x-deco-visitor") ?? "none"),
+    });
+    expect(await (await routed.get("/hats", init)).text()).toBe("none");
+  });
+
+  it("decides each test and campaign once, hands them to the app on x-deco-assignments and to pageCache; a forged copy never counts", async () => {
+    const cms = testCMS(
+      snapshot({
+        experiments: { all: 100, none: 0 },
+        campaigns: { sale: {}, later: { start: "2999-01-01T00:00Z" } },
+      }),
+    );
+    let assignments: unknown;
+    const { get, entry } = setup({
+      cms,
+      pageCache: async (page) => {
+        assignments = page.assignments;
+        return page.render();
+      },
+    });
+    await get("/", { headers: { "x-deco-assignments": "x=+none" } });
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+all,-none|c=-later,+sale");
+    expect(assignments).toEqual({
+      version: null,
+      experiments: { all: true, none: false },
+      campaigns: { later: false, sale: true },
+    });
+    const routed = setup({
+      cms,
+      routes: (request) => html(request.headers.get("x-deco-assignments") ?? "none"),
+    });
+    expect(
+      await (await routed.get("/hats", { headers: { "x-deco-assignments": "x=+none" } })).text(),
+    ).toBe("none");
+  });
+
+  it("a preview link's switched tests are decided in the worker, even a test at 0%", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["store.example.com"], experiments: { none: 0 } }),
+    );
+    const { get, entry } = setup({ cms });
+    // `local` names no draft (`deco serve`'s working tree): the release, nothing fetched.
+    const local = "127.0.0.1:1/p@local";
+    const link = local.replace("@", `?__test=${encodeURIComponent("none=on")}@`);
+    await get(`/?__draft=${encodeURIComponent(link)}`);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(local);
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+none");
+  });
+
+  it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ set: {}, delete: [] })),
+    );
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, { firstVisit: true });
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(POINTER);
+    expect(forwarded(entry.served[0]?.headers)).not.toBe(null);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("assets and the liveness check never read the visitor", async () => {
+    const { get, entry } = setup(
+      {},
+      () => new Response("x", { headers: { "content-type": "text/javascript" } }),
+    );
+    expect(segmentCookies(await get("/assets/main-AbCdEf12.js", { firstVisit: true }))).toEqual([]);
+    expect(entry.served[0]?.headers.has("x-deco-visitor")).toBe(false);
+    expect(segmentCookies(await get("/deco/_liveness", { firstVisit: true }))).toEqual([]);
+  });
+
+  it("over plain http (local development) the cookie isn't Secure", async () => {
+    const { get } = setup();
+    const [cookie] = segmentCookies(await get("http://localhost:5173/", { firstVisit: true }));
+    expect(cookie).not.toContain("Secure");
+  });
+});
+
+describe("the version: an old release from a Studio link", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const segmentCookies = (res: Response) =>
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+
+  it("a release SHA on a preview host is the version the app reads, kept in the draft cookie", async () => {
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${SHA}`, { firstVisit: true });
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
+    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(`__deco_draft=${SHA};`))).toBe(true);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("with the preview time and switched tests on it: the version alone on x-deco-version, the rest decided", async () => {
+    const value = `${SHA}?__at=${encodeURIComponent("2026-11-28T10:00:00-03:00")}&__test=${encodeURIComponent("hero=on")}`;
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${encodeURIComponent(value)}`);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
+    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(true);
+    // The cookie keeps the whole link, so the next request previews the same.
+    expect(
+      res.headers
+        .getSetCookie()
+        .some((c) => c.startsWith(`__deco_draft=${encodeURIComponent(value)};`)),
+    ).toBe(true);
+  });
+
+  it("a preview time typed by hand, unencoded, reads as @decocms/blocks reads it", async () => {
+    const { get, entry } = setup();
+    const res = await get(`/?__draft=${SHA}?__at=2026-11-28T10:00:00-03:00`, { firstVisit: true });
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
+    expect(segmentCookies(res)).toEqual([]);
+  });
+
+  it("on a host that may not preview, or when it doesn't parse, the request gets the current release", async () => {
+    const { get, entry } = setup();
+    await get(`https://elsewhere.example.com/?__draft=${SHA}`);
+    await get(`/?__draft=${SHA.slice(1)}`);
+    await get(`/?__draft=${encodeURIComponent(`${SHA}?__at=yesterday`)}`);
+    await get(`/?__draft=${encodeURIComponent(`${SHA}?page=2`)}`);
+    for (const served of entry.served) expect(served.headers.has("x-deco-version")).toBe(false);
+  });
+});
+
+describe("the draft hosts: the release's, as the CMS reads them", () => {
   const link = (host: string) => `https://${host}/?__draft=${encodeURIComponent(POINTER)}`;
 
   async function previews(options: Partial<DecoWorkerOptions>, host: string): Promise<boolean> {
     const { get, entry } = setup(options);
     const res = await get(link(host));
-    const rendered = entry.served[0]?.headers.get("x-deco-draft") === POINTER;
+    const rendered = entry.served[0]?.headers.get("x-deco-version") === POINTER;
     // The cookie and the headers agree with what the app rendered.
     expect(res.headers.has("set-cookie"), host).toBe(rendered);
     expect(res.headers.get("x-robots-tag") === "noindex, nofollow", host).toBe(rendered);
     return rendered;
   }
 
-  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, not blocks' every host)", async () => {
-    const cms = testCMS(snapshot());
-    expect((await cms.settings()).preview.hosts).toEqual(["*"]); // blocks' own default stays
-    for (const host of ["store.example.com", "www.store.example.com", "localhost:5173"]) {
-      expect(await previews({ cms }, host), host).toBe(false);
+  it("with no list in the release (no site published one), every host previews; an empty list, none", async () => {
+    const open = testCMS(snapshot());
+    expect((await open.settings()).preview.hosts).toEqual(["*"]);
+    for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
+      expect(await previews({ cms: open }, host), host).toBe(true);
     }
-    for (const host of ["acme.deco.site", "acme.deco-cx.workers.dev"]) {
-      expect(await previews({ cms }, host), host).toBe(true);
+    const closed = testCMS(snapshot({ previewHosts: [] }));
+    expect((await closed.settings()).preview.hosts).toEqual([]);
+    for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
+      expect(await previews({ cms: closed }, host), host).toBe(false);
     }
-    expect(await previews({ cms, previewHosts: ["localhost:5173"] }, "localhost:5173")).toBe(true);
   });
 
-  it('a CMS block that declares "*" previews on every host', async () => {
+  it('a release whose hosts are "*" previews on every host', async () => {
     const cms = testCMS(snapshot({ previewHosts: ["*"] }));
     for (const host of ["store.example.com", "localhost:5173", "acme.deco.site"]) {
       expect(await previews({ cms }, host), host).toBe(true);
     }
   });
 
-  it("the CMS block's preview hosts: only those, plus the site's Deco hosts", async () => {
-    const cms = testCMS(snapshot({ previewHosts: ["staging.store.example.com"] }));
-    for (const host of [
-      "staging.store.example.com",
-      "acme.deco.site",
-      "acme.deco-cx.workers.dev",
-    ]) {
+  it("the release's preview hosts: only those, wildcards as the CMS matches them", async () => {
+    const cms = testCMS(snapshot({ previewHosts: ["staging.store.example.com", "*.deco.site"] }));
+    for (const host of ["staging.store.example.com", "acme.deco.site", "acme.deco.site:8443"]) {
       expect(await previews({ cms }, host), host).toBe(true);
     }
     for (const host of [
       "store.example.com",
-      "other.deco.site",
-      "xacme.deco.site",
-      "www.acme.deco.site",
-      "acme.deco.site.attacker.example",
-      "1a2b3c-acme.deco-cx.workers.dev",
-      "acme.deco.site:8443",
       "deco.site",
+      "acme.deco.site.attacker.example",
+      "acme.deco-cx.workers.dev",
     ]) {
       expect(await previews({ cms }, host), host).toBe(false);
     }
   });
 
-  it("the Deco hosts are named after site, case-insensitively, and exactly", async () => {
-    const cms = testCMS(snapshot({ previewHosts: [] }));
-    expect(await previews({ cms, site: "Acme" }, "ACME.deco.site")).toBe(true);
-    expect(await previews({ cms, site: "acme" }, "store.example.com")).toBe(false);
-  });
-
-  it("previewHosts replaces the CMS block's list (v7's DECO_ALLOWED_PREVIEW_HOSTS); the Deco hosts stay", async () => {
-    const cms = testCMS(snapshot({ previewHosts: ["staging.store.example.com"] }));
-    const previewHosts = ["localhost:5173", "Preview.Store.Example.com"];
-    expect(await previews({ cms, previewHosts }, "localhost:5173")).toBe(true);
-    expect(await previews({ cms, previewHosts }, "preview.store.example.com")).toBe(true);
-    expect(await previews({ cms, previewHosts }, "acme.deco.site")).toBe(true);
-    expect(await previews({ cms, previewHosts }, "staging.store.example.com")).toBe(false);
-    expect(await previews({ cms, previewHosts }, "localhost:5174")).toBe(false);
-  });
-
-  it("an empty previewHosts list leaves only the Deco hosts (v7's default)", async () => {
-    expect(await previews({ previewHosts: [] }, "store.example.com")).toBe(false);
-    expect(await previews({ previewHosts: [] }, "acme.deco.site")).toBe(true);
-  });
-
-  it('previewHosts: "none" is the kill switch: no host previews, the Deco hosts and "*" included', async () => {
-    const cms = testCMS(snapshot({ previewHosts: ["*"] }));
-    for (const host of ["acme.deco.site", "acme.deco-cx.workers.dev", "store.example.com"]) {
-      expect(await previews({ cms, previewHosts: "none" }, host), host).toBe(false);
-      expect(await previews({ cms, previewHosts: ["localhost:5173", "none"] }, host), host).toBe(
-        false,
-      );
-    }
-  });
-
   it("a refused host still ends a preview (?__draft=off expires the cookie anywhere)", async () => {
-    const { get } = setup({ previewHosts: "none" });
+    const { get } = setup({ cms: testCMS(snapshot()) });
     expect((await get("/?__draft=off")).headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
-  it("a refused draft request is served the cached release", async () => {
-    const { get, entry } = setup({ previewHosts: "none" });
-    await get("/");
-    const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`);
-    expect(res.headers.get("x-cache")).toBe("MISS"); // its own key (the query differs), but cached
-    expect(entry.served.every((s) => !s.headers.has("x-deco-draft"))).toBe(true);
+  it("a refused draft request is the release, and may be cached", async () => {
+    const { get, entry, seen } = setup({ cms: testCMS(snapshot({ previewHosts: [] })) });
+    await get(`/?__draft=${encodeURIComponent(POINTER)}`);
+    expect(seen).toHaveLength(1);
+    expect(entry.served.every((s) => !s.headers.has("x-deco-version"))).toBe(true);
   });
 });
 
@@ -654,7 +693,7 @@ describe("CMS redirects, routes and assets", () => {
     let seen: string | null = null;
     const { get } = setup({
       routes: (request) => {
-        seen = request.headers.get("x-deco-draft");
+        seen = request.headers.get("x-deco-version");
         return new Response("x");
       },
     });
@@ -683,12 +722,11 @@ describe("CMS redirects, routes and assets", () => {
   });
 
   it("x-page-status gives the document its status", async () => {
-    const { get } = setup({}, () => html("not found", { "x-page-status": "404" }));
+    const { get, store } = setup({}, () => html("not found", { "x-page-status": "404" }));
     const res = await get("/nope");
     expect(res.status).toBe(404);
     expect(res.headers.has("x-page-status")).toBe(false);
-    expect(res.headers.get("x-cache")).toBe("BYPASS");
-    expect(cache.entries.size).toBe(0);
+    expect(store.entries.size).toBe(0);
   });
 });
 
@@ -710,68 +748,6 @@ describe("Set-Cookie: one header per cookie (name + Domain + Path, v7 #642)", ()
       "token=; Max-Age=0; Path=/; Domain=www.store.example.com",
       "token=; Max-Age=0; Path=/; domain=STORE.example.com",
     ]);
-  });
-});
-
-describe("purge", () => {
-  it("POST /_cache/purge with the token drops a path's entries for every device", async () => {
-    const { get, worker, ctx } = setup({ purgeToken: (env) => (env as { T?: string }).T });
-    await get("/shoes");
-    await get("/shoes", { ua: PHONE_UA });
-    expect(cache.entries.size).toBe(2);
-    const purge = (auth: string) =>
-      worker.fetch(
-        new Request(`${ORIGIN}/_cache/purge`, {
-          method: "POST",
-          headers: { authorization: auth },
-          body: JSON.stringify({ paths: ["/shoes"] }),
-        }),
-        { T: "secret" },
-        ctx,
-      );
-    expect((await purge("Bearer nope")).status).toBe(401);
-    const res = await purge("Bearer secret");
-    expect(await res.json()).toEqual({
-      purged: ["/shoes (device=mobile)", "/shoes (device=desktop)"],
-      total: 2,
-    });
-    expect(cache.entries.size).toBe(0);
-  });
-
-  it("is off without purgeToken", async () => {
-    const { worker, ctx } = setup();
-    const res = await worker.fetch(
-      new Request(`${ORIGIN}/_cache/purge`, { method: "POST", body: "{}" }),
-      {},
-      ctx,
-    );
-    expect(res.status).toBe(401);
-  });
-});
-
-describe("onCache", () => {
-  it("reports each page and server-function request: profile, decision, duration, status", async () => {
-    const events: CacheEvent[] = [];
-    const { get } = setup({ onCache: (e) => events.push(e) });
-    await get("/");
-    await get("/");
-    await get("/deco/_liveness");
-    await get("/account");
-    expect(events.map(({ profile, decision, status }) => ({ profile, decision, status }))).toEqual([
-      { profile: "static", decision: "MISS", status: 200 },
-      { profile: "static", decision: "HIT", status: 200 },
-      { profile: "private", decision: "BYPASS", status: 200 },
-    ]);
-    expect(events.every((e) => typeof e.ms === "number" && e.ms >= 0)).toBe(true);
-  });
-
-  it("a throwing hook never breaks the response", async () => {
-    const { get } = setup({
-      onCache: () => {
-        throw new Error("metrics down");
-      },
-    });
-    expect((await get("/")).status).toBe(200);
   });
 });
 
@@ -830,15 +806,25 @@ describe("http.server.request.duration", () => {
     ]);
   });
 
-  it("a cached page is a HIT; a stale copy served counts as a HIT too", async () => {
-    vi.useFakeTimers({ now: T0, toFake: ["Date"] });
+  it("the site's cache decides the label: its X-Cache, a stale copy counting as a HIT", async () => {
     const points = recordMetrics();
-    const { get } = setup();
+    const answers = ["MISS", "HIT", "STALE-HIT", "STALE-ERROR", "SOMETHING"];
+    const pageCache: PageCache = async (page) => {
+      const response = await page.render();
+      const out = new Response(response.body, response);
+      out.headers.set("X-Cache", answers[points.length] as string);
+      return out;
+    };
+    const { get } = setup({ pageCache });
+    for (const _ of answers) await get("/");
+    expect(points.map((p) => p.labels.cache)).toEqual(["MISS", "HIT", "HIT", "HIT", "BYPASS"]);
+  });
+
+  it("without a pageCache every page is BYPASS", async () => {
+    const points = recordMetrics();
+    const { get } = setup({ pageCache: undefined });
     await get("/");
-    await get("/");
-    vi.setSystemTime(T0 + 1_000_000);
-    expect((await get("/")).headers.get("x-cache")).toBe("STALE-HIT");
-    expect(points.map((p) => p.labels.cache)).toEqual(["MISS", "HIT", "HIT"]);
+    expect(points.map((p) => p.labels.cache)).toEqual(["BYPASS"]);
   });
 
   it("never the raw path: a path no template matches is unmatched", async () => {
@@ -850,7 +836,7 @@ describe("http.server.request.duration", () => {
         "http.route": "unmatched",
         "http.request.method": "GET",
         status_class: "4xx",
-        cache: "BYPASS",
+        cache: "MISS",
         device: "desktop",
       },
     ]);
@@ -879,7 +865,7 @@ describe("http.server.request.duration", () => {
     ]);
   });
 
-  it("an upstream's X-Cache never counts: only the worker's own cache decides", async () => {
+  it("an upstream's X-Cache never counts: only the site's pageCache decides", async () => {
     const points = recordMetrics();
     const { get } = setup({
       routes: () =>

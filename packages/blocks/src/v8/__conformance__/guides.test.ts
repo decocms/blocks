@@ -144,16 +144,19 @@ describe("quickstart", () => {
     expect(spy.mock.calls[0][0]).toEqual({ title: "hi" });
   });
 
-  it("qs-17/hiw-06/dd-03: exactly nine built-ins, all resolvable", async () => {
+  it("qs-17/hiw-06/dd-03: exactly twelve built-ins, all resolvable", async () => {
     const { builtIns } = await import("../builtins/index");
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "page",
         "redirect",
         "cms-settings",
+        "split-traffic",
+        "calendar",
         "always",
         "never",
-        "date",
+        "campaign",
+        "experiment",
         "multivariate",
         "lazy",
         "secret",
@@ -163,10 +166,13 @@ describe("quickstart", () => {
     for (const [type, inputs] of [
       ["always", {}],
       ["never", {}],
-      ["date", {}],
+      ["campaign", {}],
       ["page", { name: "x", path: "/", sections: [] }],
       ["redirect", { from: "/a", to: "/b", permanent: false }],
       ["cms-settings", {}],
+      ["split-traffic", {}],
+      ["calendar", {}],
+      ["experiment", { name: "x" }],
       ["multivariate", { variants: [] }],
     ] as const) {
       const [, error] = await client.resolve({ __resolveType: type, ...inputs });
@@ -203,7 +209,7 @@ describe("how it works", () => {
     expect(cms.forDraft.length).toBe(1);
   });
 
-  it("hiw-07: a lazy block resolves only when asked; date returns a boolean", async () => {
+  it("hiw-07: a lazy block resolves only when asked; date returns its campaign's boolean", async () => {
     const inner = vi.fn(({ n }: { n: number }) => n * 2);
     let received: unknown;
     const cms = createCMS({
@@ -219,6 +225,11 @@ describe("how it works", () => {
           __resolveType: "holder",
           later: { __resolveType: "lazy", value: { __resolveType: "double", n: 21 } },
         },
+        campaigns: {
+          __resolveType: "calendar",
+          on: { start: "2000-01-01T00:00Z", end: "2999-01-01T00:00Z" },
+          off: { end: "2000-01-01T00:00Z" },
+        },
       }),
     });
     const client = cms.forRelease();
@@ -228,13 +239,9 @@ describe("how it works", () => {
     expect(await (received as () => Promise<number>)()).toBe(42);
     expect(inner).toHaveBeenCalledTimes(1);
 
-    const [isOn] = await client.resolve({
-      __resolveType: "date",
-      start: "2000-01-01",
-      end: "2999-01-01",
-    });
+    const [isOn] = await client.resolve({ __resolveType: "campaign", name: "on" });
     expect(isOn).toBe(true);
-    const [isOff] = await client.resolve({ __resolveType: "date", end: "2000-01-01" });
+    const [isOff] = await client.resolve({ __resolveType: "campaign", name: "off" });
     expect(isOff).toBe(false);
   });
 

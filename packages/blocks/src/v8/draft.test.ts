@@ -5,8 +5,12 @@ import { createCMS } from "./cms";
 import { formatDraftPointer, parseDraftPointer } from "./draft";
 import type { RequestLike } from "./types";
 
-/** The helpers as a site calls them: methods of a CMS with no settings, so every host may preview. */
-const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
+/** The helpers as a site calls them: methods of a CMS whose code lets every host preview. */
+const cms = createCMS({
+  blocks: {},
+  content: { revision: "r", blocks: {} },
+  preview: { hosts: ["*"] },
+});
 const draftPointer = (request: RequestLike) => cms.draftPointer(request);
 const draftCookie = (request: RequestLike) => cms.draftCookie(request);
 const DRAFT_COOKIE = "__deco_draft";

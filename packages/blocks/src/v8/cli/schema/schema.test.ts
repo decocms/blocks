@@ -6,7 +6,7 @@ import { LEGACY_ALIASES } from "../builtins";
 import { CliError, decoPaths } from "../root";
 import { type DecoMeta, generateSchema, type SchemaDiagnostic } from "./generate";
 import { schema, writeSchema } from "./index";
-import { stableFileId, titleCase, toBase64 } from "./typeToSchema";
+import { sectionRef, stableFileId, titleCase, toBase64 } from "./typeToSchema";
 
 const b64 = toBase64;
 const ref = (key: string) => ({ $ref: `#/definitions/${b64(key)}` });
@@ -71,7 +71,7 @@ describe("groups", () => {
 
   it("puts boolean-returning functions in matchers, with the built-in matchers", () => {
     expect(Object.keys(meta.manifest.blocks.matchers)).toEqual(
-      expect.arrayContaining(["weekday", "always", "never", "date"]),
+      expect.arrayContaining(["weekday", "always", "never", "campaign"]),
     );
   });
 
@@ -281,22 +281,119 @@ describe("interchangeable blocks", () => {
   }, 30_000);
 });
 
+describe("the built-in page with a descriptor site's blocks", () => {
+  it("takes descriptor sections and SEO blocks with only optional fields, and stays Studio's page", async () => {
+    const fixture = createFixture({
+      "src/blocks.ts": [
+        "export interface BlockDescriptor { component: string; props: Record<string, unknown> }",
+        "export interface PageSeo { title?: string; description?: string; canonical?: string }",
+        'export const hero = (props: { title: string }): BlockDescriptor => ({ component: "Hero", props });',
+        "export const seo = (props: PageSeo): PageSeo => props;",
+        "export const price = (props: { sku: string }): { amount: number } => ({ amount: 1 });",
+        "export const titled = (props: { n: number }): { title: number } => ({ title: props.n });",
+        // A blog's loaders: content with a title or a description, and required fields.
+        "export interface BlogPost { title: string; excerpt: string; image?: string; slug: string }",
+        "export interface Category { name: string; slug: string; description?: string }",
+        "export const blogPost = async (props: { slug: string }): Promise<BlogPost | null> => null;",
+        "export const blogCategory = async (props: { slug: string }): Promise<Category | null> => null;",
+      ].join("\n"),
+      ".deco/index.ts": `import { blogCategory, blogPost, hero, price, seo, titled } from "../src/blocks"; export default { hero, price, seo, titled, "blog-post": blogPost, "blog/loaders/Category.ts": blogCategory };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const page = m.schema.definitions[b64("page")];
+      const refs = (schema: any): string[] =>
+        JSON.stringify(schema).match(/#\/definitions\/[^"]+/g) ?? [];
+      expect(m.schema.root.sections.anyOf).toContainEqual(expect.objectContaining(ref("hero")));
+      expect(refs(page.properties.sections)).toContain(sectionRef().$ref);
+      expect(page.properties.seo.anyOf).toContainEqual(ref("seo"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("price"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("titled"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("blog-post"));
+      expect(page.properties.seo.anyOf).not.toContainEqual(ref("blog/loaders/Category.ts"));
+      expect(m.manifest.blocks.pages.page).toMatchObject({ namespace: "deco" });
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
+describe("a field of names to true/false", () => {
+  it("can hold the saved experiments or campaigns block: split-traffic and calendar fit it", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props {
+  experiments?: Record<string, boolean>;
+  labels?: Record<string, string>;
+  extra?: Record<string, unknown>;
+}
+export default function Hero(_props: Props) { return <div />; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const props = m.schema.definitions[`${b64("src/hero.tsx")}@Props`].properties;
+      expect(props.experiments.anyOf).toEqual([
+        { $ref: "#/definitions/Resolvable" },
+        expect.objectContaining({ type: "object", additionalProperties: { type: "boolean" } }),
+        ref("split-traffic"),
+        ref("calendar"),
+      ]);
+      // Other maps stay plain: a string map isn't true/false, a free-form one fits anything.
+      expect(props.labels.anyOf).toBeUndefined();
+      expect(props.extra.anyOf).toBeUndefined();
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
+  it("offers the block map's own split-traffic instead, when it declares one", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { experiments?: Record<string, boolean> }
+export default function Hero(_props: Props) { return <div />; }`,
+      "src/split.ts": `export const split = (props: { on: boolean }) => ({ a: props.on });`,
+      ".deco/index.ts": `import Hero from "../src/hero"; import { split } from "../src/split";
+export default { hero: Hero, "split-traffic": split };`,
+    });
+    try {
+      const { meta: m } = await generateSchema(decoPaths(fixture.root));
+      const props = m.schema.definitions[`${b64("src/hero.tsx")}@Props`].properties;
+      expect(props.experiments.anyOf.slice(2)).toEqual([ref("split-traffic"), ref("calendar")]);
+      expect(m.manifest.blocks.content["split-traffic"]).toBeUndefined();
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+});
+
 describe("built-ins and aliases", () => {
-  it("adds the nine built-ins", () => {
+  it("adds the eleven built-ins", () => {
     for (const name of [
       "lazy",
       "multivariate",
       "always",
       "never",
-      "date",
+      "experiment",
+      "campaign",
       "page",
       "redirect",
       "cms-settings",
+      "split-traffic",
       "secret",
     ]) {
       expect(def(name), name).toBeDefined();
     }
     expect(def("redirect").required).toEqual(["__resolveType", "from", "to", "permanent"]);
+    // Every key of a split-traffic block but __resolveType is a test: a whole percentage.
+    expect(def("split-traffic").additionalProperties).toMatchObject({
+      type: "integer",
+      minimum: 0,
+      maximum: 100,
+    });
+    expect(def("experiment").required).toEqual(["__resolveType", "name"]);
+    expect(meta.manifest.blocks.content["split-traffic"]).toBeDefined();
+    expect(meta.manifest.blocks.matchers.experiment).toBeDefined();
     expect(def("page").properties.sections.anyOf[0]).toEqual({
       type: "array",
       title: "Sections",

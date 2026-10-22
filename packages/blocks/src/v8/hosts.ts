@@ -1,6 +1,7 @@
 /**
- * Host patterns (see /next/api-reference#host-patterns): the format of
- * `preview.hosts`, in `createCMS` and in the `CMS` block.
+ * Host patterns (see /next/api-reference#host-patterns): the format of a
+ * release's `previewHosts` (Studio writes them into the release metadata)
+ * and of `createCMS`'s `preview.hosts`.
  *
  * - Hostnames and patterns are compared lowercase, with one trailing dot
  *   removed; names outside ASCII in their punycode form.

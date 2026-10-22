@@ -8,8 +8,10 @@
  *   drafts work);
  * - `src/open-page.server.ts`: the page for a URL, resolved as v7 rendered
  *   it: every section, then v7's section loaders (`loadSections`, when the
- *   block map has them), with v7's matchers told the page (`matchPage`) and
- *   the sticky A/B cookie written (`commitSegmentCookie`) on TanStack Start;
+ *   block map has them), with v7's matchers told the page (`matchPage`) on
+ *   TanStack Start (A/B tests need nothing here: the binding decides the
+ *   tests and campaigns and `contentClient` builds
+ *   `cms.client({ version, experiments, campaigns })` from that);
  * - TanStack Start: `src/page.functions.ts`, the page's server function. It
  *   takes the page's path and passes the page's URL on, never the request's:
  *   on a client-side navigation the request is the server-function call
@@ -52,7 +54,6 @@ interface Wiring {
   framework: Framework;
   loadSections: boolean;
   matchPage: boolean;
-  random: boolean;
   device: boolean;
   /** The block map exports v7's PageSeo shape (else open-page.server.ts declares it). */
   pageSeo: boolean;
@@ -154,10 +155,7 @@ function openPageTanstack(w: Wiring): string {
     ...(w.matchPage ? ["matchPage"] : []),
     ...(w.pageSeo ? ["type PageSeo"] : []),
   ];
-  const compat = [
-    ...(w.random ? ["commitSegmentCookie"] : []),
-    ...(w.device ? ["requestDevice"] : []),
-  ];
+  const compat = [...(w.device ? ["requestDevice"] : [])];
   return [
     ...HEADER(
       "Finds the page for a URL and resolves it the way v7 rendered it: every section, then v7's\nsection loaders (/next/tanstack-start-descriptors#3-match-the-url-to-a-page).",
@@ -204,12 +202,6 @@ function openPageTanstack(w: Wiring): string {
           "  // A section whose loader failed kept its saved props: v7 sent this header, and the worker never",
           "  // caches the page.",
           '  if (degraded.length > 0) setResponseHeader(DEGRADED_HEADER, "1");',
-        ]
-      : []),
-    ...(w.random
-      ? [
-          "  // The sticky A/B groups the matchers drew (deco_segment, latest 7.x).",
-          "  commitSegmentCookie(request);",
         ]
       : []),
     `  return { name: page.name, seo: seoFields(seo), sections${w.device ? ", device: requestDevice(request)" : ""} };`,
@@ -759,7 +751,6 @@ function pageNext(w: Wiring, file: string, root: string, param: string): string 
       "Every CMS page: binds the request's draft, opens the page for its URL and renders each section\nthrough the view registry (src/views.ts), by its v7 type name (/next/nextjs#5-render-the-catch-all-route).",
     ),
     ...(w.device ? ['import { DeviceProvider } from "@decocms/compat-v7/nextjs";'] : []),
-    ...(w.random ? ['import { SegmentCookie } from "@decocms/compat-v7/nextjs/server";'] : []),
     'import { bindDraft } from "@decocms/nextjs/server";',
     'import type { Metadata } from "next";',
     `import { cms } from "${from("cms.ts")}";`,
@@ -811,12 +802,6 @@ function pageNext(w: Wiring, file: string, root: string, param: string): string 
     w.device
       ? "      <DeviceProvider value={page.device}>{sections}</DeviceProvider>"
       : "      {sections}",
-    ...(w.random
-      ? [
-          "      {/* The sticky A/B groups the matchers drew (deco_segment, latest 7.x). */}",
-          "      <SegmentCookie />",
-        ]
-      : []),
     "    </>",
     "  );",
     "}",
@@ -953,7 +938,6 @@ export function writeScaffold(root: string, report: Report): void {
     framework,
     loadSections: /export function loadSections\b/.test(map),
     matchPage: /export function matchPage\b/.test(map),
-    random: /matchers\.random\(/.test(map),
     device,
     pageSeo: /export interface PageSeo\b/.test(map),
     siteSeo: siteSeo(root),
@@ -1016,7 +1000,7 @@ export function writeScaffold(root: string, report: Report): void {
     report.done.push({
       step: "scaffold",
       subject: "page setup",
-      message: `${[...written, ...replaced].join(", ")}: the CMS, the page loader${framework === "tanstack" ? " (a server function that passes the page's URL, not /_serverFn's)" : ""} and the catch-all route, rendering through src/views.ts${w.loadSections ? ", running v7's section loaders" : ""}${w.random ? ", writing the sticky A/B cookie" : ""}${w.device ? ", seeding useDevice with the server's device" : ""}`,
+      message: `${[...written, ...replaced].join(", ")}: the CMS, the page loader${framework === "tanstack" ? " (a server function that passes the page's URL, not /_serverFn's)" : ""} and the catch-all route, rendering through src/views.ts${w.loadSections ? ", running v7's section loaders" : ""}${w.device ? ", seeding useDevice with the server's device" : ""}`,
     });
   }
   if (replaced.length > 0) {
@@ -1052,4 +1036,80 @@ export function writeScaffold(root: string, report: Report): void {
         "regenerate it (the router plugin does on vite dev or build) after the route changes",
     });
   }
+}
+
+/** The worker entry with the site-owned page cache that a TanStack site copies (the one copy). */
+export const WORKER_ENTRY_EXAMPLE =
+  "https://github.com/decocms/blocks/blob/main/examples/tanstack-worker-smoke/src/worker-entry.ts";
+
+/** Where each v7 `createDecoWorkerEntry` option goes, by hand. */
+const V7_WORKER_OPTIONS: Record<string, string> = {
+  buildSegment: "the example's buildSegment (return loggedIn: true for a signed-in shopper)",
+  csp: "createDecoWorker's csp ({ reportOnly: [...] } as v7 sent it by default)",
+  securityHeaders: "createDecoWorker's csp",
+  cspMode: "createDecoWorker's csp",
+  proxyHandler: "createDecoWorker's routes",
+  purgeTokenEnv: "the example's env.PURGE_TOKEN",
+  admin: "nothing: the worker answers 404 on v7's admin paths",
+  observability: "nothing: the worker records its own request metric",
+};
+
+/** The option names of the file's `createDecoWorkerEntry(serverEntry, { … })` call, or `undefined` with no call. */
+function v7WorkerOptions(text: string): string[] | undefined {
+  const file = ts.createSourceFile("worker-entry.ts", text, ts.ScriptTarget.Latest, true);
+  let found: string[] | undefined;
+  const visit = (node: ts.Node) => {
+    if (found) return;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "createDecoWorkerEntry"
+    ) {
+      const options = node.arguments[1];
+      found = [];
+      if (options && ts.isObjectLiteralExpression(options)) {
+        for (const p of options.properties) {
+          if (p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) {
+            found.push(p.name.text);
+          }
+        }
+      }
+      return;
+    }
+    node.forEachChild(visit);
+  };
+  visit(file);
+  return found;
+}
+
+/**
+ * TanStack Start: points the person at the example worker entry, which they
+ * copy, and lists what the site's v7 `createDecoWorkerEntry` call configured,
+ * to carry over by hand. The script writes no worker entry.
+ */
+export function reportWorkerEntry(root: string, report: Report): void {
+  let rel = "src/worker-entry.ts";
+  for (const name of ["wrangler.jsonc", "wrangler.json"]) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) continue;
+    const main = fs.readFileSync(file, "utf8").match(/"main"\s*:\s*"([^"]+)"/)?.[1];
+    if (main && /\.(ts|tsx|js|mjs)$/.test(main)) rel = path.posix.normalize(main);
+  }
+  const file = path.join(root, rel);
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  // Already on v8 (a second run): nothing to copy.
+  if (/\bcreateDecoWorker\s*\(/.test(text)) return;
+  const options = v7WorkerOptions(text);
+  const carry = (options ?? []).map(
+    (name) => `${name} → ${V7_WORKER_OPTIONS[name] ?? "see the import map"}`,
+  );
+  const kept =
+    text && options === undefined
+      ? ". The current file has no v7 createDecoWorkerEntry call: move what it still does into the copy by hand"
+      : "";
+  report.manual.push({
+    step: "scaffold",
+    subject: rel,
+    message: `copy ${WORKER_ENTRY_EXAMPLE} here: createDecoWorker behind the site's own page cache (the Cache API, v7's cache profiles, v7's POST /_cache/purge with the PURGE_TOKEN secret), and declare __BUILD_HASH__ once (declare const __BUILD_HASH__: string;)${carry.length ? `. v7's createDecoWorkerEntry set, to carry over by hand from git: ${carry.join("; ")}` : ""}${kept}`,
+  });
 }

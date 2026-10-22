@@ -12,7 +12,7 @@
  * (`worker`) for the visitors in the "worker" bucket, so their response gets
  * the bucket cookie and a worker error falls back to the legacy origin, as in
  * v7. That inner call skips the handler and goes on to the site's other
- * routes, the edge cache and the page.
+ * routes, the site's page cache and the page.
  *
  * ```ts
  * // src/worker-entry.ts

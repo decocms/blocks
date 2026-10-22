@@ -4,19 +4,20 @@
  * Server only: never import it from a component that ships to the browser.
  *
  * - `requestDevice()`: the request's device, v7's `detectDevice` on its user
- *   agent (the class `createDecoWorker` keys its cache on by default), for
- *   the page to pass to `DeviceProvider`.
+ *   agent (the class `detectDevice` from `@decocms/tanstack/worker` gives a
+ *   site's cache key), for the page to pass to `DeviceProvider`.
  * - `matcherContext(pageUrl?)`: the request a matcher from
  *   `@decocms/compat-v7/matchers` reads, with one `flags` array per request,
  *   so the sticky random matcher reuses a decision and records new ones.
  * - `commitSegmentCookie()`: after the page resolved, the `deco_segment`
  *   cookie with the visitor's A/B groups, as v7's `persistFlags` set it (latest
  *   7.x). Call it in the page's server function, where TanStack Start still
- *   takes response headers. The worker never stores a response that sets it
- *   (it is not one of its `safeCookies`; keep it out of that list).
+ *   takes response headers. A site's page cache never stores a response that
+ *   sets it (keep it out of the cookies the cache strips and stores).
  * - `cohortSegment(request)`: v7's A/B split of the edge cache (its `__abf`
- *   key part), for `createDecoWorker`'s `segment` option, so each group keeps
- *   its own cached page.
+ *   key part), for the segment of the site's own page cache (the worker-entry
+ *   recipe in `@decocms/tanstack`'s README), so each group keeps its own
+ *   cached page.
  *
  * ```ts
  * // src/blocks.ts (the block map)
@@ -26,8 +27,8 @@
  * const page = await openPage(data.href);         // resolves the matchers
  * commitSegmentCookie();
  *
- * // src/worker-entry.ts
- * segment: (request) => ({ ...cohortSegment(request) }),
+ * // src/worker-entry.ts: the site's cache segment
+ * const segment = (request: Request) => ({ device: …, ...cohortSegment(request) });
  * ```
  */
 import { isServerFnCall } from "@decocms/tanstack/server";
@@ -123,7 +124,7 @@ export function commitSegmentCookie(request: Request = getRequest()): string | n
  * v7's A/B split of the edge cache: `{ abf: <token> }` for a visitor with
  * groups in `deco_segment` (`name:1|0:pct`, sorted), `{}` for one without, so
  * visitors outside every test keep sharing one entry. Spread it into the
- * worker's `segment` option.
+ * segment of the site's own page cache (the worker-entry recipe).
  */
 export function cohortSegment(request: Request): { abf?: string } {
   const token = segmentCacheToken(parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)));

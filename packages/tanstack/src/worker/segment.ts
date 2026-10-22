@@ -1,13 +1,15 @@
 /**
- * What splits the edge cache: the device class, plus whatever the site's
- * `segment` option adds (a region, a sales channel, an A/B cohort). Every part
- * is in the cache key, and in the `__cseg` token the page hands to the browser,
- * so the CDN can cache client-side navigation data under the same split.
+ * What a site's own cache splits on: the device class of a request, and a
+ * segment (the device plus the site's own parts: a region, a sales channel) as
+ * one stable string, for a cache key and for the `__cseg` token the page hands
+ * to the browser, so a CDN can keep client-side navigation data under the
+ * same split. The worker caches nothing itself (the README's worker-entry
+ * recipe does).
  */
 
 export type Device = "mobile" | "tablet" | "desktop";
 
-/** A cache split: part name to value. `device` is always present. */
+/** A cache split: part name to value (the device, and the site's own parts). */
 export type Segment = Readonly<Record<string, string>>;
 
 // v7's expressions (@decocms/blocks/sdk/detectDevice): tablets first, so
@@ -20,8 +22,6 @@ export function detectDevice(userAgent: string): Device {
   if (MOBILE_RE.test(userAgent)) return "mobile";
   return "desktop";
 }
-
-export const DEVICES: readonly Device[] = ["mobile", "tablet", "desktop"];
 
 /** A segment as one stable string: parts sorted by name, values URL-encoded. */
 export function segmentKey(segment: Segment): string {

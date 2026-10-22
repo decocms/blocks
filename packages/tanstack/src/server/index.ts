@@ -2,26 +2,64 @@
  * Server-only helpers for a site's server functions and page loader. Never
  * import this from a component that ships to the browser.
  *
- * The draft a request renders is decided once, by `createDecoWorker` (its host
- * allowlist), and handed to the app in the `x-deco-draft` request header; the
- * worker removes any copy that arrives from outside. These read that header.
+ * What a request reads is decided once, by `createDecoWorker`, and handed to
+ * the app in request headers the worker removes when they arrive from
+ * outside: the version on `x-deco-version` (a Studio link's draft or old
+ * release, after the host allowlist), the visitor on `x-deco-visitor`
+ * (`readVisitor` from `@decocms/blocks/experiments`) and each test and
+ * campaign on or off on `x-deco-assignments`. These read them, and
+ * `contentClient` builds `cms.client({ version, experiments, campaigns })`
+ * from them: the page decides nothing again.
  */
 import type { Client, CMS } from "@decocms/blocks";
+import { parseVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import { DRAFT_HEADER } from "../draft.ts";
+import { ASSIGNMENTS_HEADER, type DecidedAssignments, parseAssignments } from "../assignments.ts";
+import { VERSION_HEADER } from "../draft.ts";
+import { VISITOR_HEADER } from "../visitor.ts";
 
-/** The draft `request` renders (checked by the worker), or `null` for the release. */
-export function requestDraft(request: Request = getRequest()): string | null {
-  return request.headers.get(DRAFT_HEADER) || null;
+/**
+ * The version `request` renders (a Studio link's draft pointer or release
+ * SHA, checked by the worker), or `null` for the current release.
+ */
+export function requestVersion(request: Request = getRequest()): string | null {
+  return request.headers.get(VERSION_HEADER) || null;
 }
 
 /**
- * The content client for a request: its draft's, or the release's. Without
- * `request`, the request being served (`getRequest()`).
+ * The visitor the worker read for `request`, or `null` when there is none (a
+ * request that didn't come through `createDecoWorker`).
+ */
+export function requestVisitor(request: Request = getRequest()): Visitor | null {
+  return parseVisitor(request.headers.get(VISITOR_HEADER));
+}
+
+/**
+ * Each test and campaign on or off as the worker decided them for `request`,
+ * or `null` when it decided none (a request that didn't come through
+ * `createDecoWorker`).
+ */
+export function requestAssignments(request: Request = getRequest()): DecidedAssignments | null {
+  return parseAssignments(request.headers.get(ASSIGNMENTS_HEADER));
+}
+
+/**
+ * The content client for a request: `cms.client({ version, experiments,
+ * campaigns })` with what the worker decided, so the page renders the tests
+ * and campaigns the worker keyed its cache on and a preview reads its draft
+ * or old release. The visitor rides along (`client.visitor`) but decides
+ * nothing the worker already did; without the worker's decisions (a request
+ * that didn't come through it) the visitor decides. Create one per request.
+ * Without `request`, the request being served (`getRequest()`).
  */
 export function contentClient(cms: CMS, request: Request = getRequest()): Client {
-  const pointer = requestDraft(request);
-  return pointer ? cms.forDraft(pointer) : cms.forRelease();
+  const decided = requestAssignments(request);
+  return cms.client({
+    version: requestVersion(request),
+    visitor: requestVisitor(request),
+    experiments: decided?.experiments,
+    campaigns: decided?.campaigns,
+  });
 }
 
 /** True when the browser called a server function over HTTP; false while a document renders. */
@@ -31,7 +69,8 @@ export function isServerFnCall(request: Request = getRequest()): boolean {
 
 /**
  * Marks a server function's response as per-visitor (`Cache-Control: private,
- * no-store`): the worker never stores it and the CDN never keeps it. Only when
+ * no-store`): a site's page cache never stores it (the example worker entry the README links) and
+ * the CDN never keeps it. Only when
  * the browser called the function over HTTP; while a document renders the
  * function is a plain call and the header would land on the page.
  */

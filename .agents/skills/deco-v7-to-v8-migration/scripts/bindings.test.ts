@@ -17,6 +17,7 @@ import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "./migrate";
 import type { Report } from "./report";
+import { WORKER_ENTRY_EXAMPLE } from "./scaffold";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const PACKAGES = path.join(REPO, "packages");
@@ -99,10 +100,48 @@ function typeErrors(dir: string, pkgs: string[]): string[] {
     });
 }
 
+/** A v7 storefront's worker entry: its segment, its CSP, the helpers they use, and what v8 drops. */
+const V7_WORKER_ENTRY = [
+  'import "./setup";',
+  'import handler, { createServerEntry } from "@tanstack/react-start/server-entry";',
+  'import { createDecoWorkerEntry } from "@decocms/tanstack";',
+  'import { instrumentWorker } from "@decocms/blocks/sdk/otel";',
+  'import { detectDevice } from "@decocms/blocks/sdk/useDevice";',
+  'import { handleMeta, corsHeaders } from "@decocms/blocks-admin";',
+  "",
+  "const serverEntry = createServerEntry({ fetch: handler.fetch });",
+  "",
+  "const CSP_DIRECTIVES = [\"img-src 'self' data: https:\", \"connect-src 'self'\"];",
+  "",
+  "/** A cookie's value. */",
+  "function readCookie(request: Request, name: string): string | undefined {",
+  '  const match = (request.headers.get("cookie") ?? "").match(new RegExp("(?:^|; )" + name + "=([^;]*)"));',
+  "  return match?.[1];",
+  "}",
+  "",
+  "const decoWorker = createDecoWorkerEntry(serverEntry, {",
+  "  observability: false,",
+  "  admin: { handleMeta, corsHeaders },",
+  "  csp: CSP_DIRECTIVES,",
+  "  buildSegment: (request) => {",
+  '    const device = detectDevice(request.headers.get("user-agent") ?? "") === "desktop" ? "desktop" : "mobile";',
+  "    return {",
+  "      device,",
+  '      ...(readCookie(request, "customer_token") ? { loggedIn: true } : {}),',
+  '      salesChannel: readCookie(request, "sc") ?? "1",',
+  "    };",
+  "  },",
+  "  proxyHandler: async () => null,",
+  "});",
+  "",
+  "export default instrumentWorker(decoWorker);",
+  "",
+].join("\n");
+
 const IPHONE =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
 
-/** v7 content both fixtures share: a page with an A/B test on a saved random matcher, and a device rule. */
+/** v7 content both fixtures share: a page with an A/B test on a saved random matcher, a device rule and a date rule. */
 function writeContent(write: (file: string, data: string | object) => void) {
   write(".deco/blocks/Hero%20test.json", {
     __resolveType: "website/matchers/random.ts",
@@ -123,6 +162,14 @@ function writeContent(write: (file: string, data: string | object) => void) {
           {
             rule: { __resolveType: "website/matchers/device.ts", mobile: true },
             value: [{ __resolveType: "site/sections/Hero.tsx", title: "Mobile" }],
+          },
+          {
+            rule: {
+              __resolveType: "website/matchers/date.ts",
+              start: "2020-11-27T03:00:00.000Z",
+              end: "2020-12-01T03:00:00.000Z",
+            },
+            value: [{ __resolveType: "site/sections/Hero.tsx", title: "Sale" }],
           },
         ],
       },
@@ -327,6 +374,16 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     write("src/setup/section-loaders.ts", SECTION_LOADERS);
     writeInvokeFixture(write);
     write(
+      "src/vite-env.d.ts",
+      "interface ImportMeta {\n  readonly env: { readonly DEV: boolean };\n}\n",
+    );
+    write("wrangler.jsonc", {
+      name: "acme",
+      main: "./src/worker-entry.ts",
+      vars: { DECO_SITE_NAME: "acme" },
+    });
+    write("src/worker-entry.ts", V7_WORKER_ENTRY);
+    write(
       "src/types/cloudflare.d.ts",
       'declare module "cloudflare:workers" {\n  export const env: Record<string, unknown>;\n}\n',
     );
@@ -433,6 +490,17 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(report.manual.some((n) => n.subject.startsWith("site/apps/deco/vtex.ts"))).toBe(false);
   });
 
+  it("leaves the worker entry, pointing at the example to copy and what v7's options set", () => {
+    // The script writes no worker entry: v7's stays for the person to replace.
+    expect(read("src/worker-entry.ts")).toContain("createDecoWorkerEntry(serverEntry, {");
+    const note = report.manual.find((n) => n.subject === "src/worker-entry.ts");
+    expect(note?.message).toContain(WORKER_ENTRY_EXAMPLE);
+    expect(note?.message).toContain("buildSegment → the example's buildSegment");
+    expect(note?.message).toContain("csp → createDecoWorker's csp");
+    expect(note?.message).toContain("proxyHandler → createDecoWorker's routes");
+    expect(note?.message).toContain("admin → nothing");
+  });
+
   it("writes the page setup: the CMS, a page server function on the page's URL, the catch-all route", () => {
     expect(read("src/cms.ts")).toContain("contentClient(cms, request)");
     const open = read("src/open-page.server.ts");
@@ -441,7 +509,7 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(open).toContain(
       "const { sections, degraded } = await loadSections(resolved.flat(), request, url);",
     );
-    expect(open).toContain("commitSegmentCookie(request);");
+    expect(open).not.toContain("SegmentCookie");
     expect(open).toContain("device: requestDevice(request)");
     expect(read("src/page.functions.ts")).toContain(
       ".handler(({ data }) => openPage(data.href, getRequest()));",
@@ -528,26 +596,36 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(map).toContain(
       '"website/matchers/device.ts": (props: matchers.DeviceProps) => matchers.device(props, matcherInput()),',
     );
-    expect(map).toContain(
-      '"website/matchers/random.ts": (props: matchers.RandomProps) => matchers.random(props, matcherInput()),',
-    );
+    // v7's random matcher is never registered: the binding owns deco_segment.
+    expect(map).not.toContain("matchers.random");
     expect(map).toContain('import { sectionLoaders } from "../src/setup/section-loaders";');
     // 7.64.3 ran nested sections' loaders only directly in a prop.
     expect(map).toContain('nested: "direct",');
-    // The saved random matcher keeps v7's cookie key: its saved name.
-    expect(JSON.parse(read(".deco/blocks/Hero%20test.json"))).toEqual({
-      __resolveType: "website/matchers/random.ts",
-      traffic: 0.3,
-      cohort: "Hero test",
-    });
+    // The A/B test and the date window stay as they were: the report says to move them.
+    expect(fs.existsSync(path.join(root, ".deco/blocks/Hero%20test.json"))).toBe(true);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/experiments.json"))).toBe(false);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/campaigns.json"))).toBe(false);
+    expect(report.manual.find((n) => n.subject === "A/B tests")?.message).toContain(
+      "#run-an-a-b-test",
+    );
+    expect(report.manual.find((n) => n.subject === "date rules")?.message).toContain(
+      "#schedule-a-campaign",
+    );
     expect(read("src/views.ts")).toContain('"site/sections/Hero.tsx": hero,');
     const matchersNote = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)");
     expect(matchersNote?.message).toContain("matchPage(href)");
-    expect(matchersNote?.message).toContain("commitSegmentCookie()");
-    expect(matchersNote?.message).toContain("cohortSegment(request)");
+    expect(matchersNote?.message).not.toContain("SegmentCookie");
+    // The worker reads the visitor: nothing to wire by hand.
+    expect(report.manual.some((n) => n.subject === "experiments")).toBe(false);
   });
 
-  it("type-checks against the v8 packages", () => {
+  it("type-checks against the v8 packages, with the example worker entry copied in", () => {
+    // The step the report asks for: the example's worker entry, and __BUILD_HASH__ declared.
+    fs.copyFileSync(
+      path.join(REPO, "examples/tanstack-worker-smoke/src/worker-entry.ts"),
+      path.join(root, "src/worker-entry.ts"),
+    );
+    write("src/build-hash.d.ts", "declare const __BUILD_HASH__: string;\n");
     expect(typeErrors(root, PKGS)).toEqual([]);
   }, 120_000);
 });
@@ -614,7 +692,7 @@ describe("a v7 Next.js site on the v8 binding", () => {
     expect(read("src/cms.ts")).toContain("contentClient(cms)");
     const page = read("src/app/[[...slug]]/page.tsx");
     expect(page).toContain("await bindDraft(cms, { searchParams: query });");
-    expect(page).toContain("<SegmentCookie />");
+    expect(page).not.toContain("SegmentCookie");
     expect(page).not.toContain("createDecoPage");
     expect(read("src/open-page.server.ts")).toContain(
       "await loadSections(resolved.flat(), request, url)",
@@ -626,8 +704,9 @@ describe("a v7 Next.js site on the v8 binding", () => {
     const map = read(".deco/index.ts");
     expect(map).toContain('import { matcherContext } from "@decocms/compat-v7/nextjs/server";');
     expect(map).toContain(
-      '"website/matchers/random.ts": async (props: matchers.RandomProps) => matchers.random(props, await matcherContext()),',
+      '"website/matchers/device.ts": async (props: matchers.DeviceProps) => matchers.device(props, await matcherContext()),',
     );
+    expect(map).not.toContain("matchers.random");
     expect(map).not.toContain("tanstack");
     // The latest 7.x walks nested sections at any depth: runSectionLoaders' default.
     expect(map).not.toContain("nested:");
@@ -636,7 +715,17 @@ describe("a v7 Next.js site on the v8 binding", () => {
     );
     const note = report.manual.find((n) => n.subject === "v7 matchers (.deco/index.ts)")?.message;
     expect(note).toContain("pageUrlRequestHeaders");
-    expect(note).toContain("<SegmentCookie />");
+    expect(note).not.toContain("SegmentCookie");
+    // The proxy reads the visitor: the report says how.
+    expect(report.manual.find((n) => n.subject === "experiments")?.message).toContain("draftProxy");
+    // The A/B test and the date window stay as they were, reported.
+    expect(
+      JSON.parse(read(".deco/blocks/pages-home.json")).sections[0].variants.map(
+        (v: { rule: { __resolveType: string } }) => v.rule.__resolveType,
+      ),
+    ).toEqual(["Hero test", "website/matchers/device.ts", "date"]);
+    expect(report.manual.some((n) => n.subject === "A/B tests")).toBe(true);
+    expect(report.manual.some((n) => n.subject === "date rules")).toBe(true);
     // Next.js images go through its image loader: no src/imageUrl.ts.
     expect(fs.existsSync(path.join(root, "src/imageUrl.ts"))).toBe(false);
   });

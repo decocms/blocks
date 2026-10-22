@@ -4,8 +4,9 @@
  *
  * 1. content: saved blocks in `.deco/blocks`, v7 generated files removed,
  *    v7 async-rendering wrappers (Lazy, Deferred) unwrapped to their sections,
- *    legacy type names outside the alias table renamed, and A/B tests keyed
- *    on a random matcher get its name as `experiment`;
+ *    legacy type names outside the alias table renamed, v7's random
+ *    matchers and date rules holding their own dates reported (moved by
+ *    hand into the saved blocks `experiments` and `campaigns`);
  *    then site settings folded into the `CMS` block (`.deco/blocks/CMS.json`);
  * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
  * 3. block map: the site's v7 section-loader registration turned into an
@@ -18,7 +19,9 @@
  *    each call site; `ctx.invoke`, app state and `useSection` → the stubs in
  *    `src/migration-stubs.ts`;
  * 5. scaffold: `src/cms.ts`, the page loader and the catch-all route for the
- *    binding, replacing v7's page routes;
+ *    binding, replacing v7's page routes; on TanStack Start, a report line
+ *    pointing at the example worker entry to copy, with what v7's
+ *    `createDecoWorkerEntry` configured (the script writes no worker entry);
  * 6. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
  * 7. scripts: `deco schema && deco content` before dev and build, and
@@ -38,13 +41,13 @@ import { writeBlockMap } from "./blockMap";
 import { addSchemaCheck } from "./ciSchemaCheck";
 import { listSources, rewriteDeviceReads } from "./compat";
 import { moveContent } from "./content";
-import { copyExperimentIds } from "./experiments";
+import { reportTestsAndDates } from "./experiments";
 import { siteFramework, V8_RANGE } from "./framework";
 import { rewriteImports } from "./imports";
 import { rewriteInvokes, vtexInvokeMapKeysUsed } from "./invoke";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
-import { writeScaffold } from "./scaffold";
+import { reportWorkerEntry, writeScaffold } from "./scaffold";
 import { reencryptSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
@@ -145,7 +148,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   moveContent(root, report, { decofile: options.decofile });
   unwrapAsyncRendering(root, report);
   renameLegacyTypes(root, report);
-  copyExperimentIds(root, report);
+  reportTestsAndDates(root, report);
   const apps = writeAppClients(root, report);
   foldSiteSettings(root, report);
   await reencryptSecrets(root, report);
@@ -159,6 +162,9 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   writeStubs(root, stubs, report);
   rewriteDeviceReads(root, report);
   writeScaffold(root, report);
+  if (siteFramework(root) === "tanstack") {
+    reportWorkerEntry(root, report);
+  }
   rewriteImports(root, report, vendored);
   addScripts(root, report);
   addSchemaCheck(root, report);

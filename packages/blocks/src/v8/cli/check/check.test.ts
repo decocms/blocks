@@ -8,6 +8,7 @@ import {
   STORE_FILES,
   sealSecret,
 } from "../__tests__/fixture";
+import { BUILT_IN_BLOCKS, BUILT_IN_USES } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
 import { runCli } from "../run";
@@ -42,6 +43,8 @@ const lines = (problems: Problem[]) =>
   );
 
 const hero = { __resolveType: "hero", title: "Summer", size: "md" };
+/** A CMS block with nothing in it. */
+const SETTINGS = { __resolveType: "cms-settings" };
 const page = (sections: unknown[], extra: Record<string, unknown> = {}) => ({
   __resolveType: "page",
   name: "Home",
@@ -520,25 +523,18 @@ describe("names that are also Object.prototype keys", () => {
 
 describe("formats and character counts", () => {
   it("checks date and date-time values, and leaves widget formats alone", () => {
-    const date = (start: string) => ({
-      ...hero,
-      title: {
-        __resolveType: "multivariate",
-        variants: [
-          {
-            rule: { __resolveType: "date", start, end: "2026-12-31T23:59:59Z" },
-            value: { __resolveType: "lazy", value: "Sale" },
-          },
-        ],
+    const campaigns = (a: string, b: string) => ({
+      campaigns: {
+        __resolveType: "calendar",
+        a: { start: a, end: "2026-12-31T23:59:59Z" },
+        b: { start: b, end: "2026-12-31T23:59:59Z" },
       },
     });
-    expect(lines(run({ A: date("not a date"), B: date("2026-02-30T10:00") }))).toEqual([
-      'A.json title.variants[0].rule.start: "not a date" isn\'t a valid date-time',
-      'B.json title.variants[0].rule.start: "2026-02-30T10:00" isn\'t a valid date-time',
+    expect(lines(run(campaigns("not a date", "2026-02-30T10:00")))).toEqual([
+      'campaigns.json a.start: "not a date" isn\'t a valid date-time',
+      'campaigns.json b.start: "2026-02-30T10:00" isn\'t a valid date-time',
     ]);
-    expect(run({ A: date("2026-11-27T09:00"), B: date("2026-11-27T09:00:00.000-03:00") })).toEqual(
-      [],
-    );
+    expect(lines(run(campaigns("2026-11-27T09:00Z", "2026-11-27T09:00:00.000-03:00")))).toEqual([]);
     // image-uri is a widget, not a rule: any string goes.
     expect(run({ Hero: { ...hero, image: "/assets/a b.png" } })).toEqual([]);
   });
@@ -624,6 +620,7 @@ describe("deco check", () => {
     const fixture = createFixture(STORE_FILES);
     try {
       await writeSchema(decoPaths(fixture.root));
+      fixture.write(".deco/blocks/CMS.json", SETTINGS);
       fixture.write(".deco/blocks/HomePage.json", page([{ __resolveType: "hero", size: "md" }]));
       fixture.write(".deco/blocks/Promo.json", { __resolveType: "promo-banner" });
       const out = recorder();
@@ -634,7 +631,7 @@ describe("deco check", () => {
           "  sections[0].title: required",
           ".deco/blocks/Promo.json",
           '  unknown block type "promo-banner"',
-          "2 saved blocks checked: 2 errors, 0 warnings",
+          "3 saved blocks checked: 2 errors, 0 warnings",
         ].join("\n"),
       );
 
@@ -651,11 +648,34 @@ describe("deco check", () => {
       });
       const ok = recorder();
       expect(check({ cwd: fixture.root, reporter: ok })).toBe(0);
-      expect(ok.lines.at(-1)?.message).toBe("2 saved blocks checked: 0 errors, 1 warning");
+      expect(ok.lines.at(-1)?.message).toBe("3 saved blocks checked: 0 errors, 1 warning");
     } finally {
       fixture.remove();
     }
   }, 60_000);
+
+  it("asks nothing about preview hosts (Studio keeps them); a CMS block still holding them gets a calm warning", () => {
+    const fixture = createFixture({
+      ".deco/schema.gen.json": meta,
+      ".deco/blocks/Hero.json": { __resolveType: "hero", title: "Summer", size: "md" },
+    });
+    try {
+      const out = recorder();
+      expect(check({ cwd: fixture.root, reporter: out })).toBe(0);
+      expect(out.text()).toBe("1 saved block checked: 0 errors, 0 warnings");
+      for (const preview of [{ hosts: ["localhost:3000"] }, { hosts: [] }, "anything"]) {
+        fixture.write(".deco/blocks/CMS.json", { __resolveType: "cms-settings", preview });
+        const left = recorder();
+        expect(check({ cwd: fixture.root, reporter: left })).toBe(0);
+        expect(left.text()).toBe(
+          ".deco/blocks/CMS.json\n  warning: preview: the site editor now keeps the addresses this site can be previewed on, " +
+            "so this field isn't read any more: you can delete it\n2 saved blocks checked: 0 errors, 1 warning",
+        );
+      }
+    } finally {
+      fixture.remove();
+    }
+  });
 
   it("fails on unreadable files and without a schema", () => {
     const fixture = createFixture({ ".deco/blocks/Broken.json": "{" });
@@ -725,20 +745,21 @@ describe("deco check --color", () => {
   it("marks a clean run with a green check, the counts green", async () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
+      ".deco/blocks/CMS.json": SETTINGS,
       ".deco/blocks/Hero.json": hero,
     });
     try {
       const out = recorder();
       expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(0);
       expect(out.text()).toBe(
-        `${green("✓")} 1 saved block checked: ${green("0 errors, 0 warnings")}`,
+        `${green("✓")} 2 saved blocks checked: ${green("0 errors, 0 warnings")}`,
       );
       // Plain unless asked, and --no-color wins when it comes last.
       const plain = recorder();
       expect(
         await runCli(["check", "--color", "--no-color"], { cwd: fixture.root, reporter: plain }),
       ).toBe(0);
-      expect(plain.text()).toBe("1 saved block checked: 0 errors, 0 warnings");
+      expect(plain.text()).toBe("2 saved blocks checked: 0 errors, 0 warnings");
     } finally {
       fixture.remove();
     }
@@ -747,6 +768,7 @@ describe("deco check --color", () => {
   it("colours errors red and warnings yellow, with the same exit codes", async () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
+      ".deco/blocks/CMS.json": SETTINGS,
       ".deco/blocks/Promo.json": { __resolveType: "promo-banner" },
     });
     try {
@@ -757,7 +779,7 @@ describe("deco check --color", () => {
         [
           bold(".deco/blocks/Promo.json"),
           `  ${red('unknown block type "promo-banner"')}`,
-          `${red("✗")} 1 saved block checked: ${red("1 error")}, 0 warnings`,
+          `${red("✗")} 2 saved blocks checked: ${red("1 error")}, 0 warnings`,
         ].join("\n"),
       );
 
@@ -768,7 +790,7 @@ describe("deco check --color", () => {
         [
           bold(".deco/blocks/Promo.json"),
           `  ${yellow("warning")}: ${dim("title.variants[1]")}: can never be picked: variants[0] has an always rule`,
-          `${yellow("⚠")} 1 saved block checked: 0 errors, ${yellow("1 warning")}`,
+          `${yellow("⚠")} 2 saved blocks checked: 0 errors, ${yellow("1 warning")}`,
         ].join("\n"),
       );
     } finally {
@@ -794,7 +816,6 @@ describe("the CMS settings block", () => {
       run({
         CMS: {
           __resolveType: "cms-settings",
-          preview: { hosts: ["staging.example.com", "*.preview.example.com"] },
           telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
           analytics: {
             __resolveType: "multivariate",
@@ -845,5 +866,335 @@ describe("the CMS settings block", () => {
     expect(lines(run({ "cms-settings": { __resolveType: "cms-settings" } }))).toEqual([
       'cms-settings.json saved block "cms-settings" has the name of a built-in block',
     ]);
+  });
+});
+
+describe("the saved block experiments and the experiment rule", () => {
+  const experiments = { __resolveType: "split-traffic", "buy-button": 50, "hero-copy": 0 };
+  const rule = (name: string) => ({ __resolveType: "experiment", name });
+  const test = (ruleName: string) => ({
+    __resolveType: "multivariate",
+    variants: [
+      { rule: rule(ruleName), value: { __resolveType: "lazy", value: [hero] } },
+      { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
+    ],
+  });
+
+  it("passes an experiments block of whole percentages and rules naming its tests", () => {
+    expect(run({ experiments, HomePage: page(test("buy-button") as never) })).toEqual([]);
+  });
+
+  it("reports a percentage that is not a whole number from 0 to 100 as an error", () => {
+    const out = lines(
+      run({ experiments: { __resolveType: "split-traffic", a: 101, b: -1, c: 10.5, d: "50" } }),
+    );
+    for (const name of ["a", "b", "c", "d"]) {
+      expect(
+        out.some((line) => line.startsWith(`experiments.json ${name}:`)),
+        name,
+      ).toBe(true);
+    }
+    expect(out.every((line) => !line.includes("warning"))).toBe(true); // errors
+  });
+
+  it("warns about an experiments block of another type, which turns every rule off", () => {
+    expect(lines(run({ experiments: hero }))).toEqual([
+      'experiments.json warning "experiments" is the saved block every experiment rule reads, of type "split-traffic"; with type "hero" every experiment rule is false',
+    ]);
+  });
+
+  it("warns about a rule naming a test the experiments block doesn't have", () => {
+    expect(lines(run({ experiments, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
+    ]);
+    // With no experiments block at all, every experiment rule is always false.
+    expect(lines(run({ Rule: rule("buy-button") }))).toEqual([
+      'Rule.json warning name: no test "buy-button" in the saved block "experiments": this rule is always false',
+    ]);
+    // A saved rule is reported once, where it is saved.
+    expect(
+      lines(
+        run({
+          experiments,
+          GoneRule: rule("gone"),
+          Banner: {
+            __resolveType: "multivariate",
+            variants: [
+              { rule: { __resolveType: "GoneRule" }, value: { __resolveType: "lazy", value: "x" } },
+            ],
+          },
+        }),
+      ),
+    ).toEqual([
+      'GoneRule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
+    ]);
+  });
+
+  it("passes a section prop that takes the whole experiments block", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; experiments?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const section = (value: unknown) => ({
+        __resolveType: "hero",
+        title: "Hi",
+        experiments: value,
+      });
+      expect(
+        lines(
+          checkContent(
+            own,
+            saved({
+              experiments,
+              HomePage: page([section({ __resolveType: "experiments" })]),
+            }),
+          ),
+        ),
+      ).toEqual([]);
+      // A plain map still fits; a map of something else doesn't.
+      expect(lines(checkContent(own, saved({ HomePage: page([section({ a: true })]) })))).toEqual(
+        [],
+      );
+      expect(
+        lines(checkContent(own, saved({ HomePage: page([section({ a: "yes" })]) }))).length,
+      ).toBeGreaterThan(0);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
+  it("split-traffic and experiment are reserved names; experiments is not", () => {
+    expect(lines(run({ experiments, "split-traffic": { ...experiments } }))).toContain(
+      'split-traffic.json saved block "split-traffic" has the name of a built-in block',
+    );
+    expect(lines(run({ experiments, experiment: rule("buy-button") }))).toContain(
+      'experiment.json saved block "experiment" has the name of a built-in block',
+    );
+    expect(lines(run({ experiments })).some((line) => line.includes("name of a built-in"))).toBe(
+      false,
+    );
+  });
+
+  it("warns when the block map defines experiment or split-traffic, which replaces the built-in", () => {
+    const own = structuredClone(meta);
+    own.manifest.blocks.matchers.experiment = {
+      ...own.manifest.blocks.matchers.experiment,
+      namespace: "site",
+    };
+    expect(lines(checkContent(own, saved({})))).toEqual([
+      `.deco/schema.gen.json warning experiment: the block map has its own "experiment", in place of the built-in: Studio's A/B test rules rely on it, each naming a test of the saved block experiments. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+    ]);
+  });
+});
+
+describe("the saved block campaigns and the campaign rule", () => {
+  const campaigns = {
+    __resolveType: "calendar",
+    "black-friday": { start: "2026-11-27T00:00:00-03:00", end: "2026-12-01T23:59:59-03:00" },
+    "always-on": {},
+  };
+  const rule = (name: string) => ({ __resolveType: "campaign", name });
+  const banner = (r: unknown) => ({
+    __resolveType: "multivariate",
+    variants: [
+      { rule: r, value: { __resolveType: "lazy", value: [hero] } },
+      { rule: { __resolveType: "always" }, value: { __resolveType: "lazy", value: [] } },
+    ],
+  });
+
+  it("passes a campaigns block of windows and rules naming its campaigns", () => {
+    expect(run({ campaigns, HomePage: page(banner(rule("black-friday")) as never) })).toEqual([]);
+  });
+
+  it("passes a section prop that takes the whole campaigns block", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; campaigns?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const section = {
+        __resolveType: "hero",
+        title: "Hi",
+        campaigns: { __resolveType: "campaigns" },
+      };
+      expect(lines(checkContent(own, saved({ campaigns, HomePage: page([section]) })))).toEqual([]);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
+  it("warns about a campaigns block of another type, which turns every campaign rule off", () => {
+    expect(lines(run({ campaigns: hero }))).toEqual([
+      'campaigns.json warning "campaigns" is the saved block every campaign rule reads, of type "calendar"; with type "hero" every campaign rule is false',
+    ]);
+  });
+
+  it("warns about a rule naming a campaign the campaigns block doesn't have", () => {
+    expect(lines(run({ campaigns, Rule: rule("gone") }))).toEqual([
+      'Rule.json warning name: no campaign "gone" in the saved block "campaigns": this rule is always false',
+    ]);
+    expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
+      'Rule.json warning name: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
+    ]);
+  });
+
+  it("rejects the old date rule, saying what to write: a campaign rule naming the campaign, its inline dates moved into one", () => {
+    const inline = { __resolveType: "date", start: "2026-11-27", end: "2026-12-01" };
+    expect(lines(run({ campaigns, HomePage: page(banner(inline) as never) }))).toEqual([
+      'HomePage.json sections.variants[0].rule: unknown block type "date": this date rule has its dates inline; move them into a campaign of the saved block "campaigns" (type "calendar") and write { "__resolveType": "campaign", "name": … } naming it',
+    ]);
+    expect(
+      lines(run({ campaigns, Rule: { __resolveType: "date", campaign: "black-friday" } })),
+    ).toEqual([
+      'Rule.json unknown block type "date": the date rule is now "campaign", so write { "__resolveType": "campaign", "name": "black-friday" }',
+    ]);
+  });
+
+  it("rejects the old date-windows type, saying it is calendar now", () => {
+    expect(lines(run({ campaigns: { ...campaigns, __resolveType: "date-windows" } }))).toContain(
+      'campaigns.json unknown block type "date-windows": the built-in is now "calendar": set the saved block "campaigns" to { "__resolveType": "calendar", … }',
+    );
+  });
+
+  it("warns about a campaign rule naming no campaign: it is always false", () => {
+    expect(lines(run({ campaigns, Rule: { __resolveType: "campaign" } }))).toContain(
+      'Rule.json warning this campaign rule names no campaign, so it is always false: name a campaign of the saved block "campaigns" (name)',
+    );
+  });
+
+  it("warns about a campaign whose end isn't after its start", () => {
+    const backwards = {
+      __resolveType: "calendar",
+      sale: { start: "2026-12-01T00:00:00Z", end: "2026-11-27T00:00:00Z" },
+      flash: { start: "2026-12-01T00:00:00Z", end: "2026-12-01T00:00:00Z" },
+    };
+    expect(lines(run({ campaigns: backwards }))).toEqual([
+      'campaigns.json warning flash.end: the campaign "flash" ends before it starts, so it never runs: set an end after the start',
+      'campaigns.json warning sale.end: the campaign "sale" ends before it starts, so it never runs: set an end after the start',
+    ]);
+  });
+
+  it("rejects a bound without an offset, a date alone included: it never runs; the message says to add the store's offset", () => {
+    const local = {
+      __resolveType: "calendar",
+      sale: { start: "2026-11-27T00:00:00", end: "2026-12-01T00:00Z" },
+      day: { start: "2026-11-27T00:00:00+00:00", end: "2026-11-28T00:00:00.5Z" },
+      dates: { start: "2026-11-27", end: "2026-11-28 09:30" },
+      spaced: { start: "2026-11-27 09:30z" },
+    };
+    expect(lines(run({ campaigns: local }))).toEqual([
+      'campaigns.json dates.start: the campaign "dates" starts at "2026-11-27", a date without a time or offset, so it never runs: add the time and your store\'s offset, like "2026-11-27T00:00-03:00"',
+      'campaigns.json dates.end: the campaign "dates" ends at "2026-11-28 09:30", which has no offset, so it never runs: add your store\'s offset, like "2026-11-28T09:30-03:00"',
+      'campaigns.json sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it never runs: add your store\'s offset, like "2026-11-27T00:00:00-03:00"',
+      'campaigns.json spaced.start: the campaign "spaced" starts at "2026-11-27 09:30z", which isn\'t written as a campaign reads it, so it never runs: write the date, "T", the time and the offset as Z or ±hh:mm, like "2026-11-27T09:30Z"',
+    ]);
+  });
+
+  it("checks the dates of every calendar block wherever it is: inline in a section's props, another saved block, a reference's overrides", async () => {
+    const fixture = createFixture({
+      "src/hero.tsx": `
+export interface Props { title: string; campaigns?: Record<string, boolean> }
+export default function Hero(props: Props) { return <div>{props.title}</div>; }`,
+      ".deco/index.ts": `import Hero from "../src/hero"; export default { hero: Hero };`,
+    });
+    try {
+      const { meta: own } = await generateSchema(decoPaths(fixture.root));
+      const inline = {
+        __resolveType: "hero",
+        title: "Hi",
+        campaigns: {
+          __resolveType: "calendar",
+          sale: { start: "2026-11-27T00:00:00", end: "2026-11-26T00:00Z" },
+        },
+      };
+      const overridden = {
+        __resolveType: "hero",
+        title: "Hi",
+        campaigns: { __resolveType: "campaigns", flash: { start: "2026-11-27" } },
+      };
+      const promo = { __resolveType: "calendar", week: { end: "2026-12-01 10:00" } };
+      expect(
+        lines(
+          checkContent(
+            own,
+            saved({
+              campaigns,
+              promo,
+              HomePage: page([inline]),
+              Other: page([overridden], { path: "/other" }),
+            }),
+          ),
+        ),
+      ).toEqual([
+        'HomePage.json sections[0].campaigns.sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it never runs: add your store\'s offset, like "2026-11-27T00:00:00-03:00"',
+        'Other.json sections[0].campaigns.flash.start: the campaign "flash" starts at "2026-11-27", a date without a time or offset, so it never runs: add the time and your store\'s offset, like "2026-11-27T00:00-03:00"',
+        'promo.json week.end: the campaign "week" ends at "2026-12-01 10:00", which has no offset, so it never runs: add your store\'s offset, like "2026-12-01T10:00-03:00"',
+      ]);
+      // A readable window inline passes, and one ending before it starts is a warning there too.
+      inline.campaigns.sale.start = "2026-11-27T00:00:00-03:00";
+      expect(lines(checkContent(own, saved({ campaigns, HomePage: page([inline]) })))).toEqual([
+        'HomePage.json warning sections[0].campaigns.sale.end: the campaign "sale" ends before it starts, so it never runs: set an end after the start',
+      ]);
+    } finally {
+      fixture.remove();
+    }
+  }, 30_000);
+
+  it("calendar and campaign are reserved names; campaigns is not", () => {
+    expect(lines(run({ campaigns, calendar: { ...campaigns } }))).toContain(
+      'calendar.json saved block "calendar" has the name of a built-in block',
+    );
+    expect(lines(run({ campaigns, campaign: rule("black-friday") }))).toContain(
+      'campaign.json saved block "campaign" has the name of a built-in block',
+    );
+    expect(lines(run({ campaigns })).some((line) => line.includes("name of a built-in"))).toBe(
+      false,
+    );
+  });
+
+  it("warns when the block map defines campaign or calendar, which replaces the built-in", () => {
+    const own = structuredClone(meta);
+    own.manifest.blocks.matchers.campaign = {
+      ...own.manifest.blocks.matchers.campaign,
+      namespace: "site",
+    };
+    own.manifest.blocks.content.calendar = {
+      ...own.manifest.blocks.content.calendar,
+      namespace: "site",
+    };
+    expect(lines(checkContent(own, saved({})))).toEqual([
+      `.deco/schema.gen.json warning campaign: the block map has its own "campaign", in place of the built-in: Studio's campaign rules rely on it, each naming a campaign of the saved block campaigns. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+      `.deco/schema.gen.json warning calendar: the block map has its own "calendar", in place of the built-in: the saved block campaigns relies on it, and Studio's Campaigns view edits its dates. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+    ]);
+  });
+
+  it("warns for every built-in the block map replaces, naming what relies on it", () => {
+    const own = structuredClone(meta);
+    const groups = own.manifest.blocks as Record<string, Record<string, { namespace?: string }>>;
+    const replaced: string[] = [];
+    for (const name of BUILT_IN_BLOCKS) {
+      const group = Object.values(groups).find((entries) => Object.hasOwn(entries, name));
+      expect(group, name).toBeDefined();
+      group![name] = { ...group![name], namespace: "site" };
+      replaced.push(name);
+    }
+    expect(replaced).toHaveLength(12);
+    const warnings = lines(checkContent(own, saved({})));
+    expect(warnings).toHaveLength(12);
+    for (const name of BUILT_IN_BLOCKS) {
+      expect(BUILT_IN_USES[name], name).toBeTruthy();
+      expect(warnings).toContain(
+        `.deco/schema.gen.json warning ${name}: the block map has its own "${name}", in place of the built-in: ${BUILT_IN_USES[name]}. If that's intended, keep the built-in's fields; to use the built-in again, rename yours`,
+      );
+    }
+    // A built-in left alone is never named.
+    expect(lines(checkContent(meta, saved({})))).toEqual([]);
   });
 });

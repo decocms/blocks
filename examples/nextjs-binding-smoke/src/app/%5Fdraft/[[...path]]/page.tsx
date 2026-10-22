@@ -3,7 +3,6 @@
 import { DraftPreviewIndicator } from "@decocms/nextjs";
 import { bindDraft, type SearchParams } from "@decocms/nextjs/server";
 import type { Metadata } from "next";
-import { preview } from "../../../cms.config";
 import { cms } from "../../../cms";
 import { openPage, pathnameFor } from "../../../open-page.server";
 import { PageView } from "../../PageView";
@@ -13,7 +12,7 @@ export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ path?: string[] }>; searchParams: Promise<SearchParams> };
 
 async function open({ params, searchParams }: Props) {
-  await bindDraft(cms, { searchParams: await searchParams, ...preview });
+  await bindDraft(cms, { searchParams: await searchParams });
   return openPage(pathnameFor((await params).path));
 }
 

@@ -49,8 +49,8 @@ export function analyticsSection(section: unknown): Required<Analytics> {
 
 /**
  * `cms-settings`: the type of the well-known saved block `CMS`. Returns its
- * input with the telemetry and analytics defaults filled in; `preview` stays
- * as saved, since its default depends on code (`cms.settings()` applies it).
+ * input with the telemetry and analytics defaults filled in. Preview hosts
+ * aren't here: Studio writes them into the release metadata.
  */
 export const cmsSettings = (
   props: CMSSettings = {},

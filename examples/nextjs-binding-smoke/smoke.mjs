@@ -9,6 +9,8 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { gunzipSync } from "node:zlib";
+import { assign, newVisitor, serializeVisitor } from "@decocms/blocks/experiments";
+import { assignmentsRoutePath } from "@decocms/nextjs/proxy";
 
 const PORT = Number(process.env.SMOKE_PORT ?? 8821);
 const DRAFT_PORT = PORT + 1;
@@ -102,6 +104,17 @@ try {
     page.body.match(/srcSet="[^"]*"/)?.[0],
   );
   check("no draft badge on the release", !page.body.includes(POINTER));
+  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const [visitorCookie, ...moreVisitorCookies] = visitorCookies(page.res);
+  check(
+    "a first visit gets the visitor's cookie from the proxy, once",
+    /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
+      moreVisitorCookies.length === 0,
+    page.res.headers.getSetCookie().join(" | "),
+  );
+  // Another route, so the per-route request counts below stay as they are.
+  const returning = await get("/blog", { cookie: (visitorCookie ?? "").split(";")[0] });
+  check("a returning visitor gets no new cookie", visitorCookies(returning.res).length === 0, returning.res.headers.getSetCookie().join(" | "));
 
   const link = await get(draftLink("/summer-shirt/p"), DECO_HOST);
   check("a draft link on a Deco host renders the draft", link.res.status === 200 && link.body.includes("Draft shirt"), link.res.status);
@@ -118,6 +131,7 @@ try {
     link.res.headers.get("set-cookie"),
   );
   check("the draft page mounts the badge for its draft", link.body.includes(POINTER));
+  check("a preview never sends the visitor's cookie", visitorCookies(link.res).length === 0, link.res.headers.getSetCookie().join(" | "));
 
   const cookie = await get("/summer-shirt/p", { ...DECO_HOST, ...COOKIE });
   check("the cookie keeps the preview going", cookie.body.includes("Draft shirt"));
@@ -134,8 +148,8 @@ try {
   );
   check("and no draft cookie", !(elsewhere.res.headers.get("set-cookie") ?? "").includes("__deco_draft="));
 
-  const forged = await get("/summer-shirt/p", { "x-deco-draft": POINTER });
-  check("a forged x-deco-draft gets the release", forged.body.includes("Summer shirt") && !forged.body.includes("Draft shirt"));
+  const forged = await get("/summer-shirt/p", { "x-deco-version": POINTER });
+  check("a forged x-deco-version gets the release", forged.body.includes("Summer shirt") && !forged.body.includes("Draft shirt"));
 
   const direct = await get("/_draft/summer-shirt/p", { ...DECO_HOST, ...COOKIE });
   check("the draft route is reachable only through the proxy", direct.res.status === 404, direct.res.status);
@@ -156,11 +170,14 @@ try {
   check(
     // The published page, ?__draft=off, the host outside the allowlist and the forged header.
     "pages count under their route template",
-    count({ "http.route": "/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 4 &&
+    count({ "http.route": "/_assignments/[assignments]/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 4 &&
       count({ "http.route": "/blog", status_class: "2xx" }) >= 1,
     JSON.stringify(requests),
   );
-  check("a 404 counts under the page that answered it", count({ "http.route": "/[[...path]]", status_class: "4xx" }) === 1);
+  check(
+    "a 404 counts under the page that answered it",
+    count({ "http.route": "/_assignments/[assignments]/[[...path]]", status_class: "4xx" }) === 1,
+  );
   check("a 5xx counts under its page", count({ "http.route": "/smoke/fail", status_class: "5xx" }) === 1);
   check(
     "a draft render is DRAFT, on the draft route",
@@ -179,6 +196,93 @@ try {
     "every point is a known method with a duration",
     requests.length > 0 && requests.every((r) => r["http.request.method"] === "GET" && r.sum > 0 && r.sum < 30 * r.count),
     JSON.stringify(requests),
+  );
+
+  // The assignments route: every CMS page renders on /_assignments/<assignments>/<path>, so Next's cache
+  // keeps one entry per set of assignments (the 50% new-banner test, the running summer-sale) and
+  // never one per visitor.
+  const visitorOn = (inside) => {
+    for (;;) {
+      const visitor = newVisitor();
+      if (assign({ "new-banner": 50 }, visitor)["new-banner"] === inside) return visitor;
+    }
+  };
+  const as = (visitor) => ({ cookie: `deco_segment=${serializeVisitor(visitor)}` });
+  const assignmentsOf = (body) => body.match(/<main data-assignments="([^"]*)"/)?.[1];
+  const [inA, inB, out] = [visitorOn(true), visitorOn(true), visitorOn(false)];
+  const sideA = await get("/sale", as(inA));
+  const sideA2 = await get("/sale", as(inB));
+  const sideB = await get("/sale", as(out));
+  check(
+    "a visitor in the test gets its side and the running campaign",
+    sideA.res.status === 200 && sideA.body.includes("Banner B") && sideA.body.includes("Summer sale"),
+    sideA.res.status,
+  );
+  check("a visitor out of it gets the other side", sideB.body.includes("Banner A") && sideB.body.includes("Summer sale"));
+  check(
+    "opposite sides render on different paths",
+    assignmentsOf(sideA.body) && assignmentsOf(sideB.body) && assignmentsOf(sideA.body) !== assignmentsOf(sideB.body),
+    `${assignmentsOf(sideA.body)} / ${assignmentsOf(sideB.body)}`,
+  );
+  check(
+    "the same side renders on the same path, served from Next's cache",
+    assignmentsOf(sideA2.body) === assignmentsOf(sideA.body) && sideA2.res.headers.get("x-nextjs-cache") === "HIT",
+    `${assignmentsOf(sideA2.body)} ${sideA2.res.headers.get("x-nextjs-cache")}`,
+  );
+  check(
+    "the URL asked for is private, so a CDN in front can't hand one side's page to the other",
+    [sideA, sideA2, sideB].every(({ res }) => res.headers.get("cache-control") === "private, no-cache"),
+    [sideA, sideA2, sideB].map(({ res }) => res.headers.get("cache-control")).join(" / "),
+  );
+  check(
+    "the visitor's id is in no path and no page",
+    ![sideA, sideA2, sideB].some(({ body }, i) => body.includes([inA, inB, out][i].id)),
+  );
+  check(
+    "a test nobody is in and a campaign not started stay off",
+    ![sideA, sideB].some(({ body }) => body.includes("Next season") || body.includes("Black Friday")),
+  );
+  const forgedPath = assignmentsRoutePath("/sale", {
+    experiments: { "new-banner": true, "next-season": true },
+    campaigns: { "black-friday": true, "summer-sale": true },
+  });
+  const forgedAssignments = await get(forgedPath);
+  check("a typed assignments path is a 404: a path can't switch a test or a campaign on", forgedAssignments.res.status === 404, forgedAssignments.res.status);
+  const draftOnSide = await get(draftLink("/sale"), { ...DECO_HOST, ...as(inA) });
+  check(
+    "a draft link renders on the draft route, never on a cached assignments path",
+    draftOnSide.res.status === 200 &&
+      draftOnSide.body.includes(POINTER) &&
+      draftOnSide.body.includes("Banner B") &&
+      assignmentsOf(draftOnSide.body) === undefined &&
+      draftOnSide.res.headers.get("cache-control") === "no-store, private",
+    `${draftOnSide.res.status} ${assignmentsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
+  );
+  // A preview link switches tests and campaigns: even a test at 0% and a campaign not started,
+  // on the draft route only, never on a cached path.
+  const switched = POINTER.replace(
+    "@",
+    `?__test=${encodeURIComponent("next-season=on")}&__campaign=${encodeURIComponent("black-friday=on")}@`,
+  );
+  const preview = await get(`/sale?__draft=${encodeURIComponent(switched)}`, { ...DECO_HOST, ...as(out) });
+  check(
+    "a preview link switches on a test at 0% and a campaign not started",
+    preview.res.status === 200 &&
+      preview.body.includes("Next season") &&
+      preview.body.includes("Black Friday") &&
+      assignmentsOf(preview.body) === undefined,
+    `${preview.res.status} ${assignmentsOf(preview.body)}`,
+  );
+
+  // ISR, never force-static: the CMS pages are rendered again once they are 10 minutes old.
+  const assignmentsPage = readFileSync("src/app/%5Fassignments/[assignments]/[[...path]]/page.tsx", "utf-8");
+  const prerender = JSON.parse(readFileSync(".next/prerender-manifest.json", "utf-8"));
+  check(
+    "the assignments route is ISR at 600 seconds, rendered on demand and cached",
+    /^export const revalidate = 600;$/m.test(assignmentsPage) &&
+      !/dynamic = "force-static"/.test(assignmentsPage) &&
+      "/_assignments/[assignments]/[[...path]]" in prerender.dynamicRoutes,
+    Object.keys(prerender.dynamicRoutes).join(", "),
   );
 
   // The proxy bundle holds no block map: no section component, no React. (Block names do appear:

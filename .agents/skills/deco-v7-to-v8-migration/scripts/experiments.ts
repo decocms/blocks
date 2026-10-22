@@ -1,79 +1,81 @@
 /**
- * Experiment IDs (spec: renames-and-migrations › Telemetry and analytics).
- * v7 keyed A/B results on the saved name of the random matcher a variant's
- * rule pointed at. The next major keys them on `multivariate`'s `experiment`,
- * so this step copies that name into it and results carry over.
- *
- * The same name kept a visitor in their group: v7's sticky random matcher
- * (latest 7.x) stored each decision in the `deco_segment` cookie under it. A
- * v8 block function doesn't know the name it was saved under, so on a site
- * whose block map registers `@decocms/compat-v7/matchers`' random (a TanStack
- * Start or Next.js site, see ./blockMap.ts), each saved random matcher gets it
- * as `cohort`, and visitors keep their v7 groups.
+ * A/B tests and dates. v7 ran tests on its random matcher and date windows on
+ * its date matcher; the next major keeps both in content: tests in the saved
+ * block `experiments` (type `split-traffic`) read by the `experiment` rule,
+ * date windows in the saved block `campaigns` (type `calendar`) read by the
+ * `campaign` rule, which names one. The script moves neither: it
+ * reports each kind once, for whoever moves them by hand, and says who hands
+ * the visitor to the client when the site has tests.
  */
-import fs from "node:fs";
-import path from "node:path";
-import { LEGACY_ALIASES } from "@decocms/blocks/cli";
-import { serializeBlock } from "@decocms/blocks/protocol/keys";
 import { siteFramework } from "./framework";
 import type { Report } from "./report";
 import { forEachBlock, readContent } from "./walk";
 
-const RANDOM_MATCHERS = new Set(["website/matchers/random.ts", "website/matchers/random"]);
+/** v7's random matcher, under each name v7 saved it with. */
+const RANDOM_MATCHERS = new Set([
+  "website/matchers/random.ts",
+  "website/matchers/random",
+  "$live/matchers/MatchRandom.ts",
+]);
 
-function isMultivariate(type: string): boolean {
-  return (
-    type === "multivariate" ||
-    (Object.hasOwn(LEGACY_ALIASES, type) && LEGACY_ALIASES[type] === "multivariate")
-  );
-}
+/** A date rule: v7's names (renamed to `date` by the content step) and v8's prerelease one. */
+const DATE_RULES = new Set(["date", "website/matchers/date.ts", "$live/matchers/MatchDate.ts"]);
 
-/** Set `experiment` on every `multivariate` whose variant rule is a saved random matcher. */
-export function copyExperimentIds(root: string, report: Report): void {
+export const RUN_AN_AB_TEST = "/next/matchers-and-variants#run-an-a-b-test";
+export const SCHEDULE_A_CAMPAIGN = "/next/matchers-and-variants#schedule-a-campaign";
+
+const quoted = (names: Iterable<string>) =>
+  [...names]
+    .sort()
+    .map((n) => `"${n}"`)
+    .join(", ");
+
+/**
+ * Reports v7's random matchers and every date rule (v7's, or the prerelease
+ * `date`, which no longer exists): one "Left to do" line each, pointing at
+ * the docs. Changes no file.
+ */
+export function reportTestsAndDates(root: string, report: Report): void {
   const { blocks, files } = readContent(root);
-  const randoms = new Set(
-    Object.entries(blocks)
-      .filter(([, b]) => RANDOM_MATCHERS.has(b.__resolveType as string))
-      .map(([name]) => name),
-  );
-  if (randoms.size === 0) return;
-  if (siteFramework(root)) writeCohorts(root, report, randoms);
-
+  const tests = new Set<string>();
+  const dates = new Set<string>();
   for (const [entry, block] of Object.entries(blocks)) {
-    let changed = false;
-    forEachBlock(block, (node) => {
-      if (!isMultivariate(node.__resolveType) || node.experiment !== undefined) return;
-      const variants = Array.isArray(node.variants) ? node.variants : [];
-      const name = variants
-        .map((v) => (v as { rule?: { __resolveType?: unknown } } | null)?.rule?.__resolveType)
-        .find((t): t is string => typeof t === "string" && randoms.has(t));
-      if (!name) return;
-      node.experiment = name;
-      changed = true;
-      report.done.push({
-        step: "content",
-        subject: files[entry],
-        message: `set experiment "${name}" (the random matcher's saved name), so A/B results carry over`,
-      });
-    });
-    if (changed) {
-      fs.writeFileSync(path.join(root, ".deco", "blocks", files[entry]), serializeBlock(block));
+    if (RANDOM_MATCHERS.has(block.__resolveType as string)) {
+      tests.add(entry);
+      continue;
     }
+    forEachBlock(block, (node) => {
+      if (RANDOM_MATCHERS.has(node.__resolveType)) tests.add(entry);
+      else if (DATE_RULES.has(node.__resolveType)) dates.add(entry);
+    });
+  }
+  if (tests.size > 0) {
+    report.manual.push({
+      step: "content",
+      subject: "A/B tests",
+      message: `v7's random matchers (in ${quoted([...tests].map((n) => files[n] ?? n))}) weren't moved: put each test in the saved block experiments (type split-traffic) under its saved-block name, so visitors keep their groups and results carry over, and point its rules at { "__resolveType": "experiment", "name": … } (Run an A/B test, ${RUN_AN_AB_TEST})`,
+    });
+    reportAssignment(root, report);
+  }
+  if (dates.size > 0) {
+    report.manual.push({
+      step: "content",
+      subject: "date rules",
+      message: `date rules (in ${quoted([...dates].map((n) => files[n] ?? n))}) weren't moved, and deco check rejects them until they are: put each window in the saved block campaigns (type calendar), each start and end a date and time with the store's offset (like 2026-11-27T00:00-03:00: v7 read a date-time without one in the server's time zone, and deco check rejects it), and write each rule as { "__resolveType": "campaign", "name": … } naming its campaign (a prerelease { "__resolveType": "date", "campaign": … } becomes that rule with the same name) (Schedule a campaign, ${SCHEDULE_A_CAMPAIGN})`,
+    });
   }
 }
 
-/** `cohort` = the saved name, on each saved random matcher that has none (v7's sticky key). */
-function writeCohorts(root: string, report: Report, randoms: Set<string>): void {
-  const { blocks, files } = readContent(root);
-  for (const name of [...randoms].sort()) {
-    const block = blocks[name];
-    if (block.cohort !== undefined) continue;
-    block.cohort = name;
-    fs.writeFileSync(path.join(root, ".deco", "blocks", files[name]), serializeBlock(block));
-    report.done.push({
-      step: "content",
-      subject: files[name],
-      message: `set cohort "${name}" (v7 kept the visitor's A/B group in deco_segment under the saved name), so visitors stay in their groups`,
-    });
-  }
+/** Who hands the visitor to the client, by binding: without one every test is off. */
+function reportAssignment(root: string, report: Report): void {
+  const framework = siteFramework(root);
+  if (framework === "tanstack") return; // createDecoWorker reads the visitor on every page request.
+  report.manual.push({
+    step: "content",
+    subject: "experiments",
+    message:
+      framework === "nextjs"
+        ? "decide the tests in proxy.ts: draftProxy from @decocms/nextjs/proxy does it, or decideVisitor, decideAssignments, visitorRequestHeaders, assignmentsRequestHeaders and applyVisitor next to the draft calls; the catch-all page's bindDraft and contentClient(cms) then build cms.client({ version, experiments, campaigns }) from what the proxy decided"
+        : "hand the visitor to the client per request: const { visitor, cookie } = readVisitor(request) from @decocms/blocks/experiments, cms.client({ visitor, ...(await cms.readVersion(request)) }), and the cookie on the response when it isn't null and the request isn't a preview (/next/built-in-blocks#split-traffic); until then every test is off",
+  });
 }

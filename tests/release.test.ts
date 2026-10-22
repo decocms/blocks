@@ -67,8 +67,8 @@ const BLOCKS = "@decocms/blocks";
  * importing a newer blocks API (BLOCKS_API_SINCE below).
  */
 const PEER: Record<string, string> = {
-  tanstack: "^8.5.0",
-  nextjs: "^8.5.0",
+  tanstack: "^8.6.0",
+  nextjs: "^8.6.0",
   "compat-v7": "^8.4.0",
   "apps-algolia": "^8.4.0",
   "apps-magento": "^8.4.0",
@@ -80,6 +80,7 @@ const PEER: Record<string, string> = {
 };
 /** The first @decocms/blocks release with each subpath a package may import. */
 const BLOCKS_API_SINCE: Record<string, string> = {
+  "@decocms/blocks/experiments": "8.6.0",
   "@decocms/blocks/metrics": "8.5.0",
 };
 
@@ -152,10 +153,15 @@ describe("release: dependency ranges", () => {
     }
   });
 
-  it("tanstack and nextjs import @decocms/blocks/metrics (the floor test sees them)", () => {
+  it.each([
+    "metrics",
+    "experiments",
+  ])("tanstack and nextjs import @decocms/blocks/%s (the floor test sees them)", (subpath) => {
     for (const dir of ["tanstack", "nextjs"]) {
       expect(
-        sourcesOf(dir).some((f) => readFileSync(f, "utf8").includes('"@decocms/blocks/metrics"')),
+        sourcesOf(dir).some((f) =>
+          readFileSync(f, "utf8").includes(`"@decocms/blocks/${subpath}"`),
+        ),
       ).toBe(true);
     }
   });
@@ -278,25 +284,25 @@ describe("scripts/sync-versions.mjs", () => {
       encoding: "utf8",
     });
 
-  it("writes 8.5.0 everywhere, keeps the peer ranges and leaves no workspace: range", () => {
+  it("writes 8.6.0 everywhere, keeps the peer ranges and leaves no workspace: range", () => {
     const root = copyManifests();
-    const r = sync(root, "8.5.0");
+    const r = sync(root, "8.6.0");
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
     for (const dir of packageDirs) {
       const m = readManifest(dir, root);
-      expect(m.version).toBe("8.5.0");
+      expect(m.version).toBe("8.6.0");
       expect(JSON.stringify(m)).not.toContain("workspace:");
       if (dir !== "blocks") {
         expect(m.peerDependencies?.[BLOCKS]).toBe(PEER[dir]);
-        expect(m.devDependencies?.[BLOCKS]).toBe("8.5.0");
+        expect(m.devDependencies?.[BLOCKS]).toBe("8.6.0");
       }
     }
   });
 
   it("keeps each peer floor on a later lockstep release", () => {
     const root = copyManifests();
-    expect(sync(root, "8.5.1").status).toBe(0);
+    expect(sync(root, "8.6.1").status).toBe(0);
     for (const dir of Object.keys(PEER)) {
       expect(readManifest(dir, root).peerDependencies?.[BLOCKS]).toBe(PEER[dir]);
     }
@@ -310,19 +316,21 @@ describe("scripts/sync-versions.mjs", () => {
     const r = sync(root, version);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('apps-vtex: peer @decocms/blocks "^8.4.0"');
-    expect(r.stderr).toContain('tanstack: peer @decocms/blocks "^8.5.0"');
+    expect(r.stderr).toContain('tanstack: peer @decocms/blocks "^8.6.0"');
     expect(readManifest("blocks", root).version).toBe("0.0.0");
   });
 
   it.each([
     "8.4.0",
     "8.4.9",
-  ])("refuses %s: the bindings import @decocms/blocks/metrics, which 8.5.0 added", (version) => {
+    "8.5.0",
+    "8.5.9",
+  ])("refuses %s: the bindings import @decocms/blocks/experiments, which 8.6.0 added", (version) => {
     const root = copyManifests();
     const r = sync(root, version);
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain('tanstack: peer @decocms/blocks "^8.5.0"');
-    expect(r.stderr).toContain('nextjs: peer @decocms/blocks "^8.5.0"');
+    expect(r.stderr).toContain('tanstack: peer @decocms/blocks "^8.6.0"');
+    expect(r.stderr).toContain('nextjs: peer @decocms/blocks "^8.6.0"');
     expect(r.stderr).not.toContain("apps-vtex:");
     expect(r.stderr).not.toContain("compat-v7:");
     expect(readManifest("blocks", root).version).toBe("0.0.0");
@@ -334,7 +342,7 @@ describe("scripts/sync-versions.mjs", () => {
     const m = readManifest("apps-vtex", root);
     m.dependencies = { [BLOCKS]: "workspace:*" };
     writeFileSync(path, JSON.stringify(m));
-    const r = sync(root, "8.5.0");
+    const r = sync(root, "8.6.0");
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("apps-vtex: @decocms/blocks must be a peer dependency");
   });

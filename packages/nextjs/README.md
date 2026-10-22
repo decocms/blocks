@@ -6,8 +6,8 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 
 | Import | What it is for |
 | --- | --- |
-| `@decocms/nextjs/proxy` | Draft previews in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, or `draftProxy` for a site with no proxy of its own. No React and no block map. |
-| `@decocms/nextjs/server` | Draft previews in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`. |
+| `@decocms/nextjs/proxy` | What a request reads, decided once in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, `decideAssignments`, `assignmentsRequestHeaders`, or `draftProxy` for a site with no proxy of its own; `assignmentsKey` for a site's own cache key; `rewriteToAssignmentsRoute`, `isAssignmentsRoutePath`, `assignmentsRoutePath` and `assignmentsSegment` for Next's own cache. No React and no block map. |
+| `@decocms/nextjs/server` | What the proxy decided, in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`; `assignedClient` for a page on the assignments route. |
 | `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/instrumentation` | `register`, the `instrumentation.ts` hook that records `http.server.request.duration` from Next's own request span, and `serverRequestSpanProcessor()` for a site with its own OpenTelemetry SDK. |
@@ -18,9 +18,9 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 ## Drafts
 
 ```ts
-// src/cms.config.ts: the options both CMS handles share, and where drafts preview
-export const cmsConfig = { content };
-export const preview = { site: "my-store" };
+// src/cms.config.ts: the options both CMS handles share (with `site`, hosted releases and
+// the preview hosts Studio writes into them)
+export const cmsConfig = { content, site: "my-store" };
 
 // src/cms.ts and src/cms.proxy.ts
 export const cms = createCMS({ blocks, ...cmsConfig });
@@ -29,28 +29,95 @@ export const proxyCms = createCMS({ blocks: {}, ...cmsConfig }); // no block map
 // src/proxy.ts
 export async function proxy(request: NextRequest) {
   if (isDraftRoutePath(request.nextUrl.pathname)) return new NextResponse(null, { status: 404 });
-  const draft = await decideDraft(proxyCms, request, preview);
+  const draft = await decideDraft(proxyCms, request);
+  const visitor = decideVisitor(request, draft);
+  const assignments = await decideAssignments(proxyCms, draft, visitor);
+  const headers = assignmentsRequestHeaders(
+    visitorRequestHeaders(draftRequestHeaders(request, draft), visitor),
+    assignments,
+  );
   const response =
-    rewriteToDraftRoute(request, draft) ??
-    NextResponse.next({ request: { headers: draftRequestHeaders(request, draft) } });
-  return applyDraft(response, draft);
+    rewriteToDraftRoute(request, draft, visitor, assignments) ??
+    NextResponse.next({ request: { headers } });
+  return applyVisitor(applyDraft(response, draft), visitor);
 }
 
 // src/app/%5Fdraft/[[...path]]/page.tsx: the dynamic draft route (a literal `_draft` folder never routes)
 export const dynamic = "force-dynamic";
 export default async function DraftPage({ params, searchParams }) {
-  await bindDraft(cms, { searchParams: await searchParams, ...preview });
+  await bindDraft(cms, { searchParams: await searchParams });
   const client = contentClient(cms);
   // … resolve and render the page as on the published route …
   return <>{page}<DraftPreviewIndicator /></>;
 }
 ```
 
-Published pages stay static: the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted pointer on `x-deco-draft` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A root layout that reads content calls `bindDraft(cms, preview)` too: it reads the forwarded header.
+Published pages stay cached (ISR, below): the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted version on `x-deco-version` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A layout that reads content goes with its route, so the cached pages read no request: under the draft route (`app/%5Fdraft/layout.tsx`) it calls `bindDraft(cms)` and `contentClient(cms)`, which read the forwarded headers; under the assignments route (`app/%5Fassignments/[assignments]/layout.tsx`) it reads through `await assignedClient(cms, (await params).assignments)`. `bindDraft` reads `headers()`, and a cached page that reads a request header renders on every request instead, so never call it in the root layout or on the assignments route.
+
+A draft link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time (`__at`) and tests and campaigns switched on or off (`__test`, `__campaign`), which `cms.readVersion` reads as the client's `date`, `experiments` and `campaigns`. All of it passes the same host check and renders on the draft route: a visitor on the live site never picks a version. A preview may switch on a test at 0%.
+
+### The visitor, the assignments and the client
+
+The proxy decides once per request. `decideVisitor(request, draft)` reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor); `applyVisitor` sends its cookie on a first visit only, never from a preview. `decideAssignments(proxyCms, draft, visitor)` then decides each test and campaign on or off: `cms.client({ visitor, version, date, experiments, campaigns })` with the visitor and the Studio link's version, moment and switched tests and campaigns, resolving the saved `experiments` and `campaigns` blocks. `visitorRequestHeaders` and `assignmentsRequestHeaders` forward them on `x-deco-visitor` and `x-deco-assignments` (`draftRequestHeaders` always removes copies sent from outside).
+
+On the page, `bindDraft` binds the version and what the proxy forwarded (on the current release it binds the visitor and the assignments only when the release saves an `experiments` or `campaigns` block, and a test at 0% stays off whatever the header says), and `contentClient(cms)` builds `cms.client({ version, experiments, campaigns })` from them: the page decides nothing again. The pages trust those headers: behind the proxy they hold what it decided, and a request that reaches a page without it (a `matcher` that leaves the route out, or a site without the proxy) is read the same way, with whatever `x-deco-version` and `x-deco-assignments` it arrives with. Which routes go through the proxy, and how the others are protected, is the site's call. A cached page reads no request: the CMS's pages render on [the assignments route](#the-assignments-route), with the tests and campaigns the proxy decided in the path.
+
+The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on the request's assignments, never on the visitor: `assignmentsKey(assignments)` from `@decocms/nextjs/proxy`, with what `decideAssignments` gave, is the version, the tests on and the campaigns running (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the assignments route](#the-assignments-route).
+
+### The assignments route
+
+The proxy decides, the page renders that. Next caches a page by its path (ISR), so the proxy puts its decision in the path: it rewrites each CMS page to `/_assignments/<assignments>/<path>`, and the page renders exactly the tests and campaigns that segment names. Next then keeps one entry per path and set of assignments and serves it to every visitor with the same ones; the page reads no request, so Next can cache it. CMS pages are ISR with `revalidate = 600` (10 minutes): Next serves a stored page for 10 minutes; the first request after that still gets the stored copy while Next renders the page again in the background for the requests after it. So a published change shows within about 10 minutes on a page people open, and a page nobody opened for longer shows its old copy once more. That delay (for example, a banner switching on late) is accepted. Never `force-static` on Next.js: a page that never expires would keep what it rendered first.
+
+```ts
+// src/proxy.ts
+import { isAssignmentsRoutePath, isDraftRoutePath, rewriteToAssignmentsRoute /* … */ } from "@decocms/nextjs/proxy";
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (isDraftRoutePath(pathname) || isAssignmentsRoutePath(pathname)) return new NextResponse(null, { status: 404 });
+  const draft = await decideDraft(proxyCms, request, preview);
+  const visitor = decideVisitor(request, draft);
+  const assigned = isCmsPage(pathname) ? await rewriteToAssignmentsRoute(proxyCms, request, draft, visitor) : null;
+  if (assigned) return applyVisitor(applyDraft(assigned, draft), visitor);
+  const assignments = await decideAssignments(proxyCms, draft, visitor);
+  const headers = assignmentsRequestHeaders(visitorRequestHeaders(draftRequestHeaders(request, draft), visitor), assignments);
+  const response = rewriteToDraftRoute(request, draft, visitor, assignments) ?? NextResponse.next({ request: { headers } });
+  return applyVisitor(applyDraft(response, draft), visitor);
+}
+
+// Next's own files never go through the proxy: rewritten, every script and style would be a 404.
+export const config = { matcher: ["/((?!_next/|favicon.ico).*)"] };
+```
+
+```tsx
+// src/app/%5Fassignments/[assignments]/[[...path]]/page.tsx: every CMS page (a literal `_assignments` folder never routes)
+import { assignedClient } from "@decocms/nextjs/server";
+
+export const revalidate = 600; // 10 minutes; never force-static
+export async function generateStaticParams() {
+  return []; // no path at build time: each renders on its first request, then is cached
+}
+export default async function Page({ params }) {
+  const { assignments, path } = await params;
+  const client = await assignedClient(cms, assignments);
+  if (!client) notFound();
+  // … match the path and resolve the page through `client`, as on any page …
+}
+```
+
+- **What the segment holds**: every test of the saved `experiments` block on or off for the visitor and every campaign of the saved `campaigns` block running or not now (`readAssignments` on the current release), as `assignmentsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of assignments. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
+- **The page renders what the path names**: `await assignedClient(cms, segment)` builds `cms.client({ experiments, campaigns })` with every test and campaign as the segment names it and no visitor, a client fully decided in advance, so every visitor on that side renders the same page. The page never checks a campaign's dates or rolls a test itself. A test now at 0% stays off whatever the segment names. A page Next renders again later (revalidation) shows the same tests and campaigns under the same path.
+- **The route trusts the path its proxy writes**: the proxy answers a direct hit on `/_assignments/…` with a 404, as it does for `/_draft/…`, so behind the proxy only its own rewrite reaches the route. A request that reaches the page some other way (a proxy `matcher` that leaves the route out, or a site without the proxy) renders the tests and campaigns its path names: `assignedClient` only keeps off a test at 0% and a test or a campaign the content doesn't have, and returns `null` (a 404) for a segment the proxy never writes. Which routes go through the proxy, and how the others are protected, is the site's call. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote before the page's server saw newly published content still renders.
+- **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of assignments, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's ISR `s-maxage` under it.
+- **A cached page reads no request**: `headers()`, `cookies()` or `searchParams` anywhere in the route (its layouts included, so no `bindDraft` there) make Next render it on every request instead of caching it, and a client component calling `useSearchParams()` renders on the client up to its nearest `<Suspense>`. `force-static` used to hide both by handing the page empty values; with ISR the page takes what it needs from the path, as the assignments do.
+- **Drafts and previews are never rewritten here**: a drafted request goes to the dynamic draft route, so nothing from a preview lands in Next's cache.
+- **Which paths**: only the CMS's pages (`isCmsPage` above is the site's own: routes of the app's own, such as `/blog` here, render as before). `draftProxy(proxyCms, { assignments: (request) => isCmsPage(request.nextUrl.pathname) })` does the same for a site with no proxy of its own.
+
+`examples/nextjs-binding-smoke` in the repository runs it: two visitors on opposite sides of a test get different paths, two on the same side get one cached entry (`x-nextjs-cache: HIT`), the route is ISR at 600 seconds, and a typed `/_assignments/…` path is a 404.
 
 ### Draft hosts
 
-v7's allowlist. A draft link (`?__draft=`) previews on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s; a site that declares none has none, as in v7) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. `previewHosts: [...]` replaces the declared list (v7's `DECO_ALLOWED_PREVIEW_HOSTS`, such as `["localhost:3000"]` in development); `previewHosts: "none"` turns previews off on every host. Hosts compare exactly, port included, on the host the visitor asked for (`x-forwarded-host`, else `host`). Pass the same options to `decideDraft` and `bindDraft`. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
+A draft link (`?__draft=`) previews on the hosts the CMS allows, which `cms.readVersion` checks: the addresses Studio writes into the current release's metadata (`previewHosts` in `latest.json`, read with `createCMS`'s `site`), plus `createCMS({ preview: { hosts } })`. The site lists nothing else. With no list, every host previews: a site with no `latest.json` on the CDN yet, or one published before Studio wrote `previewHosts` (its next publish writes the list), and content with no `site` unless `preview.hosts` lists hosts (such as `["localhost"]`). If `latest.json` can't be read (a network error, a 5xx, a malformed file), previews stay closed, besides `preview.hosts`, until a read succeeds. The host is the one the visitor asked for (`x-forwarded-host`, else `host`); the proxy and `bindDraft` ask the same CMS. On a host that may not preview, the page renders the release; `?__draft=off` still ends a preview anywhere.
 
 ## The layout
 
@@ -79,7 +146,7 @@ It renders a `<meta>` that React places in the `<head>`, so the page's own marku
 
 ## Names and Studio's origins
 
-For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `DRAFT_HEADER` (`x-deco-draft`), `draftResponseHeaders(pointer)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
+For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `VERSION_HEADER` (`x-deco-version`), `VISITOR_HEADER` (`x-deco-visitor`), `ASSIGNMENTS_HEADER` (`x-deco-assignments`), `draftResponseHeaders(version)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
 
 ## next.config
 
@@ -104,7 +171,7 @@ Next.js already measures every request it serves: one root span per request (`Ba
 | `http.route` | Next's route template: `/[[...path]]`, `/blog`, `/_draft/[[...path]]`. An RSC request counts under its page's route. `unmatched` when Next names none (an Edge route under `next start`) |
 | `http.request.method` | `GET`, `POST`, …; any other is `_OTHER` |
 | `status_class` | `2xx` … `5xx`; a request that threw is `5xx` |
-| `cache` | `DRAFT` for a draft render (the proxy forwarded `x-deco-draft`, or the request was rewritten onto `/_draft`), otherwise `BYPASS`: Next decides its own cache (`x-nextjs-cache`) on the response, which the span never sees |
+| `cache` | `DRAFT` for a draft render (the proxy forwarded `x-deco-version`, or the request was rewritten onto `/_draft`), otherwise `BYPASS`: Next decides its own cache (`x-nextjs-cache`) on the response, which the span never sees |
 
 - `@opentelemetry/api` is an optional peer: `register` uses the same copy Next does (yours when installed, else Next's compiled one) and does nothing if neither loads.
 - **Your own OpenTelemetry setup** (`@vercel/otel`, `NodeSDK`): only one tracer provider can be registered, so `register` leaves yours alone and logs how to combine them. Add the processor to yours instead: `registerOTel({ serviceName, spanProcessors: ["auto", serverRequestSpanProcessor()] })`.

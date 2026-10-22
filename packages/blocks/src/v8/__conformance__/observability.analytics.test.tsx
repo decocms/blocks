@@ -159,8 +159,8 @@ describe("the analytics section of the CMS settings (analytics.mdx)", () => {
     expect(analytics).toEqual({ collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false });
   });
 
-  it("up-04: the framework ships always, never, date, multivariate and cms-settings built-ins", () => {
-    for (const name of ["always", "never", "date", "multivariate", "cms-settings"]) {
+  it("up-04: the framework ships always, never, campaign, multivariate and cms-settings built-ins", () => {
+    for (const name of ["always", "never", "campaign", "multivariate", "cms-settings"]) {
       expect(typeof builtIns[name]).toBe("function");
     }
   });

@@ -103,8 +103,22 @@ interface BlockInfo {
 
 const BUILT_IN_TYPES_SOURCE = `
 export interface Seo { title: string; description: string }
+export interface SeoFields { title?: string; description?: string }
 export interface Route { name: string; path: string }
+export interface NameStates { [name: string]: boolean }
 `;
+
+/**
+ * Built-in blocks a field can take, by the interface in BUILT_IN_TYPES_SOURCE
+ * their value has: `split-traffic` and `calendar` resolve to name →
+ * true/false, so a field typed `Assignments` (or any `Record<string,
+ * boolean>`) can hold the saved `experiments` or `campaigns` block. A block
+ * map that declares the name replaces it.
+ */
+const BUILT_IN_RETURNS: Record<string, string> = {
+  "split-traffic": "NameStates",
+  calendar: "NameStates",
+};
 
 /** The package version, written into the schema's `version`. */
 
@@ -177,6 +191,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
   });
   const builtInTypes = project.sourceFile(builtInTypesFile);
   const seoType = builtInTypes.getInterfaceType("Seo");
+  const seoFieldsType = builtInTypes.getInterfaceType("SeoFields");
   const routeType = builtInTypes.getInterfaceType("Route");
   const source = project.sourceFile(blockMap);
   const diagnostics: SchemaDiagnostic[] = [];
@@ -269,8 +284,15 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
   // -------------------------------------------------------------------------
   // 2. Fields → blocks: which functions' return types fit an object field.
   // -------------------------------------------------------------------------
-  const STRUCTURAL = new Set<string>(["lazy", "multivariate", "secret", "always", "never", "date"]);
-  const candidates = infos.filter(
+  const STRUCTURAL = new Set<string>([
+    "lazy",
+    "multivariate",
+    "secret",
+    "always",
+    "never",
+    "campaign",
+  ]);
+  const candidates: Pick<BlockInfo, "key" | "returnType">[] = infos.filter(
     (info) =>
       info.group !== "sections" &&
       info.group !== "matchers" &&
@@ -279,6 +301,10 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
       !info.returnType.isUnknown() &&
       !nonNullable(info.returnType).isNever(),
   );
+  for (const [key, typeName] of Object.entries(BUILT_IN_RETURNS)) {
+    if (infos.some((info) => info.key === key)) continue;
+    candidates.push({ key, returnType: builtInTypes.getInterfaceType(typeName) });
+  }
   const fitCache = new Map<unknown, string[]>();
   const definitions: Record<string, any> = {};
 
@@ -380,7 +406,12 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     };
   }
 
-  const seoRefs = ctx.fitting(seoType).map((key) => ({ $ref: `#/definitions/${key}` }));
+  // The page's seo field: blocks that return a Seo, or only optional SEO
+  // fields of their own (a migrated site's PageSeo); loaders of content that
+  // happens to carry a title stay out.
+  const seoRefs = candidates
+    .filter((c) => returnFits(c.returnType, seoType) || hasSeoFields(c.returnType, seoFieldsType))
+    .map((c) => ({ $ref: `#/definitions/${toBase64(c.key)}` }));
   for (const name of BUILT_IN_BLOCKS) {
     if (declared.has(name)) continue;
     const group = BUILT_IN_GROUPS[name];
@@ -463,6 +494,20 @@ function sameNamedType(a: Type, b: Type): boolean {
   const sa = (a.getAliasSymbol() ?? a.getSymbol())?.compilerSymbol;
   const sb = (b.getAliasSymbol() ?? b.getSymbol())?.compilerSymbol;
   return sa !== undefined && sa === sb;
+}
+
+/**
+ * Whether a block returns SEO fields of its own: an object (not a list) whose
+ * every property is optional, such as a migrated site's PageSeo, with a
+ * `title` or a `description`, each a string when set. A loader whose result
+ * has required fields (a blog post's `title` and `excerpt`, a category's
+ * `name`) is content, not SEO, and stays out.
+ */
+function hasSeoFields(returnType: Type, seoFields: Type): boolean {
+  const source = nonNullable(returnType);
+  if (source.isArray() || !source.isObject() || !isWeakType(source)) return false;
+  if (!source.getProperty("title") && !source.getProperty("description")) return false;
+  return source.isAssignableTo(seoFields);
 }
 
 /**

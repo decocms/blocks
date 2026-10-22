@@ -71,9 +71,9 @@ export const blocks = {
 };
 ```
 
-`device`, `cookie`, `host`, `pathname`, `queryString`, `location`, `multi` and `random` give v7's results. A v8 block function gets only its inputs, so each matcher takes the request as its second argument: a `Request`, or `{ request, url, flags }`, where `url` is the page's URL when the request is a client-side navigation's server-function call, and `flags` is one array per request for the A/B decisions. `matcherContext()` stands for however the site reaches the request being served; the framework subpaths provide it. `always`, `never` and `date` are v8 built-ins, so they aren't here.
+`device`, `cookie`, `host`, `pathname`, `queryString`, `location`, `multi` and `random` give v7's results. A v8 block function gets only its inputs, so each matcher takes the request as its second argument: a `Request`, or `{ request, url, flags }`, where `url` is the page's URL when the request is a client-side navigation's server-function call, and `flags` is one array per request for the A/B decisions. `matcherContext()` stands for however the site reaches the request being served; the framework subpaths provide it. `always`, `never` and `date` are v8 built-ins, so they aren't here; v8's `date` names a campaign of the saved block `campaigns`, and the migration moves each v7 date window there.
 
-- `random` is v7's sticky random (latest 7.x): a visitor keeps their group through the `deco_segment` cookie, and is drawn again once when the traffic share changes. The cookie is keyed on the test's **cohort, the saved matcher block's name**. A v8 block doesn't know its own name, so the block carries it in `cohort`; a random rule written inline uses `website/matchers/random.ts`, as v7 did. Keep the cohort when changing the traffic share: renaming it puts every visitor in a new test.
+- `random` is v7's sticky random (latest 7.x): a visitor keeps their group through the `deco_segment` cookie, and is drawn again once when the traffic share changes. The cookie is keyed on the test's **cohort, the saved matcher block's name**. A v8 block doesn't know its own name, so the block carries it in `cohort`; a random rule written inline uses `website/matchers/random.ts`, as v7 did. Keep the cohort when changing the traffic share: renaming it puts every visitor in a new test. The v7 → v8 migration doesn't register it: it reports each random matcher, to be moved into the saved block `experiments` (type `split-traffic`) under the same name, so visitors keep their groups, and the binding owns `deco_segment`. Don't run both on one site: two writers of the cookie undo each other's decisions.
 - After the page resolved, `segmentSetCookie(request, flags)` gives the `Set-Cookie` to send, or `null` when the visitor's cookie already says the same. `decideRandom` returns a decision with that cookie. Don't cache a response that sets it for other visitors.
 - `multi` gets its rules' results: v8 resolves them first. An inner `random` is sticky here; v7 drew it again on every request.
 - `environment` throws: it read the process environment, which no v8 package does. Register your own matcher under its name.
@@ -143,14 +143,14 @@ return { ...page, device: requestDevice() };
 import { DeviceProvider } from "@decocms/compat-v7/tanstack";
 <DeviceProvider value={page.device}>{sections}</DeviceProvider>
 
-// src/worker-entry.ts
-segment: (request) => ({ ...cohortSegment(request) }),
+// src/worker-entry.ts: the segment of the site's own page cache
+const segment = (request: Request) => ({ device: …, ...cohortSegment(request) });
 ```
 
 - `matcherContext(pageUrl?)` gives every matcher the request being served (TanStack Start's `getRequest()`), the page's URL and one `flags` array per request. On a client-side navigation the request is the server-function call, so pass the page's URL there, as v7 matched the page being navigated to; without it, that call throws.
-- `commitSegmentCookie()` sets `deco_segment` on the response with the decisions the matchers made, merged over the visitor's cookie: `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`, v7's bytes. Nothing when the cookie already says the same. Call it in the server function, after the page resolved. `createDecoWorker` never stores a response that sets it, as v7's worker didn't: keep `deco_segment` out of `safeCookies`.
+- `commitSegmentCookie()` sets `deco_segment` on the response with the decisions the matchers made, merged over the visitor's cookie: `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`, v7's bytes. Nothing when the cookie already says the same. Call it in the server function, after the page resolved. A site's page cache never stores a response that sets it, as v7's worker didn't: keep `deco_segment` out of the cookies its cache strips and stores (the worker-entry recipe in `@decocms/tanstack`'s README stores no response that sets a cookie other than its `SAFE_COOKIES`).
 - `cohortSegment(request)` is v7's A/B split of the edge cache (`{ abf: <token> }` for a visitor in a test, `{}` otherwise), so each group keeps its own cached page and everyone else shares one.
-- `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
+- `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker-entry recipe's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
 
 ### The A/B split with the legacy origin
 

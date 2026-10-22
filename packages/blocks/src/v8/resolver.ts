@@ -12,7 +12,9 @@
  * order and stop at the first `true` one (later rules never run, as in v7).
  *
  * A `Resolver` belongs to one client, so its memo (results per block function
- * and canonical inputs) never outlives a request. Within the request the memo
+ * and canonical inputs) never outlives a request, and every block function it
+ * calls runs with that client as `currentClient()` (a lazy value called after
+ * the resolve returned included). Within the request the memo
  * hands every occurrence of the same block the same result object, so results
  * are read-only (see `Client` in ./types): mutating one in place would change
  * the others, the class of bug behind the v7 layout-cache race.
@@ -21,9 +23,10 @@ import { RESERVED_NAMES } from "./builtins/index.ts";
 import { isLazyBuiltin } from "./builtins/lazy.ts";
 import { LEGACY_ALIASES, wrapLegacyVariants } from "./builtins/legacy.ts";
 import { isMultivariateBuiltin } from "./builtins/multivariate.ts";
+import { runWithClient } from "./current.ts";
 import { errors, isResolutionError } from "./errors.ts";
 import { canonicalKey, isPlainObject, type JsonObject, own } from "./json.ts";
-import type { BlockFunction, Blocks, Lazy, Snapshot } from "./types.ts";
+import type { BlockFunction, Blocks, Client, Lazy, Snapshot } from "./types.ts";
 
 type Path = (string | number)[];
 
@@ -32,6 +35,8 @@ interface ResolverOptions {
   blocks: Blocks;
   /** The built-ins, with this CMS's `secret`. */
   builtIns: Readonly<Blocks>;
+  /** The client this resolver belongs to: `currentClient()` while a block function runs. */
+  client?: Client;
   /** Called once per name a saved block shares with a function. */
   onCollision?: (name: string) => void;
   /** Called after each block function runs (telemetry: spans and failures). */
@@ -42,15 +47,17 @@ export class Resolver {
   readonly #snapshot: Snapshot;
   readonly #blocks: Blocks;
   readonly #builtIns: Readonly<Blocks>;
+  readonly #client: Client | undefined;
   readonly #onCollision?: (name: string) => void;
   readonly #onBlock?: ResolverOptions["onBlock"];
   readonly #memo = new WeakMap<BlockFunction, Map<string, Promise<unknown>>>();
   readonly #keys = new WeakMap<object, string | null>();
 
-  constructor({ snapshot, blocks, builtIns, onCollision, onBlock }: ResolverOptions) {
+  constructor({ snapshot, blocks, builtIns, client, onCollision, onBlock }: ResolverOptions) {
     this.#snapshot = snapshot;
     this.#blocks = blocks;
     this.#builtIns = builtIns;
+    this.#client = client;
     this.#onCollision = onCollision;
     this.#onBlock = onBlock;
   }
@@ -248,7 +255,10 @@ export class Resolver {
         : await this.#resolveFields(inputs, path, chain, true);
     const start = Date.now();
     try {
-      const value = await fn(resolved);
+      const client = this.#client;
+      const value = await (client === undefined
+        ? fn(resolved)
+        : runWithClient(client, () => fn(resolved)));
       this.#onBlock?.(type, start, Date.now());
       return value;
     } catch (error) {

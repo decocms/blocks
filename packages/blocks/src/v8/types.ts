@@ -3,6 +3,7 @@
  * (`/next/api-reference#types`) — every type here is documented there.
  */
 import type { ReactNode } from "react";
+import type { Assignments, Visitor } from "./experiments.ts";
 
 // ---------------------------------------------------------------------------
 // Blocks and content
@@ -41,6 +42,13 @@ export type Snapshot = {
    * module, a build outside git), the bundled content counts as the oldest.
    */
   committedAt?: string;
+  /**
+   * The hosts this release may be previewed on (host patterns), as Studio
+   * wrote them into the release metadata on delivery.decocms.com
+   * (`latest.json` and `revisions/<sha>.json`). Previews are checked against
+   * the current release's list; the bundled content has none.
+   */
+  previewHosts?: string[];
 };
 
 /**
@@ -99,10 +107,14 @@ export interface Seo {
   description: string;
 }
 
-/** The built-in `page` block, resolved: without `seo`, the site's defaults apply. */
-export interface Page extends Route {
+/**
+ * The built-in `page` block, resolved: without `seo`, the site's defaults
+ * apply. Its sections are whatever its section blocks return: React
+ * elements by default, or a site's descriptors (`Page<{ component, props }>`).
+ */
+export interface Page<Section = ReactNode> extends Route {
   seo?: Seo;
-  sections: ReactNode[];
+  sections: Section[];
 }
 
 /** The built-in `redirect` block. */
@@ -158,15 +170,20 @@ export interface Variant<T> {
  * caps (see /next/built-in-blocks#cms-settings).
  */
 export interface CMSSettings {
-  /** Host patterns previews are allowed on, within `createCMS`'s `preview.hosts`. */
-  preview?: { hosts?: string[] };
   telemetry?: Telemetry;
   analytics?: Analytics;
 }
 
 /** What `cms.settings()` returns: every section, defaults filled in, caps applied. */
 export interface EffectiveSettings {
-  /** `["*"]` means every host; an empty list, none. */
+  /**
+   * The hosts previews are allowed on, as known in memory: the current
+   * release's `previewHosts` (Studio writes them into the release metadata)
+   * plus `createCMS`'s `preview.hosts`. A site with no list published (no
+   * `latest.json` yet, or one without `previewHosts`) and content with no
+   * remote site and no `preview.hosts` give `["*"]`, every host; an empty
+   * list, none (as before this process has read the release metadata).
+   */
   preview: { hosts: string[] };
   telemetry: Required<Telemetry>;
   analytics: Required<Analytics>;
@@ -266,8 +283,12 @@ export interface CMSConfig {
   telemetry?: false | TelemetryConfig;
   preview?: {
     /**
-     * The most content may allow previews on, in the host pattern format
-     * (/next/api-reference#host-patterns). Without it, content may allow any host.
+     * Hosts previews are allowed on besides the release's own (Studio writes
+     * those into the release metadata), in the host pattern format
+     * (/next/api-reference#host-patterns). Without `site`, the only list:
+     * left out, previews are allowed on every host. With `site`, it adds to
+     * the release's list; a site with no list published previews on every
+     * host anyway.
      */
     hosts?: string[];
     /**
@@ -304,13 +325,14 @@ export interface ListOptions<T> {
 }
 
 /**
- * Reads one revision for one request.
+ * Reads one revision for one request, for one visitor, at one moment.
  *
  * Results are read-only. A client runs each block function once per distinct
  * input, so the same block at two places in a request hands both places the
  * same object; mutating it in place changes the other occurrence too. Copy a
  * result before changing it. (The memo belongs to one client, so nothing is
- * shared across requests.)
+ * shared across requests; it is also why tests and campaigns are decided once
+ * per client, however many rules ask.)
  */
 export interface Client {
   resolve<T = unknown>(target: unknown, options?: ResolveOptions): Promise<Result<T>>;
@@ -321,16 +343,88 @@ export interface Client {
    * can't load, since there is no revision to report.
    */
   revision(): Promise<string>;
+  /** Who is visiting, as passed to `cms.client()` (a frozen copy); `null` for none. */
+  readonly visitor: Visitor | null;
+  /**
+   * The version it reads: the release's commit SHA, or the draft pointer, as
+   * passed to `cms.client()`. For the current release, the SHA of the release
+   * it loaded (`undefined` until its first `resolve`, `list` or `revision()`).
+   */
+  readonly version: string | undefined;
+  /** The date campaigns run at: the one passed to `cms.client()`, otherwise when the client was created. */
+  readonly date: Date;
+}
+
+/**
+ * What one client is created with, all read by the app outside blocks and
+ * passed in. The visitor and the date decide; `experiments` and `campaigns`
+ * override what they decide, name by name. Given every test and campaign and
+ * no visitor, a client is fully decided in advance (a page rendering what a
+ * proxy in front of it decided).
+ */
+export interface ClientOptions {
+  /**
+   * What to read: `undefined` (or `null`) for the current release; a
+   * published release's commit SHA (40 hex characters), read from hosted
+   * releases; or a draft pointer, the draft's changes over the current
+   * release. Only a version: a Studio link's moment and switched tests are
+   * the options below (`cms.readVersion(request)` reads all of them).
+   */
+  version?: string | null;
+  /**
+   * Who is visiting (`readVisitor`, `parseVisitor` or `newVisitor` from
+   * `@decocms/blocks/experiments`): the saved block `experiments` decides
+   * its tests for them. Without one, every test not in `experiments` is off.
+   */
+  visitor?: Visitor | null;
+  /**
+   * The moment the saved block `campaigns` checks its windows at
+   * (`client.date`). Default: when the client is created.
+   */
+  date?: Date | null;
+  /**
+   * Tests on (`true`) or off (`false`) by name, whatever the visitor and the
+   * test's percentage; the others are decided for the visitor. A name the
+   * saved block `experiments` doesn't have stays out.
+   */
+  experiments?: Partial<Assignments> | null;
+  /**
+   * Campaigns on (`true`) or off (`false`) by name, whatever their window;
+   * the others are checked at `date`. A name the saved block `campaigns`
+   * doesn't have stays out.
+   */
+  campaigns?: Partial<Assignments> | null;
+}
+
+/**
+ * What a Studio link asks for (`cms.readVersion`, `parseVersion`): the
+ * version, and the preview's moment and the tests and campaigns it switches,
+ * in the shape of `ClientOptions`, so it spreads into `cms.client()`.
+ */
+export interface RequestVersion {
+  /** A draft pointer, or a published release's commit SHA. */
+  version: string;
+  /** The moment the preview shows (`__at`). */
+  date?: Date;
+  /** The tests the preview switches on or off (`__test=<name>=on|off`). */
+  experiments?: Assignments;
+  /** The campaigns the preview switches on or off (`__campaign=<name>=on|off`). */
+  campaigns?: Assignments;
 }
 
 export interface CMS {
-  /** A client reading the current release. */
+  /**
+   * A client: the version it reads and the visitor it decides tests for, both
+   * passed in. Create one per request.
+   */
+  client(options?: ClientOptions): Client;
+  /** A client reading the current release: `cms.client()`. */
   forRelease(): Client;
   /**
-   * A client reading the draft a pointer names: its changes, fetched from a
-   * draft host (`*.decocms.com` and loopback by default;
-   * `createCMS({ preview: { draftHosts } })` replaces the list), over this
-   * server's production content.
+   * A client reading the draft a pointer names: `cms.client({ version: pointer })`.
+   * Its changes are fetched from a draft host (`*.decocms.com` and loopback by
+   * default; `createCMS({ preview: { draftHosts } })` replaces the list) and
+   * laid over this server's production content.
    */
   forDraft(pointer: string): Client;
   /** Ask the content source for newer content now; never throws. */
@@ -342,11 +436,26 @@ export interface CMS {
    */
   settings(): Promise<EffectiveSettings>;
   /**
-   * The request's draft pointer: `?__draft=` first, then the `__deco_draft`
-   * cookie. `null` when neither is present, for `?__draft=off`, on a host
-   * outside `settings().preview.hosts`, and for a value that doesn't parse
-   * (ignored, as if absent): in each case the request gets the release.
+   * What a Studio link asks for: `?__draft=` first, then the `__deco_draft`
+   * cookie, holding a draft pointer or a published release's commit SHA,
+   * with the preview's moment (`__at`) and switched tests (`__test`) and
+   * campaigns (`__campaign`) as `date`, `experiments` and `campaigns`.
+   * `null` when neither is present, for `?__draft=off`, on a host outside
+   * the preview hosts (the current release's `previewHosts`, which Studio
+   * writes into the release metadata, plus `createCMS`'s `preview.hosts`;
+   * every host while the site has published no list, or without `site` and
+   * `preview.hosts`; no host while the metadata can't be read, besides
+   * `preview.hosts`), and for a value that doesn't parse (ignored,
+   * as if absent): in each case the request gets the current release. A
+   * draft and an older release's SHA are both checked against the current
+   * release's list.
+   *
+   * ```ts
+   * const client = cms.client({ visitor, ...(await cms.readVersion(request)) });
+   * ```
    */
+  readVersion(request: RequestLike): Promise<RequestVersion | null>;
+  /** The version alone (`readVersion(request)`'s `version`), under its earlier name. */
   draftPointer(request: RequestLike): Promise<string | null>;
   /**
    * The `Set-Cookie` value that starts a preview (a valid `?__draft=` on an

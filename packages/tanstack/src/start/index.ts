@@ -17,9 +17,9 @@ function publishedToken(): string | null {
 /**
  * `fetch` for server-function calls: adds the CDN segment token the page
  * published (`__cseg`), so the CDN can cache client-side navigation data. The
- * token is a hint: the worker recomputes it from the request and keeps
- * `CDN-Cache-Control: no-store` unless they match. With no token on the page,
- * a plain `fetch`.
+ * token is a hint: the site's page cache (the example worker entry the README links)
+ * recomputes it from the request and lets the CDN keep the response only when
+ * they match. With no token on the page, a plain `fetch`.
  */
 export const decoServerFnFetch: typeof fetch = (input, init) => {
   // TanStack's server-function fetcher passes the URL as a string; anything else goes through as is.
