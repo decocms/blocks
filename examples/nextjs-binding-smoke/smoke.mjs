@@ -256,7 +256,7 @@ try {
     `${draftOnSide.res.status} ${assignmentsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
   );
 
-  // ISR, never force-static: the CMS pages expire after 10 minutes, so a cached page is at most that stale.
+  // ISR, never force-static: the CMS pages are rendered again once they are 10 minutes old.
   const assignmentsPage = readFileSync("src/app/%5Fassignments/[assignments]/[[...path]]/page.tsx", "utf-8");
   const prerender = JSON.parse(readFileSync(".next/prerender-manifest.json", "utf-8"));
   check(

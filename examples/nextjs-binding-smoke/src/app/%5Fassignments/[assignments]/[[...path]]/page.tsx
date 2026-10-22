@@ -6,7 +6,8 @@ import { PageView } from "../../../PageView";
 // the tests the visitor is in and the campaigns running, never the visitor. The proxy decides, the
 // page renders that (assignedClient) and reads no request, so Next caches one entry per path and
 // assignments and serves it to every visitor with the same ones. ISR, never force-static: a cached
-// page is rendered again once it is 10 minutes old, so it is at most 10 minutes stale. Drafts
+// page is rendered again in the background on the first request after it is 10 minutes old
+// (that request still gets the stored copy), so it is about 10 minutes stale. Drafts
 // render on /_draft.
 export const revalidate = 600;
 // No path is rendered at build time: each is rendered on its first request, then cached (ISR).

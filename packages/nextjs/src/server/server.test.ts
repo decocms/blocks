@@ -80,7 +80,7 @@ describe("bindDraft", () => {
     expect(await bindDraft(cms, { site: "acme", previewHosts: "none" })).toBe(false);
   });
 
-  it("with previews off everywhere it never reads the request, so a static page stays static", async () => {
+  it("with previews off everywhere it never reads the request, so a cached (ISR) page stays cached", async () => {
     serve(cookie);
     expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
     expect(await bindDraft(testCMS(), { previewHosts: "none" })).toBe(false);
@@ -135,7 +135,7 @@ describe("the visitor the proxy forwarded", () => {
     expect(activeDraftPointer()).toBe(sha);
   });
 
-  it("a release with no experiments never reads the header, so a static page stays static", async () => {
+  it("a release with no experiments never reads the header, so a cached (ISR) page stays cached", async () => {
     serve({ "x-deco-visitor": serializeVisitor(newVisitor()) });
     expect(await bindDraft(testCMS(snapshot({ previewHosts: [] })))).toBe(false);
     expect(request.reads).toBe(0);

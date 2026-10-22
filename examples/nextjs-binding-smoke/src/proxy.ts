@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
   const draft = await decideDraft(proxyCms, request, preview);
   // The visitor: the deco_segment cookie, or a new one (its cookie goes out on a first visit).
   const visitor = decideVisitor(request, draft);
-  // Published pages are static, so a drafted request renders on the dynamic draft route, and a CMS
+  // Published pages are cached (ISR), so a drafted request renders on the dynamic draft route, and a CMS
   // page on the assignments route, /_assignments/<assignments>/<path>: Next caches one entry per set of
   // assignments, and the visitor stays out of it.
   const response =

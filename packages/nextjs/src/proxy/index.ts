@@ -238,7 +238,8 @@ const ASSIGNED_CACHE_CONTROL = "private, no-cache";
  * forwards), so Next can cache it. The page builds its client with
  * `assignedClient` from `@decocms/nextjs/server`, which renders the tests and
  * the campaigns the path names: the proxy decides, the page renders that. A
- * cached page (ISR, `revalidate = 600`) can be up to 10 minutes stale, a
+ * cached page (ISR, `revalidate = 600`) is about 10 minutes stale (the
+ * first request after that still gets it while Next renders it again), a
  * banner switching on late, which is accepted.
  *
  * `null` for a drafted request (it renders on the draft route, never cached)
