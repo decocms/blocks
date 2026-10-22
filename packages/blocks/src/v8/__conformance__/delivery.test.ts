@@ -33,8 +33,13 @@ import {
 } from "../testFixtures";
 import type { Loader, RequestLike, Snapshot } from "../types";
 
-/** cms.draftPointer and cms.draftCookie on a CMS with no settings: every host may preview. */
-const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+/** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
+const helpers = () =>
+  createCMS({
+    blocks: {},
+    content: { revision: "draft-helpers", blocks: {} },
+    preview: { hosts: ["*"] },
+  });
 const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
 const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
 const DRAFT_COOKIE = "__deco_draft";
@@ -1394,6 +1399,7 @@ describe("hosted-drafts", () => {
       blocks: docsBlocks(),
       content: docsSnapshot(),
       site: SITE,
+      preview: { hosts: ["s.example"] },
     });
     const render = async (client: ReturnType<typeof cms.forRelease>, _request: Request) =>
       new Response(await titleOf(client));

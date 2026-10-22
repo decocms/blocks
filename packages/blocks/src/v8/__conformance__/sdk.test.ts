@@ -33,8 +33,13 @@ import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures
 import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
-/** cms.draftPointer and cms.draftCookie, on a CMS with no settings: every host may preview. */
-const helpers = () => createCMS({ blocks: {}, content: { revision: "draft-helpers", blocks: {} } });
+/** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
+const helpers = () =>
+  createCMS({
+    blocks: {},
+    content: { revision: "draft-helpers", blocks: {} },
+    preview: { hosts: ["*"] },
+  });
 const draftPointer = (request: RequestLike) => helpers().draftPointer(request);
 const draftCookie = (request: RequestLike) => helpers().draftCookie(request);
 const DRAFT_COOKIE = "__deco_draft";
@@ -1410,7 +1415,11 @@ describe("AR-64 / AR-65 error codes and paths", () => {
 describe("RD-02 / RD-04 the draft client works like the release client", () => {
   it("forDraft reads the draft the pointer names; draftPointer picks the client", async () => {
     const { pointer } = studioDraft();
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      preview: { hosts: ["s"] },
+    });
     const pick = async (request: Request) => {
       const pointer = await cms.draftPointer(request);
       return pointer ? cms.forDraft(pointer) : cms.forRelease();

@@ -210,7 +210,7 @@ export class ContentStore {
         if (updated) {
           this.#release = undefined;
           // `#latest` stays: settings keep the release that was serving until
-          // the next one loads, never the defaults (which may allow every host).
+          // the next one loads, never the defaults (which allow no host).
           // Drafts are fetched again, so a preview follows the release too.
           this.#drafts.clear();
         }

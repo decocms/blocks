@@ -83,6 +83,10 @@ describe("runCli", () => {
       fixture.write(`apps/store/${file}`, content);
     fixture.write("apps/store/src/deco.ts", fixture.read("src/deco.ts"));
     fixture.write("apps/store/.deco/blocks/Summer.json", hero);
+    fixture.write("apps/store/.deco/blocks/CMS.json", {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["localhost:3000"] },
+    });
     const out = recorder();
     const args = ["--root", "apps/store"];
     expect(await runCli(["schema", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
@@ -90,7 +94,7 @@ describe("runCli", () => {
     expect(await runCli(["check", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
     expect(fixture.exists("apps/store/.deco/schema.gen.json")).toBe(true);
     expect(fixture.exists("apps/store/.deco/blocks.gen.ts")).toBe(true);
-    expect(out.lines.at(-1)?.message).toBe("1 saved block checked: 0 errors, 0 warnings");
+    expect(out.lines.at(-1)?.message).toBe("2 saved blocks checked: 0 errors, 0 warnings");
   }, 60_000);
 
   it("deco content --watch regenerates when a file is added", async () => {

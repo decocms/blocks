@@ -153,7 +153,11 @@ describe("cms.readVersion", () => {
     new Request(`https://shop.example.com/p${query}`, cookie ? { headers: { cookie } } : {});
 
   it("rv-01: reads a draft pointer or a release's commit SHA from a Studio link (?__draft=), then the cookie", async () => {
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      preview: { hosts: ["shop.example.com"] },
+    });
     const pointer = "studio.decocms.com/sites/acme/drafts/x.json@v1";
     expect(await cms.readVersion(request(`?__draft=${encodeURIComponent(pointer)}`))).toEqual({
       version: pointer,
@@ -174,8 +178,36 @@ describe("cms.readVersion", () => {
     expect(await cms.readVersion(request(`?__draft=${OLD}`))).toBeNull();
   });
 
+  it("rv-04: a site that declares no preview hosts has none: no version is read, on any host", async () => {
+    const link = `?__draft=${OLD}`;
+    const none = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    expect((await none.settings()).preview.hosts).toEqual([]);
+    expect(await none.readVersion(request(link))).toBeNull();
+    expect(await none.readVersion(request("", `__deco_draft=${OLD}`))).toBeNull();
+    expect(await none.draftPointer(request(link))).toBeNull();
+    expect(await none.draftCookie(request(link))).toBeNull();
+    // Declared in the CMS block (content) or in createCMS (code), it reads.
+    const content = docsSnapshot();
+    content.blocks.CMS = {
+      __resolveType: "cms-settings",
+      preview: { hosts: ["shop.example.com"] },
+    };
+    const inContent = createCMS({ blocks: docsBlocks(), content });
+    expect(await inContent.readVersion(request(link))).toEqual({ version: OLD });
+    const inCode = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      preview: { hosts: ["*.example.com"] },
+    });
+    expect(await inCode.readVersion(request(link))).toEqual({ version: OLD });
+  });
+
   it("rv-03: draftPointer is readVersion's version alone, under its earlier name; the cookie carries a SHA too", async () => {
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      preview: { hosts: ["shop.example.com"] },
+    });
     expect(await cms.draftPointer(request(`?__draft=${OLD}`))).toBe(OLD);
     expect(await cms.draftCookie(request(`?__draft=${OLD}`))).toMatch(
       new RegExp(`^__deco_draft=${OLD};`),

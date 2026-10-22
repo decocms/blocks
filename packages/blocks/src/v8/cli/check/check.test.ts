@@ -43,6 +43,8 @@ const lines = (problems: Problem[]) =>
   );
 
 const hero = { __resolveType: "hero", title: "Summer", size: "md" };
+/** A CMS block that declares preview hosts, so deco check has no preview-hosts warning to give. */
+const PREVIEWS = { __resolveType: "cms-settings", preview: { hosts: ["localhost:3000"] } };
 const page = (sections: unknown[], extra: Record<string, unknown> = {}) => ({
   __resolveType: "page",
   name: "Home",
@@ -618,6 +620,7 @@ describe("deco check", () => {
     const fixture = createFixture(STORE_FILES);
     try {
       await writeSchema(decoPaths(fixture.root));
+      fixture.write(".deco/blocks/CMS.json", PREVIEWS);
       fixture.write(".deco/blocks/HomePage.json", page([{ __resolveType: "hero", size: "md" }]));
       fixture.write(".deco/blocks/Promo.json", { __resolveType: "promo-banner" });
       const out = recorder();
@@ -628,7 +631,7 @@ describe("deco check", () => {
           "  sections[0].title: required",
           ".deco/blocks/Promo.json",
           '  unknown block type "promo-banner"',
-          "2 saved blocks checked: 2 errors, 0 warnings",
+          "3 saved blocks checked: 2 errors, 0 warnings",
         ].join("\n"),
       );
 
@@ -645,11 +648,44 @@ describe("deco check", () => {
       });
       const ok = recorder();
       expect(check({ cwd: fixture.root, reporter: ok })).toBe(0);
-      expect(ok.lines.at(-1)?.message).toBe("2 saved blocks checked: 0 errors, 1 warning");
+      expect(ok.lines.at(-1)?.message).toBe("3 saved blocks checked: 0 errors, 1 warning");
     } finally {
       fixture.remove();
     }
   }, 60_000);
+
+  it("warns, calmly, when the site declares no preview hosts: the site editor's previews won't open until it does", () => {
+    const fixture = createFixture({
+      ".deco/schema.gen.json": meta,
+      ".deco/blocks/Hero.json": { __resolveType: "hero", title: "Summer", size: "md" },
+    });
+    const warning =
+      ".deco/blocks/CMS.json\n  warning: preview.hosts: no preview hosts yet, so previews from the site editor won't open on this site: " +
+      'list the hosts they may open on, such as "localhost:3000" or "staging.example.com" ' +
+      "(hosts the site's code lists, in createCMS's preview.hosts or the binding's previewHosts, count too)";
+    try {
+      const out = recorder();
+      expect(check({ cwd: fixture.root, reporter: out })).toBe(0);
+      expect(out.text()).toBe(`${warning}\n1 saved block checked: 0 errors, 1 warning`);
+      // A CMS block without a preview list is no declaration either.
+      fixture.write(".deco/blocks/CMS.json", { __resolveType: "cms-settings", telemetry: {} });
+      const settings = recorder();
+      expect(check({ cwd: fixture.root, reporter: settings })).toBe(0);
+      expect(settings.text()).toBe(`${warning}\n2 saved blocks checked: 0 errors, 1 warning`);
+      // A list, even an empty one (previews off), is.
+      for (const hosts of [["localhost:3000"], []]) {
+        fixture.write(".deco/blocks/CMS.json", {
+          __resolveType: "cms-settings",
+          preview: { hosts },
+        });
+        const declared = recorder();
+        expect(check({ cwd: fixture.root, reporter: declared })).toBe(0);
+        expect(declared.text()).toBe("2 saved blocks checked: 0 errors, 0 warnings");
+      }
+    } finally {
+      fixture.remove();
+    }
+  });
 
   it("fails on unreadable files and without a schema", () => {
     const fixture = createFixture({ ".deco/blocks/Broken.json": "{" });
@@ -719,20 +755,21 @@ describe("deco check --color", () => {
   it("marks a clean run with a green check, the counts green", async () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
+      ".deco/blocks/CMS.json": PREVIEWS,
       ".deco/blocks/Hero.json": hero,
     });
     try {
       const out = recorder();
       expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(0);
       expect(out.text()).toBe(
-        `${green("✓")} 1 saved block checked: ${green("0 errors, 0 warnings")}`,
+        `${green("✓")} 2 saved blocks checked: ${green("0 errors, 0 warnings")}`,
       );
       // Plain unless asked, and --no-color wins when it comes last.
       const plain = recorder();
       expect(
         await runCli(["check", "--color", "--no-color"], { cwd: fixture.root, reporter: plain }),
       ).toBe(0);
-      expect(plain.text()).toBe("1 saved block checked: 0 errors, 0 warnings");
+      expect(plain.text()).toBe("2 saved blocks checked: 0 errors, 0 warnings");
     } finally {
       fixture.remove();
     }
@@ -741,6 +778,7 @@ describe("deco check --color", () => {
   it("colours errors red and warnings yellow, with the same exit codes", async () => {
     const fixture = createFixture({
       ".deco/schema.gen.json": meta,
+      ".deco/blocks/CMS.json": PREVIEWS,
       ".deco/blocks/Promo.json": { __resolveType: "promo-banner" },
     });
     try {
@@ -751,7 +789,7 @@ describe("deco check --color", () => {
         [
           bold(".deco/blocks/Promo.json"),
           `  ${red('unknown block type "promo-banner"')}`,
-          `${red("✗")} 1 saved block checked: ${red("1 error")}, 0 warnings`,
+          `${red("✗")} 2 saved blocks checked: ${red("1 error")}, 0 warnings`,
         ].join("\n"),
       );
 
@@ -762,7 +800,7 @@ describe("deco check --color", () => {
         [
           bold(".deco/blocks/Promo.json"),
           `  ${yellow("warning")}: ${dim("title.variants[1]")}: can never be picked: variants[0] has an always rule`,
-          `${yellow("⚠")} 1 saved block checked: 0 errors, ${yellow("1 warning")}`,
+          `${yellow("⚠")} 2 saved blocks checked: 0 errors, ${yellow("1 warning")}`,
         ].join("\n"),
       );
     } finally {

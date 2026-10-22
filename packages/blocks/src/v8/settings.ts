@@ -11,7 +11,8 @@
  * - Telemetry rates are the lower of content's and `telemetry.limits`.
  * - Preview hosts: content's entries that fall within code's `preview.hosts`
  *   (all of them when code sets none); without the field, code's list, or
- *   every host.
+ *   none: a site previews only where it declares (PO 2026-10-22), never on
+ *   every host by default. `["*"]`, declared, still means every host.
  */
 import {
   analyticsSection,
@@ -19,13 +20,7 @@ import {
   SETTINGS_TYPE,
   telemetrySection,
 } from "./builtins/data.ts";
-import {
-  EVERY_HOST,
-  formatHostPattern,
-  type HostPattern,
-  parseHostPattern,
-  patternWithin,
-} from "./hosts.ts";
+import { formatHostPattern, type HostPattern, parseHostPattern, patternWithin } from "./hosts.ts";
 import { isPlainObject } from "./json.ts";
 import type { Client, CMSConfig, EffectiveSettings, Snapshot } from "./types.ts";
 
@@ -148,7 +143,7 @@ function deepFreeze<T>(value: T): T {
 
 function effectiveHosts(preview: unknown, code: readonly HostPattern[] | undefined): string[] {
   const saved = isPlainObject(preview) && Array.isArray(preview.hosts) ? preview.hosts : undefined;
-  if (saved === undefined) return code ? unique(code.map(formatHostPattern)) : [EVERY_HOST];
+  if (saved === undefined) return code ? unique(code.map(formatHostPattern)) : [];
   const kept: string[] = [];
   for (const raw of saved) {
     const pattern = parseHostPattern(raw);

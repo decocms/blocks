@@ -613,9 +613,9 @@ describe("the draft host allowlist (v7's, in the worker)", () => {
     return rendered;
   }
 
-  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, not blocks' every host)", async () => {
+  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, and blocks' own)", async () => {
     const cms = testCMS(snapshot());
-    expect((await cms.settings()).preview.hosts).toEqual(["*"]); // blocks' own default stays
+    expect((await cms.settings()).preview.hosts).toEqual([]); // none declared, none allowed
     for (const host of ["store.example.com", "www.store.example.com", "localhost:5173"]) {
       expect(await previews({ cms }, host), host).toBe(false);
     }

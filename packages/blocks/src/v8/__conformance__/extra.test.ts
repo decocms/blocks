@@ -453,7 +453,11 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
   it("X24 api-reference › Draft pointers: ?__draft=off wins over the cookie; parse rejects schemes, stray @, unrooted paths", async () => {
     const req = (url: string, cookie?: string) =>
       new Request(url, { headers: cookie ? { cookie } : {} });
-    const cms = createCMS({ blocks: {}, content: { revision: "x24", blocks: {} } });
+    const cms = createCMS({
+      blocks: {},
+      content: { revision: "x24", blocks: {} },
+      preview: { hosts: ["*"] },
+    });
     expect(
       await cms.draftPointer(req("https://s.example/?__draft=off", "__deco_draft=h/p@v")),
     ).toBeNull();

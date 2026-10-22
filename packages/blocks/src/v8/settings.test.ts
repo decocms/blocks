@@ -13,7 +13,7 @@ import type { EffectiveSettings, Snapshot } from "./types";
 
 const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
 const DEFAULTS: EffectiveSettings = {
-  preview: { hosts: ["*"] },
+  preview: { hosts: [] },
   telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
   analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
 };
@@ -38,7 +38,7 @@ const request = (url: string, cookie?: string) =>
   new Request(url, { headers: cookie ? { cookie } : {} });
 
 describe("cms.settings(): defaults", () => {
-  it("with no CMS block, every default; every host may preview", async () => {
+  it("with no CMS block, every default; no host may preview until the site declares one", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect(await cms.settings()).toEqual(DEFAULTS);
   });
@@ -77,7 +77,7 @@ describe("cms.settings(): defaults", () => {
       }),
     });
     expect(await cms.settings()).toEqual({
-      preview: { hosts: ["*"] },
+      preview: { hosts: [] },
       telemetry: { enabled: true, metrics: false, errorSampleRate: 0.05, traceSampleRate: 0 },
       analytics: { collector: "https://stats.example.com/events", enabled: true },
     });

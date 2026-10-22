@@ -775,6 +775,7 @@ export default {
       const p = project({
         "tsconfig.json": TSCONFIG,
         ".deco/index.tsx": CHECK_INDEX,
+        ".deco/blocks/CMS.json": { __resolveType: "cms-settings", preview: { hosts: [] } },
         ".deco/blocks/HomePage.json": {
           __resolveType: "page",
           name: "Home",

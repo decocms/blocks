@@ -242,7 +242,7 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
                 type: "array",
                 title: "Hosts",
                 description:
-                  "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, every host (or the hosts code allows).",
+                  "Host patterns drafts may be previewed on, such as staging.example.com or *.example.com; empty turns previews off. Without it, only the hosts code allows, if any: previews from the site editor work only on the hosts listed here or in code.",
                 items: { type: "string" },
               },
             },

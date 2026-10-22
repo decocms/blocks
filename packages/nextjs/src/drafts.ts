@@ -8,8 +8,8 @@
  *
  * - The site's own preview hosts: the ones it declares, in the `CMS` block or
  *   as `createCMS({ preview: { hosts } })` (matched as `cms.readVersion`
- *   matches them). A site that declares none has none, as in v7: blocks'
- *   own default (every host) doesn't count as a declaration.
+ *   matches them). A site that declares none has none, as in v7 (and as
+ *   `cms.readVersion` reads it: no declared hosts, no version).
  * - The hosts Deco runs the site on, named after the site and always added:
  *   `<site>.deco.site` and `<site>.deco-cx.workers.dev`, exact.
  * - `previewHosts: [...]` replaces the site's own list (the inferred hosts are
@@ -56,7 +56,7 @@ function overrideHosts(policy: PreviewPolicy): string[] {
  * Whether `host` may preview without asking the CMS: `true` (an override or
  * inferred host), `false` (previews off, or the override leaves it out), or
  * `"cms"` when only the site's declared preview hosts can say (none declared:
- * `false`, see {@link declaresPreviewHosts}).
+ * `false`, as `cms.readVersion` answers).
  */
 export function previewHostDecision(host: string, policy: PreviewPolicy): boolean | "cms" {
   const override = overrideHosts(policy);
@@ -76,39 +76,14 @@ export function previewHostDecision(host: string, policy: PreviewPolicy): boolea
  * preview hosts and they allow any.
  */
 export async function isDraftPreviewEnabled(
-  cms: Pick<CMS, "settings" | "forRelease">,
+  cms: Pick<CMS, "settings">,
   policy: PreviewPolicy,
 ): Promise<boolean> {
   const override = overrideHosts(policy);
   if (override.includes("none")) return false;
   if (inferredPreviewHosts(policy.site).length > 0) return true;
   if (policy.previewHosts !== undefined) return override.length > 0;
-  return (await declaresPreviewHosts(cms)) && (await cms.settings()).preview.hosts.length > 0;
-}
-
-/**
- * Whether the site declares its own preview hosts: in the `CMS` block, or as
- * `createCMS`'s `preview.hosts`. When it declares none, `cms.settings()`
- * reports blocks' default, every host (`["*"]`), which v7 never had: there,
- * a site without a list previewed only on its Deco hosts. The saved `CMS`
- * block tells an explicit `["*"]` from that default.
- */
-export async function declaresPreviewHosts(
-  cms: Pick<CMS, "settings" | "forRelease">,
-): Promise<boolean> {
-  const { hosts } = (await cms.settings()).preview;
-  if (hosts.length !== 1 || hosts[0] !== "*") return true;
-  try {
-    const [block] = await cms.forRelease().resolve<unknown>("CMS", { run: false });
-    const preview = isRecord(block) ? block.preview : undefined;
-    return isRecord(preview) && ("hosts" in preview || "__resolveType" in preview);
-  } catch {
-    return false;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return (await cms.settings()).preview.hosts.length > 0;
 }
 
 const DRAFT_OFF = "off";
@@ -189,7 +164,7 @@ export function requestLike(
  * the policy (or, when only it can say, the `CMS` block) allows.
  */
 export async function allowedDraft(
-  cms: Pick<CMS, "readVersion" | "settings" | "forRelease">,
+  cms: Pick<CMS, "readVersion">,
   request: RequestLike,
   policy: PreviewPolicy,
 ): Promise<RequestVersion | null> {
@@ -202,10 +177,7 @@ export async function allowedDraft(
     return null;
   }
   const decision = previewHostDecision(host, policy);
-  const allowed =
-    decision === "cms"
-      ? (await declaresPreviewHosts(cms)) && (await cms.readVersion(request)) !== null
-      : decision;
+  const allowed = decision === "cms" ? (await cms.readVersion(request)) !== null : decision;
   return allowed ? read : null;
 }
 

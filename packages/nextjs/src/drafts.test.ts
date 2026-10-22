@@ -30,8 +30,8 @@ async function previews(
 }
 
 describe("the draft host allowlist (v7's)", () => {
-  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, not blocks' every host)", async () => {
-    expect((await testCMS(snapshot()).settings()).preview.hosts).toEqual(["*"]); // blocks' own default stays
+  it("with no preview hosts declared, only the site's Deco hosts preview (v7's default, and blocks' own)", async () => {
+    expect((await testCMS(snapshot()).settings()).preview.hosts).toEqual([]); // none declared, none allowed
     for (const host of ["store.example.com", "www.store.example.com", "localhost:3000"]) {
       expect(await previews({}, host), host).toBe(false);
     }

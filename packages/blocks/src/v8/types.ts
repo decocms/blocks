@@ -163,7 +163,7 @@ export interface Variant<T> {
  * caps (see /next/built-in-blocks#cms-settings).
  */
 export interface CMSSettings {
-  /** Host patterns previews are allowed on, within `createCMS`'s `preview.hosts`. */
+  /** Host patterns previews are allowed on, within `createCMS`'s `preview.hosts`; left out, code's list, or none. */
   preview?: { hosts?: string[] };
   telemetry?: Telemetry;
   analytics?: Analytics;

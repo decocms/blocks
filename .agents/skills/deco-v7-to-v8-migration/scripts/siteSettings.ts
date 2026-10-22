@@ -271,7 +271,7 @@ export function foldSiteSettings(root: string, report: Report): void {
       step: "settings",
       subject: "preview hosts",
       message:
-        "with no previewHosts, v7 allowed previews nowhere; the next major allows every host unless preview.hosts lists some, so add that list to CMS.json if you relied on it (/next/releases-and-drafts#allow-previews-per-host)",
+        "with no previewHosts, v7 allowed previews nowhere, and so does the next major until preview.hosts lists some (deco check warns until then): add the hosts the site editor previews on, your dev server and staging hosts, to CMS.json's preview.hosts (/next/releases-and-drafts#allow-previews-per-host)",
     });
   }
 

@@ -360,7 +360,13 @@ describe("migrate", () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
     expect(await content({ root, reporter: quiet })).toBe(0);
     expect(check({ root, reporter: quiet })).toBe(0);
-    expect(quiet.text).toEqual([]);
+    // v7 declared no preview hosts, so none were written: only that warning, which the report names too.
+    expect(quiet.text).toEqual([
+      expect.stringMatching(
+        /^\.deco\/blocks\/CMS\.json\n {2}warning: preview\.hosts: no preview hosts yet/,
+      ),
+    ]);
+    expect(report.manual.some((n) => n.subject === "preview hosts")).toBe(true);
     // deco schema runs the TypeScript compiler: seconds on a loaded machine.
   }, 30_000);
 

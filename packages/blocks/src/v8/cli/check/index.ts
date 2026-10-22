@@ -979,6 +979,30 @@ export function checkContent(meta: DecoMeta, saved: SavedBlocks): Problem[] {
 }
 
 /**
+ * A warning when the saved `CMS` block declares no preview hosts: a site
+ * previews only on the hosts it declares (`cms.readVersion` reads no version
+ * elsewhere), so the site editor's previews won't open until it lists them.
+ * Only content is read here; hosts the site's code lists count too, which the
+ * message says. An explicit list, even an empty one (previews off), or a
+ * `preview` with variants is a declaration.
+ */
+export function previewHostsProblem(saved: SavedBlocks): Problem | null {
+  const entry = own(saved.blocks, SETTINGS_BLOCK);
+  const preview =
+    isObject(entry) && entry.__resolveType === SETTINGS_TYPE ? entry.preview : undefined;
+  if (isObject(preview) && (Object.hasOwn(preview, "hosts") || isBlock(preview))) return null;
+  const file = own(saved.files, SETTINGS_BLOCK) ?? `${SETTINGS_BLOCK}.json`;
+  return {
+    file: `.deco/blocks/${file}`,
+    path: "preview.hosts",
+    message:
+      "no preview hosts yet, so previews from the site editor won't open on this site: list the hosts they may open on, " +
+      'such as "localhost:3000" or "staging.example.com" (hosts the site\'s code lists, in createCMS\'s preview.hosts or the binding\'s previewHosts, count too)',
+    severity: "warning",
+  };
+}
+
+/**
  * Print problems grouped per file, the format the docs show. With colour, the
  * same text plus escapes: file bold, path dim, an error's message red and the
  * word `warning` yellow.
@@ -1054,6 +1078,8 @@ export function check(options: CheckOptions = {}): number {
   const meta = readSchemaFile(paths.schema);
   const saved = readSavedBlocks(paths.blocks);
   const problems = checkContent(meta, saved);
+  const previews = previewHostsProblem(saved);
+  if (previews !== null) problems.push(previews);
   const errors = problems.filter((p) => p.severity === "error").length;
   const warnings = problems.length - errors;
   if (problems.length > 0) {
