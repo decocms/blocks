@@ -37,7 +37,6 @@ import {
   isServerFnPath,
   liveAssignmentKeys,
   type PageRequest,
-  readAssignments,
   type Segment,
   segmentKey,
   segmentToken,
@@ -287,10 +286,8 @@ async function pageCache(page: PageRequest<Env>): Promise<Response> {
   }
 
   const version = await cacheVersion(cms, __BUILD_HASH__);
-  // The visitor the page renders for: two visitors on the same side of every test share an entry.
-  const assigned = assignmentsKey(
-    await readAssignments(cms, { visitor: page.visitor, version: null }),
-  );
+  // What the worker decided and the page renders: two visitors on the same side of every test share an entry.
+  const assigned = assignmentsKey(page.assignments);
   const key = cacheKey(url, {
     version,
     segment,

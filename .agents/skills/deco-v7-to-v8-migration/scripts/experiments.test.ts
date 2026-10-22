@@ -84,7 +84,7 @@ describe("random matchers", () => {
     reportTestsAndDates(root, report);
     const message = report.manual.find((n) => n.subject === "experiments")?.message;
     expect(message).toContain("readVisitor(request)");
-    expect(message).toContain("cms.client({ visitor, version");
+    expect(message).toContain("cms.client({ visitor, ...(await cms.readVersion(request)) })");
   });
 });
 
@@ -110,7 +110,18 @@ describe("date rules", () => {
     expect(fs.existsSync(path.join(root, ".deco/blocks/campaigns.json"))).toBe(false);
   });
 
-  it("a date rule that names a campaign is left out", () => {
+  it("a campaign rule is left out; a prerelease date rule naming a campaign is reported", () => {
+    site({
+      "package.json": TANSTACK,
+      ".deco/blocks/Home.json": page({
+        __resolveType: "website/flags/multivariate.ts",
+        variants: [{ rule: { __resolveType: "campaign", name: "black-friday" }, value: [] }],
+      }),
+    });
+    const report = createReport();
+    reportTestsAndDates(root, report);
+    expect(report).toEqual(createReport());
+
     site({
       "package.json": TANSTACK,
       ".deco/blocks/Home.json": page({
@@ -118,9 +129,10 @@ describe("date rules", () => {
         variants: [{ rule: { __resolveType: "date", campaign: "black-friday" }, value: [] }],
       }),
     });
-    const report = createReport();
-    reportTestsAndDates(root, report);
-    expect(report).toEqual(createReport());
+    const old = createReport();
+    reportTestsAndDates(root, old);
+    expect(old.manual.map((n) => n.subject)).toEqual(["date rules"]);
+    expect(old.manual[0]?.message).toContain('{ "__resolveType": "campaign", "name": … }');
   });
 });
 

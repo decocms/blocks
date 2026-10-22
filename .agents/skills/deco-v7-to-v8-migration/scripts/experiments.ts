@@ -2,8 +2,8 @@
  * A/B tests and dates. v7 ran tests on its random matcher and date windows on
  * its date matcher; the next major keeps both in content: tests in the saved
  * block `experiments` (type `split-traffic`) read by the `experiment` rule,
- * date windows in the saved block `campaigns` (type `date-windows`) read by
- * the `date` rule, which names a campaign. The script moves neither: it
+ * date windows in the saved block `campaigns` (type `calendar`) read by the
+ * `campaign` rule, which names one. The script moves neither: it
  * reports each kind once, for whoever moves them by hand, and says who hands
  * the visitor to the client when the site has tests.
  */
@@ -18,7 +18,7 @@ const RANDOM_MATCHERS = new Set([
   "$live/matchers/MatchRandom.ts",
 ]);
 
-/** A date rule: v7's names (renamed to `date` by the content step) and v8's own. */
+/** A date rule: v7's names (renamed to `date` by the content step) and v8's prerelease one. */
 const DATE_RULES = new Set(["date", "website/matchers/date.ts", "$live/matchers/MatchDate.ts"]);
 
 export const RUN_AN_AB_TEST = "/next/matchers-and-variants#run-an-a-b-test";
@@ -31,9 +31,9 @@ const quoted = (names: Iterable<string>) =>
     .join(", ");
 
 /**
- * Reports v7's random matchers and every date rule that still holds its own
- * dates (no `campaign`): one "Left to do" line each, pointing at the docs.
- * Changes no file.
+ * Reports v7's random matchers and every date rule (v7's, or the prerelease
+ * `date`, which no longer exists): one "Left to do" line each, pointing at
+ * the docs. Changes no file.
  */
 export function reportTestsAndDates(root: string, report: Report): void {
   const { blocks, files } = readContent(root);
@@ -46,9 +46,7 @@ export function reportTestsAndDates(root: string, report: Report): void {
     }
     forEachBlock(block, (node) => {
       if (RANDOM_MATCHERS.has(node.__resolveType)) tests.add(entry);
-      else if (DATE_RULES.has(node.__resolveType) && node.campaign === undefined) {
-        dates.add(entry);
-      }
+      else if (DATE_RULES.has(node.__resolveType)) dates.add(entry);
     });
   }
   if (tests.size > 0) {
@@ -63,7 +61,7 @@ export function reportTestsAndDates(root: string, report: Report): void {
     report.manual.push({
       step: "content",
       subject: "date rules",
-      message: `date rules holding their own dates (in ${quoted([...dates].map((n) => files[n] ?? n))}) weren't moved and are false until they name a campaign: put each window in the saved block campaigns (type date-windows) and point the rule at { "__resolveType": "date", "campaign": … } (Schedule a campaign, ${SCHEDULE_A_CAMPAIGN})`,
+      message: `date rules (in ${quoted([...dates].map((n) => files[n] ?? n))}) weren't moved, and deco check rejects them until they are: put each window in the saved block campaigns (type calendar) and write each rule as { "__resolveType": "campaign", "name": … } naming its campaign (a prerelease { "__resolveType": "date", "campaign": … } becomes that rule with the same name) (Schedule a campaign, ${SCHEDULE_A_CAMPAIGN})`,
     });
   }
 }
@@ -77,7 +75,7 @@ function reportAssignment(root: string, report: Report): void {
     subject: "experiments",
     message:
       framework === "nextjs"
-        ? "read the visitor in proxy.ts: draftProxy from @decocms/nextjs/proxy does it, or decideVisitor, visitorRequestHeaders and applyVisitor next to the draft calls; the catch-all page's bindDraft and contentClient(cms) then build cms.client({ visitor, version }) from it"
-        : "hand the visitor to the client per request: const { visitor, cookie } = readVisitor(request) from @decocms/blocks/experiments, cms.client({ visitor, version: await cms.readVersion(request) }), and the cookie on the response when it isn't null and the request isn't a preview (/next/built-in-blocks#split-traffic); until then every test is off",
+        ? "decide the tests in proxy.ts: draftProxy from @decocms/nextjs/proxy does it, or decideVisitor, decideAssignments, visitorRequestHeaders, assignmentsRequestHeaders and applyVisitor next to the draft calls; the catch-all page's bindDraft and contentClient(cms) then build cms.client({ version, experiments, campaigns }) from what the proxy decided"
+        : "hand the visitor to the client per request: const { visitor, cookie } = readVisitor(request) from @decocms/blocks/experiments, cms.client({ visitor, ...(await cms.readVersion(request)) }), and the cookie on the response when it isn't null and the request isn't a preview (/next/built-in-blocks#split-traffic); until then every test is off",
   });
 }

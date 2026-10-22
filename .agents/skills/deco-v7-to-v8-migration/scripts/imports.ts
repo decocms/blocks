@@ -65,8 +65,10 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "matchRoute",
     "Page",
     "parseDraftPointer",
+    "parseVersion",
     "Redirect",
     "RequestLike",
+    "RequestVersion",
     "Result",
     "Route",
     "remoteLoader",
@@ -118,13 +120,14 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   // The v8 bindings. Subpaths v7 never had are whole; the rest list v8's names.
   // The draft names and Studio's origins live in each binding's root, not in @decocms/blocks.
   "@decocms/tanstack": new Set([
+    "ASSIGNMENTS_HEADER",
     "DRAFT_COOKIE",
-    "DRAFT_HEADER",
     "DRAFT_PARAM",
     "draftResponseHeaders",
     "isStudioOrigin",
     "STUDIO_FRAME_ANCESTORS",
     "STUDIO_ORIGINS",
+    "VERSION_HEADER",
     "VISITOR_HEADER",
   ]),
   "@decocms/tanstack/worker": "*",
@@ -144,8 +147,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   "@decocms/nextjs/image-loader": "*",
   // v7's DraftPreviewIndicator kept its name but now shows what bindDraft bound: reported.
   "@decocms/nextjs": new Set([
+    "ASSIGNMENTS_HEADER",
     "DRAFT_COOKIE",
-    "DRAFT_HEADER",
     "DRAFT_PARAM",
     "DraftBadge",
     "DraftPreviewIndicatorProps",
@@ -157,6 +160,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "StudioBridgeProps",
     "StudioPage",
     "StudioPageInfo",
+    "VERSION_HEADER",
     "VISITOR_HEADER",
   ]),
   "@decocms/nextjs/config": new Set([
@@ -190,7 +194,6 @@ const IMAGE_URL_NAMES = [
 /** The draft names and Studio's origins: each binding's root exports them, `@decocms/blocks` doesn't. */
 export const BINDING_NAMES = [
   "DRAFT_COOKIE",
-  "DRAFT_HEADER",
   "DRAFT_PARAM",
   "draftResponseHeaders",
   "isStudioOrigin",
@@ -319,6 +322,11 @@ const V7_IMAGE_URL = "\u0001v7-image-url\u0001";
 /** The hints for names the bindings replace, by v7 specifier: checked before `HINTS`. */
 const NAME_HINTS: { specifier: RegExp; names: string[]; hint: string }[] = [
   ...COMPAT_NAME_HINTS,
+  {
+    specifier: /^@decocms\/(blocks|tanstack|nextjs)$/,
+    names: ["DRAFT_HEADER"],
+    hint: "VERSION_HEADER (x-deco-version) from the site's binding root: the request header carrying the version alone (a draft pointer or a release SHA); what the proxy or worker decided rides on ASSIGNMENTS_HEADER (x-deco-assignments), and contentClient reads both",
+  },
   {
     specifier: /^@decocms\/tanstack$/,
     names: ["createDecoWorkerEntry"],
