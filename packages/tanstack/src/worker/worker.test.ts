@@ -267,6 +267,18 @@ describe("pageCache: the site's own cache", () => {
     expect((await get("/shared")).headers.get("cdn-cache-control")).toBe("public, max-age=60");
   });
 
+  it("a page request with Authorization never reaches it and answers private, whatever the app said", async () => {
+    const { get, seen } = setup({}, () =>
+      html("x", { "cache-control": "public, max-age=120, s-maxage=900" }),
+    );
+    const res = await get("/shoes", { headers: { authorization: "Bearer x" } });
+    expect(seen).toHaveLength(0);
+    expect(res.headers.get("cache-control")).toBe("private, no-cache, no-store, must-revalidate");
+    expect(res.headers.get("cdn-cache-control")).toBe("no-store");
+    const plain = await get("/shoes");
+    expect(plain.headers.get("cache-control")).not.toContain("private");
+  });
+
   it("without one, nothing is cached: every request renders, headers as the app sent them", async () => {
     const { get, entry } = setup({ pageCache: undefined }, () =>
       html("x", { "cache-control": "public, max-age=60" }),

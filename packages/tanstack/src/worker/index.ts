@@ -16,8 +16,9 @@
  *   (`assignmentsKey`, `cacheVersion`, `isCacheable`, …).
  *   The worker calls `pageCache` only for a request `isCacheable` accepts,
  *   never for a preview, and adds the visitor's cookie after it, so a stored
- *   copy never carries one. A response with no `CDN-Cache-Control` tells the
- *   CDN `no-store`, at one exit.
+ *   copy never carries one. A page request with `Authorization` is never
+ *   handed to it and answers `private, no-cache, no-store`. A response with no
+ *   `CDN-Cache-Control` tells the CDN `no-store`, at one exit.
  * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - The visitor: on a page or server-function request, `readVisitor` from
@@ -476,6 +477,13 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
         if (k.toLowerCase() !== "vary") out.headers.set(k, v);
         else appendVary(out.headers, v);
       }
+      return { response: out };
+    }
+    // A signed request's page is that caller's: no shared cache may keep it,
+    // whatever the app said (RFC 9111 lets one store a `public` answer to it).
+    if (request.headers.has("authorization")) {
+      const out = mutable(await render());
+      out.headers.set("Cache-Control", PRIVATE_NO_CACHE);
       return { response: out };
     }
     if (
