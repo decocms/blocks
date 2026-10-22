@@ -98,6 +98,45 @@ describe("v8 core bundle", () => {
     }
   });
 
+  it("@decocms/blocks/experiments bundles for a browser and a workerd target: its own files and React, nothing else", () => {
+    // Assignment runs on the server to build the manifest AND in the browser
+    // to read it, so this subpath has to be clean on both. A Node built-in
+    // here would break the storefront's client bundle; the CMS runtime here
+    // would put a second content cache in it.
+    for (const args of [
+      ["--platform=browser"],
+      ["--platform=neutral", "--conditions=workerd,worker,browser", "--main-fields=module,main"],
+    ]) {
+      const dir = mkdtempSync(join(tmpdir(), "blocks-experiments-bundle-"));
+      try {
+        const metafile = join(dir, "meta.json");
+        const outfile = join(dir, "out.js");
+        bundle(
+          [
+            ...args,
+            '--define:process.env.NODE_ENV="production"',
+            `--metafile=${metafile}`,
+            `--outfile=${outfile}`,
+            "--log-level=error",
+          ],
+          "experiments/index.ts",
+        );
+        const output = readFileSync(outfile, "utf-8");
+        expect(output).not.toMatch(/node:|require\("(?!react)/);
+        expect(output).not.toMatch(/createCMS|AsyncLocalStorage/);
+        expect(output).toContain("useExperiment");
+        const inputs = Object.keys(JSON.parse(readFileSync(metafile, "utf-8")).inputs);
+        for (const input of inputs) {
+          expect(input, input).toMatch(
+            /(^|\/)(packages\/blocks\/src\/v8\/experiments\/[^/]+|node_modules\/(react|scheduler)\/.*)$/,
+          );
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("imports nothing at runtime but its own modules, the ciphertext format and the shared content hash (no React, no v7 code)", () => {
     // A real file, not /dev/stdout: esbuild leaves that empty on Linux.
     const dir = mkdtempSync(join(tmpdir(), "blocks-bundle-"));
