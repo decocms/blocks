@@ -176,13 +176,20 @@ describe("assignedClient: a page on the assignments route renders what its path 
     expect(request.reads).toBe(0);
   });
 
-  it("checks the campaigns again at the client's moment, whatever the path names", async () => {
+  it("renders the campaigns the path names, as the proxy decided them: no check of the dates at render time", async () => {
     const cms = testCMS(content);
-    const running = { sale: true, "black-friday": false };
-    for (const campaigns of [["sale"], [], ["black-friday"], ["gone"]]) {
+    const cases: [string[], Record<string, boolean>][] = [
+      [["sale"], { sale: true, "black-friday": false }],
+      [[], { sale: false, "black-friday": false }],
+      // The proxy decided at its moment: the page doesn't second-guess it.
+      [["black-friday"], { sale: false, "black-friday": true }],
+      [["gone"], { sale: false, "black-friday": false }],
+    ];
+    for (const [campaigns, expected] of cases) {
       const client = assignedClient(cms, seg([], campaigns));
-      expect({ ...(await client!.resolve("campaigns"))[0]! }).toEqual(running);
+      expect({ ...(await client!.resolve("campaigns"))[0]! }).toEqual(expected);
     }
+    expect(request.reads).toBe(0);
   });
 
   it("keeps a name the content doesn't have off, never an error; a malformed segment is null", async () => {
@@ -191,6 +198,10 @@ describe("assignedClient: a page on the assignments route renders what its path 
     expect({ ...(await client!.resolve("experiments"))[0]! }).toEqual({
       "buy-button": true,
       later: false,
+    });
+    expect({ ...(await client!.resolve("campaigns"))[0]! }).toEqual({
+      sale: true,
+      "black-friday": false,
     });
     expect(assignedClient(cms, "not-a-segment!")).toBeNull();
     const bare = assignedClient(testCMS(), seg(["buy-button"], ["sale"])); // no experiments or campaigns block

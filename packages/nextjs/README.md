@@ -47,7 +47,7 @@ export default async function DraftPage({ params, searchParams }) {
 }
 ```
 
-Published pages stay static: the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted pointer on `x-deco-draft` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A root layout that reads content calls `bindDraft(cms, preview)` too: it reads the forwarded header.
+Published pages stay cached (ISR, below): the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted pointer on `x-deco-draft` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A layout that reads content goes with its route, so the cached pages read no request: under the draft route (`app/%5Fdraft/layout.tsx`) it calls `bindDraft(cms, preview)` and `contentClient(cms)`, which read the forwarded header; under the assignments route (`app/%5Fassignments/[assignments]/layout.tsx`) it reads through `assignedClient(cms, (await params).assignments)`. `bindDraft` reads `headers()`, and a cached page that reads a request header renders on every request instead, so never call it in the root layout or on the assignments route.
 
 A draft link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time and forced tests. All of it passes the same host check and renders on the draft route: a visitor on the live site never picks a version.
 
@@ -55,13 +55,13 @@ A draft link can carry a published release's commit SHA instead of a draft (Stud
 
 `decideVisitor(request, draft)` reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor); `visitorRequestHeaders` forwards it on `x-deco-visitor` (`draftRequestHeaders` always removes a copy sent from outside), and `applyVisitor` sends the cookie on a first visit only, never from a preview. It reads no content: the saved `experiments` block decides the tests for the visitor the client carries.
 
-On the page, `bindDraft` binds the version and the forwarded visitor (on the current release it reads the request only when the release saves an `experiments` block, so a page without tests stays static), and `contentClient(cms)` builds `cms.client({ visitor, version })` from them. A statically rendered page has no visitor, so its tests are off: a page that should vary per visitor has to render per request.
+On the page, `bindDraft` binds the version and the forwarded visitor (on the current release it reads the request only when the release saves an `experiments` block), and `contentClient(cms)` builds `cms.client({ visitor, version })` from them. A cached page reads no request, so it has no visitor of its own: the CMS's pages render on [the assignments route](#the-assignments-route), with the tests and campaigns the proxy decided.
 
 The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on the request's assignments, never on the visitor: `assignmentsKey(await readAssignments(proxyCms, { visitor: visitor.visitor, version: draft.pointer }))` from `@decocms/nextjs/proxy` resolves the saved `experiments` and `campaigns` blocks as the page will and gives the version, the tests the visitor is in and the campaigns running now (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the assignments route](#the-assignments-route).
 
 ### The assignments route
 
-Next caches a static page by its path (ISR, the full route cache), so the proxy puts the assignments in the path: it rewrites each CMS page to `/_assignments/<assignments>/<path>`, and the page renders the tests that segment names. Next then keeps one entry per path and set of assignments and serves it to every visitor with the same ones; the page reads no request and stays static.
+The proxy decides, the page renders that. Next caches a page by its path (ISR), so the proxy puts its decision in the path: it rewrites each CMS page to `/_assignments/<assignments>/<path>`, and the page renders exactly the tests and campaigns that segment names. Next then keeps one entry per path and set of assignments and serves it to every visitor with the same ones; the page reads no request, so Next can cache it. CMS pages are ISR with `revalidate = 600` (10 minutes): once a stored page is older than that, Next renders it again, so a published change shows within 10 minutes. A cached page can be up to 10 minutes stale (for example, a banner switching on), which is accepted. Never `force-static` on Next.js: a page that never expires would keep what it rendered first.
 
 ```ts
 // src/proxy.ts
@@ -87,7 +87,10 @@ export const config = { matcher: ["/((?!_next/|favicon.ico).*)"] };
 // src/app/%5Fassignments/[assignments]/[[...path]]/page.tsx: every CMS page (a literal `_assignments` folder never routes)
 import { assignedClient } from "@decocms/nextjs/server";
 
-export const dynamic = "force-static";
+export const revalidate = 600; // 10 minutes; never force-static
+export async function generateStaticParams() {
+  return []; // no path at build time: each renders on its first request, then is cached
+}
 export default async function Page({ params }) {
   const { assignments, path } = await params;
   const client = assignedClient(cms, assignments);
@@ -97,13 +100,13 @@ export default async function Page({ params }) {
 ```
 
 - **What the segment holds**: the tests the visitor is in and the campaigns running now (`readAssignments` on the current release), as `assignmentsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of assignments. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
-- **The page reads the tests from the path**: `assignedClient(cms, segment)` builds `cms.client({ visitor })` with a visitor that has no id and is in the tests the segment names (v7's stored field `active`, which `assign` honours), so every visitor on that side renders the same page. A test now at 0% stays off whatever the segment names, so a forged path can't switch on a test nobody is in. Campaigns are checked again at the client's moment, as on any page: the segment names the running ones only so Next keeps a page apart for each set. A page Next renders again later (revalidation) shows the same tests under the same path.
-- **A path can't switch a test on**: the proxy answers a direct hit on `/_assignments/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `assignedClient` keeps off a test the content doesn't have and a campaign that isn't running now, and returns `null` (a 404) only for a segment the proxy never writes. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote just before a campaign ended, or before the page's server saw newly published content, still renders.
-- **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of assignments, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's static `s-maxage` under it.
+- **The page renders what the path names**: `assignedClient(cms, segment)` builds `cms.client({ visitor, campaigns })` with a visitor that has no id and is in the tests the segment names (v7's stored field `active`, which `assign` honours), so every visitor on that side renders the same page, and with the segment's campaigns as the ones running (the client option `campaigns`: the `campaigns` block answers those on and every other off, whatever the moment). The page never checks a campaign's dates itself. A test now at 0% stays off whatever the segment names, so a forged path can't switch on a test nobody is in. A page Next renders again later (revalidation) shows the same tests and campaigns under the same path.
+- **A path can't switch a test on**: the proxy answers a direct hit on `/_assignments/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `assignedClient` keeps off a test or a campaign the content doesn't have, and returns `null` (a 404) only for a segment the proxy never writes. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote before the page's server saw newly published content still renders.
+- **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of assignments, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's ISR `s-maxage` under it.
 - **Drafts and previews are never rewritten here**: a drafted request goes to the dynamic draft route, so nothing from a preview lands in Next's cache.
 - **Which paths**: only the CMS's pages (`isCmsPage` above is the site's own: routes of the app's own, such as `/blog` here, render as before). `draftProxy(proxyCms, { assignments: (request) => isCmsPage(request.nextUrl.pathname) })` does the same for a site with no proxy of its own.
 
-`examples/nextjs-binding-smoke` in the repository runs it: two visitors on opposite sides of a test get different paths, two on the same side get one cached entry (`x-nextjs-cache: HIT`), and a typed `/_assignments/…` path is a 404.
+`examples/nextjs-binding-smoke` in the repository runs it: two visitors on opposite sides of a test get different paths, two on the same side get one cached entry (`x-nextjs-cache: HIT`), the route is ISR at 600 seconds, and a typed `/_assignments/…` path is a 404.
 
 ### Draft hosts
 

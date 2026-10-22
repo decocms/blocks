@@ -23,7 +23,7 @@
  * removed), for `bindDraft` and `contentClient`, and sends the visitor's
  * cookie on a first visit only, never from a preview.
  *
- * Statically rendered pages can't read a draft, so a drafted request to one
+ * Cached (ISR) pages can't read a draft, so a drafted request to one
  * is rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
  * routes).
@@ -36,7 +36,8 @@
  * in and the campaigns running now, `""` when there are none. For Next's own
  * path-keyed cache, `rewriteToAssignmentsRoute` puts them in the path
  * (`/_assignments/<assignments>/<path>`), where `assignedClient` from
- * `@decocms/nextjs/server` renders the tests they name.
+ * `@decocms/nextjs/server` renders the tests and campaigns they name: the
+ * proxy decides, the page renders that.
  *
  * The proxy measures no requests: it runs before Next routes and renders the
  * page. `http.server.request.duration` comes from Next's own request span
@@ -234,9 +235,11 @@ const ASSIGNED_CACHE_CONTROL = "private, no-cache";
  * one entry per set of assignments. Visitors on the same side of every test
  * share a path; the visitor id is never in it, and the page reads neither the
  * visitor nor the draft (both headers are removed from the request it
- * forwards), so it can stay static. The page builds its client with
- * `assignedClient` from `@decocms/nextjs/server`, which answers the tests from
- * the path and checks the campaigns again at render time.
+ * forwards), so Next can cache it. The page builds its client with
+ * `assignedClient` from `@decocms/nextjs/server`, which renders the tests and
+ * the campaigns the path names: the proxy decides, the page renders that. A
+ * cached page (ISR, `revalidate = 600`) can be up to 10 minutes stale, a
+ * banner switching on late, which is accepted.
  *
  * `null` for a drafted request (it renders on the draft route, never cached)
  * and for a path already on the draft or assignments route. When the content
@@ -265,7 +268,7 @@ export async function rewriteToAssignmentsRoute(
     request: { headers: draftRequestHeaders(request, INERT) },
   });
   // The URL the visitor asked for answers differently by their cookie and the moment: a
-  // shared cache in front (a CDN) must not keep Next's static `s-maxage` under it.
+  // shared cache in front (a CDN) must not keep Next's ISR `s-maxage` under it.
   if (varies) response.headers.set("Cache-Control", ASSIGNED_CACHE_CONTROL);
   return response;
 }

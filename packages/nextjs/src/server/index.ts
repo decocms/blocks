@@ -21,7 +21,7 @@
  *
  * `bindDraft` also binds the visitor the proxy forwarded (`x-deco-visitor`,
  * from `decideVisitor`): always for a preview, and for the release only when
- * it has a saved `experiments` block, so a page with no test stays static.
+ * it has a saved `experiments` block, so a page with no test stays cacheable.
  * `contentClient` builds `cms.client({ visitor, version })` from what it
  * bound.
  */
@@ -65,7 +65,7 @@ function firstParam(searchParams: SearchParams | undefined, key: string): string
  * (Studio's "Preview this version"). Binds the visitor the proxy forwarded
  * too: with a preview, and on the release when it has a saved `experiments`
  * block. With previews off on every host and no `experiments` it returns
- * `false` without reading the request, so a static page stays static.
+ * `false` without reading the request, so a cached (ISR) page stays cached.
  */
 export async function bindDraft(
   cms: Pick<CMS, "readVersion" | "settings" | "forRelease">,
@@ -150,18 +150,20 @@ function visitorFromAssignments(assignments: PathAssignments): Visitor {
  * The content client of a page on the assignments route
  * (`app/%5Fassignments/[assignments]/[[...path]]`, which the proxy's
  * `rewriteToAssignmentsRoute` rewrites the CMS's pages to): the current
- * release, read as `cms.client({ visitor })` with a visitor built from the
- * path's segment, so the page shows the sides of the tests its cache key
- * says and reads no request: it can be static. A test at 0% stays off
- * whatever the path names. Campaigns are checked again
- * at the client's moment, as on any page; the path names them only so Next
- * keeps a page apart for each set running. A test or a campaign the content
- * doesn't have (or a campaign that has ended) stays off, never an error: a
- * 404 here would be cached under the path by Next. `null` only when the
- * segment isn't one the proxy writes: the page answers with `notFound()`.
+ * release, read as `cms.client({ visitor, campaigns })` with what the proxy
+ * decided, from the path's segment: a visitor in the tests it names and the
+ * campaigns it names as the ones running. The proxy decides, the page renders
+ * that, reading no request, so Next can cache it (ISR, `revalidate = 600`).
+ * A test at 0% stays off whatever the path names, and a test or a campaign
+ * the content doesn't have stays off, never an error: a 404 here would be
+ * cached under the path by Next. `null` only when the segment isn't one the
+ * proxy writes: the page answers with `notFound()`.
  *
  * ```tsx
- * export const dynamic = "force-static";
+ * export const revalidate = 600;
+ * export async function generateStaticParams() {
+ *   return [];
+ * }
  * export default async function Page({ params }) {
  *   const { assignments, path } = await params;
  *   const client = assignedClient(cms, assignments);
@@ -173,5 +175,8 @@ function visitorFromAssignments(assignments: PathAssignments): Visitor {
 export function assignedClient(cms: Pick<CMS, "client">, segment: string): Client | null {
   const assignments = parseAssignmentsSegment(segment);
   if (assignments === null) return null;
-  return cms.client({ visitor: visitorFromAssignments(assignments) });
+  return cms.client({
+    visitor: visitorFromAssignments(assignments),
+    campaigns: assignments.campaigns,
+  });
 }

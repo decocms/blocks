@@ -256,6 +256,17 @@ try {
     `${draftOnSide.res.status} ${assignmentsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
   );
 
+  // ISR, never force-static: the CMS pages expire after 10 minutes, so a cached page is at most that stale.
+  const assignmentsPage = readFileSync("src/app/%5Fassignments/[assignments]/[[...path]]/page.tsx", "utf-8");
+  const prerender = JSON.parse(readFileSync(".next/prerender-manifest.json", "utf-8"));
+  check(
+    "the assignments route is ISR at 600 seconds, rendered on demand and cached",
+    /^export const revalidate = 600;$/m.test(assignmentsPage) &&
+      !/dynamic = "force-static"/.test(assignmentsPage) &&
+      "/_assignments/[assignments]/[[...path]]" in prerender.dynamicRoutes,
+    Object.keys(prerender.dynamicRoutes).join(", "),
+  );
+
   // The proxy bundle holds no block map: no section component, no React. (Block names do appear:
   // the proxy's CMS handle carries the content, which names each block's type.)
   const entry = readFileSync(".next/server/middleware.js", "utf-8");
