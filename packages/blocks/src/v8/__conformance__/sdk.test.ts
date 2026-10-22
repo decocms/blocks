@@ -265,7 +265,10 @@ assert<Equal<CMSSettings, { preview?: { hosts?: string[] }; telemetry?: Telemetr
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
 assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
 assert<Equal<CMS["forRelease"], () => Client>>();
-assert<Equal<ClientOptions, { visitor?: Visitor | null; version?: string | null }>>();
+assert<Equal<
+  ClientOptions,
+  { visitor?: Visitor | null; version?: string | null; campaigns?: readonly string[] | null }
+>>();
 assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "now">>();
