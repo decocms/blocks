@@ -24,7 +24,7 @@
  * Labels: `http.route` is Next's route template (`unmatched` when Next names
  * none); RSC requests count under their page's route, as the requests they
  * are. `cache` is `DRAFT` for a draft render (the proxy forwarded
- * `x-deco-draft`, or the request was rewritten onto `/_draft`) and otherwise
+ * `x-deco-version`, or the request was rewritten onto `/_draft`) and otherwise
  * `BYPASS`: Next decides its cache (`x-nextjs-cache`) on the response, which
  * the span never sees.
  */
@@ -40,7 +40,7 @@ import type {
   Tracer,
   TracerProvider,
 } from "@opentelemetry/api";
-import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX } from "../draft.ts";
+import { DRAFT_ROUTE_PREFIX, VERSION_HEADER } from "../draft.ts";
 
 type Api = typeof import("@opentelemetry/api");
 
@@ -235,7 +235,7 @@ function draftPropagator(DRAFT: symbol): TextMapPropagator {
     inject() {},
     extract(context, carrier, getter) {
       try {
-        const value = getter.get(carrier, DRAFT_HEADER);
+        const value = getter.get(carrier, VERSION_HEADER);
         return value !== undefined && value !== "" ? context.setValue(DRAFT, true) : context;
       } catch {
         return context;

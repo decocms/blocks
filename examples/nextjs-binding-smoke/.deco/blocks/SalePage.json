@@ -21,8 +21,8 @@
       "title": {
         "__resolveType": "multivariate",
         "variants": [
-          { "rule": { "__resolveType": "date", "campaign": "black-friday" }, "value": { "__resolveType": "lazy", "value": "Black Friday" } },
-          { "rule": { "__resolveType": "date", "campaign": "summer-sale" }, "value": { "__resolveType": "lazy", "value": "Summer sale" } },
+          { "rule": { "__resolveType": "campaign", "name": "black-friday" }, "value": { "__resolveType": "lazy", "value": "Black Friday" } },
+          { "rule": { "__resolveType": "campaign", "name": "summer-sale" }, "value": { "__resolveType": "lazy", "value": "Summer sale" } },
           { "rule": { "__resolveType": "always" }, "value": { "__resolveType": "lazy", "value": "No campaign" } }
         ]
       }

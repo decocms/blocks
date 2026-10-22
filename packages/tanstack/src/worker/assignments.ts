@@ -1,35 +1,37 @@
 /**
- * A request's assignments (what its content gives it), as one cache-key
- * part for a site's own page cache (the README's worker-entry recipe; the
- * worker caches nothing itself): the version it reads (a Studio link's draft or release SHA, with its preview time `__at`
- * and forced tests), the tests of the saved `experiments` block its visitor
- * is in, and the campaigns of the saved `campaigns` block running at its
- * moment. Two requests with the same assignments render the same content, so
- * they share a cache entry; the visitor id itself is never in the key, or
- * every visitor would miss.
+ * A request's assignments (what its content gives it), decided once by the
+ * worker: the version it reads (a Studio link's draft or release SHA), each
+ * test of the saved `experiments` block on or off for its visitor and each
+ * campaign of the saved `campaigns` block running or not at its date, with a
+ * preview's switched tests and campaigns on top. The worker hands them to the
+ * page (`x-deco-assignments`) and to the site's `pageCache`
+ * (`page.assignments`), whose key carries them (`assignmentsKey`). Two
+ * requests with the same assignments render the same content, so they share
+ * a cache entry; the visitor id itself is never in the key, or every visitor
+ * would miss.
  *
- * Blocks decides (`cms.client({ visitor, version })`); this only reads the
- * answers. A site without either block has no assignments and keys as before.
+ * Blocks decides (`cms.client({ visitor, version, … })`); this only reads
+ * the answers. A site without either block has no assignments and keys as
+ * before.
  */
-import type { CMS } from "@decocms/blocks";
-import type { Visitor } from "@decocms/blocks/experiments";
+import type { ClientOptions, CMS } from "@decocms/blocks";
+import type { Assignments } from "@decocms/blocks/experiments";
+import type { DecidedAssignments } from "../assignments.ts";
 
-export interface RequestAssignments {
+export interface RequestAssignments extends DecidedAssignments {
   /** The version read, `null` for the current release. */
   version: string | null;
-  /** The tests the visitor is in, sorted. */
-  experiments: readonly string[];
-  /** The campaigns running at the request's moment, sorted. */
-  campaigns: readonly string[];
 }
 
 const EXPERIMENTS = { block: "experiments", type: "split-traffic" } as const;
-const CAMPAIGNS = { block: "campaigns", type: "date-windows" } as const;
+const CAMPAIGNS = { block: "campaigns", type: "calendar" } as const;
 
 type Reader = ReturnType<CMS["client"]>;
 
 /** Plain code-unit order, the same on every server and locale. */
 const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+const record = (): Assignments => Object.create(null) as Assignments;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,92 +46,101 @@ async function saves(client: Reader, type: string): Promise<boolean> {
   return (list?.length ?? 0) > 0;
 }
 
-/**
- * The names in the saved `block`, sorted: every one, or (`onlyTrue`) those
- * that resolved `true`; none when it is missing.
- */
-async function names(
+/** The saved `block` resolved, each name `true` or `false`; none when it is missing. */
+async function decided(
   client: Reader,
   spec: { block: string; type: string },
-  onlyTrue = true,
-): Promise<string[]> {
+): Promise<Assignments> {
+  const out = record();
   try {
-    if (!(await saves(client, spec.type))) return [];
+    if (!(await saves(client, spec.type))) return out;
     const [value] = await client.resolve<unknown>(spec.block);
-    if (!isRecord(value)) return [];
-    return Object.keys(value)
-      .filter((name) => !onlyTrue || value[name] === true)
-      .sort(byCodeUnit);
+    if (!isRecord(value)) return out;
+    for (const name of Object.keys(value).sort(byCodeUnit)) out[name] = value[name] === true;
   } catch {
-    return [];
+    // Content that doesn't load gives no assignments.
   }
+  return out;
 }
 
-const trueNames = (client: Reader, spec: { block: string; type: string }) =>
-  names(client, spec, true);
-
 /**
- * The assignments of one request: resolves `experiments` and `campaigns`
- * through `cms.client({ visitor, version })`, as the page will. Missing
- * blocks (or content that doesn't load) give no assignments, never an error.
+ * The assignments of one request: `cms.client(options)` (the version, the
+ * visitor, the date and a preview's switched tests and campaigns, as
+ * `cms.readVersion` reads them) resolving `experiments` and `campaigns`.
+ * Missing blocks (or content that doesn't load) give none, never an error.
  */
 export async function readAssignments(
   cms: Pick<CMS, "client">,
-  inputs: { visitor: Visitor | null; version: string | null },
+  options: ClientOptions,
 ): Promise<RequestAssignments> {
-  const none: RequestAssignments = { version: inputs.version, experiments: [], campaigns: [] };
+  const version = typeof options.version === "string" ? options.version : null;
   let client: Reader;
   try {
-    client = cms.client({ visitor: inputs.visitor, version: inputs.version });
+    client = cms.client(options);
   } catch {
-    return none;
+    return { version, experiments: record(), campaigns: record() };
   }
   const [experiments, campaigns] = await Promise.all([
-    trueNames(client, EXPERIMENTS),
-    trueNames(client, CAMPAIGNS),
+    decided(client, EXPERIMENTS),
+    decided(client, CAMPAIGNS),
   ]);
-  return { ...none, experiments, campaigns };
+  return { version, experiments, campaigns };
 }
 
 /**
  * Every assignments key a live request can carry now, for a site's purge: each
- * subset of the tests in the saved `experiments` block (the empty one
+ * subset of the tests in the saved `experiments` block on (the empty one
  * included), with the campaigns running now and with none. Previews are
  * never cached, so no version. A site without either block has one: `""`.
  */
 export async function liveAssignmentKeys(cms: Pick<CMS, "client">): Promise<string[]> {
   let client: Reader;
   try {
-    client = cms.client({ visitor: null, version: null });
+    client = cms.client();
   } catch {
     return [""];
   }
-  const [tests, running] = await Promise.all([
-    names(client, EXPERIMENTS, false),
-    trueNames(client, CAMPAIGNS),
+  const [saved, campaigns] = await Promise.all([
+    decided(client, EXPERIMENTS),
+    decided(client, CAMPAIGNS),
   ]);
-  const campaignSets = running.length ? [running, []] : [[]];
+  const tests = Object.keys(saved);
+  const running = Object.keys(campaigns).some((name) => campaigns[name] === true);
+  const campaignSets = running ? [campaigns, record()] : [record()];
   const keys: string[] = [];
   // Subsets by bitmask, tests in sorted order: 2^tests of them.
   for (let mask = 0; mask < 2 ** tests.length; mask++) {
-    const experiments = tests.filter((_, i) => Math.floor(mask / 2 ** i) % 2 === 1);
-    for (const campaigns of campaignSets) {
-      keys.push(assignmentsKey({ version: null, experiments, campaigns }));
+    const experiments = record();
+    tests.forEach((name, i) => {
+      experiments[name] = Math.floor(mask / 2 ** i) % 2 === 1;
+    });
+    for (const set of campaignSets) {
+      keys.push(assignmentsKey({ version: null, experiments, campaigns: set }));
     }
   }
   return keys;
 }
 
+/** The names that are on, sorted. */
+function onNames(assignments: Readonly<Assignments>): string[] {
+  return Object.keys(assignments)
+    .filter((name) => assignments[name] === true)
+    .sort(byCodeUnit);
+}
+
 /**
- * The assignments as one stable string: `v=<version>|x=<tests>|c=<campaigns>`,
- * names sorted and URL-encoded, empty parts left out; `""` for none.
+ * The assignments as one stable string for a cache key:
+ * `v=<version>|x=<tests on>|c=<campaigns running>`, names sorted and
+ * URL-encoded, empty parts left out; `""` for none. The names that are off
+ * aren't in it: within one content revision they are the rest.
  */
 export function assignmentsKey(assignments: RequestAssignments): string {
-  const list = (names: readonly string[]) =>
-    [...names].sort(byCodeUnit).map(encodeURIComponent).join(",");
+  const list = (names: string[]) => names.map(encodeURIComponent).join(",");
   const parts: string[] = [];
   if (assignments.version) parts.push(`v=${encodeURIComponent(assignments.version)}`);
-  if (assignments.experiments.length) parts.push(`x=${list(assignments.experiments)}`);
-  if (assignments.campaigns.length) parts.push(`c=${list(assignments.campaigns)}`);
+  const tests = onNames(assignments.experiments);
+  const campaigns = onNames(assignments.campaigns);
+  if (tests.length) parts.push(`x=${list(tests)}`);
+  if (campaigns.length) parts.push(`c=${list(campaigns)}`);
   return parts.join("|");
 }

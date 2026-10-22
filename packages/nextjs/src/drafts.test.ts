@@ -13,7 +13,7 @@ import {
   isDraftPreviewEnabled,
   type PreviewPolicy,
   previewHostDecision,
-  readDraftPointer,
+  readDraftVersion,
   requestHost,
   requestLike,
 } from "./drafts.ts";
@@ -26,7 +26,7 @@ async function previews(
   host: string,
 ): Promise<boolean> {
   const { cms = testCMS(snapshot()), ...rest } = policy;
-  return (await allowedDraft(cms, link(host), { site: "acme", ...rest })) === POINTER;
+  return (await allowedDraft(cms, link(host), { site: "acme", ...rest }))?.version === POINTER;
 }
 
 describe("the draft host allowlist (v7's)", () => {
@@ -134,16 +134,16 @@ describe("isDraftPreviewEnabled (v7's): whether a page may read the request at a
 describe("reading the request", () => {
   it("?__draft= first, then the cookie; off and garbage are no draft", () => {
     const cookie = { cookie: `a=1; __deco_draft=${encodeURIComponent(POINTER)}` };
-    expect(readDraftPointer(new Request("https://s.example.com/", { headers: cookie }))).toBe(
-      POINTER,
-    );
+    expect(readDraftVersion(new Request("https://s.example.com/", { headers: cookie }))).toEqual({
+      version: POINTER,
+    });
     expect(
-      readDraftPointer(new Request("https://s.example.com/?__draft=off", { headers: cookie })),
+      readDraftVersion(new Request("https://s.example.com/?__draft=off", { headers: cookie })),
     ).toBe(null);
     expect(
-      readDraftPointer(new Request("https://s.example.com/?__draft=junk", { headers: cookie })),
-    ).toBe(POINTER);
-    expect(readDraftPointer(new Request("https://s.example.com/?__draft=junk"))).toBe(null);
+      readDraftVersion(new Request("https://s.example.com/?__draft=junk", { headers: cookie })),
+    ).toEqual({ version: POINTER });
+    expect(readDraftVersion(new Request("https://s.example.com/?__draft=junk"))).toBe(null);
   });
 
   it("the host is the visitor's: the first x-forwarded-host, else host", () => {

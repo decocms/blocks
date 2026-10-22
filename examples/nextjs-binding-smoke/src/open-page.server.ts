@@ -9,11 +9,12 @@ import type { ResolvedPage, StoredPage } from "./model";
 import type { Post } from "./post";
 
 // `assignments`: the assignments route's segment. The page shows the tests and campaigns it names,
-// as the proxy decided them (assignedClient: a visitor with no id in exactly those tests, and those
-// campaigns running; a name the content doesn't have stays off, and a segment the proxy never writes
-// is a 404). Without it, the request's own client (a draft, and the visitor bindDraft bound).
+// as the proxy decided them (assignedClient: cms.client({ experiments, campaigns }) with every test
+// and campaign on or off as named, and no visitor; a test at 0% and a name the content doesn't have
+// stay off, and a segment the proxy never writes is a 404). Without it, the request's own client
+// (a draft, and the tests and campaigns the proxy decided, which bindDraft bound).
 export const openPage = cache(async (pathname: string, assignments?: string) => {
-  const c = assignments === undefined ? await client() : assignedClient(cms, assignments);
+  const c = assignments === undefined ? await client() : await assignedClient(cms, assignments);
   if (!c) notFound();
   const [pages, pagesError] = await c.list<StoredPage>("page");
   if (pagesError) throw pagesError;

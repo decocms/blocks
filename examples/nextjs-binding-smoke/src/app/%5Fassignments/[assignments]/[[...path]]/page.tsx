@@ -3,7 +3,7 @@ import { openPage, pathnameFor } from "../../../../open-page.server";
 import { PageView } from "../../../PageView";
 
 // A published page. The proxy rewrites every CMS page here, to /_assignments/<assignments>/<path>:
-// the tests the visitor is in and the campaigns running, never the visitor. The proxy decides, the
+// every test on or off for the visitor and every campaign running or not, never the visitor. The proxy decides, the
 // page renders that (assignedClient) and reads no request, so Next caches one entry per path and
 // assignments and serves it to every visitor with the same ones. ISR, never force-static: a cached
 // page is rendered again in the background on the first request after it is 10 minutes old

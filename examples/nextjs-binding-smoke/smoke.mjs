@@ -148,8 +148,8 @@ try {
   );
   check("and no draft cookie", !(elsewhere.res.headers.get("set-cookie") ?? "").includes("__deco_draft="));
 
-  const forged = await get("/summer-shirt/p", { "x-deco-draft": POINTER });
-  check("a forged x-deco-draft gets the release", forged.body.includes("Summer shirt") && !forged.body.includes("Draft shirt"));
+  const forged = await get("/summer-shirt/p", { "x-deco-version": POINTER });
+  check("a forged x-deco-version gets the release", forged.body.includes("Summer shirt") && !forged.body.includes("Draft shirt"));
 
   const direct = await get("/_draft/summer-shirt/p", { ...DECO_HOST, ...COOKIE });
   check("the draft route is reachable only through the proxy", direct.res.status === 404, direct.res.status);
@@ -242,7 +242,10 @@ try {
     "a test nobody is in and a campaign not started stay off",
     ![sideA, sideB].some(({ body }) => body.includes("Next season") || body.includes("Black Friday")),
   );
-  const forgedPath = assignmentsRoutePath("/sale", { experiments: ["new-banner", "next-season"], campaigns: ["black-friday"] });
+  const forgedPath = assignmentsRoutePath("/sale", {
+    experiments: { "new-banner": true, "next-season": true },
+    campaigns: { "black-friday": true, "summer-sale": true },
+  });
   const forgedAssignments = await get(forgedPath);
   check("a typed assignments path is a 404: a path can't switch a test or a campaign on", forgedAssignments.res.status === 404, forgedAssignments.res.status);
   const draftOnSide = await get(draftLink("/sale"), { ...DECO_HOST, ...as(inA) });
@@ -254,6 +257,21 @@ try {
       assignmentsOf(draftOnSide.body) === undefined &&
       draftOnSide.res.headers.get("cache-control") === "no-store, private",
     `${draftOnSide.res.status} ${assignmentsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
+  );
+  // A preview link switches tests and campaigns: even a test at 0% and a campaign not started,
+  // on the draft route only, never on a cached path.
+  const switched = POINTER.replace(
+    "@",
+    `?__test=${encodeURIComponent("next-season=on")}&__campaign=${encodeURIComponent("black-friday=on")}@`,
+  );
+  const preview = await get(`/sale?__draft=${encodeURIComponent(switched)}`, { ...DECO_HOST, ...as(out) });
+  check(
+    "a preview link switches on a test at 0% and a campaign not started",
+    preview.res.status === 200 &&
+      preview.body.includes("Next season") &&
+      preview.body.includes("Black Friday") &&
+      assignmentsOf(preview.body) === undefined,
+    `${preview.res.status} ${assignmentsOf(preview.body)}`,
   );
 
   // ISR, never force-static: the CMS pages are rendered again once they are 10 minutes old.

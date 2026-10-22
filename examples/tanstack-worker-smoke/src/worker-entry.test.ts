@@ -112,7 +112,7 @@ function content(options: {
   };
   if (options.experiments)
     blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
-  if (options.campaigns) blocks.campaigns = { __resolveType: "date-windows", ...options.campaigns };
+  if (options.campaigns) blocks.campaigns = { __resolveType: "calendar", ...options.campaigns };
   roots += 1;
   doubles.cms = createCMS({
     blocks: {},

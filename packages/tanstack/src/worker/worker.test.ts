@@ -312,7 +312,7 @@ describe("the helpers a site's cache uses", () => {
     });
     await get(`/?__draft=${encodeURIComponent(POINTER)}`);
     expect(seen).toBe(POINTER);
-    await get("/", { headers: { "x-deco-draft": POINTER } });
+    await get("/", { headers: { "x-deco-version": POINTER } });
     expect(seen).toBe(null);
   });
 });
@@ -324,7 +324,7 @@ describe("drafts", () => {
     const { get, entry, seen } = setup();
     await get("/"); // a cached release copy exists
     const res = await get(draftUrl);
-    expect(entry.served.at(-1)?.headers.get("x-deco-draft")).toBe(POINTER);
+    expect(entry.served.at(-1)?.headers.get("x-deco-version")).toBe(POINTER);
     expect(entry.served.at(-1)?.scope?.draft).toBe(POINTER);
     expect(res.headers.has("x-cache")).toBe(false);
     expect(res.headers.get("cache-control")).toBe("no-store, private");
@@ -349,7 +349,7 @@ describe("drafts", () => {
     const res = await get("/shoes", {
       headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
     });
-    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(POINTER);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(POINTER);
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(res.headers.has("set-cookie")).toBe(false);
   });
@@ -368,22 +368,22 @@ describe("drafts", () => {
     const res = await get("/?__draft=off", {
       headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
     });
-    expect(entry.served[0]?.headers.has("x-deco-draft")).toBe(false);
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
   it("a pointer that doesn't parse is no draft: the release, cached as usual", async () => {
     const { get, entry, seen } = setup();
     const res = await get("/?__draft=junk");
-    expect(entry.served[0]?.headers.has("x-deco-draft")).toBe(false);
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
     expect(seen).toHaveLength(1);
     expect(res.headers.has("x-robots-tag")).toBe(false);
   });
 
-  it("an x-deco-draft header from outside never counts", async () => {
+  it("an x-deco-version header from outside never counts", async () => {
     const { get, entry, seen } = setup();
-    await get("/", { headers: { "x-deco-draft": POINTER } });
-    expect(entry.served[0]?.headers.has("x-deco-draft")).toBe(false);
+    await get("/", { headers: { "x-deco-version": POINTER } });
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
     expect(seen).toHaveLength(1);
   });
 
@@ -470,6 +470,50 @@ describe("the visitor", () => {
     expect(await (await routed.get("/hats", init)).text()).toBe("none");
   });
 
+  it("decides each test and campaign once, hands them to the app on x-deco-assignments and to pageCache; a forged copy never counts", async () => {
+    const cms = testCMS(
+      snapshot({
+        experiments: { all: 100, none: 0 },
+        campaigns: { sale: {}, later: { start: "2999-01-01" } },
+      }),
+    );
+    let assignments: unknown;
+    const { get, entry } = setup({
+      cms,
+      pageCache: async (page) => {
+        assignments = page.assignments;
+        return page.render();
+      },
+    });
+    await get("/", { headers: { "x-deco-assignments": "x=+none" } });
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+all,-none|c=-later,+sale");
+    expect(assignments).toEqual({
+      version: null,
+      experiments: { all: true, none: false },
+      campaigns: { later: false, sale: true },
+    });
+    const routed = setup({
+      cms,
+      routes: (request) => html(request.headers.get("x-deco-assignments") ?? "none"),
+    });
+    expect(
+      await (await routed.get("/hats", { headers: { "x-deco-assignments": "x=+none" } })).text(),
+    ).toBe("none");
+  });
+
+  it("a preview link's switched tests are decided in the worker, even a test at 0%", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["store.example.com"], experiments: { none: 0 } }),
+    );
+    const { get, entry } = setup({ cms });
+    // `local` names no draft (`deco serve`'s working tree): the release, nothing fetched.
+    const local = "127.0.0.1:1/p@local";
+    const link = local.replace("@", `?__test=${encodeURIComponent("none=on")}@`);
+    await get(`/?__draft=${encodeURIComponent(link)}`);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(local);
+    expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+none");
+  });
+
   it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
     vi.stubGlobal(
       "fetch",
@@ -477,7 +521,7 @@ describe("the visitor", () => {
     );
     const { get, entry } = setup();
     const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, { firstVisit: true });
-    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(POINTER);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(POINTER);
     expect(forwarded(entry.served[0]?.headers)).not.toBe(null);
     expect(segmentCookies(res)).toEqual([]);
   });
@@ -507,24 +551,30 @@ describe("the version: an old release from a Studio link", () => {
   it("a release SHA on a preview host is the version the app reads, kept in the draft cookie", async () => {
     const { get, entry } = setup();
     const res = await get(`/?__draft=${SHA}`, { firstVisit: true });
-    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(SHA);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
     expect(res.headers.get("cache-control")).toBe("no-store, private");
     expect(res.headers.getSetCookie().some((c) => c.startsWith(`__deco_draft=${SHA};`))).toBe(true);
     expect(segmentCookies(res)).toEqual([]);
   });
 
-  it("with the preview time and forced tests on it", async () => {
-    const version = `${SHA}?__at=${encodeURIComponent("2026-11-28T10:00:00-03:00")}&__test=${encodeURIComponent("hero=on")}`;
+  it("with the preview time and switched tests on it: the version alone on x-deco-version, the rest decided", async () => {
+    const value = `${SHA}?__at=${encodeURIComponent("2026-11-28T10:00:00-03:00")}&__test=${encodeURIComponent("hero=on")}`;
     const { get, entry } = setup();
-    await get(`/?__draft=${encodeURIComponent(version)}`);
-    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(version);
+    const res = await get(`/?__draft=${encodeURIComponent(value)}`);
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
+    expect(entry.served[0]?.headers.has("x-deco-assignments")).toBe(true);
+    // The cookie keeps the whole link, so the next request previews the same.
+    expect(
+      res.headers
+        .getSetCookie()
+        .some((c) => c.startsWith(`__deco_draft=${encodeURIComponent(value)};`)),
+    ).toBe(true);
   });
 
   it("a preview time typed by hand, unencoded, reads as @decocms/blocks reads it", async () => {
-    const version = `${SHA}?__at=2026-11-28T10:00:00-03:00`;
     const { get, entry } = setup();
-    const res = await get(`/?__draft=${version}`, { firstVisit: true });
-    expect(entry.served[0]?.headers.get("x-deco-draft")).toBe(version);
+    const res = await get(`/?__draft=${SHA}?__at=2026-11-28T10:00:00-03:00`, { firstVisit: true });
+    expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
     expect(segmentCookies(res)).toEqual([]);
   });
 
@@ -534,7 +584,7 @@ describe("the version: an old release from a Studio link", () => {
     await get(`/?__draft=${SHA.slice(1)}`);
     await get(`/?__draft=${encodeURIComponent(`${SHA}?__at=yesterday`)}`);
     await get(`/?__draft=${encodeURIComponent(`${SHA}?page=2`)}`);
-    for (const served of entry.served) expect(served.headers.has("x-deco-draft")).toBe(false);
+    for (const served of entry.served) expect(served.headers.has("x-deco-version")).toBe(false);
   });
 });
 
@@ -544,7 +594,7 @@ describe("the draft host allowlist (v7's, in the worker)", () => {
   async function previews(options: Partial<DecoWorkerOptions>, host: string): Promise<boolean> {
     const { get, entry } = setup(options);
     const res = await get(link(host));
-    const rendered = entry.served[0]?.headers.get("x-deco-draft") === POINTER;
+    const rendered = entry.served[0]?.headers.get("x-deco-version") === POINTER;
     // The cookie and the headers agree with what the app rendered.
     expect(res.headers.has("set-cookie"), host).toBe(rendered);
     expect(res.headers.get("x-robots-tag") === "noindex, nofollow", host).toBe(rendered);
@@ -633,7 +683,7 @@ describe("the draft host allowlist (v7's, in the worker)", () => {
     const { get, entry, seen } = setup({ previewHosts: "none" });
     await get(`/?__draft=${encodeURIComponent(POINTER)}`);
     expect(seen).toHaveLength(1);
-    expect(entry.served.every((s) => !s.headers.has("x-deco-draft"))).toBe(true);
+    expect(entry.served.every((s) => !s.headers.has("x-deco-version"))).toBe(true);
   });
 });
 
@@ -670,7 +720,7 @@ describe("CMS redirects, routes and assets", () => {
     let seen: string | null = null;
     const { get } = setup({
       routes: (request) => {
-        seen = request.headers.get("x-deco-draft");
+        seen = request.headers.get("x-deco-version");
         return new Response("x");
       },
     });

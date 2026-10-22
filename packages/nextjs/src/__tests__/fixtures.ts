@@ -32,7 +32,7 @@ export function snapshot(
     blocks.experiments = { __resolveType: "split-traffic", ...options.experiments };
   }
   if (options.campaigns) {
-    blocks.campaigns = { __resolveType: "date-windows", ...options.campaigns };
+    blocks.campaigns = { __resolveType: "calendar", ...options.campaigns };
   }
   return { revision: "rev-1", blocks } as Snapshot;
 }

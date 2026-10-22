@@ -6,13 +6,14 @@
  * - `/deco/_liveness` answers `OK`; v7's admin paths (`/deco/*`, `/live/*`,
  *   `/.decofile`) answer 404.
  * - Versions: the host allowlist (`./drafts.ts`) for a Studio link's version
- *   (a draft, or a published release by its commit SHA), the draft cookie,
- *   the `x-deco-draft` request header the page reads, and on the response
+ *   (a draft, or a published release by its commit SHA, with the preview's
+ *   moment and switched tests and campaigns), the draft cookie, the
+ *   `x-deco-version` request header the page reads, and on the response
  *   `no-store`, `Vary: Cookie` and `noindex`.
  * - The CMS redirects, before any route.
  * - No page cache: caching is the site's (`pageCache`, the README's
  *   worker-entry recipe), with the helpers it needs exported here
- *   (`readAssignments`, `assignmentsKey`, `cacheVersion`, `isCacheable`, …).
+ *   (`assignmentsKey`, `cacheVersion`, `isCacheable`, …).
  *   The worker calls `pageCache` only for a request `isCacheable` accepts,
  *   never for a preview, and adds the visitor's cookie after it, so a stored
  *   copy never carries one. A response with no `CDN-Cache-Control` tells the
@@ -21,8 +22,16 @@
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - The visitor: on a page or server-function request, `readVisitor` from
  *   `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new
- *   visitor), handed to the app on `x-deco-visitor` (`contentClient` reads
- *   it); the cookie is sent on a first visit only, never from a preview.
+ *   visitor), handed to the app on `x-deco-visitor`; the cookie is sent on a
+ *   first visit only, never from a preview.
+ * - What the request's content gives it, decided once per request: each test
+ *   and campaign on or off (`readAssignments`: `cms.client({ visitor,
+ *   version, date, experiments, campaigns })` with the visitor and the Studio
+ *   link's version, moment and switched tests and campaigns), handed to the
+ *   site's `pageCache` (`page.assignments`, for its key) and to the app on
+ *   `x-deco-assignments` (`contentClient` builds
+ *   `cms.client({ version, experiments, campaigns })` from it, deciding
+ *   nothing again).
  * - `http.server.request.duration` for every request, to the CMS's telemetry
  *   (`recordServerRequest` from `@decocms/blocks/metrics`), labelled with the route's template, the
  *   method, the status class, the cache decision (the `X-Cache` the site's
@@ -33,12 +42,14 @@ import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
-import { DRAFT_HEADER, draftResponseHeaders } from "../draft.ts";
+import { ASSIGNMENTS_HEADER, serializeAssignments } from "../assignments.ts";
+import { draftResponseHeaders, VERSION_HEADER } from "../draft.ts";
 import { PAGE_STATUS_HEADER } from "../shared.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
+import { type RequestAssignments, readAssignments } from "./assignments.ts";
 import { isCacheable } from "./cache.ts";
 import { dedupeSetCookies } from "./cookies.ts";
-import { decideDraft, type PreviewPolicy } from "./drafts.ts";
+import { type DraftDecision, decideDraft, type PreviewPolicy } from "./drafts.ts";
 import { type CspOptions, htmlSecurityHeaders } from "./security.ts";
 import { type Device, detectDevice } from "./segment.ts";
 import { isServerFnPath } from "./serverFn.ts";
@@ -75,11 +86,16 @@ export interface ServerEntry {
  * release, never a preview).
  */
 export interface PageRequest<Env = unknown> {
-  /** The request as the app gets it: the visitor on `x-deco-visitor`. */
+  /** The request as the app gets it: the visitor and the assignments on their headers. */
   request: Request;
   url: URL;
-  /** The visitor the worker read (`readVisitor`): pass it to `readAssignments`. */
+  /** The visitor the worker read (`readVisitor`). */
   visitor: Visitor;
+  /**
+   * Each test and campaign on or off for this request, as the worker decided
+   * them and the page renders them: key the cache on `assignmentsKey(page.assignments)`.
+   */
+  assignments: RequestAssignments;
   /** The request's device class, from its user agent. */
   device: Device;
   env: Env;
@@ -332,33 +348,45 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   }
 
   /**
-   * The visitor of a page or server-function request (`readVisitor`: the
-   * `deco_segment` cookie, or a new visitor), on `x-deco-visitor` for the
-   * app, and the cookie to send when the visitor had no id. A preview (a
-   * draft, or an old release) sends no cookie: Studio is not a visitor.
+   * What a page or server-function request reads, decided once: the visitor
+   * (`readVisitor`: the `deco_segment` cookie, or a new visitor) on
+   * `x-deco-visitor`, each test and campaign on or off for it and the
+   * request's version (`readAssignments`) on `x-deco-assignments`, and the
+   * cookie to send when the visitor had no id. A preview (a draft, or an old
+   * release) sends no cookie: Studio is not a visitor.
    */
-  function withVisitor(
+  async function withDecisions(
     request: Request,
-    version: string | null,
-  ): { request: Request; visitor: Visitor | null; visitorCookie?: string } {
+    draft: DraftDecision,
+  ): Promise<{
+    request: Request;
+    visitor: Visitor | null;
+    assignments?: RequestAssignments;
+    visitorCookie?: string;
+  }> {
     // TanStack Start's own build files render no content.
     if (BYPASS_PATHS.some((p) => new URL(request.url).pathname.startsWith(p))) {
       return { request, visitor: null };
     }
     const { visitor, cookie } = readVisitor(request);
+    const assignments = await readAssignments(cms, { visitor, ...draft.version });
     const headers = new Headers(request.headers);
     headers.set(VISITOR_HEADER, serializeVisitor(visitor));
+    headers.set(ASSIGNMENTS_HEADER, serializeAssignments(assignments));
     const forwarded = new Request(request, { headers });
-    if (cookie === null || version !== null) return { request: forwarded, visitor };
-    return { request: forwarded, visitor, visitorCookie: cookie };
+    if (cookie === null || draft.version !== null) {
+      return { request: forwarded, visitor, assignments };
+    }
+    return { request: forwarded, visitor, assignments, visitorCookie: cookie };
   }
 
   async function handle(
     request: Request,
     env: Env,
     ctx: ExecutionContextLike,
-    draft: string | null,
+    decision: DraftDecision,
   ): Promise<Served> {
+    const draft = decision.version?.version ?? null;
     const url = new URL(request.url);
     const method = request.method;
     const readOnly = method === "GET" || method === "HEAD";
@@ -410,8 +438,16 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       return { response: resp };
     }
 
-    const visited = withVisitor(request, draft);
-    const served = await page(visited.request, env, ctx, draft, url, visited.visitor);
+    const visited = await withDecisions(request, decision);
+    const served = await page(
+      visited.request,
+      env,
+      ctx,
+      draft,
+      url,
+      visited.visitor,
+      visited.assignments,
+    );
     return visited.visitorCookie === undefined
       ? served
       : { ...served, visitorCookie: visited.visitorCookie };
@@ -425,6 +461,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     draft: string | null,
     url: URL,
     visitor: Visitor | null,
+    assignments: RequestAssignments | undefined,
   ): Promise<Served> {
     const render = async (scope?: { csegToken?: string }): Promise<Response> =>
       withPageStatus(
@@ -441,13 +478,19 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       }
       return { response: out };
     }
-    if (!options.pageCache || visitor === null || !isCacheable(request, { version: draft, dev })) {
+    if (
+      !options.pageCache ||
+      visitor === null ||
+      assignments === undefined ||
+      !isCacheable(request, { version: draft, dev })
+    ) {
       return { response: await render() };
     }
     const response = await options.pageCache({
       request,
       url,
       visitor,
+      assignments,
       device: detectDevice(request.headers.get("user-agent") ?? ""),
       env,
       ctx,
@@ -461,32 +504,25 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     env: Env,
     ctx: ExecutionContextLike,
   ): Promise<{ response: Response; served: Served; draft: boolean }> {
-    let decision: { pointer: string | null; setCookie: string | null } = {
-      pointer: null,
-      setCookie: null,
-    };
+    let decision: DraftDecision = { version: null, setCookie: null };
     try {
       decision = await decideDraft(cms, incoming, policy);
     } catch {
       // The settings didn't load: the request gets the release.
     }
-    // The page reads the version and the visitor from these headers; a copy
-    // from outside never counts.
+    // The page reads the version, the visitor and the assignments from these
+    // headers; a copy from outside never counts.
     let request = incoming;
-    if (
-      incoming.headers.has(DRAFT_HEADER) ||
-      incoming.headers.has(VISITOR_HEADER) ||
-      decision.pointer !== null
-    ) {
+    const own = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER];
+    if (own.some((name) => incoming.headers.has(name)) || decision.version !== null) {
       const headers = new Headers(incoming.headers);
-      headers.delete(DRAFT_HEADER);
-      headers.delete(VISITOR_HEADER);
-      if (decision.pointer !== null) headers.set(DRAFT_HEADER, decision.pointer);
+      for (const name of own) headers.delete(name);
+      if (decision.version !== null) headers.set(VERSION_HEADER, decision.version.version);
       request = new Request(incoming, { headers });
     }
 
-    const served = await handle(request, env, ctx, decision.pointer);
-    const draft = decision.pointer !== null;
+    const served = await handle(request, env, ctx, decision);
+    const draft = decision.version !== null;
     let response = served.response;
     // A WebSocket upgrade passes through untouched.
     if (response.status === 101) return { response, served, draft };

@@ -24,13 +24,14 @@
  *
  * What a link carries is a version, as `cms.readVersion` reads it: a draft
  * pointer, or a published release's commit SHA (Studio's "Preview this
- * version"), either one with the preview parameters (`__at`, `__test`,
- * `__variant`). Both pass the same host check: a visitor on the live site
- * never picks a version.
+ * version"), with the preview's moment and switched tests and campaigns
+ * (`__at`, `__test`, `__campaign`; `parseVersion` from `@decocms/blocks`).
+ * Both pass the same host check: a visitor on the live site never picks a
+ * version.
  *
  * No React, no Next.js and no module state: the proxy and the pages share it.
  */
-import { type CMS, parseDraftPointer, type RequestLike } from "@decocms/blocks";
+import { type CMS, parseVersion, type RequestLike, type RequestVersion } from "@decocms/blocks";
 import { DRAFT_COOKIE, DRAFT_PARAM } from "./draft.ts";
 
 export interface PreviewPolicy {
@@ -134,37 +135,17 @@ function readCookie(header: string | null, name: string): string | null {
   return null;
 }
 
-/** A published release: its git commit SHA (SHA-1, 40 lowercase hex), as `@decocms/blocks` names it. */
-const REVISION_RE = /^[0-9a-f]{40}$/;
-
 /**
- * Whether `value` is a version `cms.readVersion` accepts: a draft pointer, or
- * a release's commit SHA, optionally followed by `?` and the preview
- * parameters a pointer's query takes (`<sha>?__at=…&__test=…`).
+ * What a request's Studio link asks for, as `@decocms/blocks` reads it:
+ * `?__draft=` first, then the draft cookie; `null` for `?__draft=off` and
+ * for a value that doesn't parse.
  */
-export function isVersion(value: string): boolean {
-  if (parseDraftPointer(value) !== null) return true;
-  const q = value.indexOf("?");
-  if (!REVISION_RE.test(q === -1 ? value : value.slice(0, q))) return false;
-  if (q === -1) return true;
-  // The parameters parse as a pointer's would, with nothing else in the query.
-  // Unlike a pointer's path, they may hold any character as typed (a time's
-  // `:`), as `@decocms/blocks` reads them: encoded here, they decode the same.
-  const query = value.slice(q).replace(/[^A-Za-z0-9/_.%~=&?-]/g, encodeURIComponent);
-  return parseDraftPointer(`localhost/${query}@${value.slice(0, q)}`)?.path === "/";
-}
-
-/**
- * The version a request carries, as `@decocms/blocks` reads it: `?__draft=`
- * first, then the draft cookie; `null` for `?__draft=off` and for a value
- * that doesn't parse.
- */
-export function readDraftPointer(request: RequestLike): string | null {
+export function readDraftVersion(request: RequestLike): RequestVersion | null {
   const param = draftParam(request);
   if (param === DRAFT_OFF) return null;
-  if (param && isVersion(param)) return param;
-  const cookie = readCookie(request.headers.get("cookie"), DRAFT_COOKIE);
-  return cookie && isVersion(cookie) ? cookie : null;
+  const fromLink = param ? parseVersion(param) : null;
+  if (fromLink !== null) return fromLink;
+  return parseVersion(readCookie(request.headers.get("cookie"), DRAFT_COOKIE));
 }
 
 /** Whether the request carries a draft signal at all: without one the CMS is never asked. */
@@ -202,18 +183,18 @@ export function requestLike(
 }
 
 /**
- * The version `request` renders under `policy` (a draft pointer, or a
- * release's commit SHA), or `null` for the current release: the one it
- * carries, on a host the policy (or, when only it can say, the `CMS` block)
- * allows.
+ * What `request` renders under `policy` (a draft pointer or a release's
+ * commit SHA, with the preview's moment and switched tests and campaigns),
+ * or `null` for the current release: what its Studio link carries, on a host
+ * the policy (or, when only it can say, the `CMS` block) allows.
  */
 export async function allowedDraft(
   cms: Pick<CMS, "readVersion" | "settings" | "forRelease">,
   request: RequestLike,
   policy: PreviewPolicy,
-): Promise<string | null> {
-  const pointer = readDraftPointer(request);
-  if (pointer === null) return null;
+): Promise<RequestVersion | null> {
+  const read = readDraftVersion(request);
+  if (read === null) return null;
   let host: string;
   try {
     host = new URL(request.url).host;
@@ -225,7 +206,7 @@ export async function allowedDraft(
     decision === "cms"
       ? (await declaresPreviewHosts(cms)) && (await cms.readVersion(request)) !== null
       : decision;
-  return allowed ? pointer : null;
+  return allowed ? read : null;
 }
 
 /**
@@ -250,7 +231,11 @@ export function endsPreview(request: RequestLike): boolean {
   return draftParam(request) === DRAFT_OFF;
 }
 
-/** Whether the request's own `?__draft=` carries `pointer` (a draft link, not the cookie). */
-export function fromDraftLink(request: RequestLike, pointer: string): boolean {
-  return draftParam(request) === pointer;
+/**
+ * The request's own `?__draft=` value when it is a version (a draft link,
+ * not the cookie): the value its cookie stores; `null` otherwise.
+ */
+export function draftLinkValue(request: RequestLike): string | null {
+  const param = draftParam(request);
+  return param && param !== DRAFT_OFF && parseVersion(param) !== null ? param : null;
 }

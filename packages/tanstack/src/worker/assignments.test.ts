@@ -5,7 +5,8 @@
  */
 import { assign, newVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assignmentsKey, readAssignments } from "./assignments.ts";
+import { parseAssignments, serializeAssignments } from "../assignments.ts";
+import { assignmentsKey, liveAssignmentKeys, readAssignments } from "./assignments.ts";
 import { POINTER, snapshot, testCMS } from "./testing.ts";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -22,7 +23,7 @@ function visitorIn(test: string, share: number, inside: boolean): Visitor {
 }
 
 describe("readAssignments", () => {
-  it("the tests the visitor is in and the campaigns running now, sorted", async () => {
+  it("every test on or off for the visitor and every campaign running or not now", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse("2026-11-28T12:00:00Z"));
     const cms = testCMS(
@@ -38,8 +39,29 @@ describe("readAssignments", () => {
     const assignments = await readAssignments(cms, { visitor: newVisitor(), version: null });
     expect(assignments).toEqual({
       version: null,
-      experiments: ["alpha", "zeta"],
-      campaigns: ["always", "black-friday"],
+      experiments: { alpha: true, off: false, zeta: true },
+      campaigns: { always: true, "black-friday": true, christmas: false },
+    });
+    expect(assignmentsKey(assignments)).toBe("x=alpha,zeta|c=always,black-friday");
+  });
+
+  it("a preview's moment and switched tests and campaigns decide over the visitor and now", async () => {
+    const cms = testCMS(
+      snapshot({
+        experiments: { hero: 50, dark: 0 },
+        campaigns: { christmas: { start: "2999-12-20T00:00:00Z" }, sale: {} },
+      }),
+    );
+    const assignments = await readAssignments(cms, {
+      visitor: visitorIn("hero", 50, false),
+      date: new Date("2999-12-21T00:00:00Z"),
+      experiments: { dark: true },
+      campaigns: { sale: false },
+    });
+    expect(assignments).toEqual({
+      version: null,
+      experiments: { dark: true, hero: false },
+      campaigns: { christmas: true, sale: false },
     });
   });
 
@@ -57,8 +79,8 @@ describe("readAssignments", () => {
     } as unknown as Parameters<typeof readAssignments>[0];
     expect(await readAssignments(broken, { visitor: null, version: null })).toEqual({
       version: null,
-      experiments: [],
-      campaigns: [],
+      experiments: {},
+      campaigns: {},
     });
   });
 
@@ -76,23 +98,53 @@ describe("readAssignments", () => {
 });
 
 describe("assignmentsKey", () => {
-  it("a draft, an old release and a preview time each key separately", () => {
-    const none = { experiments: [], campaigns: [] };
-    const keys = [
-      null,
-      POINTER,
-      SHA,
-      `${SHA}?__at=${encodeURIComponent("2026-11-28T10:00:00-03:00")}`,
-      `${POINTER.replace("@", "&__at=2026-11-28T10%3A00%3A00Z@")}`,
-    ].map((version) => assignmentsKey({ version, ...none }));
+  it("a draft and an old release each key separately", () => {
+    const none = { experiments: {}, campaigns: {} };
+    const keys = [null, POINTER, SHA].map((version) => assignmentsKey({ version, ...none }));
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys[0]).toBe("");
   });
 
-  it("names are sorted and encoded; the order they came in doesn't matter", () => {
-    const a = assignmentsKey({ version: null, experiments: ["b", "a|x"], campaigns: ["c,d"] });
-    const b = assignmentsKey({ version: null, experiments: ["a|x", "b"], campaigns: ["c,d"] });
+  it("names on are sorted and encoded; the order they came in doesn't matter", () => {
+    const a = assignmentsKey({
+      version: null,
+      experiments: { b: true, "a|x": true, off: false },
+      campaigns: { "c,d": true },
+    });
+    const b = assignmentsKey({
+      version: null,
+      experiments: { off: false, "a|x": true, b: true },
+      campaigns: { "c,d": true },
+    });
     expect(a).toBe(b);
     expect(a).toBe("x=a%7Cx,b|c=c%2Cd");
+  });
+});
+
+describe("liveAssignmentKeys", () => {
+  it("each subset of the tests on, with the running campaigns and with none", async () => {
+    const cms = testCMS(
+      snapshot({
+        experiments: { a: 50, b: 50 },
+        campaigns: { sale: {}, later: { start: "2999-01-01" } },
+      }),
+    );
+    expect((await liveAssignmentKeys(cms)).sort()).toEqual(
+      ["", "c=sale", "x=a", "x=a|c=sale", "x=b", "x=b|c=sale", "x=a,b", "x=a,b|c=sale"].sort(),
+    );
+  });
+});
+
+describe("the decisions header", () => {
+  it("round-trips every name with its state, one spelling per set", () => {
+    const d = { experiments: { b: true, "a b": false, "-x": true }, campaigns: { "c|d": false } };
+    const value = serializeAssignments(d);
+    expect(value).toBe("x=+-x,-a%20b,+b|c=-c%7Cd");
+    expect(parseAssignments(value)).toEqual(d);
+    expect(serializeAssignments({ experiments: {}, campaigns: {} })).toBe("-");
+    expect(parseAssignments("-")).toEqual({ experiments: {}, campaigns: {} });
+    for (const bad of [null, "", "x=+b,+a", "x=a", "c=+a|x=+b", "x=+a|x=+b", "v=+a"]) {
+      expect(parseAssignments(bad), String(bad)).toBeNull();
+    }
   });
 });

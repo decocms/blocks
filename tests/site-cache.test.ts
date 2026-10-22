@@ -38,7 +38,7 @@ describe("readAssignments and assignmentsKey, on both bindings", () => {
       blocks: {
         experiments: { __resolveType: "split-traffic", hero: 50, "new buy": 50, all: 100, off: 0 },
         campaigns: {
-          __resolveType: "date-windows",
+          __resolveType: "calendar",
           always: {},
           past: { start: "2001-01-01T00:00:00Z", end: "2001-01-02T00:00:00Z" },
         },

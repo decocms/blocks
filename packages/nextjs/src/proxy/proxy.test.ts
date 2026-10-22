@@ -11,6 +11,7 @@ import {
   assignmentsRoutePath,
   assignmentsSegment,
   DRAFT_ROUTE_PREFIX,
+  decideAssignments,
   decideDraft,
   decideVisitor,
   draftProxy,
@@ -42,13 +43,13 @@ function forwarded(response: Response, name: string): string | null {
 describe("decideDraft", () => {
   it("a draft link: the pointer, and the cookie that keeps the preview going", async () => {
     const d = await decideDraft(testCMS(), draftLink());
-    expect(d.pointer).toBe(POINTER);
+    expect(d.version?.version ?? null).toBe(POINTER);
     expect(d.setCookie).toBe(await testCMS().draftCookie(draftLink()));
   });
 
   it("the cookie alone: the pointer, no new cookie", async () => {
     expect(await decideDraft(testCMS(), withCookie())).toEqual({
-      pointer: POINTER,
+      version: { version: POINTER },
       setCookie: null,
     });
   });
@@ -56,12 +57,12 @@ describe("decideDraft", () => {
   it("no draft signal never asks the CMS", async () => {
     const real = testCMS();
     const cms = {
-      readVersion: vi.fn(async () => POINTER),
+      readVersion: vi.fn(async () => ({ version: POINTER })),
       settings: vi.fn(() => real.settings()),
       forRelease: vi.fn(() => real.forRelease()),
     };
     expect(await decideDraft(cms, new NextRequest("https://shop.example.com/shoes?q="))).toEqual({
-      pointer: null,
+      version: null,
       setCookie: null,
     });
     expect(cms.readVersion).not.toHaveBeenCalled();
@@ -72,22 +73,22 @@ describe("decideDraft", () => {
   it("?__draft=off ends the preview on any host, kill switch included", async () => {
     const off = new NextRequest("https://shop.example.com/?__draft=off");
     const d = await decideDraft(testCMS(), off, { previewHosts: "none" });
-    expect(d.pointer).toBe(null);
+    expect(d.version?.version ?? null).toBe(null);
     expect(d.setCookie).toContain("Max-Age=0");
   });
 
   it("a host outside the allowlist gets the release", async () => {
     const cms = testCMS(snapshot({ previewHosts: ["staging.shop.example.com"] }));
     expect(await decideDraft(cms, draftLink(), { site: "acme" })).toEqual({
-      pointer: null,
+      version: null,
       setCookie: null,
     });
     expect(
-      (await decideDraft(cms, draftLink("/", "acme.deco.site"), { site: "acme" })).pointer,
+      (await decideDraft(cms, draftLink("/", "acme.deco.site"), { site: "acme" })).version?.version,
     ).toBe(POINTER);
-    expect((await decideDraft(cms, draftLink("/", "staging.shop.example.com"))).pointer).toBe(
-      POINTER,
-    );
+    expect(
+      (await decideDraft(cms, draftLink("/", "staging.shop.example.com"))).version?.version ?? null,
+    ).toBe(POINTER);
   });
 
   it("judges the host the visitor asked for (x-forwarded-host), not the origin's", async () => {
@@ -96,54 +97,57 @@ describe("decideDraft", () => {
       `https://origin.internal/?__draft=${encodeURIComponent(POINTER)}`,
       { headers: { "x-forwarded-host": "shop.example.com" } },
     );
-    expect((await decideDraft(cms, behindProxy)).pointer).toBe(POINTER);
+    expect((await decideDraft(cms, behindProxy)).version?.version ?? null).toBe(POINTER);
     const direct = new NextRequest(
       `https://origin.internal/?__draft=${encodeURIComponent(POINTER)}`,
     );
-    expect((await decideDraft(cms, direct)).pointer).toBe(null);
+    expect((await decideDraft(cms, direct)).version?.version ?? null).toBe(null);
   });
 
   it("a pointer that doesn't parse is no draft and stores no cookie", async () => {
     expect(
       await decideDraft(testCMS(), new NextRequest("https://shop.example.com/?__draft=junk")),
     ).toEqual({
-      pointer: null,
+      version: null,
       setCookie: null,
     });
   });
 });
 
 describe("the request the proxy forwards", () => {
-  it("carries the accepted pointer on x-deco-draft", () => {
-    const h = draftRequestHeaders(withCookie(), { pointer: POINTER, setCookie: null });
-    expect(h.get("x-deco-draft")).toBe(POINTER);
+  it("carries the accepted version on x-deco-version", () => {
+    const h = draftRequestHeaders(withCookie(), { version: { version: POINTER }, setCookie: null });
+    expect(h.get("x-deco-version")).toBe(POINTER);
   });
 
-  it("never carries a forged x-deco-draft", async () => {
+  it("never carries a forged x-deco-version", async () => {
     const forged = new NextRequest("https://shop.example.com/", {
-      headers: { "x-deco-draft": POINTER },
+      headers: { "x-deco-version": POINTER },
     });
     const d = await decideDraft(testCMS(), forged);
-    expect(draftRequestHeaders(forged, d).has("x-deco-draft")).toBe(false);
+    expect(draftRequestHeaders(forged, d).has("x-deco-version")).toBe(false);
   });
 });
 
 describe("rewriteToDraftRoute", () => {
   it("rewrites a drafted request onto /_draft, keeping the path and query", () => {
     const res = rewriteToDraftRoute(draftLink("/shoes?sort=price"), {
-      pointer: POINTER,
+      version: { version: POINTER },
       setCookie: null,
     });
     const target = new URL(res?.headers.get("x-middleware-rewrite") ?? "");
     expect(target.pathname).toBe(`${DRAFT_ROUTE_PREFIX}/shoes`);
     expect(target.searchParams.get("sort")).toBe("price");
-    expect(forwarded(res!, "x-deco-draft")).toBe(POINTER);
+    expect(forwarded(res!, "x-deco-version")).toBe(POINTER);
   });
 
   it("leaves the release and the draft route itself alone", () => {
-    expect(rewriteToDraftRoute(draftLink(), { pointer: null, setCookie: null })).toBe(null);
+    expect(rewriteToDraftRoute(draftLink(), { version: null, setCookie: null })).toBe(null);
     expect(
-      rewriteToDraftRoute(draftLink("/_draft/shoes"), { pointer: POINTER, setCookie: null }),
+      rewriteToDraftRoute(draftLink("/_draft/shoes"), {
+        version: { version: POINTER },
+        setCookie: null,
+      }),
     ).toBe(null);
     expect(isDraftRoutePath("/_draft")).toBe(true);
     expect(isDraftRoutePath("/_drafts")).toBe(false);
@@ -153,7 +157,7 @@ describe("rewriteToDraftRoute", () => {
 describe("applyDraft", () => {
   it("a draft: the cookie, never stored, never indexed", () => {
     const res = applyDraft(NextResponse.next(), {
-      pointer: POINTER,
+      version: { version: POINTER },
       setCookie: "__deco_draft=x; Path=/",
     });
     expect(res.headers.get("set-cookie")).toBe("__deco_draft=x; Path=/");
@@ -165,7 +169,7 @@ describe("applyDraft", () => {
   it("the release: nothing, except a cookie that ends a preview; the site's own cookies stay", () => {
     const res = NextResponse.next();
     res.headers.append("set-cookie", "a=1; Path=/");
-    applyDraft(res, { pointer: null, setCookie: "__deco_draft=; Path=/; Max-Age=0" });
+    applyDraft(res, { version: null, setCookie: "__deco_draft=; Path=/; Max-Age=0" });
     expect(res.headers.getSetCookie()).toEqual(["a=1; Path=/", "__deco_draft=; Path=/; Max-Age=0"]);
     expect(res.headers.has("x-robots-tag")).toBe(false);
     expect(res.headers.has("cache-control")).toBe(false);
@@ -183,22 +187,37 @@ describe("draftProxy", () => {
   it("rewrite: false keeps the route and still forwards the pointer", async () => {
     const res = await draftProxy(testCMS(), { rewrite: () => false })(withCookie());
     expect(res.headers.has("x-middleware-rewrite")).toBe(false);
-    expect(forwarded(res, "x-deco-draft")).toBe(POINTER);
+    expect(forwarded(res, "x-deco-version")).toBe(POINTER);
+  });
+
+  it("forwards what it decided on x-deco-assignments, never a forged copy", async () => {
+    const cms = testCMS(snapshot({ experiments: { hero: 100, dark: 0 } }));
+    const res = await draftProxy(cms)(
+      new NextRequest("https://shop.example.com/", {
+        headers: {
+          "x-deco-assignments": assignmentsSegment({ experiments: { dark: true }, campaigns: {} }),
+        },
+      }),
+    );
+    expect(parseAssignmentsSegment(forwarded(res, "x-deco-assignments") ?? "")).toEqual({
+      experiments: { dark: false, hero: true },
+      campaigns: {},
+    });
   });
 
   it("the release passes through, a forged header removed", async () => {
     const res = await draftProxy(testCMS())(
-      new NextRequest("https://shop.example.com/", { headers: { "x-deco-draft": POINTER } }),
+      new NextRequest("https://shop.example.com/", { headers: { "x-deco-version": POINTER } }),
     );
     expect(res.headers.has("x-middleware-rewrite")).toBe(false);
-    expect(forwarded(res, "x-deco-draft")).toBe(null);
+    expect(forwarded(res, "x-deco-version")).toBe(null);
     expect(res.headers.has("x-robots-tag")).toBe(false);
   });
 });
 
 describe("the visitor", () => {
-  const release = { pointer: null, setCookie: null };
-  const preview = { pointer: POINTER, setCookie: null };
+  const release = { version: null, setCookie: null };
+  const preview = { version: { version: POINTER }, setCookie: null };
   const visit = (headers: Record<string, string> = {}, url = "https://shop.example.com/shoes") =>
     new NextRequest(url, { headers });
   const segmentCookies = (res: Response) =>
@@ -259,7 +278,7 @@ describe("the visitor", () => {
     const res = await draftProxy(testCMS(snapshot({ previewHosts: ["shop.example.com"] })))(
       draftLink(),
     );
-    expect(forwarded(res, "x-deco-draft")).toBe(POINTER);
+    expect(forwarded(res, "x-deco-version")).toBe(POINTER);
     expect(parseVisitor(forwarded(res, "x-deco-visitor"))).not.toBe(null);
     expect(segmentCookies(res)).toEqual([]);
   });
@@ -271,26 +290,41 @@ describe("the version: an old release from a Studio link", () => {
     new NextRequest(`https://${host}/shoes?__draft=${encodeURIComponent(value)}`);
   const cms = () => testCMS(snapshot({ previewHosts: ["shop.example.com"] }));
 
-  it("a release SHA, with or without the preview parameters, is the version forwarded", async () => {
+  it("a release SHA is the version forwarded; the preview's parameters are its date, tests and campaigns", async () => {
     const plain = await decideDraft(cms(), link(SHA));
-    expect(plain.pointer).toBe(SHA);
+    expect(plain.version).toEqual({ version: SHA });
     expect(plain.setCookie).toContain(`__deco_draft=${SHA};`);
     const at = encodeURIComponent("2026-11-28T10:00:00-03:00");
-    const version = `${SHA}?__at=${at}&__test=${encodeURIComponent("hero=off")}`;
-    expect((await decideDraft(cms(), link(version))).pointer).toBe(version);
+    const value = `${SHA}?__at=${at}&__test=${encodeURIComponent("hero=off")}&__campaign=${encodeURIComponent("bf=on")}`;
+    const d = await decideDraft(cms(), link(value));
+    expect(d.version?.version).toBe(SHA);
+    expect(d.version?.date?.toISOString()).toBe("2026-11-28T13:00:00.000Z");
+    expect({ ...d.version?.experiments }).toEqual({ hero: false });
+    expect({ ...d.version?.campaigns }).toEqual({ bf: true });
+    // The cookie keeps the whole link, so the next request previews the same.
+    expect(d.setCookie).toContain(`__deco_draft=${encodeURIComponent(value)};`);
+    const res = await draftProxy(cms())(link(value));
+    expect(forwarded(res, "x-deco-version")).toBe(SHA);
   });
 
   it("a preview time typed by hand, unencoded, reads as @decocms/blocks reads it", async () => {
-    const version = `${SHA}?__at=2026-11-28T10:00:00-03:00`;
-    const typed = new NextRequest(`https://shop.example.com/shoes?__draft=${version}`);
-    expect((await decideDraft(cms(), typed)).pointer).toBe(version);
+    const typed = new NextRequest(
+      `https://shop.example.com/shoes?__draft=${SHA}?__at=2026-11-28T10:00:00-03:00`,
+    );
+    const d = await decideDraft(cms(), typed);
+    expect(d.version?.version).toBe(SHA);
+    expect(d.version?.date?.toISOString()).toBe("2026-11-28T13:00:00.000Z");
   });
 
   it("on a host that may not preview, or when it doesn't parse: the current release", async () => {
-    expect((await decideDraft(cms(), link(SHA, "elsewhere.example.com"))).pointer).toBe(null);
-    expect((await decideDraft(cms(), link(SHA.slice(1)))).pointer).toBe(null);
-    expect((await decideDraft(cms(), link(`${SHA}?__at=yesterday`))).pointer).toBe(null);
-    expect((await decideDraft(cms(), link(`${SHA}?page=2`))).pointer).toBe(null);
+    expect(
+      (await decideDraft(cms(), link(SHA, "elsewhere.example.com"))).version?.version ?? null,
+    ).toBe(null);
+    expect((await decideDraft(cms(), link(SHA.slice(1)))).version?.version ?? null).toBe(null);
+    expect((await decideDraft(cms(), link(`${SHA}?__at=yesterday`))).version?.version ?? null).toBe(
+      null,
+    );
+    expect((await decideDraft(cms(), link(`${SHA}?page=2`))).version?.version ?? null).toBe(null);
   });
 });
 
@@ -330,13 +364,50 @@ describe("readAssignments and assignmentsKey: what a site's own cache keys on", 
     }
   });
 
-  it("a version and a preview time key apart from the release and each other", () => {
-    const none = { experiments: [], campaigns: [] };
+  it("a version keys apart from the release and from another version", () => {
+    const none = { experiments: {}, campaigns: {} };
     const sha = "0123456789abcdef0123456789abcdef01234567";
-    const keys = [null, POINTER, sha, `${sha}?__at=2026-11-28T10%3A00%3A00Z`].map((version) =>
-      assignmentsKey({ version, ...none }),
+    const keys = [null, POINTER, sha].map((version) => assignmentsKey({ version, ...none }));
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("a preview's moment and switched tests and campaigns decide, over the visitor and now", async () => {
+    const cms = testCMS(content);
+    const read = await readAssignments(cms, {
+      visitor: visitorIn(false),
+      date: new Date(Date.parse(BF.start) + 1_000),
+      experiments: { hero: true },
+    });
+    expect(read).toEqual({
+      version: null,
+      experiments: { hero: true },
+      campaigns: { "black-friday": true },
+    });
+    const off = await readAssignments(cms, {
+      visitor: visitorIn(true),
+      date: new Date(Date.parse(BF.start) + 1_000),
+      experiments: { hero: false },
+      campaigns: { "black-friday": false },
+    });
+    expect(assignmentsKey(off)).toBe("");
+  });
+
+  it("decideAssignments decides from the draft decision and the visitor, once", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["shop.example.com"], experiments: { hero: 50, dark: 0 } }),
     );
-    expect(new Set(keys).size).toBe(4);
+    // `local` names no draft (deco serve's working tree): the release, nothing fetched.
+    const local = "127.0.0.1:1/p@local";
+    const at = encodeURIComponent("2026-11-28T10:00:00Z");
+    const pointer = local.replace("@", `?__at=${at}&__test=${encodeURIComponent("dark=on")}@`);
+    const req = new NextRequest(`https://shop.example.com/?__draft=${encodeURIComponent(pointer)}`);
+    const draft = await decideDraft(cms, req);
+    expect(draft.version?.version).toBe(local);
+    const visitor = decideVisitor(req, draft);
+    const decided = await decideAssignments(cms, draft, visitor);
+    expect(decided.version).toBe(local);
+    expect(decided.experiments.dark).toBe(true); // a preview may switch on a test at 0%
+    expect(decided.experiments.hero).toBe(assign({ hero: 50 }, visitor.visitor).hero);
   });
 
   it("no experiments or campaigns: no assignments", async () => {
@@ -384,7 +455,11 @@ describe("the assignments route: Next's path-keyed cache keys on the request's a
     expect(paths[0]).toBe(paths[1]);
     expect(paths[0]).not.toBe(paths[2]);
     expect(paths[0]).toMatch(/^\/_assignments\/[A-Za-z0-9_-]+\/shoes\?color=red$/);
-    expect(paths[2]).toMatch(/^\/_assignments\/-\/shoes\?color=red$/);
+    expect(paths[2]).toMatch(/^\/_assignments\/[A-Za-z0-9_-]+\/shoes\?color=red$/);
+    expect(parseAssignmentsSegment(paths[2]!.split("/")[2]!)).toEqual({
+      experiments: { hero: false, later: false },
+      campaigns: { "black-friday": false },
+    });
     expect(paths.join()).not.toContain(a.id);
   });
 
@@ -393,12 +468,12 @@ describe("the assignments route: Next's path-keyed cache keys on the request's a
     const req = page("/shoes", {
       ...asCookie(visitorIn(true)),
       "x-deco-visitor": "forged",
-      "x-deco-draft": POINTER,
+      "x-deco-version": POINTER,
     });
     const draft = await decideDraft(cms, req);
     const res = await rewriteToAssignmentsRoute(cms, req, draft, decideVisitor(req, draft));
     expect(forwarded(res!, "x-deco-visitor")).toBeNull();
-    expect(forwarded(res!, "x-deco-draft")).toBeNull();
+    expect(forwarded(res!, "x-deco-version")).toBeNull();
   });
 
   it("the URL asked for is private when the content has tests or campaigns: a CDN must not share it", async () => {
@@ -429,11 +504,14 @@ describe("the assignments route: Next's path-keyed cache keys on the request's a
       const before = await at(Date.parse(BF.start) - 1_000);
       const during = await at(Date.parse(BF.start) + 1_000);
       const after = await at(Date.parse(BF.end) + 1_000);
-      expect(before).toBe("/_assignments/-");
       expect(during).not.toBe(before);
+      expect(parseAssignmentsSegment(before!.split("/")[2]!)).toEqual({
+        experiments: { hero: false, later: false },
+        campaigns: { "black-friday": false },
+      });
       expect(parseAssignmentsSegment(during!.split("/")[2]!)).toEqual({
-        experiments: [],
-        campaigns: ["black-friday"],
+        experiments: { hero: false, later: false },
+        campaigns: { "black-friday": true },
       });
       expect(after).toBe(before);
     } finally {
@@ -466,11 +544,15 @@ describe("the assignments route: Next's path-keyed cache keys on the request's a
   it("draftProxy answers a direct hit on the assignments route with a 404, so a path can't force a test on", async () => {
     const cms = testCMS(content);
     const proxy = draftProxy(cms, { assignments: () => true });
-    const forged = assignmentsRoutePath("/shoes", { experiments: ["later"], campaigns: [] });
+    const forged = assignmentsRoutePath("/shoes", { experiments: { later: true }, campaigns: {} });
     expect((await proxy(page(forged))).status).toBe(404);
     const res = await proxy(page("/shoes", asCookie(visitorIn(false))));
+    const segment = assignmentsSegment({
+      experiments: { hero: false, later: false },
+      campaigns: { "black-friday": false },
+    });
     expect(res.headers.get("x-middleware-rewrite")).toBe(
-      "https://shop.example.com/_assignments/-/shoes",
+      `https://shop.example.com/_assignments/${segment}/shoes`,
     );
     // Without the option nothing changes.
     expect((await draftProxy(cms)(page("/shoes"))).headers.get("x-middleware-rewrite")).toBeNull();
@@ -478,19 +560,22 @@ describe("the assignments route: Next's path-keyed cache keys on the request's a
 });
 
 describe("assignmentsSegment and parseAssignmentsSegment", () => {
-  it("round-trip, sorted, with one spelling per set of assignments", () => {
-    const d = { experiments: ["b", "a b", "ç"], campaigns: ["sale|x", "c=1"] };
+  it("round-trip every name with its state, sorted, with one spelling per set of assignments", () => {
+    const d = {
+      experiments: { b: true, "a b": false, ç: true },
+      campaigns: { "sale|x": true, "c=1": false, "-neg": true },
+    };
     const segment = assignmentsSegment(d);
     expect(segment).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(parseAssignmentsSegment(segment)).toEqual({
-      experiments: ["a b", "b", "ç"],
-      campaigns: ["c=1", "sale|x"],
-    });
+    expect(parseAssignmentsSegment(segment)).toEqual(d);
     expect(
-      assignmentsSegment({ experiments: [...d.experiments].reverse(), campaigns: d.campaigns }),
+      assignmentsSegment({
+        experiments: Object.fromEntries(Object.entries(d.experiments).reverse()),
+        campaigns: d.campaigns,
+      }),
     ).toBe(segment);
-    expect(assignmentsSegment({ experiments: [], campaigns: [] })).toBe("-");
-    expect(parseAssignmentsSegment("-")).toEqual({ experiments: [], campaigns: [] });
+    expect(assignmentsSegment({ experiments: {}, campaigns: {} })).toBe("-");
+    expect(parseAssignmentsSegment("-")).toEqual({ experiments: {}, campaigns: {} });
   });
 
   it("rejects what the proxy never writes", () => {
@@ -500,18 +585,19 @@ describe("assignmentsSegment and parseAssignmentsSegment", () => {
       "",
       "--",
       "not base64!",
-      b64("x=b,a"), // unsorted
-      b64("c=a|x=b"), // out of order
-      b64("x=a|x=b"),
-      b64("v=sha|x=a"), // a version never rides in the path
+      b64("x=+b,+a"), // unsorted
+      b64("c=+a|x=+b"), // out of order
+      b64("x=+a|x=+b"),
+      b64("x=a"), // no state
+      b64("v=sha|x=+a"), // a version never rides in the path
       b64("x="),
-      `${b64("x=a")}=`,
+      `${b64("x=+a")}=`,
     ]) {
       expect(parseAssignmentsSegment(bad), bad).toBeNull();
     }
-    expect(parseAssignmentsSegment(b64("x=a|c=b"))).toEqual({
-      experiments: ["a"],
-      campaigns: ["b"],
+    expect(parseAssignmentsSegment(b64("x=+a,-b|c=-c"))).toEqual({
+      experiments: { a: true, b: false },
+      campaigns: { c: false },
     });
   });
 });

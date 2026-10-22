@@ -20,11 +20,12 @@
  *
  * What a link carries is a version, as `cms.readVersion` reads it: a draft
  * pointer, or a published release's commit SHA (Studio's "Preview this
- * version"), either one with the preview parameters (`__at`, `__test`,
- * `__variant`). Both pass the same host check: a visitor on the live site
- * never picks a version.
+ * version"), with the preview's moment and switched tests and campaigns
+ * (`__at`, `__test`, `__campaign`; `parseVersion` from `@decocms/blocks`).
+ * Both pass the same host check: a visitor on the live site never picks a
+ * version.
  */
-import { type CMS, parseDraftPointer } from "@decocms/blocks";
+import { type CMS, parseVersion, type RequestVersion } from "@decocms/blocks";
 import { DRAFT_COOKIE, DRAFT_PARAM } from "../draft.ts";
 
 export interface PreviewPolicy {
@@ -104,37 +105,17 @@ function readCookie(header: string | null, name: string): string | null {
   return null;
 }
 
-/** A published release: its git commit SHA (SHA-1, 40 lowercase hex), as `@decocms/blocks` names it. */
-const REVISION_RE = /^[0-9a-f]{40}$/;
-
 /**
- * Whether `value` is a version `cms.readVersion` accepts: a draft pointer, or
- * a release's commit SHA, optionally followed by `?` and the preview
- * parameters a pointer's query takes (`<sha>?__at=…&__test=…`).
+ * What a request's Studio link asks for, as `@decocms/blocks` reads it:
+ * `?__draft=` first, then the draft cookie; `null` for `?__draft=off` and
+ * for a value that doesn't parse.
  */
-export function isVersion(value: string): boolean {
-  if (parseDraftPointer(value) !== null) return true;
-  const q = value.indexOf("?");
-  if (!REVISION_RE.test(q === -1 ? value : value.slice(0, q))) return false;
-  if (q === -1) return true;
-  // The parameters parse as a pointer's would, with nothing else in the query.
-  // Unlike a pointer's path, they may hold any character as typed (a time's
-  // `:`), as `@decocms/blocks` reads them: encoded here, they decode the same.
-  const query = value.slice(q).replace(/[^A-Za-z0-9/_.%~=&?-]/g, encodeURIComponent);
-  return parseDraftPointer(`localhost/${query}@${value.slice(0, q)}`)?.path === "/";
-}
-
-/**
- * The version a request carries, as `@decocms/blocks` reads it: `?__draft=`
- * first, then the draft cookie; `null` for `?__draft=off` and for a value
- * that doesn't parse.
- */
-export function readDraftPointer(request: Request): string | null {
+export function readDraftVersion(request: Request): RequestVersion | null {
   const param = draftParam(new URL(request.url));
   if (param === DRAFT_OFF) return null;
-  if (param && isVersion(param)) return param;
-  const cookie = readCookie(request.headers.get("cookie"), DRAFT_COOKIE);
-  return cookie && isVersion(cookie) ? cookie : null;
+  const fromLink = param ? parseVersion(param) : null;
+  if (fromLink !== null) return fromLink;
+  return parseVersion(readCookie(request.headers.get("cookie"), DRAFT_COOKIE));
 }
 
 function serializeCookie(value: string, extra: string[]): string {
@@ -152,10 +133,12 @@ function serializeCookie(value: string, extra: string[]): string {
 
 export interface DraftDecision {
   /**
-   * The version this request renders (a draft pointer, or a release's commit
-   * SHA), after the host check; `null` for the current release.
+   * What this request's Studio link asks for, after the host check: the
+   * version (a draft pointer, or a release's commit SHA) and the preview's
+   * moment and switched tests and campaigns, in the shape of
+   * `cms.client()`'s options; `null` for the current release.
    */
-  pointer: string | null;
+  version: RequestVersion | null;
   /** The `Set-Cookie` the response carries: storing a link's version, or ending a preview. */
   setCookie: string | null;
 }
@@ -169,18 +152,19 @@ export async function decideDraft(
   const url = new URL(request.url);
   const param = draftParam(url);
   // Ending a preview is allowed on any host, so a cookie set earlier always goes.
-  if (param === DRAFT_OFF) return { pointer: null, setCookie: serializeCookie("", ["Max-Age=0"]) };
-  const pointer = readDraftPointer(request);
-  if (pointer === null) return { pointer: null, setCookie: null };
+  if (param === DRAFT_OFF) return { version: null, setCookie: serializeCookie("", ["Max-Age=0"]) };
+  const version = readDraftVersion(request);
+  if (version === null) return { version: null, setCookie: null };
   const decision = previewHostDecision(url.host, policy);
   const allowed =
     decision === "cms"
       ? (await declaresPreviewHosts(cms)) && (await cms.readVersion(request)) !== null
       : decision;
-  if (!allowed) return { pointer: null, setCookie: null };
-  const fromLink = param !== null && param === pointer;
+  if (!allowed) return { version: null, setCookie: null };
+  // The link's own value goes in the cookie, its preview parameters with it.
+  const fromLink = param !== null && parseVersion(param) !== null;
   return {
-    pointer,
-    setCookie: fromLink ? serializeCookie(encodeURIComponent(pointer), []) : null,
+    version,
+    setCookie: fromLink ? serializeCookie(encodeURIComponent(param), []) : null,
   };
 }

@@ -1,5 +1,6 @@
 /**
- * `@decocms/nextjs/proxy`: draft previews and the visitor in a Next.js proxy (`proxy.ts`, or
+ * `@decocms/nextjs/proxy`: draft previews, the visitor and what a request's
+ * content gives it, decided once, in a Next.js proxy (`proxy.ts`, or
  * `middleware.ts` before Next 16). No React and no block map: pass the proxy
  * a CMS handle made with an empty block map and the app's options, which
  * shares the app's instance (one per process) without pulling the site's
@@ -10,53 +11,59 @@
  * export const proxyCms = createCMS({ blocks: {}, ...cmsConfig });
  * ```
  *
- * A site with a proxy of its own calls the pieces (`decideDraft` and
- * `decideVisitor`, then `draftRequestHeaders` and `visitorRequestHeaders` on
- * the request it forwards, then `applyDraft` and `applyVisitor` on the
- * response); a site without one exports `draftProxy(...)`.
+ * A site with a proxy of its own calls the pieces (`decideDraft`,
+ * `decideVisitor` and `decideAssignments`, then `draftRequestHeaders`,
+ * `visitorRequestHeaders` and `assignmentsRequestHeaders` on the request it
+ * forwards, then `applyDraft` and `applyVisitor` on the response); a site
+ * without one exports `draftProxy(...)`.
  *
- * The two inputs of a content client: the version (`decideDraft`: a Studio
- * link's draft or old release, after the host allowlist) and the visitor
- * (`decideVisitor`: `readVisitor` from `@decocms/blocks/experiments`, the
- * `deco_segment` cookie or a new visitor). The proxy forwards both, on
- * `x-deco-draft` and `x-deco-visitor` (copies from outside are always
- * removed), for `bindDraft` and `contentClient`, and sends the visitor's
- * cookie on a first visit only, never from a preview.
+ * The proxy decides: the version (`decideDraft`: a Studio link's draft or old
+ * release, after the host allowlist, with the preview's moment and switched
+ * tests and campaigns), the visitor (`decideVisitor`: `readVisitor` from
+ * `@decocms/blocks/experiments`, the `deco_segment` cookie or a new visitor)
+ * and, from both, each test and campaign on or off (`decideAssignments`:
+ * `cms.client({ version, visitor, date, experiments, campaigns })` resolving
+ * the saved `experiments` and `campaigns` blocks). It forwards them on
+ * `x-deco-version`, `x-deco-visitor` and `x-deco-assignments` (copies from
+ * outside are always removed), and the page builds
+ * `cms.client({ version, experiments, campaigns })` from them
+ * (`contentClient`), deciding nothing again. It sends the visitor's cookie on
+ * a first visit only, never from a preview.
  *
- * Cached (ISR) pages can't read a draft, so a drafted request to one
- * is rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
+ * Cached (ISR) pages can't read a request, so a drafted request to one is
+ * rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
- * routes).
+ * routes), and a published one onto the assignments route
+ * (`/_assignments/<assignments>/<path>`, `rewriteToAssignmentsRoute`), where
+ * `assignedClient` from `@decocms/nextjs/server` builds the client from the
+ * path.
  *
  * The binding caches nothing. A site that caches in front of its pages (a
- * CDN keyed on a request header, ISR under a path the proxy rewrites to)
- * keys on the request's assignments, never on the visitor:
- * `assignmentsKey(await readAssignments(proxyCms, { visitor: visitor.visitor,
- * version: draft.pointer }))` gives the version, the tests the visitor is
- * in and the campaigns running now, `""` when there are none. For Next's own
- * path-keyed cache, `rewriteToAssignmentsRoute` puts them in the path
- * (`/_assignments/<assignments>/<path>`), where `assignedClient` from
- * `@decocms/nextjs/server` renders the tests and campaigns they name: the
- * proxy decides, the page renders that.
+ * CDN keyed on a request header) keys on the request's assignments, never on
+ * the visitor: `assignmentsKey(await decideAssignments(proxyCms, draft,
+ * visitor))`, `""` when there are none.
  *
  * The proxy measures no requests: it runs before Next routes and renders the
  * page. `http.server.request.duration` comes from Next's own request span
  * (`register` from `@decocms/nextjs/instrumentation`).
  */
-import type { CMS } from "@decocms/blocks";
+import type { CMS, RequestVersion } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
 import {
+  ASSIGNMENTS_HEADER,
   assignmentsRoutePath,
+  assignmentsSegment,
   isAssignmentsRoutePath,
+  type RequestAssignments,
   readAssignmentsAndScope,
 } from "../assignments.ts";
-import { DRAFT_HEADER, DRAFT_ROUTE_PREFIX, draftResponseHeaders } from "../draft.ts";
+import { DRAFT_ROUTE_PREFIX, draftResponseHeaders, VERSION_HEADER } from "../draft.ts";
 import {
   allowedDraft,
   draftCookie,
+  draftLinkValue,
   endsPreview,
-  fromDraftLink,
   hasDraftSignal,
   type PreviewPolicy,
   requestLike,
@@ -76,15 +83,18 @@ export type CMSHandle = Pick<CMS, "readVersion" | "settings" | "forRelease">;
 /** What the proxy does with a request's draft state. */
 export interface DraftDecision {
   /**
-   * The version this request renders (a draft pointer, or a release's commit
-   * SHA), after the host check; `null` for the current release.
+   * What this request's Studio link asks for, after the host check: the
+   * version (a draft pointer, or a release's commit SHA) and the preview's
+   * moment and switched tests and campaigns, in the shape of
+   * `cms.client()`'s options; `null` for the current release.
    */
-  pointer: string | null;
+  version: RequestVersion | null;
   /** The `Set-Cookie` the response carries: storing a link's version, or ending a preview. */
   setCookie: string | null;
 }
 
 export {
+  ASSIGNMENTS_HEADER,
   ASSIGNMENTS_ROUTE_PREFIX,
   assignmentsKey,
   assignmentsRoutePath,
@@ -95,12 +105,12 @@ export {
   type RequestAssignments,
   readAssignments,
 } from "../assignments.ts";
-export { DRAFT_ROUTE_PREFIX } from "../draft.ts";
+export { DRAFT_ROUTE_PREFIX, VERSION_HEADER } from "../draft.ts";
 
-const INERT: DraftDecision = Object.freeze({ pointer: null, setCookie: null });
+const INERT: DraftDecision = Object.freeze({ version: null, setCookie: null });
 
 /**
- * The draft a request renders and the cookie its response sets, under
+ * The version a request renders and the cookie its response sets, under
  * `policy` (the same options the pages pass to `bindDraft`). A request with
  * no `?__draft=` and no draft cookie never reaches the CMS.
  */
@@ -113,30 +123,31 @@ export async function decideDraft(
   const like = requestLike(request.headers, url.pathname + url.search, url.host);
   if (like === null || !hasDraftSignal(like)) return INERT;
   // Ending a preview is allowed on any host, so a cookie set earlier always goes.
-  if (endsPreview(like)) return { pointer: null, setCookie: draftCookie("", ["Max-Age=0"]) };
-  const pointer = await allowedDraft(cms, like, policy);
-  if (pointer === null) return INERT;
-  return {
-    pointer,
-    setCookie: fromDraftLink(like, pointer) ? draftCookie(encodeURIComponent(pointer)) : null,
-  };
+  if (endsPreview(like)) return { version: null, setCookie: draftCookie("", ["Max-Age=0"]) };
+  const version = await allowedDraft(cms, like, policy);
+  if (version === null) return INERT;
+  const link = draftLinkValue(like);
+  return { version, setCookie: link ? draftCookie(encodeURIComponent(link)) : null };
 }
 
+/** The headers the proxy writes for the pages: never taken from outside. */
+const OWN_HEADERS = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER];
+
 /**
- * The request headers to forward: the accepted pointer on `x-deco-draft`, so
- * the root layout can bind the draft on the same request (a layout gets no
+ * The request headers to forward: the accepted version on `x-deco-version`,
+ * so the root layout can bind the draft on the same request (a layout gets no
  * `searchParams`, and on a draft link the cookie is only on the response).
- * A copy that arrives from outside is always removed, and so is any
- * `x-deco-visitor` (`visitorRequestHeaders` sets the proxy's own).
+ * A copy that arrives from outside is always removed, and so are any
+ * `x-deco-visitor` and `x-deco-assignments` (`visitorRequestHeaders` and
+ * `assignmentsRequestHeaders` set the proxy's own).
  */
 export function draftRequestHeaders(
   request: NextRequest | Request,
   decision: DraftDecision,
 ): Headers {
   const headers = new Headers(request.headers);
-  headers.delete(VISITOR_HEADER);
-  if (decision.pointer) headers.set(DRAFT_HEADER, decision.pointer);
-  else headers.delete(DRAFT_HEADER);
+  for (const name of OWN_HEADERS) headers.delete(name);
+  if (decision.version) headers.set(VERSION_HEADER, decision.version.version);
   return headers;
 }
 
@@ -170,13 +181,13 @@ export function decideVisitor(
     url: isHttps(request) ? "https://localhost/" : "http://localhost/",
     headers: request.headers,
   });
-  return { visitor, setCookie: draft.pointer === null ? cookie : null };
+  return { visitor, setCookie: draft.version === null ? cookie : null };
 }
 
 /**
- * The forwarded headers with the visitor on `x-deco-visitor`, for `bindDraft`
- * and `contentClient`. Pass it the headers `draftRequestHeaders` gave, which
- * already removed a copy from outside.
+ * The forwarded headers with the visitor on `x-deco-visitor`. Pass it the
+ * headers `draftRequestHeaders` gave, which already removed a copy from
+ * outside.
  */
 export function visitorRequestHeaders(headers: Headers, decision: VisitorDecision): Headers {
   const out = new Headers(headers);
@@ -190,14 +201,48 @@ export function applyVisitor<R extends Response>(response: R, decision: VisitorD
   return response;
 }
 
-/** The request headers to forward: the version's and, when given, the visitor's. */
+/**
+ * Each test and campaign on or off for this request, decided once:
+ * `cms.client({ visitor, ...version })` (the visitor, and the Studio link's
+ * version, moment and switched tests and campaigns) resolving the saved
+ * `experiments` and `campaigns` blocks. Missing blocks, or content that
+ * doesn't load, give none, never an error.
+ */
+export function decideAssignments(
+  cms: Pick<CMS, "client">,
+  draft: DraftDecision,
+  visitor: VisitorDecision,
+): Promise<RequestAssignments> {
+  return readAssignmentsAndScope(cms, { visitor: visitor.visitor, ...draft.version }).then(
+    (read) => read.assignments,
+  );
+}
+
+/**
+ * The forwarded headers with the decided tests and campaigns on
+ * `x-deco-assignments` (`assignmentsSegment`), for `bindDraft` and
+ * `contentClient`. Pass it the headers `draftRequestHeaders` gave.
+ */
+export function assignmentsRequestHeaders(
+  headers: Headers,
+  assignments: RequestAssignments,
+): Headers {
+  const out = new Headers(headers);
+  out.set(ASSIGNMENTS_HEADER, assignmentsSegment(assignments));
+  return out;
+}
+
+/** The request headers to forward: the version's and, when given, the visitor's and the assignments. */
 function forwardedHeaders(
   request: NextRequest | Request,
   draft: DraftDecision,
   visitor: VisitorDecision | undefined,
+  assignments: RequestAssignments | undefined,
 ): Headers {
-  const headers = draftRequestHeaders(request, draft);
-  return visitor === undefined ? headers : visitorRequestHeaders(headers, visitor);
+  let headers = draftRequestHeaders(request, draft);
+  if (visitor !== undefined) headers = visitorRequestHeaders(headers, visitor);
+  if (assignments !== undefined) headers = assignmentsRequestHeaders(headers, assignments);
+  return headers;
 }
 
 /** Whether `pathname` is on the draft route: a site answers a direct hit there with its 404. */
@@ -207,20 +252,22 @@ export function isDraftRoutePath(pathname: string): boolean {
 
 /**
  * The rewrite of a drafted request onto the draft route, keeping its path and
- * forwarding the version and, when given, the visitor (`decideVisitor`);
- * `null` when the request isn't drafted or is already on the draft route.
+ * forwarding the version and, when given, the visitor (`decideVisitor`) and
+ * the assignments (`decideAssignments`); `null` when the request isn't
+ * drafted or is already on the draft route.
  */
 export function rewriteToDraftRoute(
   request: NextRequest,
   decision: DraftDecision,
   visitor?: VisitorDecision,
+  assignments?: RequestAssignments,
 ): NextResponse | null {
-  if (!decision.pointer) return null;
+  if (!decision.version) return null;
   const url = request.nextUrl.clone();
   if (isDraftRoutePath(url.pathname)) return null;
   url.pathname = `${DRAFT_ROUTE_PREFIX}${url.pathname}`;
   return NextResponse.rewrite(url, {
-    request: { headers: forwardedHeaders(request, decision, visitor) },
+    request: { headers: forwardedHeaders(request, decision, visitor, assignments) },
   });
 }
 
@@ -229,18 +276,18 @@ const ASSIGNED_CACHE_CONTROL = "private, no-cache";
 
 /**
  * The rewrite of a published request onto the assignments route,
- * `/_assignments/<assignments>/<path>`: the tests the visitor is in and the
- * campaigns running now (`readAssignments` on the current release), as one
- * path segment, so Next's own path-keyed cache (ISR, the full route cache) keeps
- * one entry per set of assignments. Visitors on the same side of every test
- * share a path; the visitor id is never in it, and the page reads neither the
- * visitor nor the draft (both headers are removed from the request it
- * forwards), so Next can cache it. The page builds its client with
- * `assignedClient` from `@decocms/nextjs/server`, which renders the tests and
- * the campaigns the path names: the proxy decides, the page renders that. A
- * cached page (ISR, `revalidate = 600`) is about 10 minutes stale (the
- * first request after that still gets it while Next renders it again), a
- * banner switching on late, which is accepted.
+ * `/_assignments/<assignments>/<path>`: each test on or off for the visitor
+ * and each campaign running or not now (`readAssignments` on the current
+ * release), as one path segment, so Next's own path-keyed cache (ISR, the
+ * full route cache) keeps one entry per set of assignments. Visitors on the
+ * same side of every test share a path; the visitor id is never in it, and
+ * the page reads neither the visitor nor the version (the proxy's headers are
+ * removed from the request it forwards), so Next can cache it. The page
+ * builds its client with `assignedClient` from `@decocms/nextjs/server`,
+ * `cms.client({ experiments, campaigns })` from the path: the proxy decides,
+ * the page renders that. A cached page (ISR, `revalidate = 600`) is about 10
+ * minutes stale (the first request after that still gets it while Next
+ * renders it again), a banner switching on late, which is accepted.
  *
  * `null` for a drafted request (it renders on the draft route, never cached)
  * and for a path already on the draft or assignments route. When the content
@@ -257,13 +304,10 @@ export async function rewriteToAssignmentsRoute(
   draft: DraftDecision,
   visitor: VisitorDecision,
 ): Promise<NextResponse | null> {
-  if (draft.pointer) return null;
+  if (draft.version) return null;
   const url = request.nextUrl.clone();
   if (isDraftRoutePath(url.pathname) || isAssignmentsRoutePath(url.pathname)) return null;
-  const { assignments, varies } = await readAssignmentsAndScope(cms, {
-    visitor: visitor.visitor,
-    version: null,
-  });
+  const { assignments, varies } = await readAssignmentsAndScope(cms, { visitor: visitor.visitor });
   url.pathname = assignmentsRoutePath(url.pathname, assignments);
   const response = NextResponse.rewrite(url, {
     request: { headers: draftRequestHeaders(request, INERT) },
@@ -278,12 +322,12 @@ export async function rewriteToAssignmentsRoute(
  * The cookie and the response headers of a draft: `Set-Cookie`, and for a
  * drafted response `Cache-Control: no-store, private`, `Vary: Cookie` and
  * `X-Robots-Tag: noindex, nofollow` (`draftResponseHeaders`). With the
- * pointer in a cookie a draft shares its URL with the published page, so a
+ * version in a cookie a draft shares its URL with the published page, so a
  * cache keyed on the URL alone would serve it to visitors.
  */
 export function applyDraft<R extends Response>(response: R, decision: DraftDecision): R {
   if (decision.setCookie) response.headers.append("set-cookie", decision.setCookie);
-  for (const [name, value] of Object.entries(draftResponseHeaders(decision.pointer))) {
+  for (const [name, value] of Object.entries(draftResponseHeaders(decision.version?.version))) {
     response.headers.set(name, value);
   }
   return response;
@@ -306,8 +350,10 @@ export interface DraftProxyOptions extends PreviewPolicy {
 }
 
 /**
- * The whole draft flow, and the visitor, for a site with no proxy of its
- * own: `export const proxy = draftProxy(proxyCms, { site: "my-store" })`.
+ * The whole flow for a site with no proxy of its own:
+ * `export const proxy = draftProxy(proxyCms, { site: "my-store" })`. Every
+ * request it forwards carries the version, the visitor and the assignments
+ * it decided.
  */
 export function draftProxy(
   cms: CMSHandle & Pick<CMS, "client">,
@@ -320,14 +366,19 @@ export function draftProxy(
     }
     const decision = await decideDraft(cms, request, policy);
     const visitor = decideVisitor(request, decision);
-    const rewritten =
-      (rewrite(request) ? rewriteToDraftRoute(request, decision, visitor) : null) ??
-      (assignments?.(request)
-        ? await rewriteToAssignmentsRoute(cms, request, decision, visitor)
-        : null);
-    const response =
-      rewritten ??
-      NextResponse.next({ request: { headers: forwardedHeaders(request, decision, visitor) } });
+    const onAssignmentsRoute = decision.version === null && assignments?.(request) === true;
+    const rewritten = onAssignmentsRoute
+      ? await rewriteToAssignmentsRoute(cms, request, decision, visitor)
+      : null;
+    let response = rewritten;
+    if (response === null) {
+      const decided = await decideAssignments(cms, decision, visitor);
+      response =
+        (rewrite(request) ? rewriteToDraftRoute(request, decision, visitor, decided) : null) ??
+        NextResponse.next({
+          request: { headers: forwardedHeaders(request, decision, visitor, decided) },
+        });
+    }
     return applyVisitor(applyDraft(response, decision), visitor);
   };
 }

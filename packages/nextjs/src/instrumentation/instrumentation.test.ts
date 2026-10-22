@@ -158,8 +158,8 @@ describe("register()", () => {
     expect(points.map((p) => p.labels.status_class)).toEqual(["5xx", "5xx"]);
   });
 
-  it("a draft render is DRAFT: the proxy's x-deco-draft, or the /_draft route", async () => {
-    await serve({ route: "/[slug]/p", headers: { "x-deco-draft": "studio/pointer@1" } });
+  it("a draft render is DRAFT: the proxy's x-deco-version, or the /_draft route", async () => {
+    await serve({ route: "/[slug]/p", headers: { "x-deco-version": "studio/pointer@1" } });
     await serve({ route: "/_draft/[[...path]]" });
     await serve({ route: "/%5Fdraft/[[...path]]" });
     await serve({ route: "/drafts" });

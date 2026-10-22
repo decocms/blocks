@@ -51,12 +51,12 @@
           "$ref": "#/definitions/bmV2ZXI=",
           "namespace": "deco"
         },
-        "date": {
-          "$ref": "#/definitions/ZGF0ZQ==",
-          "namespace": "deco"
-        },
         "experiment": {
           "$ref": "#/definitions/ZXhwZXJpbWVudA==",
+          "namespace": "deco"
+        },
+        "campaign": {
+          "$ref": "#/definitions/Y2FtcGFpZ24=",
           "namespace": "deco"
         },
         "website/matchers/always.ts": {
@@ -105,8 +105,8 @@
           "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw==",
           "namespace": "deco"
         },
-        "date-windows": {
-          "$ref": "#/definitions/ZGF0ZS13aW5kb3dz",
+        "calendar": {
+          "$ref": "#/definitions/Y2FsZW5kYXI=",
           "namespace": "deco"
         }
       }
@@ -369,29 +369,6 @@
           }
         }
       },
-      "ZGF0ZQ==": {
-        "title": "date",
-        "description": "True while a campaign of the saved block campaigns is running",
-        "icon": "calendar-event",
-        "type": "object",
-        "required": [
-          "__resolveType"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "date"
-            ],
-            "default": "date"
-          },
-          "campaign": {
-            "type": "string",
-            "title": "Campaign",
-            "description": "A campaign in the saved block campaigns"
-          }
-        }
-      },
       "ZXhwZXJpbWVudA==": {
         "title": "experiment",
         "description": "True for the visitors in a test of the saved block experiments",
@@ -413,6 +390,30 @@
             "type": "string",
             "title": "Test",
             "description": "A test in the saved block experiments"
+          }
+        }
+      },
+      "Y2FtcGFpZ24=": {
+        "title": "campaign",
+        "description": "True while a campaign of the saved block campaigns is running",
+        "icon": "calendar-event",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "name"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "campaign"
+            ],
+            "default": "campaign"
+          },
+          "name": {
+            "type": "string",
+            "title": "Campaign",
+            "description": "A campaign in the saved block campaigns"
           }
         }
       },
@@ -687,6 +688,29 @@
           }
         }
       },
+      "c2VjcmV0": {
+        "title": "secret",
+        "description": "An encrypted value, decrypted on the server",
+        "type": "object",
+        "required": [
+          "__resolveType",
+          "ciphertext"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "secret"
+            ],
+            "default": "secret"
+          },
+          "ciphertext": {
+            "type": "string",
+            "title": "Ciphertext",
+            "writeOnly": true
+          }
+        }
+      },
       "c3BsaXQtdHJhZmZpYw==": {
         "title": "split-traffic",
         "description": "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
@@ -712,8 +736,8 @@
           }
         }
       },
-      "ZGF0ZS13aW5kb3dz": {
-        "title": "date-windows",
+      "Y2FsZW5kYXI=": {
+        "title": "calendar",
         "description": "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
         "icon": "calendar-event",
         "additionalProperties": {
@@ -742,32 +766,9 @@
           "__resolveType": {
             "type": "string",
             "enum": [
-              "date-windows"
+              "calendar"
             ],
-            "default": "date-windows"
-          }
-        }
-      },
-      "c2VjcmV0": {
-        "title": "secret",
-        "description": "An encrypted value, decrypted on the server",
-        "type": "object",
-        "required": [
-          "__resolveType",
-          "ciphertext"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "secret"
-            ],
-            "default": "secret"
-          },
-          "ciphertext": {
-            "type": "string",
-            "title": "Ciphertext",
-            "writeOnly": true
+            "default": "calendar"
           }
         }
       },
@@ -1322,10 +1323,10 @@
             "$ref": "#/definitions/bmV2ZXI="
           },
           {
-            "$ref": "#/definitions/ZGF0ZQ=="
+            "$ref": "#/definitions/ZXhwZXJpbWVudA=="
           },
           {
-            "$ref": "#/definitions/ZXhwZXJpbWVudA=="
+            "$ref": "#/definitions/Y2FtcGFpZ24="
           }
         ]
       },
@@ -1364,7 +1365,7 @@
             "$ref": "#/definitions/c3BsaXQtdHJhZmZpYw=="
           },
           {
-            "$ref": "#/definitions/ZGF0ZS13aW5kb3dz"
+            "$ref": "#/definitions/Y2FsZW5kYXI="
           }
         ]
       }

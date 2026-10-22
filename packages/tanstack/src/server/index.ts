@@ -4,42 +4,62 @@
  *
  * What a request reads is decided once, by `createDecoWorker`, and handed to
  * the app in request headers the worker removes when they arrive from
- * outside: the version on `x-deco-draft` (a Studio link's draft or old
- * release, after the host allowlist) and the visitor on `x-deco-visitor`
- * (`readVisitor` from `@decocms/blocks/experiments`). These read them, and
- * `contentClient` builds `cms.client({ visitor, version })` from them.
+ * outside: the version on `x-deco-version` (a Studio link's draft or old
+ * release, after the host allowlist), the visitor on `x-deco-visitor`
+ * (`readVisitor` from `@decocms/blocks/experiments`) and each test and
+ * campaign on or off on `x-deco-assignments`. These read them, and
+ * `contentClient` builds `cms.client({ version, experiments, campaigns })`
+ * from them: the page decides nothing again.
  */
 import type { Client, CMS } from "@decocms/blocks";
 import { parseVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import { DRAFT_HEADER } from "../draft.ts";
+import { ASSIGNMENTS_HEADER, type DecidedAssignments, parseAssignments } from "../assignments.ts";
+import { VERSION_HEADER } from "../draft.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 
 /**
  * The version `request` renders (a Studio link's draft pointer or release
  * SHA, checked by the worker), or `null` for the current release.
  */
-export function requestDraft(request: Request = getRequest()): string | null {
-  return request.headers.get(DRAFT_HEADER) || null;
+export function requestVersion(request: Request = getRequest()): string | null {
+  return request.headers.get(VERSION_HEADER) || null;
 }
 
 /**
  * The visitor the worker read for `request`, or `null` when there is none (a
- * request that didn't come through `createDecoWorker`): every test is off.
+ * request that didn't come through `createDecoWorker`).
  */
 export function requestVisitor(request: Request = getRequest()): Visitor | null {
   return parseVisitor(request.headers.get(VISITOR_HEADER));
 }
 
 /**
- * The content client for a request: `cms.client({ visitor, version })` with
- * the visitor and the version the worker handed the app, so the built-in
- * `split-traffic` decides this visitor's tests and a preview reads its draft
- * or old release. Create one per request. Without `request`, the request
- * being served (`getRequest()`).
+ * Each test and campaign on or off as the worker decided them for `request`,
+ * or `null` when it decided none (a request that didn't come through
+ * `createDecoWorker`).
+ */
+export function requestAssignments(request: Request = getRequest()): DecidedAssignments | null {
+  return parseAssignments(request.headers.get(ASSIGNMENTS_HEADER));
+}
+
+/**
+ * The content client for a request: `cms.client({ version, experiments,
+ * campaigns })` with what the worker decided, so the page renders the tests
+ * and campaigns the worker keyed its cache on and a preview reads its draft
+ * or old release. The visitor rides along (`client.visitor`) but decides
+ * nothing the worker already did; without the worker's decisions (a request
+ * that didn't come through it) the visitor decides. Create one per request.
+ * Without `request`, the request being served (`getRequest()`).
  */
 export function contentClient(cms: CMS, request: Request = getRequest()): Client {
-  return cms.client({ visitor: requestVisitor(request), version: requestDraft(request) });
+  const decided = requestAssignments(request);
+  return cms.client({
+    version: requestVersion(request),
+    visitor: requestVisitor(request),
+    experiments: decided?.experiments,
+    campaigns: decided?.campaigns,
+  });
 }
 
 /** True when the browser called a server function over HTTP; false while a document renders. */

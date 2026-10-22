@@ -28,23 +28,23 @@ The worker caches no page: the page cache is the site's, as on Next.js. Without 
 
 ### Draft hosts
 
-A draft link (`?__draft=`) previews where v7 allowed it: on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. A site that declares no hosts previews only on those two, not on every host. `previewHosts: [...]` replaces the declared list with exact hosts (`["localhost:5173"]` for local development), as v7's `DECO_ALLOWED_PREVIEW_HOSTS` did; `previewHosts: "none"` turns previews off on every host. The same link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time and forced tests; all of it passes the same host check, so a visitor on the live site never picks a version. The worker passes the accepted version to the app in the `x-deco-draft` request header (`requestVersion(request)` reads it in a `routes` handler).
+A draft link (`?__draft=`) previews where v7 allowed it: on the preview hosts the site declares (the `CMS` block's `preview.hosts`, or `createCMS`'s) and always on the hosts Deco runs the site on, `<site>.deco.site` and `<site>.deco-cx.workers.dev`. A site that declares no hosts previews only on those two, not on every host. `previewHosts: [...]` replaces the declared list with exact hosts (`["localhost:5173"]` for local development), as v7's `DECO_ALLOWED_PREVIEW_HOSTS` did; `previewHosts: "none"` turns previews off on every host. The same link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time (`__at`) and tests and campaigns switched on or off (`__test`, `__campaign`), which `cms.readVersion` reads as the client's `date`, `experiments` and `campaigns`; all of it passes the same host check, so a visitor on the live site never picks a version. The worker passes the accepted version, alone, to the app in the `x-deco-version` request header (`requestVersion(request)` reads it in a `routes` handler).
 
-### The visitor and the client
+### The visitor, the assignments and the client
 
-On every page and server-function request the worker reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor) and hands it to the app on `x-deco-visitor`, removing any copy sent from outside. It sends the cookie on a first visit only (a visitor with no id yet), never from a preview. The saved `experiments` block decides the tests for the visitor the client carries; the worker only reads the answers.
+The worker decides once per request, at the edge. On every page and server-function request it reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor), then each test and campaign on or off for it: `readAssignments(cms, { visitor, ...version })`, which resolves the saved `experiments` and `campaigns` blocks through `cms.client({ visitor, version, date, experiments, campaigns })` with the Studio link's version, moment and switched tests and campaigns. It hands the visitor to the app on `x-deco-visitor` and the decisions on `x-deco-assignments`, removing any copy sent from outside, and the decisions to the site's `pageCache` as `page.assignments`, for its key. It sends the visitor's cookie on a first visit only (a visitor with no id yet), never from a preview.
 
-`contentClient(cms)` from `@decocms/tanstack/server` builds `cms.client({ visitor, version })` from the two headers; `requestVisitor()` and `requestDraft()` (the version) return them for a site's own code. A request that didn't come through the worker has no visitor, so every test is off.
+`contentClient(cms)` from `@decocms/tanstack/server` builds `cms.client({ version, experiments, campaigns })` from the headers, every test and campaign as the worker decided it, so the page renders exactly what the cache keyed on and decides nothing again; `requestVersion()`, `requestVisitor()` and `requestAssignments()` return them for a site's own code. A request that didn't come through the worker has no decisions: its visitor decides, and without one every test is off.
 
 ### The page cache
 
-`pageCache(page)` is the site's own cache around the app. The worker calls it for every page and server-function request `isCacheable` accepts (a `GET` of the current release, outside `vite dev`, without `Authorization`, not `/_build`: never a preview, a draft or an old release), with `page.request` (as the app gets it), `page.url`, `page.visitor` (the visitor the page renders for, a first visit's new one included), `page.device`, `env`, `ctx` and `page.render(scope?)`, which renders the page. Answer from your cache, or call `render()`; set `X-Cache` on the answer for the request metric.
+`pageCache(page)` is the site's own cache around the app. The worker calls it for every page and server-function request `isCacheable` accepts (a `GET` of the current release, outside `vite dev`, without `Authorization`, not `/_build`: never a preview, a draft or an old release), with `page.request` (as the app gets it), `page.url`, `page.visitor` (the visitor the page renders for, a first visit's new one included), `page.assignments` (each test and campaign on or off, as the page renders them), `page.device`, `env`, `ctx` and `page.render(scope?)`, which renders the page. Answer from your cache, or call `render()`; set `X-Cache` on the answer for the request metric.
 
 The visitor's first-visit cookie is never in what `render()` returns: the worker adds it to whatever `pageCache` answers, a cached copy included. So a stored copy never carries a visitor's cookie, and a new visitor served from the cache still gets theirs. Never store a response that sets any other cookie.
 
 What the key needs, from `@decocms/tanstack/worker`, the same names as `@decocms/nextjs/proxy`'s where both have them:
 
-- `readAssignments(cms, { visitor, version })` and `assignmentsKey(assignments)`: the tests the visitor is in and the campaigns running now, as one string (`x=<tests>|c=<campaigns>`, `""` for none), never the visitor's id. Visitors on the same side of every test share one entry, the other side gets its own, and a campaign starting or ending moves every page to new entries. `liveAssignmentKeys(cms)` lists every key a live request can carry now (each subset of the saved tests, with the running campaigns and with none), for a purge.
+- `assignmentsKey(page.assignments)`: the tests on and the campaigns running, as one string (`x=<tests>|c=<campaigns>`, `""` for none), never the visitor's id. Visitors on the same side of every test share one entry, the other side gets its own, and a campaign starting or ending moves every page to new entries. `liveAssignmentKeys(cms)` lists every key a live request can carry now (each subset of the saved tests, with the running campaigns and with none), for a purge.
 - `cacheVersion(cms, buildHash)`: `<build>.<content revision>`, so a deploy or a published release gets new entries at once.
 - `detectDevice(userAgent)` (v7's classes: `mobile`, `tablet`, `desktop`), `segmentKey(segment)` (a segment's parts as one stable string) and `segmentToken(segment, version)`: the `__cseg` token. Pass it as `render({ csegToken })` and `DecoDocument` publishes it; `decoServerFnFetch` sends it back on the page's navigation data (`CSEG_PARAM`), and your cache may let the CDN keep that response when the token matches the request's own.
 - `isCacheable(request, { version, dev })`, `requestVersion(request)`, `isServerFnPath(pathname)`, `serverFnPagePath(url)` (the page a server-function page load asks for, from its payload) and `DEGRADED_HEADER` (a page whose loader failed: never store it).
@@ -72,7 +72,6 @@ import {
   isServerFnPath,
   liveAssignmentKeys,
   type PageRequest,
-  readAssignments,
   type Segment,
   segmentKey,
   segmentToken,
@@ -322,10 +321,8 @@ async function pageCache(page: PageRequest<Env>): Promise<Response> {
   }
 
   const version = await cacheVersion(cms, __BUILD_HASH__);
-  // The visitor the page renders for: two visitors on the same side of every test share an entry.
-  const assigned = assignmentsKey(
-    await readAssignments(cms, { visitor: page.visitor, version: null }),
-  );
+  // What the worker decided and the page renders: two visitors on the same side of every test share an entry.
+  const assigned = assignmentsKey(page.assignments);
   const key = cacheKey(url, {
     version,
     segment,
@@ -546,10 +543,10 @@ export default {
 
 ### Names and Studio's origins
 
-The root export holds what the worker, `/server` and `DecoDocument` share, for a site's own code: the draft names (`DRAFT_PARAM` `__draft`, `DRAFT_COOKIE` `__deco_draft`, `DRAFT_HEADER` `x-deco-draft`), `VISITOR_HEADER` (`x-deco-visitor`), `draftResponseHeaders(pointer)` (`no-store, private`, `Vary: Cookie`, `noindex`), and Studio's origins: `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` (what the worker's `frame-ancestors` starts from) and `isStudioOrigin`. `DecoDocument` passes `STUDIO_ORIGINS` to the Studio bridge.
+The root export holds what the worker, `/server` and `DecoDocument` share, for a site's own code: the draft names (`DRAFT_PARAM` `__draft`, `DRAFT_COOKIE` `__deco_draft`), the headers the worker hands the app (`VERSION_HEADER` `x-deco-version`, `VISITOR_HEADER` `x-deco-visitor`, `ASSIGNMENTS_HEADER` `x-deco-assignments`), `draftResponseHeaders(version)` (`no-store, private`, `Vary: Cookie`, `noindex`), and Studio's origins: `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` (what the worker's `frame-ancestors` starts from) and `isStudioOrigin`. `DecoDocument` passes `STUDIO_ORIGINS` to the Studio bridge.
 
 ```ts
-import { DRAFT_HEADER, STUDIO_ORIGINS } from "@decocms/tanstack";
+import { STUDIO_ORIGINS, VERSION_HEADER } from "@decocms/tanstack";
 ```
 
 ## The app

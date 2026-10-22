@@ -1,8 +1,9 @@
 // @vitest-environment node
 /**
  * The app's half: `contentClient` reads what the worker decided, the version
- * on `x-deco-draft` and the visitor on `x-deco-visitor`, and builds
- * `cms.client({ visitor, version })` from them.
+ * on `x-deco-version`, the visitor on `x-deco-visitor` and the tests and
+ * campaigns on `x-deco-assignments`, and builds
+ * `cms.client({ version, experiments, campaigns })` from them.
  */
 import { newVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { describe, expect, it, vi } from "vitest";
@@ -13,7 +14,9 @@ vi.mock("@tanstack/react-start/server", () => ({
   setResponseHeader: () => {},
 }));
 
-const { contentClient, requestDraft, requestVisitor } = await import("./index.ts");
+const { contentClient, requestAssignments, requestVersion, requestVisitor } = await import(
+  "./index.ts"
+);
 
 const page = (headers: Record<string, string> = {}) =>
   new Request("https://store.example.com/", { headers });
@@ -29,25 +32,58 @@ describe("contentClient", () => {
     expect((await contentClient(cms, page()).resolve("BuyButton"))[0]).toBe("old");
   });
 
-  it("is cms.client({ visitor, version }) with what the worker forwarded", () => {
+  it("is cms.client({ version, experiments, campaigns }) with what the worker forwarded", () => {
     const cms = { client: vi.fn(() => "client") };
     const visitor: Visitor = newVisitor();
     contentClient(
       cms as never,
-      page({ "x-deco-draft": POINTER, "x-deco-visitor": serializeVisitor(visitor) }),
+      page({
+        "x-deco-version": POINTER,
+        "x-deco-visitor": serializeVisitor(visitor),
+        "x-deco-assignments": "x=+a,-b|c=-sale",
+      }),
     );
-    expect(cms.client).toHaveBeenLastCalledWith({ visitor, version: POINTER });
+    expect(cms.client).toHaveBeenLastCalledWith({
+      version: POINTER,
+      visitor,
+      experiments: { a: true, b: false },
+      campaigns: { sale: false },
+    });
     contentClient(cms as never, page());
-    expect(cms.client).toHaveBeenLastCalledWith({ visitor: null, version: null });
+    expect(cms.client).toHaveBeenLastCalledWith({
+      version: null,
+      visitor: null,
+      experiments: undefined,
+      campaigns: undefined,
+    });
+  });
+
+  it("the worker's decisions win over the visitor: the page decides nothing again", async () => {
+    const cms = testCMS(snapshot({ experiments: { "buy-button": 100 } }));
+    const visitor = serializeVisitor(newVisitor());
+    const client = contentClient(
+      cms,
+      page({ "x-deco-visitor": visitor, "x-deco-assignments": "x=-buy-button" }),
+    );
+    expect((await client.resolve("BuyButton"))[0]).toBe("old");
   });
 });
 
 describe("the forwarded headers", () => {
-  it("requestDraft reads the version on x-deco-draft (a draft pointer or a release SHA)", () => {
-    expect(requestDraft(page({ "x-deco-draft": POINTER }))).toBe(POINTER);
+  it("requestVersion reads the version on x-deco-version (a draft pointer or a release SHA)", () => {
+    expect(requestVersion(page({ "x-deco-version": POINTER }))).toBe(POINTER);
     const sha = "0123456789abcdef0123456789abcdef01234567";
-    expect(requestDraft(page({ "x-deco-draft": sha }))).toBe(sha);
-    expect(requestDraft(page())).toBe(null);
+    expect(requestVersion(page({ "x-deco-version": sha }))).toBe(sha);
+    expect(requestVersion(page())).toBe(null);
+  });
+
+  it("requestAssignments is null without the header or when it doesn't read", () => {
+    expect(requestAssignments(page())).toBe(null);
+    expect(requestAssignments(page({ "x-deco-assignments": "junk" }))).toBe(null);
+    expect(requestAssignments(page({ "x-deco-assignments": "-" }))).toEqual({
+      experiments: {},
+      campaigns: {},
+    });
   });
 
   it("requestVisitor is null without the header or when it doesn't read", () => {

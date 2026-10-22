@@ -5,7 +5,7 @@
  * renders. The worker caches nothing itself.
  */
 import type { CMS } from "@decocms/blocks";
-import { DRAFT_HEADER } from "../draft.ts";
+import { VERSION_HEADER } from "../draft.ts";
 
 /**
  * Whether a request may be served from or stored in a shared cache at all:
@@ -48,10 +48,10 @@ export async function cacheVersion(
 /**
  * The version a request renders as the worker decided it (a Studio link's
  * draft pointer or release SHA, after the host allowlist), from the
- * `x-deco-draft` header it sets; `null` for the current release. For the
+ * `x-deco-version` header it sets; `null` for the current release. For the
  * request a `routes` handler or `pageCache` gets: the worker removes any copy
  * that arrives from outside.
  */
 export function requestVersion(request: Pick<Request, "headers">): string | null {
-  return request.headers.get(DRAFT_HEADER) || null;
+  return request.headers.get(VERSION_HEADER) || null;
 }

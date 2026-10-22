@@ -6,8 +6,8 @@ Peers: `@decocms/blocks` (same version), `next` 16, `react` 19; optionally `@ope
 
 | Import | What it is for |
 | --- | --- |
-| `@decocms/nextjs/proxy` | Draft previews and the visitor in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, or `draftProxy` for a site with no proxy of its own; `readAssignments` and `assignmentsKey` for a site's own cache key; `rewriteToAssignmentsRoute`, `isAssignmentsRoutePath`, `assignmentsRoutePath` and `assignmentsSegment` for Next's own cache. No React and no block map. |
-| `@decocms/nextjs/server` | Draft previews and the visitor in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`; `assignedClient` for a page on the assignments route. |
+| `@decocms/nextjs/proxy` | What a request reads, decided once in `proxy.ts`: `decideDraft`, `draftRequestHeaders`, `rewriteToDraftRoute`, `applyDraft`, `isDraftRoutePath`, `decideVisitor`, `visitorRequestHeaders`, `applyVisitor`, `decideAssignments`, `assignmentsRequestHeaders`, or `draftProxy` for a site with no proxy of its own; `assignmentsKey` for a site's own cache key; `rewriteToAssignmentsRoute`, `isAssignmentsRoutePath`, `assignmentsRoutePath` and `assignmentsSegment` for Next's own cache. No React and no block map. |
+| `@decocms/nextjs/server` | What the proxy decided, in Server Components: `bindDraft`, `activeDraftPointer`, `contentClient`; `assignedClient` for a page on the assignments route. |
 | `@decocms/nextjs` | `DraftPreviewIndicator` (the "Preview mode" badge on a draft page), `StudioBridge` (lets Studio's site editor drive the page) and `StudioPage` (tells it which page is on screen), plus the draft names and Studio's origins (below). |
 | `@decocms/nextjs/config` | `withDeco(nextConfig)`: the draft header rules and Studio's dev origins. CommonJS, so `next.config.js` can `require()` it. |
 | `@decocms/nextjs/instrumentation` | `register`, the `instrumentation.ts` hook that records `http.server.request.duration` from Next's own request span, and `serverRequestSpanProcessor()` for a site with its own OpenTelemetry SDK. |
@@ -31,9 +31,14 @@ export async function proxy(request: NextRequest) {
   if (isDraftRoutePath(request.nextUrl.pathname)) return new NextResponse(null, { status: 404 });
   const draft = await decideDraft(proxyCms, request, preview);
   const visitor = decideVisitor(request, draft);
-  const headers = visitorRequestHeaders(draftRequestHeaders(request, draft), visitor);
+  const assignments = await decideAssignments(proxyCms, draft, visitor);
+  const headers = assignmentsRequestHeaders(
+    visitorRequestHeaders(draftRequestHeaders(request, draft), visitor),
+    assignments,
+  );
   const response =
-    rewriteToDraftRoute(request, draft, visitor) ?? NextResponse.next({ request: { headers } });
+    rewriteToDraftRoute(request, draft, visitor, assignments) ??
+    NextResponse.next({ request: { headers } });
   return applyVisitor(applyDraft(response, draft), visitor);
 }
 
@@ -47,17 +52,17 @@ export default async function DraftPage({ params, searchParams }) {
 }
 ```
 
-Published pages stay cached (ISR, below): the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted pointer on `x-deco-draft` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A layout that reads content goes with its route, so the cached pages read no request: under the draft route (`app/%5Fdraft/layout.tsx`) it calls `bindDraft(cms, preview)` and `contentClient(cms)`, which read the forwarded header; under the assignments route (`app/%5Fassignments/[assignments]/layout.tsx`) it reads through `assignedClient(cms, (await params).assignments)`. `bindDraft` reads `headers()`, and a cached page that reads a request header renders on every request instead, so never call it in the root layout or on the assignments route.
+Published pages stay cached (ISR, below): the proxy sends only drafted requests to the draft route, sets the draft cookie, forwards the accepted version on `x-deco-version` (removing any copy sent from outside), and marks the response `Cache-Control: no-store, private` and `X-Robots-Tag: noindex, nofollow`. A layout that reads content goes with its route, so the cached pages read no request: under the draft route (`app/%5Fdraft/layout.tsx`) it calls `bindDraft(cms, preview)` and `contentClient(cms)`, which read the forwarded headers; under the assignments route (`app/%5Fassignments/[assignments]/layout.tsx`) it reads through `await assignedClient(cms, (await params).assignments)`. `bindDraft` reads `headers()`, and a cached page that reads a request header renders on every request instead, so never call it in the root layout or on the assignments route.
 
-A draft link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time and forced tests. All of it passes the same host check and renders on the draft route: a visitor on the live site never picks a version.
+A draft link can carry a published release's commit SHA instead of a draft (Studio's "Preview this version"), and either one can carry a preview time (`__at`) and tests and campaigns switched on or off (`__test`, `__campaign`), which `cms.readVersion` reads as the client's `date`, `experiments` and `campaigns`. All of it passes the same host check and renders on the draft route: a visitor on the live site never picks a version. A preview may switch on a test at 0%.
 
-### The visitor and the client
+### The visitor, the assignments and the client
 
-`decideVisitor(request, draft)` reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor); `visitorRequestHeaders` forwards it on `x-deco-visitor` (`draftRequestHeaders` always removes a copy sent from outside), and `applyVisitor` sends the cookie on a first visit only, never from a preview. It reads no content: the saved `experiments` block decides the tests for the visitor the client carries.
+The proxy decides once per request. `decideVisitor(request, draft)` reads the visitor with `readVisitor` from `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new visitor); `applyVisitor` sends its cookie on a first visit only, never from a preview. `decideAssignments(proxyCms, draft, visitor)` then decides each test and campaign on or off: `cms.client({ visitor, version, date, experiments, campaigns })` with the visitor and the Studio link's version, moment and switched tests and campaigns, resolving the saved `experiments` and `campaigns` blocks. `visitorRequestHeaders` and `assignmentsRequestHeaders` forward them on `x-deco-visitor` and `x-deco-assignments` (`draftRequestHeaders` always removes copies sent from outside).
 
-On the page, `bindDraft` binds the version and the forwarded visitor (on the current release it reads the request only when the release saves an `experiments` block), and `contentClient(cms)` builds `cms.client({ visitor, version })` from them. A cached page reads no request, so it has no visitor of its own: the CMS's pages render on [the assignments route](#the-assignments-route), with the tests and campaigns the proxy decided.
+On the page, `bindDraft` binds the version and what the proxy forwarded (on the current release it reads the request only when the release saves an `experiments` or `campaigns` block, and a test at 0% stays off whatever the header says), and `contentClient(cms)` builds `cms.client({ version, experiments, campaigns })` from them: the page decides nothing again. A cached page reads no request: the CMS's pages render on [the assignments route](#the-assignments-route), with the tests and campaigns the proxy decided in the path.
 
-The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on the request's assignments, never on the visitor: `assignmentsKey(await readAssignments(proxyCms, { visitor: visitor.visitor, version: draft.pointer }))` from `@decocms/nextjs/proxy` resolves the saved `experiments` and `campaigns` blocks as the page will and gives the version, the tests the visitor is in and the campaigns running now (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the assignments route](#the-assignments-route).
+The binding caches nothing. A site that caches pages in front of Next (a CDN keyed on a request header) keys on the request's assignments, never on the visitor: `assignmentsKey(assignments)` from `@decocms/nextjs/proxy`, with what `decideAssignments` gave, is the version, the tests on and the campaigns running (`""` when there are none). Visitors on the same side of every test share one entry, and a campaign starting or ending changes the key. To let Next's own cache do it, see [the assignments route](#the-assignments-route).
 
 ### The assignments route
 
@@ -72,10 +77,11 @@ export async function proxy(request: NextRequest) {
   if (isDraftRoutePath(pathname) || isAssignmentsRoutePath(pathname)) return new NextResponse(null, { status: 404 });
   const draft = await decideDraft(proxyCms, request, preview);
   const visitor = decideVisitor(request, draft);
-  const response =
-    rewriteToDraftRoute(request, draft, visitor) ??
-    (isCmsPage(pathname) ? await rewriteToAssignmentsRoute(proxyCms, request, draft, visitor) : null) ??
-    NextResponse.next({ request: { headers: visitorRequestHeaders(draftRequestHeaders(request, draft), visitor) } });
+  const assigned = isCmsPage(pathname) ? await rewriteToAssignmentsRoute(proxyCms, request, draft, visitor) : null;
+  if (assigned) return applyVisitor(applyDraft(assigned, draft), visitor);
+  const assignments = await decideAssignments(proxyCms, draft, visitor);
+  const headers = assignmentsRequestHeaders(visitorRequestHeaders(draftRequestHeaders(request, draft), visitor), assignments);
+  const response = rewriteToDraftRoute(request, draft, visitor, assignments) ?? NextResponse.next({ request: { headers } });
   return applyVisitor(applyDraft(response, draft), visitor);
 }
 
@@ -93,14 +99,14 @@ export async function generateStaticParams() {
 }
 export default async function Page({ params }) {
   const { assignments, path } = await params;
-  const client = assignedClient(cms, assignments);
+  const client = await assignedClient(cms, assignments);
   if (!client) notFound();
   // … match the path and resolve the page through `client`, as on any page …
 }
 ```
 
-- **What the segment holds**: the tests the visitor is in and the campaigns running now (`readAssignments` on the current release), as `assignmentsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of assignments. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
-- **The page renders what the path names**: `assignedClient(cms, segment)` builds `cms.client({ visitor, campaigns })` with a visitor that has no id and is in the tests the segment names (v7's stored field `active`, which `assign` honours), so every visitor on that side renders the same page, and with the segment's campaigns as the ones running (the client option `campaigns`: the `campaigns` block answers those on and every other off, whatever the moment). The page never checks a campaign's dates itself. A test now at 0% stays off whatever the segment names, so a forged path can't switch on a test nobody is in. A page Next renders again later (revalidation) shows the same tests and campaigns under the same path.
+- **What the segment holds**: every test of the saved `experiments` block on or off for the visitor and every campaign of the saved `campaigns` block running or not now (`readAssignments` on the current release), as `assignmentsSegment` writes it: `-` for none, otherwise base64url, one spelling per set of assignments. Visitors on the same side of every test get the same path; the visitor's id is never in it, and the rewritten request carries neither the visitor nor a draft header. A campaign starting or ending moves every visitor to a new path.
+- **The page renders what the path names**: `await assignedClient(cms, segment)` builds `cms.client({ experiments, campaigns })` with every test and campaign as the segment names it and no visitor, a client fully decided in advance, so every visitor on that side renders the same page. The page never checks a campaign's dates or rolls a test itself. A test now at 0% stays off whatever the segment names, so a forged path can't switch on a test nobody is in. A page Next renders again later (revalidation) shows the same tests and campaigns under the same path.
 - **A path can't switch a test on**: the proxy answers a direct hit on `/_assignments/…` with a 404, as it does for `/_draft/…`, so only its own rewrite reaches the route. Should a request reach the page some other way (a proxy `matcher` that leaves the route out), `assignedClient` keeps off a test or a campaign the content doesn't have, and returns `null` (a 404) only for a segment the proxy never writes. Leaving off rather than answering 404 matters because Next caches a 404 under the path too: a path the proxy wrote before the page's server saw newly published content still renders.
 - **The URL asked for stays private**: when the content saves tests or campaigns, the rewrite marks the response `Cache-Control: private, no-cache`. Next keeps one cached page per path and set of assignments, but `/shoes` itself answers by the visitor's cookie and the moment, so a CDN in front must not keep Next's ISR `s-maxage` under it.
 - **A cached page reads no request**: `headers()`, `cookies()` or `searchParams` anywhere in the route (its layouts included, so no `bindDraft` there) make Next render it on every request instead of caching it, and a client component calling `useSearchParams()` renders on the client up to its nearest `<Suspense>`. `force-static` used to hide both by handing the page empty values; with ISR the page takes what it needs from the path, as the assignments do.
@@ -140,7 +146,7 @@ It renders a `<meta>` that React places in the `<head>`, so the page's own marku
 
 ## Names and Studio's origins
 
-For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `DRAFT_HEADER` (`x-deco-draft`), `VISITOR_HEADER` (`x-deco-visitor`), `draftResponseHeaders(pointer)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
+For a site that needs them in its own code (a route that sets its own headers, a CSP it writes itself), `@decocms/nextjs` exports what the proxy, the pages and `withDeco` use: `DRAFT_PARAM` (`__draft`), `DRAFT_COOKIE` (`__deco_draft`), `VERSION_HEADER` (`x-deco-version`), `VISITOR_HEADER` (`x-deco-visitor`), `ASSIGNMENTS_HEADER` (`x-deco-assignments`), `draftResponseHeaders(version)`, `STUDIO_ORIGINS`, `STUDIO_FRAME_ANCESTORS` and `isStudioOrigin(origin)`. They have the same values as `@decocms/tanstack`'s; each binding keeps its own copy and never imports the other.
 
 ## next.config
 
@@ -165,7 +171,7 @@ Next.js already measures every request it serves: one root span per request (`Ba
 | `http.route` | Next's route template: `/[[...path]]`, `/blog`, `/_draft/[[...path]]`. An RSC request counts under its page's route. `unmatched` when Next names none (an Edge route under `next start`) |
 | `http.request.method` | `GET`, `POST`, …; any other is `_OTHER` |
 | `status_class` | `2xx` … `5xx`; a request that threw is `5xx` |
-| `cache` | `DRAFT` for a draft render (the proxy forwarded `x-deco-draft`, or the request was rewritten onto `/_draft`), otherwise `BYPASS`: Next decides its own cache (`x-nextjs-cache`) on the response, which the span never sees |
+| `cache` | `DRAFT` for a draft render (the proxy forwarded `x-deco-version`, or the request was rewritten onto `/_draft`), otherwise `BYPASS`: Next decides its own cache (`x-nextjs-cache`) on the response, which the span never sees |
 
 - `@opentelemetry/api` is an optional peer: `register` uses the same copy Next does (yours when installed, else Next's compiled one) and does nothing if neither loads.
 - **Your own OpenTelemetry setup** (`@vercel/otel`, `NodeSDK`): only one tracer provider can be registered, so `register` leaves yours alone and logs how to combine them. Add the processor to yours instead: `registerOTel({ serviceName, spanProcessors: ["auto", serverRequestSpanProcessor()] })`.
