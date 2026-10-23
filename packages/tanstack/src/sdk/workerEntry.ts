@@ -60,6 +60,7 @@ import {
 import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
+import { logger } from "@decocms/blocks/sdk/logger";
 import { generateNonce, NONCE_BAG_KEY } from "@decocms/blocks/sdk/nonce";
 import {
   getActiveSpan,
@@ -1253,6 +1254,53 @@ function afterBodySent(
  * Creates a Cloudflare Worker fetch handler that wraps a TanStack Start
  * server entry with intelligent edge caching.
  */
+const CLIENT_ERROR_MAX_BYTES = 16_000;
+const CLIENT_ERROR_KEYS = [
+  "error.name",
+  "error.message",
+  "error.stack",
+  "error.cause",
+  "page.url",
+  "page.referrer",
+  "page.ms_since_load",
+  "page.nav_type",
+  "page.history_length",
+  "page.visibility",
+  "client.ua",
+  "client.viewport",
+  "client.online",
+  "client.connection",
+  "client.ts",
+] as const;
+
+/** Reads a body up to `max` bytes; returns null (and cancels) past the cap. */
+async function readCapped(
+  body: ReadableStream<Uint8Array> | null,
+  max: number,
+): Promise<string | null> {
+  if (!body) return "";
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const buf = new Uint8Array(size);
+  let off = 0;
+  for (const c of chunks) {
+    buf.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(buf);
+}
+
 export function createDecoWorkerEntry(
   serverEntry: ServerEntry,
   options: DecoWorkerEntryOptions = {},
@@ -1999,6 +2047,41 @@ export function createDecoWorkerEntry(
     return resp;
   }
 
+  async function handleClientErrorReport(request: Request): Promise<Response> {
+    const done = () =>
+      new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+    // Cap BEFORE buffering: the endpoint is unauthenticated, and `request.text()`
+    // on a 100 MB upload would OOM the isolate. Chunked bodies carry no
+    // content-length, so the stream is counted too.
+    if (Number(request.headers.get("content-length") ?? 0) > CLIENT_ERROR_MAX_BYTES) return done();
+    // Client aborting mid-upload makes `read()` throw — still a 204, not a 500.
+    const raw = await readCapped(request.body, CLIENT_ERROR_MAX_BYTES).catch(() => null);
+    if (raw === null) return done();
+
+    // Allowlisted keys only, primitives only, namespaced under `report.` so a
+    // forged body can never override trace/request ids or the attribute floor.
+    const attrs: Record<string, string | number | boolean> = {};
+    try {
+      const parsed = JSON.parse(raw);
+      for (const key of CLIENT_ERROR_KEYS) {
+        const v = parsed?.[key];
+        if (typeof v === "string") attrs[`report.${key}`] = v.slice(0, 6000);
+        else if (typeof v === "number" || typeof v === "boolean") attrs[`report.${key}`] = v;
+      }
+    } catch {
+      attrs["report.invalid"] = true;
+    }
+    const cf = (request as unknown as { cf?: Record<string, unknown> }).cf;
+    logger.error("cms.error_fallback", {
+      ...attrs,
+      "error.side": "client",
+      "client.colo": String(cf?.colo ?? ""),
+      "client.country": String(cf?.country ?? ""),
+      "client.asn": Number(cf?.asn ?? 0),
+    });
+    return done();
+  }
+
   async function tryAdminRoute(request: Request): Promise<Response | null> {
     if (!admin) return null;
 
@@ -2459,6 +2542,13 @@ export function createDecoWorkerEntry(
     // redeploy is the global lever — loader cache keys are build-hash versioned.
     if (url.pathname === "/_cache/purge-loaders" && request.method === "POST") {
       return handlePurgeLoaders(request, env);
+    }
+
+    // Beacon from `CmsPageErrorFallback`: the "instability" screen was shown
+    // in a browser. Logged here so client-only failures (render/commit throw,
+    // SPA-navigation loader throw) leave a trace. Body capped at 16 KB.
+    if (url.pathname === "/deco/_client-error" && request.method === "POST") {
+      return handleClientErrorReport(request);
     }
 
     // CMS redirects (website/loaders/redirect.ts blocks) — checked before
