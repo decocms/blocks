@@ -534,6 +534,15 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     if (decision.setCookie) response.headers.append("Set-Cookie", decision.setCookie);
     if (served.visitorCookie) response.headers.append("Set-Cookie", served.visitorCookie);
     dedupeSetCookies(response);
+    // A server function never answers a page: HTML there is a forged response
+    // (CVE-2026-102989: TanStack Start ≤1.166 returned a client-injected
+    // `result`, which h3 accepts as a response by its constructor's name). A
+    // sandboxed opaque origin runs no script and reads no cookie, and the CDN
+    // keeps no copy.
+    if (isServerFnPath(new URL(request.url).pathname) && isHtml(response)) {
+      response.headers.set("Content-Security-Policy", "sandbox");
+      response.headers.set("CDN-Cache-Control", "no-store");
+    }
     if (isHtml(response)) {
       for (const [k, v] of Object.entries(securityHeaders)) {
         if (!response.headers.has(k)) response.headers.set(k, v);
