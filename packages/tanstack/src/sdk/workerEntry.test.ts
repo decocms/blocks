@@ -539,6 +539,29 @@ describe("security headers — frame-ancestors default", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBeNull();
   });
 
+  it("sandboxes HTML from a server function, even with securityHeaders false (CVE-2026-102989)", async () => {
+    for (const securityHeaders of [undefined, false as const]) {
+      const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, { securityHeaders });
+      const res = await worker.fetch(
+        new Request("https://example.com/_serverFn/abc?payload=%7B%7D"),
+        EMPTY_ENV,
+        MOCK_CTX,
+      );
+      expect(res.headers.get("Content-Security-Policy")).toBe("sandbox");
+      expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+    }
+  });
+
+  it("leaves a server function's JSON alone", async () => {
+    const worker = createDecoWorkerEntry({ fetch: async () => Response.json({ ok: true }) });
+    const res = await worker.fetch(
+      new Request("https://example.com/_serverFn/abc?payload=%7B%7D"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("Content-Security-Policy")).toBeNull();
+  });
+
   it("keeps report-only by default even when a site passes csp (cspMode unset)", async () => {
     const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, {
       csp: ["default-src 'self'"],
