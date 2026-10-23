@@ -1,14 +1,26 @@
 // The header matrix against the built app on workerd (`vite preview` runs the
-// Worker in Miniflare): run `bun run build && bun run smoke`. Exits non-zero
-// on the first difference.
+// Worker in Miniflare): run `bun run build && bun run smoke`. A local draft
+// server answers the draft pointer (a loopback host, which the CMS accepts by
+// default); any other draft there is gone (404). Exits non-zero on the first
+// difference.
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { toJSONAsync } from "seroval";
 
 const PORT = Number(process.env.SMOKE_PORT ?? 8811);
+const DRAFT_PORT = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
-const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+const POINTER = `127.0.0.1:${DRAFT_PORT}/draft@v1`;
+const GONE_POINTER = `127.0.0.1:${DRAFT_PORT}/gone@v1`;
+
+const draftServer = createServer((req, res) => {
+  if (!req.url?.startsWith("/draft")) return void res.writeHead(404).end("not found");
+  res.writeHead(200, { "content-type": "application/json", etag: '"v1"' });
+  res.end(JSON.stringify({ set: {}, delete: [] }));
+});
+await new Promise((resolve) => draftServer.listen(DRAFT_PORT, "127.0.0.1", resolve));
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
 
 const server = spawn("npx", ["vite", "preview", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"], {
@@ -132,19 +144,41 @@ try {
   const draftBody = await draft.text();
   check("a draft never reaches the site's page cache", !draft.headers.has("x-cache"), draft.headers.get("x-cache"));
   check("a draft is noindex", draft.headers.get("x-robots-tag") === "noindex, nofollow");
-  check("a draft is no-store", draft.headers.get("cache-control") === "no-store, private");
+  check("a draft is always revalidated", draft.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate");
   check("a draft link stores its cookie", (draft.headers.get("set-cookie") ?? "").startsWith("__deco_draft="));
   check("a preview never sends the visitor's cookie", visitorCookies(draft).length === 0, draft.headers.getSetCookie().join(" | "));
   const oldRelease = await get(`/summer-shirt/p?__draft=${"0".repeat(40)}`);
   await oldRelease.text();
   check(
-    "an old release's SHA from a Studio link is a preview: no-store, its own cookie, no visitor cookie",
-    oldRelease.headers.get("cache-control") === "no-store, private" &&
-      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${"0".repeat(40)};`) &&
+    // This app has no hosted releases, so the SHA can't be read: the render fails, and a failed
+    // render never stores the link's cookie.
+    "an old release's SHA from a Studio link is a preview: always revalidated, its cookie only with a render below 500, no visitor cookie",
+    oldRelease.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate" &&
+      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${"0".repeat(40)};`) ===
+        oldRelease.status < 500 &&
       visitorCookies(oldRelease).length === 0,
     `${oldRelease.status} ${oldRelease.headers.get("cache-control")} ${oldRelease.headers.getSetCookie().join(" | ")}`,
   );
   check("the draft page publishes the draft for the badge", draftBody.includes("window.__DECO_DRAFT="));
+  const off = await get("/summer-shirt/p?__draft=off");
+  await off.text();
+  check(
+    "?__draft=off is a preview too: always revalidated, never from the page cache, the cookie expired",
+    off.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate" &&
+      !off.headers.has("x-cache") &&
+      (off.headers.get("set-cookie") ?? "").includes("Max-Age=0"),
+    `${off.headers.get("cache-control")} ${off.headers.get("x-cache")} ${off.headers.get("set-cookie")}`,
+  );
+  const gone = await get(`/summer-shirt/p?__draft=${encodeURIComponent(GONE_POINTER)}`);
+  const goneBody = await gone.text();
+  check(
+    "a link to a deleted draft renders the published page with the notice, never a 500",
+    gone.status === 200 &&
+      goneBody.includes("Summer shirt") &&
+      goneBody.includes("window.__DECO_DRAFT_UNAVAILABLE=true") &&
+      (gone.headers.get("set-cookie") ?? "").includes("Max-Age=0"),
+    `${gone.status} ${gone.headers.get("set-cookie")}`,
+  );
 
   const purge = await get("/_cache/purge", { method: "POST", body: JSON.stringify({ paths: ["/summer-shirt/p"] }) });
   check("the purge route answers 401 without the PURGE_TOKEN secret", purge.status === 401, purge.status);
@@ -155,6 +189,7 @@ try {
   try {
     process.kill(-server.pid, "SIGTERM");
   } catch {}
+  draftServer.close();
 }
 
 if (failures.length) {

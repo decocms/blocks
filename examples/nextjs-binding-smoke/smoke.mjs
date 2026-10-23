@@ -23,6 +23,8 @@ const COOKIE = { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` };
 const shirt = JSON.parse(readFileSync(new URL("./.deco/blocks/ShirtPage.json", import.meta.url), "utf-8"));
 shirt.sections[1].name = "Draft shirt";
 const draftServer = createServer((req, res) => {
+  // Any other draft is gone (Studio deleted it).
+  if (!req.url?.startsWith("/draft")) return void res.writeHead(404).end("not found");
   res.writeHead(200, { "content-type": "application/json", etag: '"v1"' });
   res.end(JSON.stringify({ set: { ShirtPage: shirt }, delete: [] }));
 });
@@ -122,7 +124,7 @@ try {
   check(
     "a draft is never stored",
     // Next keeps the proxy's Cache-Control on the draft route; it sets Vary itself (rsc, …).
-    link.res.headers.get("cache-control") === "no-store, private",
+    link.res.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate",
     link.res.headers.get("cache-control"),
   );
   check(
@@ -140,6 +142,21 @@ try {
   const off = await get("/summer-shirt/p?__draft=off", { ...DECO_HOST, ...COOKIE });
   check("?__draft=off renders the release", off.body.includes("Summer shirt") && !off.body.includes("Draft shirt"));
   check("?__draft=off expires the cookie", (off.res.headers.get("set-cookie") ?? "").includes("Max-Age=0"));
+  check(
+    "?__draft=off is a preview too: always revalidated",
+    off.res.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate",
+    off.res.headers.get("cache-control"),
+  );
+
+  const gone = await get(`/summer-shirt/p?__draft=${encodeURIComponent(`127.0.0.1:${DRAFT_PORT}/gone@v1`)}`, DECO_HOST);
+  check(
+    "a link to a deleted draft renders the published page with the notice, never a 500",
+    gone.res.status === 200 &&
+      gone.body.includes("Summer shirt") &&
+      !gone.body.includes("Draft shirt") &&
+      (gone.res.headers.get("set-cookie") ?? "").includes("Max-Age=0"),
+    `${gone.res.status} ${gone.res.headers.get("set-cookie")}`,
+  );
 
   const elsewhere = await get(draftLink("/summer-shirt/p"));
   check(
@@ -168,9 +185,9 @@ try {
       .filter((r) => Object.entries(labels).every(([k, v]) => r[k] === v))
       .reduce((n, r) => n + r.count, 0);
   check(
-    // The published page, ?__draft=off, the host outside the allowlist and the forged header.
+    // The published page and the forged header (any draft signal renders on the draft route).
     "pages count under their route template",
-    count({ "http.route": "/_assignments/[assignments]/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 4 &&
+    count({ "http.route": "/_assignments/[assignments]/[[...path]]", status_class: "2xx", cache: "BYPASS" }) === 2 &&
       count({ "http.route": "/blog", status_class: "2xx" }) >= 1,
     JSON.stringify(requests),
   );
@@ -180,9 +197,10 @@ try {
   );
   check("a 5xx counts under its page", count({ "http.route": "/smoke/fail", status_class: "5xx" }) === 1);
   check(
-    "a draft render is DRAFT, on the draft route",
-    count({ "http.route": "/_draft/[[...path]]", status_class: "2xx", cache: "DRAFT" }) === 2 &&
-      count({ cache: "DRAFT" }) === 2,
+    // The link, the cookie, ?__draft=off, the deleted draft and the host outside the allowlist.
+    "a preview render is DRAFT, on the draft route",
+    count({ "http.route": "/_draft/[[...path]]", status_class: "2xx", cache: "DRAFT" }) === 5 &&
+      count({ cache: "DRAFT" }) === 5,
     JSON.stringify(requests.filter((r) => r.cache === "DRAFT")),
   );
   check(
@@ -255,7 +273,7 @@ try {
       draftOnSide.body.includes(POINTER) &&
       draftOnSide.body.includes("Banner B") &&
       assignmentsOf(draftOnSide.body) === undefined &&
-      draftOnSide.res.headers.get("cache-control") === "no-store, private",
+      draftOnSide.res.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate",
     `${draftOnSide.res.status} ${assignmentsOf(draftOnSide.body)} ${draftOnSide.res.headers.get("cache-control")}`,
   );
   // A preview link switches tests and campaigns: even a test at 0% and a campaign not started,
