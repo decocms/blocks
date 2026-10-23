@@ -2278,6 +2278,19 @@ export function createDecoWorkerEntry(
         response.headers.set("CDN-Cache-Control", "no-store");
       }
 
+      // A server function never answers a page: HTML there is a forged response
+      // (CVE-2026-102989: TanStack Start ≤1.168.59 returned a client-injected
+      // `result`, which h3 accepts as a response by its constructor's name). A
+      // sandboxed opaque origin runs no script and reads no cookie, and the CDN
+      // keeps no copy. Not covered by `securityHeaders: false` on purpose.
+      if (
+        isServerFnPathname(new URL(request.url).pathname) &&
+        (response.headers.get("content-type") ?? "").includes("text/html")
+      ) {
+        response.headers.set("Content-Security-Policy", "sandbox");
+        response.headers.set("CDN-Cache-Control", "no-store");
+      }
+
       let finalResponse = applySecurityHeaders(response, cspNonce);
 
       // Echo request.id + trace.id back to the client / tail worker.
