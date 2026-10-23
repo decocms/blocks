@@ -6,6 +6,7 @@
  */
 import { type Blocks, type CMS, createCMS, type Snapshot } from "@decocms/blocks";
 import { currentScope, type RequestScope } from "@decocms/tanstack/scope";
+import { vi } from "vitest";
 import type { ExecutionContextLike, PageCache, PageRequest } from "./index.ts";
 
 export class MemoryCache {
@@ -149,6 +150,31 @@ export function recordingEntry(respond?: (request: Request) => Response | Promis
 }
 
 export const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+/** A pointer to a draft Studio no longer has (its host answers 404). */
+export const GONE_POINTER = "studio.decocms.com/api/acme/decofile/store/gone/changes?token=abc@1";
+
+/**
+ * Stands in for the drafts' host: {@link POINTER}'s changes (empty unless
+ * given), a 404 for any other draft. Returns the URLs it was asked for.
+ */
+export function serveDrafts(
+  changes: { set?: Record<string, unknown>; delete?: string[] } = {},
+): string[] {
+  const urls: string[] = [];
+  const path = new URL(`https://${POINTER.slice(0, POINTER.indexOf("?"))}`).pathname;
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    urls.push(url.href);
+    if (url.host === "studio.decocms.com" && url.pathname === path) {
+      return Response.json(
+        { set: changes.set ?? {}, delete: changes.delete ?? [] },
+        { headers: { etag: '"etag-1"' } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  });
+  return urls;
+}
 
 export function html(body = "<p>ok</p>", headers: Record<string, string> = {}): Response {
   return new Response(body, {

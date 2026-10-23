@@ -8,14 +8,19 @@
  * - Versions: the host allowlist (`./drafts.ts`) for a Studio link's version
  *   (a draft, or a published release by its commit SHA, with the preview's
  *   moment and switched tests and campaigns), the draft cookie, the
- *   `x-deco-version` request header the page reads, and on the response
- *   `no-store`, `Vary: Cookie` and `noindex`.
+ *   `x-deco-version` request header the page reads. A preview (any request
+ *   with `?__draft=`, `off` included, or the draft cookie) never goes through
+ *   `pageCache` and answers `Cache-Control: max-age=0, no-cache,
+ *   must-revalidate`, `Vary: Cookie` and `noindex`. A link's cookie is set
+ *   only with a response below 500; a link to a draft that can't be read
+ *   anymore renders the release, expires the cookie and tells the page
+ *   (`draftUnavailable`), never a 500.
  * - The CMS redirects, before any route.
  * - No page cache: caching is the site's (`pageCache`, the README's
  *   worker-entry recipe), with the helpers it needs exported here
  *   (`assignmentsKey`, `cacheVersion`, `isCacheable`, …).
  *   The worker calls `pageCache` only for a request `isCacheable` accepts,
- *   never for a preview, and adds the visitor's cookie after it, so a stored
+ *   never for a preview (any draft signal), and adds the visitor's cookie after it, so a stored
  *   copy never carries one. A page request with `Authorization` is never
  *   handed to it and answers `private, no-cache, no-store`. A response with no
  *   `CDN-Cache-Control` tells the CDN `no-store`, at one exit.
@@ -50,7 +55,7 @@ import { VISITOR_HEADER } from "../visitor.ts";
 import { type RequestAssignments, readAssignments } from "./assignments.ts";
 import { isCacheable } from "./cache.ts";
 import { dedupeSetCookies } from "./cookies.ts";
-import { type DraftDecision, decideDraft } from "./drafts.ts";
+import { type DraftDecision, decideDraft, hasDraftSignal } from "./drafts.ts";
 import { type CspOptions, htmlSecurityHeaders } from "./security.ts";
 import { type Device, detectDevice } from "./segment.ts";
 import { isServerFnPath } from "./serverFn.ts";
@@ -181,7 +186,8 @@ function fixedRoute(pathname: string): string | null {
 const REDIRECT_ROUTE = "redirect";
 
 /**
- * The cache label of `http.server.request.duration`: `DRAFT` for a preview,
+ * The cache label of `http.server.request.duration`: `DRAFT` for a preview
+ * (any draft signal),
  * otherwise what the site's `pageCache` said in `X-Cache`. A response that
  * never went through it (a redirect, the site's `routes`, an asset, a page
  * without a `pageCache`) is `BYPASS` whatever `X-Cache` an upstream put on it.
@@ -329,6 +335,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     response: Response;
     /** Answered by the site's `pageCache`: its `X-Cache` labels the metric. */
     cached?: true;
+    /** A fingerprinted or static asset: its own `Cache-Control`, a preview's or not. */
+    asset?: true;
     /** Answered by the site's `routes`: not this app's page, so no `preload` hints. */
     routed?: true;
     /** A CMS redirect. */
@@ -375,6 +383,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     env: Env,
     ctx: ExecutionContextLike,
     decision: DraftDecision,
+    preview: boolean,
   ): Promise<Served> {
     const draft = decision.version?.version ?? null;
     const url = new URL(request.url);
@@ -420,54 +429,62 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
 
     if (asset) {
       const origin = await serverEntry.fetch(request, env, ctx);
-      if (origin.status !== 200) return { response: origin };
-      if (isHtml(origin)) return { response: new Response("Not Found", { status: 404 }) };
+      if (origin.status !== 200) return { response: origin, asset: true };
+      if (isHtml(origin)) {
+        return { response: new Response("Not Found", { status: 404 }), asset: true };
+      }
       const resp = mutable(origin);
       resp.headers.set("Cache-Control", "public, max-age=31536000, immutable");
       resp.headers.set("Vary", "Accept-Encoding");
-      return { response: resp };
+      return { response: resp, asset: true };
     }
 
     const visited = await withDecisions(request, decision);
-    const served = await page(
-      visited.request,
-      env,
-      ctx,
+    const served = await page(visited.request, env, ctx, {
       draft,
+      preview,
+      unavailable: decision.unavailable === true,
       url,
-      visited.visitor,
-      visited.assignments,
-    );
+      visitor: visited.visitor,
+      assignments: visited.assignments,
+    });
     return visited.visitorCookie === undefined
       ? served
       : { ...served, visitorCookie: visited.visitorCookie };
   }
 
-  /** A page or server-function request: the site's `pageCache` when it may cache it, else the app. */
+  /**
+   * A page or server-function request: the site's `pageCache` when it may
+   * cache it, else the app. A preview (any draft signal) always renders: its
+   * headers are set at the exit (`serve`).
+   */
   async function page(
     request: Request,
     env: Env,
     ctx: ExecutionContextLike,
-    draft: string | null,
-    url: URL,
-    visitor: Visitor | null,
-    assignments: RequestAssignments | undefined,
+    inputs: {
+      draft: string | null;
+      preview: boolean;
+      unavailable: boolean;
+      url: URL;
+      visitor: Visitor | null;
+      assignments: RequestAssignments | undefined;
+    },
   ): Promise<Served> {
+    const { draft, preview, unavailable, url, visitor, assignments } = inputs;
     const render = async (scope?: { csegToken?: string }): Promise<Response> =>
       withPageStatus(
-        await runInScope({ csegToken: scope?.csegToken, draft: draft ?? undefined }, () =>
-          serverEntry.fetch(request, env, ctx),
+        await runInScope(
+          {
+            csegToken: scope?.csegToken,
+            draft: draft ?? undefined,
+            ...(unavailable ? { draftUnavailable: true } : {}),
+          },
+          () => serverEntry.fetch(request, env, ctx),
         ),
       );
 
-    if (draft !== null) {
-      const out = mutable(await render());
-      for (const [k, v] of Object.entries(draftResponseHeaders(draft))) {
-        if (k.toLowerCase() !== "vary") out.headers.set(k, v);
-        else appendVary(out.headers, v);
-      }
-      return { response: out };
-    }
+    if (draft !== null || preview) return { response: await render() };
     // A signed request's page is that caller's: no shared cache may keep it,
     // whatever the app said (RFC 9111 lets one store a `public` answer to it).
     if (request.headers.has("authorization")) {
@@ -501,6 +518,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     env: Env,
     ctx: ExecutionContextLike,
   ): Promise<{ response: Response; served: Served; draft: boolean }> {
+    // Any draft signal makes the request a preview, whatever the decision.
+    const preview = hasDraftSignal(incoming);
     let decision: DraftDecision = { version: null, setCookie: null };
     try {
       decision = await decideDraft(cms, incoming);
@@ -518,8 +537,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       request = new Request(incoming, { headers });
     }
 
-    const served = await handle(request, env, ctx, decision);
-    const draft = decision.version !== null;
+    const served = await handle(request, env, ctx, decision, preview);
+    const draft = decision.version !== null || preview;
     let response = served.response;
     // A WebSocket upgrade passes through untouched.
     if (response.status === 101) return { response, served, draft };
@@ -531,7 +550,20 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     if (!response.headers.has("CDN-Cache-Control")) {
       response.headers.set("CDN-Cache-Control", "no-store");
     }
-    if (decision.setCookie) response.headers.append("Set-Cookie", decision.setCookie);
+    // A preview's response is never answered from a cache: the exact header,
+    // whatever the app or a route said. A fingerprinted asset stays immutable.
+    if (preview && !served.asset) {
+      for (const [k, v] of Object.entries(draftResponseHeaders(true))) {
+        if (k.toLowerCase() !== "vary") response.headers.set(k, v);
+        else appendVary(response.headers, v);
+      }
+    }
+    // A link's cookie only with a page that rendered: a failed render never
+    // pins the preview to it. The cookie that ends a preview always goes.
+    const ending = decision.version === null;
+    if (decision.setCookie && (ending || response.status < 500)) {
+      response.headers.append("Set-Cookie", decision.setCookie);
+    }
     if (served.visitorCookie) response.headers.append("Set-Cookie", served.visitorCookie);
     dedupeSetCookies(response);
     if (isHtml(response)) {

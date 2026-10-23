@@ -15,11 +15,13 @@ import {
   requestVersion,
 } from "./index.ts";
 import {
+  GONE_POINTER,
   html,
   POINTER,
   recordingEntry,
   recordMetrics,
   removeMetrics,
+  serveDrafts,
   snapshot,
   TestContext,
   testCMS,
@@ -44,6 +46,8 @@ function setup(
   respond?: (request: Request) => Response | Promise<Response>,
 ) {
   const entry = recordingEntry(respond);
+  // The drafts' host: POINTER's changes; a test may stub fetch again after this.
+  serveDrafts();
   // A site's own page cache, as the example worker entry wires one (smaller).
   const { store, seen, pageCache } = testPageCache();
   const worker = createDecoWorker({
@@ -291,6 +295,18 @@ describe("pageCache: the site's own cache", () => {
 });
 
 describe("the helpers a site's cache uses", () => {
+  it("isCacheable refuses a request carrying ?__draft= or the draft cookie", () => {
+    const req = (path: string, init?: RequestInit) => new Request(`${ORIGIN}${path}`, init);
+    for (const value of [encodeURIComponent(POINTER), "off", "junk", ""]) {
+      expect(isCacheable(req(`/?__draft=${value}`), { version: null }), value).toBe(false);
+    }
+    const cookie = (value: string) =>
+      req("/", { headers: { cookie: `a=1; __deco_draft=${value}` } });
+    expect(isCacheable(cookie(encodeURIComponent(POINTER)), { version: null })).toBe(false);
+    expect(isCacheable(cookie("junk"), { version: null })).toBe(false);
+    expect(isCacheable(req("/", { headers: { cookie: "a=1" } }), { version: null })).toBe(true);
+  });
+
   it("isCacheable: a GET of the current release, outside dev, without Authorization, not /_build", () => {
     const req = (path: string, init?: RequestInit) => new Request(`${ORIGIN}${path}`, init);
     expect(isCacheable(req("/"), { version: null })).toBe(true);
@@ -338,7 +354,7 @@ describe("drafts", () => {
     expect(entry.served.at(-1)?.headers.get("x-deco-version")).toBe(POINTER);
     expect(entry.served.at(-1)?.scope?.draft).toBe(POINTER);
     expect(res.headers.has("x-cache")).toBe(false);
-    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
     expect(res.headers.get("cdn-cache-control")).toBe("no-store");
     expect(res.headers.get("vary")).toBe("Cookie");
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
@@ -383,12 +399,12 @@ describe("drafts", () => {
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
-  it("a pointer that doesn't parse is no draft: the release, cached as usual", async () => {
+  it("a pointer that doesn't parse is no draft: the release, never from the page cache", async () => {
     const { get, entry, seen } = setup();
     const res = await get("/?__draft=junk");
     expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
-    expect(seen).toHaveLength(1);
-    expect(res.headers.has("x-robots-tag")).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(res.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
   });
 
   it("an x-deco-version header from outside never counts", async () => {
@@ -404,8 +420,90 @@ describe("drafts", () => {
     const res = await get(`/_serverFn/abc?payload=${payload}`, {
       headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
     });
-    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
     expect(seen).toHaveLength(0);
+  });
+
+  const EXACT = "max-age=0, no-cache, must-revalidate";
+
+  it("?__draft=off never reaches pageCache and answers max-age=0, no-cache, must-revalidate", async () => {
+    const { get, seen } = setup({}, () => html("x", { "cache-control": "public, max-age=600" }));
+    const res = await get("/?__draft=off");
+    expect(seen).toHaveLength(0);
+    expect(res.headers.get("cache-control")).toBe(EXACT);
+    expect(res.headers.get("vary")).toBe("Cookie");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("a request with only the draft cookie never reaches pageCache", async () => {
+    const { get, seen, entry } = setup();
+    // Even a cookie that names nothing: the request is a preview, never a cached page.
+    for (const cookie of [`__deco_draft=${encodeURIComponent(POINTER)}`, "__deco_draft=junk"]) {
+      const res = await get("/", { headers: { cookie } });
+      expect(res.headers.get("cache-control"), cookie).toBe(EXACT);
+    }
+    expect(seen).toHaveLength(0);
+    expect(entry.served).toHaveLength(2);
+  });
+
+  it("a draft render answers exactly max-age=0, no-cache, must-revalidate with Vary: Cookie and noindex", async () => {
+    // Whatever the app said: a preview is always revalidated.
+    const { get } = setup({}, () =>
+      html("x", { "cache-control": "public, s-maxage=3600", vary: "Accept-Encoding" }),
+    );
+    const res = await get(draftUrl);
+    expect(res.headers.get("cache-control")).toBe(EXACT);
+    expect(res.headers.get("vary")).toBe("Accept-Encoding, Cookie");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    // A CMS redirect under a preview too.
+    const redirect = await get(`/old-shoes?__draft=${encodeURIComponent(POINTER)}`);
+    expect(redirect.status).toBe(301);
+    expect(redirect.headers.get("cache-control")).toBe(EXACT);
+  });
+
+  it("a fingerprinted asset under a draft cookie stays immutable", async () => {
+    const { get } = setup(
+      {},
+      () => new Response("body{}", { headers: { "content-type": "text/css" } }),
+    );
+    const res = await get("/assets/app-AbCdEf12.css", {
+      headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
+    });
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.has("x-robots-tag")).toBe(false);
+  });
+
+  it("the draft cookie is set only when the render answers below 500", async () => {
+    let status = 500;
+    const { get } = setup(
+      {},
+      () => new Response("x", { status, headers: { "content-type": "text/html" } }),
+    );
+    expect((await get(draftUrl)).headers.has("set-cookie")).toBe(false);
+    status = 404;
+    expect((await get(draftUrl)).headers.get("set-cookie")).toContain(encodeURIComponent(POINTER));
+    // The cookie that ends a preview always goes.
+    status = 500;
+    expect((await get("/?__draft=off")).headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("a pointer to a deleted draft renders the release, expires the cookie and marks the page unavailable (no 500)", async () => {
+    const { get, entry, seen } = setup();
+    const res = await get(`/?__draft=${encodeURIComponent(GONE_POINTER)}`);
+    expect(res.status).toBe(200);
+    expect(entry.served[0]?.headers.has("x-deco-version")).toBe(false);
+    expect(entry.served[0]?.scope?.draft).toBeUndefined();
+    expect(entry.served[0]?.scope?.draftUnavailable).toBe(true);
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(res.headers.get("cache-control")).toBe(EXACT);
+    expect(seen).toHaveLength(0);
+    // The same through the cookie alone.
+    const viaCookie = await get("/shoes", {
+      headers: { cookie: `__deco_draft=${encodeURIComponent(GONE_POINTER)}` },
+    });
+    expect(viaCookie.status).toBe(200);
+    expect(entry.served[1]?.scope?.draftUnavailable).toBe(true);
+    expect(viaCookie.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 });
 
@@ -563,7 +661,7 @@ describe("the version: an old release from a Studio link", () => {
     const { get, entry } = setup();
     const res = await get(`/?__draft=${SHA}`, { firstVisit: true });
     expect(entry.served[0]?.headers.get("x-deco-version")).toBe(SHA);
-    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
     expect(res.headers.getSetCookie().some((c) => c.startsWith(`__deco_draft=${SHA};`))).toBe(true);
     expect(segmentCookies(res)).toEqual([]);
   });
@@ -606,9 +704,9 @@ describe("the draft hosts: the release's, as the CMS reads them", () => {
     const { get, entry } = setup(options);
     const res = await get(link(host));
     const rendered = entry.served[0]?.headers.get("x-deco-version") === POINTER;
-    // The cookie and the headers agree with what the app rendered.
+    // The cookie agrees with what the app rendered; a preview is never indexed either way.
     expect(res.headers.has("set-cookie"), host).toBe(rendered);
-    expect(res.headers.get("x-robots-tag") === "noindex, nofollow", host).toBe(rendered);
+    expect(res.headers.get("x-robots-tag"), host).toBe("noindex, nofollow");
     return rendered;
   }
 
@@ -652,11 +750,13 @@ describe("the draft hosts: the release's, as the CMS reads them", () => {
     expect((await get("/?__draft=off")).headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
-  it("a refused draft request is the release, and may be cached", async () => {
+  it("a refused draft request is the release, never from the page cache", async () => {
     const { get, entry, seen } = setup({ cms: testCMS(snapshot({ previewHosts: [] })) });
-    await get(`/?__draft=${encodeURIComponent(POINTER)}`);
-    expect(seen).toHaveLength(1);
+    const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`);
+    expect(seen).toHaveLength(0);
     expect(entry.served.every((s) => !s.headers.has("x-deco-version"))).toBe(true);
+    expect(res.headers.has("set-cookie")).toBe(false);
+    expect(res.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
   });
 });
 
