@@ -534,9 +534,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       const loadGenModule = () => {
         if (genModule) return Promise.resolve(genModule);
         return import("tsx/esm/api")
-          .then(({ tsImport }) =>
-            tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url),
-          )
+          .then(({ tsImport }) => tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url))
           .then((mod) => {
             if (typeof mod.generateBlocks !== "function") {
               // tsx 4.22.0–4.22.4 has a loader-hook state bug (fixed upstream
@@ -765,34 +763,34 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         );
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} ${generateSchemaArgs(schemaSiteName).join(" ")}`;
         exec(cmd, { cwd }, (err) => {
-            schemaInFlight = false;
-            if (err) {
-              console.warn("[deco] schema generation failed:", err.message);
-            } else {
-              console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
-              // Invalidate the meta.gen.json module so SSR picks up fresh schema
-              const mod =
-                server.environments?.ssr?.moduleGraph?.getModuleById(metaGenSsrId(schemaOutFile));
-              if (mod) {
-                server.environments.ssr.moduleGraph.invalidateModule(mod);
-              }
-              // The isolate keeps the composed schema on globalThis, which
-              // outlives the module above; only the decofile reload clears it
-              // (invalidateMetaCache). An empty delta changes no block.
-              postDecofileDelta({})
-                .then((res) => {
-                  if (!res.ok) console.warn(`[deco] meta cache invalidation failed: ${res.status}`);
-                })
-                .catch((err) => {
-                  console.warn("[deco] meta cache invalidation failed:", err?.message ?? err);
-                });
+          schemaInFlight = false;
+          if (err) {
+            console.warn("[deco] schema generation failed:", err.message);
+          } else {
+            console.log(`[deco] meta.gen.json updated (${Date.now() - start}ms)`);
+            // Invalidate the meta.gen.json module so SSR picks up fresh schema
+            const mod = server.environments?.ssr?.moduleGraph?.getModuleById(
+              metaGenSsrId(schemaOutFile),
+            );
+            if (mod) {
+              server.environments.ssr.moduleGraph.invalidateModule(mod);
             }
-            if (schemaQueued) {
-              schemaQueued = false;
-              scheduleSchemaGen();
-            }
-          },
-        );
+            // The isolate keeps the composed schema on globalThis, which
+            // outlives the module above; only the decofile reload clears it
+            // (invalidateMetaCache). An empty delta changes no block.
+            postDecofileDelta({})
+              .then((res) => {
+                if (!res.ok) console.warn(`[deco] meta cache invalidation failed: ${res.status}`);
+              })
+              .catch((err) => {
+                console.warn("[deco] meta cache invalidation failed:", err?.message ?? err);
+              });
+          }
+          if (schemaQueued) {
+            schemaQueued = false;
+            scheduleSchemaGen();
+          }
+        });
       };
       const scheduleSchemaGen = () => {
         if (schemaTimer) clearTimeout(schemaTimer);
@@ -827,10 +825,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
             stdio: "inherit",
           });
         } catch (err) {
-          console.warn(
-            "[deco] meta.gen.json cold-start generation failed:",
-            err?.message ?? err,
-          );
+          console.warn("[deco] meta.gen.json cold-start generation failed:", err?.message ?? err);
         }
       }
 
@@ -877,7 +872,10 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         }
         scaffoldInFlight = true;
         const start = Date.now();
-        const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
+        const scriptPath = path.resolve(
+          cwd,
+          "node_modules/@decocms/blocks-cli/scripts/generate.ts",
+        );
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
         exec(cmd, { cwd }, (err) => {
           scaffoldInFlight = false;
@@ -1155,7 +1153,9 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         // normal plugin pipeline (where TanStack Start's compiler
         // transforms it correctly) instead of esbuild's pre-bundler.
         env.optimizeDeps = env.optimizeDeps || {};
-        env.optimizeDeps.exclude = [...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"])];
+        env.optimizeDeps.exclude = [
+          ...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"]),
+        ];
       }
     },
 

@@ -24,10 +24,10 @@
  * `DecofileProvider` pattern from the deco-cx/deco Fresh runtime.
  */
 
-import { DEPLOYMENT_ID_ENV, getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
-import { KVBlockSource } from "../cms/kvBlockSource";
 import type { KVNamespace } from "@decocms/blocks/cms";
+import { DEPLOYMENT_ID_ENV, getDeploymentId, getRevision, setBlocks } from "@decocms/blocks/cms";
 import { setSpanAttribute } from "@decocms/blocks/sdk/observability";
+import { KVBlockSource } from "../cms/kvBlockSource";
 
 /** How often (ms) an isolate re-probes its `index:revision:<id>`. */
 export const POLL_INTERVAL_MS = 10_000;

@@ -602,6 +602,14 @@ function logErrorFallbackOnServer(error: unknown) {
  *    (params capped at 100 chars, GA4's limit).
  * Fired once per error instance; never throws.
  */
+function referrerOrigin(): string {
+  try {
+    return document.referrer ? new URL(document.referrer).origin : "";
+  } catch {
+    return "";
+  }
+}
+
 function reportErrorFallback(error: unknown) {
   try {
     const nav = performance.getEntriesByType?.("navigation")[0] as
@@ -610,8 +618,9 @@ function reportErrorFallback(error: unknown) {
     const payload = {
       ...describeError(error),
       "error.side": "client",
-      "page.url": location.href,
-      "page.referrer": document.referrer,
+      // No query/hash: they can carry e-mails, tokens, order ids.
+      "page.url": location.origin + location.pathname,
+      "page.referrer": referrerOrigin(),
       // ~ small → broke during hydration / first load; large → later SPA nav.
       "page.ms_since_load": Math.round(performance.now()),
       "page.nav_type": nav?.type ?? "",

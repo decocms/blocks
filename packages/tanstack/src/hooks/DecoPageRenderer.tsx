@@ -1,14 +1,7 @@
-import {
-  type ComponentType,
-  createElement,
-  lazy,
-  type ReactNode,
-  Suspense,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { Await, ClientOnly } from "@tanstack/react-router";
+// Type-only: erased at compile time, so importing from the full barrel here
+// doesn't drag resolve.ts's runtime code (and its node:async_hooks chain)
+// into this component's client bundle.
+import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
 import type { SectionOptions } from "@decocms/blocks/cms/client";
 import {
   getDeferredRootMargin,
@@ -20,13 +13,19 @@ import {
   preloadSectionModule,
   setResolvedComponent,
 } from "@decocms/blocks/cms/client";
-// Type-only: erased at compile time, so importing from the full barrel here
-// doesn't drag resolve.ts's runtime code (and its node:async_hooks chain)
-// into this component's client bundle.
-import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
-import { type Device, DeviceProvider } from "@decocms/blocks/sdk/useDevice";
-
 import { SectionErrorBoundary } from "@decocms/blocks/hooks";
+import { type Device, DeviceProvider } from "@decocms/blocks/sdk/useDevice";
+import { Await, ClientOnly } from "@tanstack/react-router";
+import {
+  type ComponentType,
+  createElement,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 type LazyComponent = ReturnType<typeof lazy>;
 
@@ -53,7 +52,10 @@ function getLazyComponent(key: string) {
     // resolves synchronously — same tree structure as lazy-only path.
     const sync = getSyncComponent(key);
     if (sync) {
-      lazyCache.set(key, lazy(() => syncThenable({ default: sync })));
+      lazyCache.set(
+        key,
+        lazy(() => syncThenable({ default: sync })),
+      );
       return lazyCache.get(key)!;
     }
 
@@ -118,7 +120,6 @@ function getCachedDeferredSection(stableKey: string): ResolvedSection | null {
   }
   return entry.section;
 }
-
 
 const DEFERRED_FADE_CSS = `@keyframes decoFadeIn{from{opacity:0}to{opacity:1}}`;
 
@@ -192,9 +193,11 @@ export function SectionRenderer({ section }: { section: Section | null | undefin
     return null;
   }
 
-  const fallback = options?.loadingFallback
-    ? createElement(options.loadingFallback, section.props ?? {})
-    : <NestedSectionFallback />;
+  const fallback = options?.loadingFallback ? (
+    createElement(options.loadingFallback, section.props ?? {})
+  ) : (
+    <NestedSectionFallback />
+  );
 
   if (isClientOnly) {
     return (
@@ -296,9 +299,7 @@ function DeferredSectionWrapper({
   // Allow SSR to render the loadingFallback when registered sync via
   // registerSection(). Previous `isSSR ? false` always returned null,
   // hiding the skeleton from the HTML stream.
-  const [optionsReady, setOptionsReady] = useState(() =>
-    !!getSectionOptions(deferred.component),
-  );
+  const [optionsReady, setOptionsReady] = useState(() => !!getSectionOptions(deferred.component));
   const ref = useRef<HTMLDivElement>(null);
   const triggered = useRef(false);
   const prevKeyRef = useRef(stableKey);
@@ -563,7 +564,6 @@ function mergeSections(resolved: ResolvedSection[], deferred: DeferredSection[])
 // DecoPageRenderer — renders top-level resolved sections from a CMS page
 // ---------------------------------------------------------------------------
 
-
 interface Props {
   sections: ResolvedSection[];
   deferredSections?: DeferredSection[];
@@ -651,11 +651,20 @@ export function DecoPageRenderer({
                 sectionKey={item.deferred.key}
                 fallback={errorFallback}
               >
-                <Suspense fallback={
-                  <section id={deferredSectionId} data-manifest-key={item.deferred.key} data-deferred="true">
-                    <DeferredSectionSkeleton deferred={item.deferred} fallback={loadingFallback} />
-                  </section>
-                }>
+                <Suspense
+                  fallback={
+                    <section
+                      id={deferredSectionId}
+                      data-manifest-key={item.deferred.key}
+                      data-deferred="true"
+                    >
+                      <DeferredSectionSkeleton
+                        deferred={item.deferred}
+                        fallback={loadingFallback}
+                      />
+                    </section>
+                  }
+                >
                   <Await promise={promise}>
                     {(resolved) => {
                       if (!resolved) return null;

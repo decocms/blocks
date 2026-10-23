@@ -4,12 +4,12 @@
  *
  * Ported from: deco-cx/deco daemon/realtime/app.ts (without CRDT)
  */
-import { readdir, readFile, writeFile, mkdir, rm, stat } from "node:fs/promises";
-import { join, resolve, sep, posix } from "node:path";
-import type { IncomingMessage, ServerResponse, Server as HttpServer } from "node:http";
-import { WebSocketServer, WebSocket } from "ws";
-import fjp from "fast-json-patch";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import type { Server as HttpServer, IncomingMessage, ServerResponse } from "node:http";
+import { join, posix, resolve, sep } from "node:path";
 import type { Operation } from "fast-json-patch";
+import fjp from "fast-json-patch";
+import { WebSocket, WebSocketServer } from "ws";
 
 // ---------------------------------------------------------------------------
 // Types — ported from daemon/realtime/types.ts
@@ -110,9 +110,7 @@ function broadcast(state: VolumesState, msg: BroadcastMessage): void {
 // Walk directory (Node.js equivalent of @std/fs/walk)
 // ---------------------------------------------------------------------------
 
-async function walkFiles(
-  root: string,
-): Promise<string[]> {
+async function walkFiles(root: string): Promise<string[]> {
   const results: string[] = [];
   try {
     const entries = await readdir(root, {
@@ -209,12 +207,9 @@ async function handlePatchFiles(
 
     if (isJSONFilePatch(patch)) {
       const { path: filePath, patches: operations } = patch;
-      const content =
-        (await readTextFileSafe(resolvedPath)) ?? "{}";
+      const content = (await readTextFileSafe(resolvedPath)) ?? "{}";
       try {
-        const newContent = JSON.stringify(
-          operations.reduce(fjp.applyReducer, JSON.parse(content)),
-        );
+        const newContent = JSON.stringify(operations.reduce(fjp.applyReducer, JSON.parse(content)));
         results.push({
           accepted: true,
           path: filePath,
@@ -297,8 +292,7 @@ export function createVolumesHandler(opts: VolumesOptions) {
 
   // Handle WebSocket upgrades for /volumes/*/files paths with x-daemon-api
   opts.httpServer.on("upgrade", (req, socket, head) => {
-    const isDaemon =
-      req.headers["x-daemon-api"] ?? req.headers["x-hypervisor-api"];
+    const isDaemon = req.headers["x-daemon-api"] ?? req.headers["x-hypervisor-api"];
     if (!isDaemon) return;
 
     const url = req.url ?? "";
@@ -341,11 +335,7 @@ export function createVolumesHandler(opts: VolumesOptions) {
   });
 
   // Connect-style middleware for HTTP requests
-  return async (
-    req: IncomingMessage,
-    res: ServerResponse,
-    next: () => void,
-  ): Promise<void> => {
+  return async (req: IncomingMessage, res: ServerResponse, next: () => void): Promise<void> => {
     const url = req.url ?? "";
 
     // Match /volumes/:id/files patterns

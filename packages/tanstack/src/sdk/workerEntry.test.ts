@@ -641,6 +641,39 @@ describe("POST /deco/_client-error", () => {
     }
   });
 
+  it("drops unknown keys and namespaces known ones under report.", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await post(
+        JSON.stringify({
+          "error.message": "boom",
+          trace_id: "forged",
+          "error.side": "server",
+          "page.url": { x: 1 },
+        }),
+      );
+      const line = spy.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.includes("cms.error_fallback"))!;
+      expect(line).toContain("report.error.message");
+      expect(line).not.toContain("forged");
+      expect(line).not.toContain('"error.side":"server"');
+      expect(line).not.toContain("report.page.url");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses oversized bodies without logging", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await post("x".repeat(20_000))).status).toBe(204);
+      expect(spy.mock.calls.some((c) => String(c[0]).includes("cms.error_fallback"))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("still answers 204 on a malformed body", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {

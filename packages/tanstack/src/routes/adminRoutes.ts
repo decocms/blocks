@@ -28,8 +28,9 @@
  * call its own fresh object, so the mutation is harmless. The base configs
  * below are module-private and deliberately NOT exported.
  */
-import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/blocks-admin";
+
 import { withTracing } from "@decocms/blocks/middleware/observability";
+import { corsHeaders, handleInvoke, handleMeta, handleRender } from "@decocms/blocks-admin";
 
 function invokeAttrs(request: Request): Record<string, string | boolean> {
   const url = new URL(request.url);

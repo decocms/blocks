@@ -1254,6 +1254,53 @@ function afterBodySent(
  * Creates a Cloudflare Worker fetch handler that wraps a TanStack Start
  * server entry with intelligent edge caching.
  */
+const CLIENT_ERROR_MAX_BYTES = 16_000;
+const CLIENT_ERROR_KEYS = [
+  "error.name",
+  "error.message",
+  "error.stack",
+  "error.cause",
+  "page.url",
+  "page.referrer",
+  "page.ms_since_load",
+  "page.nav_type",
+  "page.history_length",
+  "page.visibility",
+  "client.ua",
+  "client.viewport",
+  "client.online",
+  "client.connection",
+  "client.ts",
+] as const;
+
+/** Reads a body up to `max` bytes; returns null (and cancels) past the cap. */
+async function readCapped(
+  body: ReadableStream<Uint8Array> | null,
+  max: number,
+): Promise<string | null> {
+  if (!body) return "";
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const buf = new Uint8Array(size);
+  let off = 0;
+  for (const c of chunks) {
+    buf.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(buf);
+}
+
 export function createDecoWorkerEntry(
   serverEntry: ServerEntry,
   options: DecoWorkerEntryOptions = {},
@@ -2001,26 +2048,37 @@ export function createDecoWorkerEntry(
   }
 
   async function handleClientErrorReport(request: Request): Promise<Response> {
-    let attrs: Record<string, unknown> = {};
+    const done = () =>
+      new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+    // Cap BEFORE buffering: the endpoint is unauthenticated, and `request.text()`
+    // on a 100 MB upload would OOM the isolate. Chunked bodies carry no
+    // content-length, so the stream is counted too.
+    if (Number(request.headers.get("content-length") ?? 0) > CLIENT_ERROR_MAX_BYTES) return done();
+    const raw = await readCapped(request.body, CLIENT_ERROR_MAX_BYTES);
+    if (raw === null) return done();
+
+    // Allowlisted keys only, primitives only, namespaced under `report.` so a
+    // forged body can never override trace/request ids or the attribute floor.
+    const attrs: Record<string, string | number | boolean> = {};
     try {
-      const raw = (await request.text()).slice(0, 16_000);
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        for (const [k, v] of Object.entries(parsed)) {
-          attrs[k] = typeof v === "string" ? v.slice(0, 6000) : v;
-        }
+      for (const key of CLIENT_ERROR_KEYS) {
+        const v = parsed?.[key];
+        if (typeof v === "string") attrs[`report.${key}`] = v.slice(0, 6000);
+        else if (typeof v === "number" || typeof v === "boolean") attrs[`report.${key}`] = v;
       }
     } catch {
-      attrs = { "report.invalid": true };
+      attrs["report.invalid"] = true;
     }
     const cf = (request as unknown as { cf?: Record<string, unknown> }).cf;
     logger.error("cms.error_fallback", {
       ...attrs,
-      "client.colo": cf?.colo,
-      "client.country": cf?.country,
-      "client.asn": cf?.asn,
+      "error.side": "client",
+      "client.colo": String(cf?.colo ?? ""),
+      "client.country": String(cf?.country ?? ""),
+      "client.asn": Number(cf?.asn ?? 0),
     });
-    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+    return done();
   }
 
   async function tryAdminRoute(request: Request): Promise<Response | null> {

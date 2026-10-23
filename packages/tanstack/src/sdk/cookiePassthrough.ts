@@ -18,9 +18,9 @@
  */
 
 import {
-	getRequestHeader,
-	getResponseHeaders,
-	setResponseHeader,
+  getRequestHeader,
+  getResponseHeaders,
+  setResponseHeader,
 } from "@tanstack/react-start/server";
 
 /**
@@ -28,11 +28,11 @@ import {
  * Safe to call outside a request scope (returns undefined).
  */
 export function getRequestCookieHeader(): string | undefined {
-	try {
-		return getRequestHeader("cookie") ?? undefined;
-	} catch {
-		return undefined;
-	}
+  try {
+    return getRequestHeader("cookie") ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -44,15 +44,13 @@ export function getRequestCookieHeader(): string | undefined {
  * Safe to call outside a request scope (no-op).
  */
 export function forwardResponseCookies(cookies: string[]): void {
-	if (!cookies.length) return;
-	try {
-		const headers = getResponseHeaders();
-		const existing: string[] =
-			typeof headers.getSetCookie === "function"
-				? headers.getSetCookie()
-				: [];
-		setResponseHeader("set-cookie", [...existing, ...cookies]);
-	} catch {
-		// Outside request context (build time, etc.) — ignore.
-	}
+  if (!cookies.length) return;
+  try {
+    const headers = getResponseHeaders();
+    const existing: string[] =
+      typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [];
+    setResponseHeader("set-cookie", [...existing, ...cookies]);
+  } catch {
+    // Outside request context (build time, etc.) — ignore.
+  }
 }

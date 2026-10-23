@@ -4,8 +4,8 @@
  * Ported from: deco-cx/deco daemon/sse/api.ts + daemon/sse/channel.ts
  */
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join, sep } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { join, sep } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Event types — simplified from daemon/fs/common.ts
@@ -99,10 +99,7 @@ export async function inferMetadata(filepath: string): Promise<Metadata | null> 
 // Initial file scan — yields fs-sync events for each .deco/ file
 // ---------------------------------------------------------------------------
 
-async function* scanFiles(
-  cwd: string,
-  since: number,
-): AsyncGenerator<FSEvent> {
+async function* scanFiles(cwd: string, since: number): AsyncGenerator<FSEvent> {
   const decoDir = join(cwd, ".deco");
   try {
     const entries = await readdir(decoDir, {
@@ -149,11 +146,7 @@ export function createWatchHandler(opts?: { getPort?: () => number }) {
   const cwd = process.cwd();
   const getPort = opts?.getPort ?? (() => 5173);
 
-  return async (
-    req: IncomingMessage,
-    res: ServerResponse,
-    next: () => void,
-  ): Promise<void> => {
+  return async (req: IncomingMessage, res: ServerResponse, next: () => void): Promise<void> => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
     // Only handle /watch or the root SSE endpoint
