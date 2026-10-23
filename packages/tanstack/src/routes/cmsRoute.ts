@@ -71,8 +71,8 @@ import {
 import { createElement, useEffect } from "react";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { createRequestSingleFlight } from "./requestSingleFlight";
-import type { SiteGlobalRef } from "./withSiteGlobals";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
+import type { SiteGlobalRef } from "./withSiteGlobals";
 
 const isServer = typeof document === "undefined";
 
@@ -167,15 +167,9 @@ export async function runSectionLoadersWithSeo(
   resolvedSections: ResolvedSection[],
   seoSection: ResolvedSection | null | undefined,
   request: Request,
-): Promise<{
-  enrichedSections: ResolvedSection[];
-  enrichedSeoSection: ResolvedSection | null | undefined;
-}> {
+): Promise<{ enrichedSections: ResolvedSection[]; enrichedSeoSection: ResolvedSection | null | undefined }> {
   if (!seoSection) {
-    return {
-      enrichedSections: await runSectionLoaders(resolvedSections, request),
-      enrichedSeoSection: seoSection,
-    };
+    return { enrichedSections: await runSectionLoaders(resolvedSections, request), enrichedSeoSection: seoSection };
   }
   const enrichedAll = await runSectionLoaders([...resolvedSections, seoSection], request);
   return {

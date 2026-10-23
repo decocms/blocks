@@ -2054,7 +2054,8 @@ export function createDecoWorkerEntry(
     // on a 100 MB upload would OOM the isolate. Chunked bodies carry no
     // content-length, so the stream is counted too.
     if (Number(request.headers.get("content-length") ?? 0) > CLIENT_ERROR_MAX_BYTES) return done();
-    const raw = await readCapped(request.body, CLIENT_ERROR_MAX_BYTES);
+    // Client aborting mid-upload makes `read()` throw — still a 204, not a 500.
+    const raw = await readCapped(request.body, CLIENT_ERROR_MAX_BYTES).catch(() => null);
     if (raw === null) return done();
 
     // Allowlisted keys only, primitives only, namespaced under `report.` so a
