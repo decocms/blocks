@@ -3,7 +3,7 @@ import {
   __resetAutoconfigStateForTests,
   autoconfigApps,
 } from "@decocms/blocks-admin/apps/autoconfig";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { segmentToken } from "./cdnSegment";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
 import {
@@ -610,6 +610,44 @@ describe("buildEnforcedCsp", () => {
     const csp = buildEnforcedCsp(["frame-ancestors 'none'", "default-src 'self'"], FA, "x");
     expect(csp).not.toContain("frame-ancestors 'none'");
     expect(csp).toContain(FA);
+  });
+});
+
+describe("POST /deco/_client-error", () => {
+  const post = (body: string) =>
+    createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false }).fetch(
+      new Request("https://example.com/deco/_client-error", { method: "POST", body }),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+
+  it("logs the fallback report and answers 204 without rendering", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const res = await post(
+        JSON.stringify({
+          "error.message": "d is not a function",
+          "page.url": "https://example.com/p",
+        }),
+      );
+      expect(res.status).toBe(204);
+      const line = spy.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.includes("cms.error_fallback"));
+      expect(line).toContain("d is not a function");
+      expect(line).toContain("https://example.com/p");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("still answers 204 on a malformed body", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await post("not json")).status).toBe(204);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

@@ -60,6 +60,7 @@ import {
 import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import { isDevMode } from "@decocms/blocks/sdk/env";
 import { parseSegmentCookie, SEGMENT_COOKIE, segmentCacheToken } from "@decocms/blocks/sdk/flags";
+import { logger } from "@decocms/blocks/sdk/logger";
 import { generateNonce, NONCE_BAG_KEY } from "@decocms/blocks/sdk/nonce";
 import {
   getActiveSpan,
@@ -1999,6 +2000,29 @@ export function createDecoWorkerEntry(
     return resp;
   }
 
+  async function handleClientErrorReport(request: Request): Promise<Response> {
+    let attrs: Record<string, unknown> = {};
+    try {
+      const raw = (await request.text()).slice(0, 16_000);
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        for (const [k, v] of Object.entries(parsed)) {
+          attrs[k] = typeof v === "string" ? v.slice(0, 6000) : v;
+        }
+      }
+    } catch {
+      attrs = { "report.invalid": true };
+    }
+    const cf = (request as unknown as { cf?: Record<string, unknown> }).cf;
+    logger.error("cms.error_fallback", {
+      ...attrs,
+      "client.colo": cf?.colo,
+      "client.country": cf?.country,
+      "client.asn": cf?.asn,
+    });
+    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+  }
+
   async function tryAdminRoute(request: Request): Promise<Response | null> {
     if (!admin) return null;
 
@@ -2459,6 +2483,13 @@ export function createDecoWorkerEntry(
     // redeploy is the global lever — loader cache keys are build-hash versioned.
     if (url.pathname === "/_cache/purge-loaders" && request.method === "POST") {
       return handlePurgeLoaders(request, env);
+    }
+
+    // Beacon from `CmsPageErrorFallback`: the "instability" screen was shown
+    // in a browser. Logged here so client-only failures (render/commit throw,
+    // SPA-navigation loader throw) leave a trace. Body capped at 16 KB.
+    if (url.pathname === "/deco/_client-error" && request.method === "POST") {
+      return handleClientErrorReport(request);
     }
 
     // CMS redirects (website/loaders/redirect.ts blocks) — checked before
