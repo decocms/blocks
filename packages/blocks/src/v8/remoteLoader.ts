@@ -8,7 +8,8 @@
  *   last swapped in, or the fallback's content until then. Nothing persists
  *   across restarts: every boot starts from the fallback.
  * - `update()` (the CMS calls it in the background, on first use and then
- *   every interval) reads `sites/<site>/latest.json`,
+ *   every interval, and waits for it before every draft read, so a draft
+ *   always shows over the latest release) reads `sites/<site>/latest.json`,
  *   `{ revision, schemaHash, publishedAt, previewHosts }`. Whoever is newer wins: when it
  *   names a revision other than the one this process last swapped in, its
  *   `schemaHash` equals the fallback's, and its `publishedAt` is later than

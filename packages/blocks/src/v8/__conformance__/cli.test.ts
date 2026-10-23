@@ -2321,11 +2321,10 @@ describe("studio-implementation.mdx", () => {
       expect(await loader.update!()).toEqual({ updated: false });
     });
 
-    it("si-10: a draft's changes apply to the production this server has; no matching base is fetched", async () => {
+    it("si-10: a draft's changes apply over the latest release, checked before the draft renders; no base matching the draft is fetched", async () => {
       const fallback = snap("bundled", "rev-bundled");
       const published = snap("published", "c".repeat(40));
       publish(published);
-      gates.set(`/sites/acme/revisions/${published.revision}.json`, new Promise(() => {})); // never arrives
       const drafts = `${ORIGIN}/sites/acme/drafts/b.json`;
       const fetch = globalThis.fetch;
       const urls: string[] = [];
@@ -2338,9 +2337,12 @@ describe("studio-implementation.mdx", () => {
       const cms = createCMS({ blocks: {}, content: fallback, site: "acme" });
       const draft = cms.forDraft("delivery.decocms.com/sites/acme/drafts/b.json@c1");
       const [entry] = await draft.resolve("S", { run: false });
-      expect(entry).toEqual(fallback.blocks.S); // the bundled release, never waiting for the new one
+      expect(entry).toEqual(published.blocks.S); // the latest release, never the bundle it outlived
       expect(urls.filter((url) => url.startsWith(drafts))).toHaveLength(1);
-      expect(urls.filter((url) => url.includes("/revisions/"))).toHaveLength(0);
+      // Only the release latest.json names: the pointer names no base of its own.
+      expect(urls.filter((url) => url.includes("/revisions/"))).toEqual([
+        `${ORIGIN}/sites/acme/revisions/${published.revision}.json`,
+      ]);
     });
   });
 });

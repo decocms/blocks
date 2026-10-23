@@ -104,6 +104,8 @@ export class ContentStore {
   #source: Snapshot | Loader;
   #release: Promise<Snapshot> | undefined;
   #updating: Promise<{ updated: boolean }> | undefined;
+  /** The check a draft read waits on when one was already running when it arrived (see `#checkForDraft`). */
+  #queued: Promise<unknown> | undefined;
   readonly #drafts = new BoundedMap<string, CachedDraft>(CACHED_DRAFTS);
   /** Draft reads in flight, so concurrent renders of one draft share one request. */
   readonly #draftReads = new Map<string, Promise<CachedDraft>>();
@@ -149,6 +151,11 @@ export class ContentStore {
    * changes are keyed by the pointer without its `__variant` parameters (every
    * variant of one draft shares one body) and revalidated on every read: a
    * `304` reuses the body held, a `200` replaces it.
+   *
+   * Before layering, a draft read checks the source for a newer release and
+   * waits for that check (see `#checkForDraft`), so a draft always shows over
+   * the latest release, even in a process that hasn't picked it up yet. The
+   * check runs beside the draft's own revalidation.
    */
   draft(pointer: string): Promise<Snapshot> {
     const parsed = parseDraftPointer(pointer);
@@ -184,7 +191,8 @@ export class ContentStore {
     const changes = read.catch((error: unknown) => {
       throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
     });
-    return Promise.all([this.release(), changes]).then(([base, entry]) => {
+    const release = this.#checkForDraft().then(() => this.release());
+    return Promise.all([release, changes]).then(([base, entry]) => {
       let view = entry.views.get(base);
       if (view === undefined) {
         // OPEN: the view is keyed by the body's ETag (the pointer outlives later saves); the version without one.
@@ -274,6 +282,28 @@ export class ContentStore {
       }
     })();
     return this.#updating;
+  }
+
+  /**
+   * The release check a draft read waits on (PO 2026-10-23: a draft always
+   * shows over the latest release). With no check running, it starts one.
+   * With one running, that one started before this read, so the read waits on
+   * the next one instead, shared by every read that arrives meanwhile: a burst
+   * of draft reads makes at most two checks, and no read relies on a check
+   * that started before it. No time-based throttle: the read right after a
+   * publish always checks. Never rejects (`update()` doesn't), and a check
+   * that hangs ends with the loader's fetch timeout, leaving the release held.
+   * Release reads never come here: they keep the background check.
+   */
+  #checkForDraft(): Promise<void> {
+    if (!this.updatable) return Promise.resolve();
+    const running = this.#updating;
+    if (running === undefined) return this.update().then(() => undefined);
+    this.#queued ??= running.then(() => {
+      this.#queued = undefined;
+      return this.update();
+    });
+    return this.#queued.then(() => undefined);
   }
 
   /**

@@ -291,7 +291,8 @@ class CMSInstance {
 
   /**
    * Checks a content source with `update()` on first use and then every
-   * `interval` (± up to 10 s), at an idle moment, never in front of a request.
+   * `interval` (± up to 10 s), at an idle moment, never in front of a release
+   * request (a draft read waits for a check of its own: `ContentStore.draft`).
    */
   #scheduleUpdate(): void {
     if (!this.#store.updatable) return;
