@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeRevision,
   getRevision,
@@ -7,7 +8,6 @@ import {
   setBlocks,
   snapshotKey,
 } from "@decocms/blocks/cms";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetKvHydrationStateForTests,
   ensureBlocksHydrated,
@@ -80,9 +80,7 @@ describe("isFastDeployEnabled", () => {
   });
 
   it("is false when a non-KV value is named DECO_KV", () => {
-    expect(isFastDeployEnabled({ DECO_KV: "some-secret-string", DECO_FAST_DEPLOY: "1" })).toBe(
-      false,
-    );
+    expect(isFastDeployEnabled({ DECO_KV: "some-secret-string", DECO_FAST_DEPLOY: "1" })).toBe(false);
   });
 
   it("is false when bound but DECO_FAST_DEPLOY is not set (explicit opt-in required)", () => {

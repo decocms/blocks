@@ -6,12 +6,12 @@
  *
  * Ported from: deco-cx/deco daemon/fs/api.ts
  */
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import { readFile, writeFile, rm, stat, mkdir } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import type { Operation } from "fast-json-patch";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import fjp from "fast-json-patch";
-import { broadcastFSEvent, inferMetadata, type Metadata } from "./watch";
+import type { Operation } from "fast-json-patch";
+import { inferMetadata, broadcastFSEvent, type Metadata } from "./watch";
 
 const cwd = process.cwd();
 const toPosix = (p: string) => p.replaceAll(sep, "/");
@@ -59,18 +59,30 @@ interface Patch {
   payload: Operation[];
 }
 
-function applyPatch(content: string | null, patch: Patch): { conflict: boolean; content?: string } {
+function applyPatch(
+  content: string | null,
+  patch: Patch,
+): { conflict: boolean; content?: string } {
   try {
     if (patch.type === "json") {
-      const result = patch.payload.reduce(fjp.applyReducer, JSON.parse(content ?? "{}"));
+      const result = patch.payload.reduce(
+        fjp.applyReducer,
+        JSON.parse(content ?? "{}"),
+      );
       return { conflict: false, content: JSON.stringify(result, null, 2) };
     }
     if (patch.type === "text") {
-      const result = patch.payload.reduce(fjp.applyReducer, content?.split("\n") ?? []);
+      const result = patch.payload.reduce(
+        fjp.applyReducer,
+        content?.split("\n") ?? [],
+      );
       return { conflict: false, content: (result as string[]).join("\n") };
     }
   } catch (err: unknown) {
-    if (err instanceof fjp.JsonPatchError && err.name === "TEST_OPERATION_FAILED") {
+    if (
+      err instanceof fjp.JsonPatchError &&
+      err.name === "TEST_OPERATION_FAILED"
+    ) {
       return { conflict: true };
     }
     throw err;
@@ -83,7 +95,11 @@ function applyPatch(content: string | null, patch: Patch): { conflict: boolean; 
 // ---------------------------------------------------------------------------
 
 export function createFSHandler() {
-  return async (req: IncomingMessage, res: ServerResponse, next: () => void): Promise<void> => {
+  return async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    next: () => void,
+  ): Promise<void> => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const { pathname } = url;
 

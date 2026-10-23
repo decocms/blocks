@@ -1,5 +1,5 @@
-import { computeRevision, type KVNamespace, revisionKey, snapshotKey } from "@decocms/blocks/cms";
 import { describe, expect, it } from "vitest";
+import { computeRevision, type KVNamespace, revisionKey, snapshotKey } from "@decocms/blocks/cms";
 import { KVBlockSource } from "./kvBlockSource";
 
 const ID = "sha-abc123";

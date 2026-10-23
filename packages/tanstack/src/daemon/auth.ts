@@ -14,7 +14,8 @@ const ADMIN_PUBLIC_KEY =
   process.env.DECO_ADMIN_PUBLIC_KEY ??
   "eyJrdHkiOiJSU0EiLCJhbGciOiJSUzI1NiIsIm4iOiJ1N0Y3UklDN19Zc3ljTFhEYlBvQ1pUQnM2elZ6VjVPWkhXQ0M4akFZeFdPUnByem9WNDJDQ1JBVkVOVjJldzk1MnJOX2FTMmR3WDlmVGRvdk9zWl9jX2RVRXctdGlPN3hJLXd0YkxsanNUbUhoNFpiYXU0aUVoa0o1VGNHc2VaelhFYXNOSEhHdUo4SzY3WHluRHJSX0h4Ym9kQ2YxNFFJTmc5QnJjT3FNQmQyMUl4eUctVVhQampBTnRDTlNici1rXzFKeTZxNmtPeVJ1ZmV2Mjl0djA4Ykh5WDJQenp5Tnp3RWpjY0lROWpmSFdMN0JXX2tzdFpOOXU3TUtSLWJ4bjlSM0FKMEpZTHdXR3VnZGpNdVpBRnk0dm5BUXZzTk5Cd3p2YnFzMnZNd0dDTnF1ZE1tVmFudlNzQTJKYkE3Q0JoazI5TkRFTXRtUS1wbmo1cUlYSlEiLCJlIjoiQVFBQiIsImtleV9vcHMiOlsidmVyaWZ5Il0sImV4dCI6dHJ1ZX0";
 
-const BYPASS_JWT = process.env.DANGEROUSLY_ALLOW_PUBLIC_ACCESS === "true";
+const BYPASS_JWT =
+  process.env.DANGEROUSLY_ALLOW_PUBLIC_ACCESS === "true";
 
 // ---------------------------------------------------------------------------
 // JWT types
@@ -70,12 +71,16 @@ function base64UrlDecode(str: string): Uint8Array {
   return bytes;
 }
 
-export async function verifyAdminJwt(token: string): Promise<JwtPayload | null> {
+export async function verifyAdminJwt(
+  token: string,
+): Promise<JwtPayload | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
 
   const [headerB64, payloadB64, signatureB64] = parts;
-  const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const signingInput = new TextEncoder().encode(
+    `${headerB64}.${payloadB64}`,
+  );
   const signature = base64UrlDecode(signatureB64);
 
   try {
@@ -92,7 +97,9 @@ export async function verifyAdminJwt(token: string): Promise<JwtPayload | null> 
   }
 
   try {
-    const payload: JwtPayload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
+    const payload: JwtPayload = JSON.parse(
+      new TextDecoder().decode(base64UrlDecode(payloadB64)),
+    );
     return payload;
   } catch {
     return null;
@@ -162,7 +169,11 @@ export type NextFn = () => void;
  * If invalid, responds 401/403. If valid (or bypass enabled), calls next().
  */
 export function createAuthMiddleware(site: string) {
-  return async (req: IncomingMessage, res: ServerResponse, next: NextFn): Promise<void> => {
+  return async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    next: NextFn,
+  ): Promise<void> => {
     if (BYPASS_JWT) {
       next();
       return;

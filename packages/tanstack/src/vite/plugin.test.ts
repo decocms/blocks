@@ -101,24 +101,16 @@ describe("decoVitePlugin — fastDeploy server stub", () => {
   });
 
   it("leaves unrelated modules alone", () => {
-    expect(
-      make({ fastDeploy: true }, "build").load("/repo/src/x.tsx", { ssr: true }),
-    ).toBeUndefined();
+    expect(make({ fastDeploy: true }, "build").load("/repo/src/x.tsx", { ssr: true })).toBeUndefined();
   });
 
   it("defines __DECO_BLOCKS_STUBBED__ so the runtime knows whether it has a fallback", () => {
-    const build = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config(
-      {},
-      { command: "build" },
-    );
+    const build = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config({}, { command: "build" });
     expect(build.define.__DECO_BLOCKS_STUBBED__).toBe("true");
 
     // Dev and the default must both report "no, you still have a decofile",
     // otherwise ensureBlocksHydrated would start failing requests.
-    const dev = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config(
-      {},
-      { command: "serve" },
-    );
+    const dev = /** @type {any} */ (decoVitePlugin({ fastDeploy: true })).config({}, { command: "serve" });
     expect(dev.define.__DECO_BLOCKS_STUBBED__).toBe("false");
     const def = /** @type {any} */ (decoVitePlugin()).config({}, { command: "build" });
     expect(def.define.__DECO_BLOCKS_STUBBED__).toBe("false");

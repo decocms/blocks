@@ -1,6 +1,5 @@
 export type { PageSeo } from "@decocms/blocks/cms";
 export type { Device } from "@decocms/blocks/sdk/useDevice";
-export { deferredSectionLoader } from "../sdk/deferredSectionLoader";
 export {
   decoInvokeRouteConfig,
   decoMetaRouteConfig,
@@ -16,6 +15,7 @@ export {
   loadDeferredSection,
   setSectionChunkMap,
 } from "./cmsRoute";
+export { deferredSectionLoader } from "../sdk/deferredSectionLoader";
 export { CmsPage, NotFoundPage } from "./components";
 export {
   resolveSiteGlobals,

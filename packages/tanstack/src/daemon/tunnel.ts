@@ -24,7 +24,9 @@ export interface TunnelConnection {
 
 const VERBOSE = process.env.VERBOSE;
 
-export async function startTunnel(opts: TunnelOptions): Promise<TunnelConnection> {
+export async function startTunnel(
+  opts: TunnelOptions,
+): Promise<TunnelConnection> {
   const { env, site, port, decoHost = true } = opts;
 
   const decoHostDomain = `${env}--${site}.deco.host`;
@@ -36,7 +38,9 @@ export async function startTunnel(opts: TunnelOptions): Promise<TunnelConnection
       };
 
   const localAddr = `http://localhost:${port}`;
-  const apiKey = process.env.DECO_TUNNEL_SERVER_TOKEN ?? "c309424a-2dc4-46fe-bfc7-a7c10df59477";
+  const apiKey =
+    process.env.DECO_TUNNEL_SERVER_TOKEN ??
+    "c309424a-2dc4-46fe-bfc7-a7c10df59477";
 
   let closed = false;
   let activeConn: Awaited<ReturnType<typeof connect>> | null = null;
@@ -50,7 +54,10 @@ export async function startTunnel(opts: TunnelOptions): Promise<TunnelConnection
       activeConn = r;
     } catch (err) {
       if (closed) return;
-      console.log("[deco] tunnel connect failed, retrying in 500ms…", VERBOSE ? err : "");
+      console.log(
+        "[deco] tunnel connect failed, retrying in 500ms…",
+        VERBOSE ? err : "",
+      );
       await new Promise((resolve) => setTimeout(resolve, 500));
       return doConnect();
     }
@@ -81,7 +88,10 @@ export async function startTunnel(opts: TunnelOptions): Promise<TunnelConnection
           (reason as Record<string, unknown>).intentional
         )
           return;
-        console.log("[deco] tunnel disconnected, retrying in 500ms…", VERBOSE ? reason : "");
+        console.log(
+          "[deco] tunnel disconnected, retrying in 500ms…",
+          VERBOSE ? reason : "",
+        );
         await new Promise((resolve) => setTimeout(resolve, 500));
         return doConnect();
       })
@@ -94,7 +104,10 @@ export async function startTunnel(opts: TunnelOptions): Promise<TunnelConnection
           (err as Record<string, unknown>).intentional
         )
           return;
-        console.log("[deco] tunnel error, retrying in 500ms…", VERBOSE ? err : "");
+        console.log(
+          "[deco] tunnel error, retrying in 500ms…",
+          VERBOSE ? err : "",
+        );
         await new Promise((resolve) => setTimeout(resolve, 500));
         return doConnect();
       });

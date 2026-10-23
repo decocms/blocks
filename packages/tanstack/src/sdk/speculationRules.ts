@@ -28,7 +28,11 @@ export type SpeculationAction = "prerender" | "prefetch";
  * - `conservative` — on pointerdown only (cheapest; dial down to this if
  *   speculative server load gets high).
  */
-export type SpeculationEagerness = "immediate" | "eager" | "moderate" | "conservative";
+export type SpeculationEagerness =
+  | "immediate"
+  | "eager"
+  | "moderate"
+  | "conservative";
 
 export interface SpeculationRulesConfig {
   /**
@@ -98,8 +102,10 @@ export function buildSpeculationRules(config: SpeculationRulesConfig = {}): stri
     : [...DEFAULT_EXCLUDED_HREF_MATCHES, ...excludeHrefMatches];
 
   const conditions: WhereCondition[] = [
-    linkSelector ? { selector_matches: linkSelector } : { href_matches: "/*" },
-    ...exclusions.map((href) => ({ not: { href_matches: href } }) as WhereCondition),
+    linkSelector
+      ? { selector_matches: linkSelector }
+      : { href_matches: "/*" },
+    ...exclusions.map((href) => ({ not: { href_matches: href } } as WhereCondition)),
   ];
 
   return JSON.stringify({

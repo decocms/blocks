@@ -130,7 +130,10 @@ describe("withSiteGlobals", () => {
       const ctx = { path: "/farm-etc" } as any;
       await resolveSiteGlobals(ctx);
 
-      expect(mockedResolvePageSections).toHaveBeenCalledWith([{ __resolveType: "Alert" }], ctx);
+      expect(mockedResolvePageSections).toHaveBeenCalledWith(
+        [{ __resolveType: "Alert" }],
+        ctx,
+      );
     });
 
     it("caches per path — different routes don't share a matched variant", async () => {
@@ -205,7 +208,12 @@ describe("withSiteGlobals", () => {
 
   describe("dedupeGlobals", () => {
     it("returns empty when globals is empty", () => {
-      expect(dedupeGlobals([], [{ component: "Header.tsx", props: {}, key: "p0" }])).toEqual([]);
+      expect(
+        dedupeGlobals(
+          [],
+          [{ component: "Header.tsx", props: {}, key: "p0" }],
+        ),
+      ).toEqual([]);
     });
 
     it("drops globals whose component already appears in existing", () => {
@@ -213,7 +221,9 @@ describe("withSiteGlobals", () => {
         { component: "Theme.tsx", props: {}, key: "g0" },
         { component: "Session.tsx", props: {}, key: "g1" },
       ];
-      const existing = [{ component: "Session.tsx", props: { fromPage: true }, key: "p0" }];
+      const existing = [
+        { component: "Session.tsx", props: { fromPage: true }, key: "p0" },
+      ];
 
       const result = dedupeGlobals(globals, existing);
       // Session dropped (already on page); Theme kept.

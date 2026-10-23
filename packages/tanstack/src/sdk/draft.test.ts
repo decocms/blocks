@@ -22,7 +22,9 @@ import { DRAFT_POINTER_BAG_KEY } from "./draftShared";
 const HOST = "preview.example";
 const DRAFT_BLOCKS = { "pages-home": { title: "draft" } };
 
-function req(opts: { url?: string; host?: string; cookie?: string } = {}): Request {
+function req(
+  opts: { url?: string; host?: string; cookie?: string } = {},
+): Request {
   const headers = new Headers();
   headers.set("host", opts.host ?? HOST);
   if (opts.cookie) headers.set("cookie", opts.cookie);
@@ -56,34 +58,47 @@ afterEach(() => {
 describe("requestCarriesDraft", () => {
   it("is inert when no allowlist is configured", () => {
     setDraftPreviewHosts([]);
-    const url = new URL(`https://${HOST}/p?__draft=abc.preview-studio.decocms.com@v1`);
+    const url = new URL(
+      `https://${HOST}/p?__draft=abc.preview-studio.decocms.com@v1`,
+    );
     expect(requestCarriesDraft(req({ url: url.toString() }), url)).toBe(false);
   });
 
   it("detects the ?__draft= entry param", () => {
-    const url = new URL(`https://${HOST}/p?__draft=abc.preview-studio.decocms.com@v1`);
+    const url = new URL(
+      `https://${HOST}/p?__draft=abc.preview-studio.decocms.com@v1`,
+    );
     expect(requestCarriesDraft(req({ url: url.toString() }), url)).toBe(true);
   });
 
   it("detects the navigation cookie (SPA nav after entry)", () => {
     const url = new URL(`https://${HOST}/p`);
     expect(
-      requestCarriesDraft(req({ url: url.toString(), cookie: "__deco_draft=abc.x@v1" }), url),
+      requestCarriesDraft(
+        req({ url: url.toString(), cookie: "__deco_draft=abc.x@v1" }),
+        url,
+      ),
     ).toBe(true);
   });
 
   it("is false on ?__draft=off (leaving preview)", () => {
     const url = new URL(`https://${HOST}/p?__draft=off`);
     expect(
-      requestCarriesDraft(req({ url: url.toString(), cookie: "__deco_draft=abc.x@v1" }), url),
+      requestCarriesDraft(
+        req({ url: url.toString(), cookie: "__deco_draft=abc.x@v1" }),
+        url,
+      ),
     ).toBe(false);
   });
 
   it("is structurally inert on a non-preview host, param or not", () => {
     const url = new URL("https://prod.example/p?__draft=abc.x@v1");
-    expect(requestCarriesDraft(req({ url: url.toString(), host: "prod.example" }), url)).toBe(
-      false,
-    );
+    expect(
+      requestCarriesDraft(
+        req({ url: url.toString(), host: "prod.example" }),
+        url,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -162,7 +177,9 @@ describe("bindRequestDraft", () => {
       url: `https://${HOST}/p?__draft=off`,
       cookie: "__deco_draft=x@v1",
     });
-    const decision = await RequestContext.run(request, () => bindRequestDraft(request));
+    const decision = await RequestContext.run(request, () =>
+      bindRequestDraft(request),
+    );
     expect(decision).toEqual({
       previewing: false,
       setCookie: null,
@@ -175,7 +192,9 @@ describe("bindRequestDraft", () => {
       url: "https://prod.example/p?__draft=abc.x@v1",
       host: "prod.example",
     });
-    const decision = await RequestContext.run(request, () => bindRequestDraft(request));
+    const decision = await RequestContext.run(request, () =>
+      bindRequestDraft(request),
+    );
     expect(decision).toEqual({
       previewing: false,
       setCookie: null,
@@ -273,9 +292,12 @@ describe("installPreviewHostsFromBlocks", () => {
     setDraftPreviewHosts([]);
     installPreviewHostsFromBlocks({ site: {} });
     const url = new URL("https://acme.vtex.app/p?__draft=x@v1");
-    expect(requestCarriesDraft(req({ url: url.toString(), host: "acme.vtex.app" }), url)).toBe(
-      false,
-    );
+    expect(
+      requestCarriesDraft(
+        req({ url: url.toString(), host: "acme.vtex.app" }),
+        url,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -290,15 +312,23 @@ describe("installDecoSiteHostFromEnv", () => {
 
     // Verified through the wire: both deco-operated hosts now preview, with no
     // site-block/env config at all.
-    for (const host of ["acme-tanstack.deco.site", "acme-tanstack.deco-cx.workers.dev"]) {
-      const url = new URL(`https://${host}/p?__draft=abc.preview-studio.decocms.com@v1`);
+    for (const host of [
+      "acme-tanstack.deco.site",
+      "acme-tanstack.deco-cx.workers.dev",
+    ]) {
+      const url = new URL(
+        `https://${host}/p?__draft=abc.preview-studio.decocms.com@v1`,
+      );
       expect(requestCarriesDraft(req({ url: url.toString(), host }), url)).toBe(true);
     }
     // A custom production domain is never inferred.
     const url = new URL("https://www.acme.com.br/p?__draft=x@v1");
-    expect(requestCarriesDraft(req({ url: url.toString(), host: "www.acme.com.br" }), url)).toBe(
-      false,
-    );
+    expect(
+      requestCarriesDraft(
+        req({ url: url.toString(), host: "www.acme.com.br" }),
+        url,
+      ),
+    ).toBe(false);
   });
 
   it("an unset or non-string binding registers nothing", () => {

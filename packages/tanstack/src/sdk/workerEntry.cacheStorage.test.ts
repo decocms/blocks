@@ -7,8 +7,8 @@ import {
   createKVCacheStorage,
   getCacheStorageContext,
 } from "@decocms/blocks/sdk/cacheStorage";
-import { createFetchCache } from "@decocms/blocks/sdk/fetchCache";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createFetchCache } from "@decocms/blocks/sdk/fetchCache";
 import { __resetKvHydrationStateForTests, DATA_VERSION_TIMEOUT_MS } from "./kvHydration";
 
 const FETCH_KNOBS = {
@@ -17,7 +17,6 @@ const FETCH_KNOBS = {
   staleIfErrorMs: 60_000,
   inflightBackstopMs: 5_000,
 };
-
 import { createDecoWorkerEntry } from "./workerEntry";
 
 function makeKV(): CacheKVNamespace {
@@ -158,11 +157,7 @@ describe("worker cache storage injection", () => {
   });
 
   it("invalidate or unset keeps fetch results per build", async () => {
-    for (const extra of [
-      {},
-      { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" },
-      { DECO_DATA_CACHE_ON_DEPLOY: "yes" },
-    ]) {
+    for (const extra of [{}, { DECO_DATA_CACHE_ON_DEPLOY: "invalidate" }, { DECO_DATA_CACHE_ON_DEPLOY: "yes" }]) {
       const { worker, upstream } = fetchWorker();
       const bindings = { ...env(), ...extra };
       await worker.fetch(request("/a"), bindings, ctx);

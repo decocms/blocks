@@ -1,17 +1,17 @@
-import type { ResolvedSection } from "@decocms/blocks/cms";
 import {
   registerCacheableSections,
   registerSectionLoader,
   runSectionLoaders,
 } from "@decocms/blocks/cms";
+import type { ResolvedSection } from "@decocms/blocks/cms";
 import { describe, expect, it } from "vitest";
 import {
   CmsPagePendingFallback,
   cmsHomeRouteConfig,
   cmsRouteConfig,
-  enrichGlobals,
   parseLoadCmsHomePageInput,
   parseLoadCmsPageInput,
+  enrichGlobals,
   runSectionLoadersWithSeo,
 } from "./cmsRoute";
 
@@ -76,18 +76,8 @@ describe("runSectionLoadersWithSeo (#355)", () => {
       return { ...props, loaded: true };
     });
 
-    const bodySection: ResolvedSection = {
-      component,
-      props: { sku: "123" },
-      key: component,
-      index: 0,
-    };
-    const seoSection: ResolvedSection = {
-      component,
-      props: { sku: "123" },
-      key: `${component}-seo`,
-      index: -1,
-    };
+    const bodySection: ResolvedSection = { component, props: { sku: "123" }, key: component, index: 0 };
+    const seoSection: ResolvedSection = { component, props: { sku: "123" }, key: `${component}-seo`, index: -1 };
 
     const request = new Request("https://store.com/produto/123");
     const { enrichedSections, enrichedSeoSection } = await runSectionLoadersWithSeo(
@@ -156,12 +146,7 @@ describe("enrichGlobals — site.global loaders run per request", () => {
     });
 
     const global: ResolvedSection = { component, props: {}, key: component, index: 0 };
-    const pageSection: ResolvedSection = {
-      component,
-      props: {},
-      key: `${component}-page`,
-      index: 1,
-    };
+    const pageSection: ResolvedSection = { component, props: {}, key: `${component}-page`, index: 1 };
 
     const result = await enrichGlobals([global], [pageSection], new Request("https://store.com/"));
 

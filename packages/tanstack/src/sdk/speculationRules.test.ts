@@ -21,7 +21,9 @@ describe("buildSpeculationRules", () => {
   });
 
   it("scopes to a link selector when given (excludes client-routed links)", () => {
-    const rule = JSON.parse(buildSpeculationRules({ linkSelector: "[data-prerender] a[href]" }));
+    const rule = JSON.parse(
+      buildSpeculationRules({ linkSelector: "[data-prerender] a[href]" }),
+    );
     expect(rule.prerender[0].where.and[0]).toEqual({
       selector_matches: "[data-prerender] a[href]",
     });
@@ -59,7 +61,9 @@ describe("buildSpeculationRules", () => {
   });
 
   it("emits valid JSON for selectors containing '>'", () => {
-    expect(() => JSON.parse(buildSpeculationRules({ linkSelector: "nav > a" }))).not.toThrow();
+    expect(() =>
+      JSON.parse(buildSpeculationRules({ linkSelector: "nav > a" })),
+    ).not.toThrow();
   });
 });
 

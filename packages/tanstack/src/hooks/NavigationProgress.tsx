@@ -24,13 +24,13 @@ const PROGRESS_CSS = `
 const DEFAULT_COLOR = "var(--color-brand-primary-500, currentColor)";
 
 export interface NavigationProgressProps {
-  /**
-   * Bar color. Any CSS color or custom-property expression. Defaults to
-   * {@link DEFAULT_COLOR} — the site's `brand-primary-500` token when defined,
-   * otherwise the inherited text color. Pass an explicit value to brand the bar
-   * without relying on that token name.
-   */
-  color?: string;
+	/**
+	 * Bar color. Any CSS color or custom-property expression. Defaults to
+	 * {@link DEFAULT_COLOR} — the site's `brand-primary-500` token when defined,
+	 * otherwise the inherited text color. Pass an explicit value to brand the bar
+	 * without relying on that token name.
+	 */
+	color?: string;
 }
 
 /**
@@ -38,23 +38,26 @@ export interface NavigationProgressProps {
  * Uses the router's isLoading state — no extra dependencies.
  */
 export function NavigationProgress({ color = DEFAULT_COLOR }: NavigationProgressProps = {}) {
-  const isLoading = useRouterState({ select: (s) => s.isLoading });
-  if (!isLoading) return null;
-  return (
-    <div
-      className="fixed top-0 left-0 right-0 z-[9999] h-1 overflow-hidden"
-      style={{ color }}
-      role="progressbar"
-      aria-label="Carregando página"
-    >
-      <style dangerouslySetInnerHTML={{ __html: PROGRESS_CSS }} />
-      {/* Track and bar are siblings so the track's 20% alpha does not
+	const isLoading = useRouterState({ select: (s) => s.isLoading });
+	if (!isLoading) return null;
+	return (
+		<div
+			className="fixed top-0 left-0 right-0 z-[9999] h-1 overflow-hidden"
+			style={{ color }}
+			role="progressbar"
+			aria-label="Carregando página"
+		>
+			<style dangerouslySetInnerHTML={{ __html: PROGRESS_CSS }} />
+			{/* Track and bar are siblings so the track's 20% alpha does not
 			    inherit onto the bar (opacity applies to the whole subtree). */}
-      <div className="absolute inset-0" style={{ backgroundColor: "currentColor", opacity: 0.2 }} />
-      <div
-        className="nav-progress-bar absolute inset-y-0 left-0 w-1/3 rounded-full"
-        style={{ backgroundColor: "currentColor" }}
-      />
-    </div>
-  );
+			<div
+				className="absolute inset-0"
+				style={{ backgroundColor: "currentColor", opacity: 0.2 }}
+			/>
+			<div
+				className="nav-progress-bar absolute inset-y-0 left-0 w-1/3 rounded-full"
+				style={{ backgroundColor: "currentColor" }}
+			/>
+		</div>
+	);
 }

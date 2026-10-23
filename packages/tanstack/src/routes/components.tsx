@@ -1,7 +1,7 @@
-import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
-import type { Device } from "@decocms/blocks/sdk/useDevice";
 import { Link } from "@tanstack/react-router";
+import type { DeferredSection, ResolvedSection } from "@decocms/blocks/cms";
 import { DecoPageRenderer } from "../hooks/DecoPageRenderer";
+import type { Device } from "@decocms/blocks/sdk/useDevice";
 
 /**
  * Default CMS page component. Renders all resolved sections.

@@ -9,7 +9,7 @@
  *
  * Ported from: deco-cx/deco daemon/daemon.ts
  */
-import type { Server as HttpServer, IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse, Server as HttpServer } from "node:http";
 import { createAuthMiddleware } from "./auth";
 import { createFSHandler } from "./fs";
 import { createVolumesHandler } from "./volumes";
@@ -63,7 +63,11 @@ export function createDaemonMiddleware(opts: DaemonOptions) {
   // Admin compares against deco-cx/deco versions (e.g. 1.177.x), not @decocms/start versions.
   const VERSION = "1.177.5";
 
-  return (req: IncomingMessage, res: ServerResponse, next: () => void): void => {
+  return (
+    req: IncomingMessage,
+    res: ServerResponse,
+    next: () => void,
+  ): void => {
     let pathname: string;
     try {
       pathname = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -90,7 +94,9 @@ export function createDaemonMiddleware(opts: DaemonOptions) {
     // separate module instances from Vite SSR — they don't share state.
 
     const isDaemonAPI =
-      req.headers[DAEMON_API_SPECIFIER] ?? req.headers[HYPERVISOR_API_SPECIFIER] ?? false;
+      req.headers[DAEMON_API_SPECIFIER] ??
+      req.headers[HYPERVISOR_API_SPECIFIER] ??
+      false;
 
     // Also check query param: ?x-daemon-api=true
     if (!isDaemonAPI) {
@@ -111,10 +117,7 @@ export function createDaemonMiddleware(opts: DaemonOptions) {
     if (origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, x-daemon-api, x-hypervisor-api",
-      );
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-daemon-api, x-hypervisor-api");
       res.setHeader("Access-Control-Allow-Credentials", "true");
     }
 
