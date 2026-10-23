@@ -590,10 +590,8 @@ function logErrorFallbackOnServer(error: unknown) {
 /**
  * Client path: until this existed the fallback discarded `error`, so the
  * "Estamos com uma instabilidade" screen left no trace when the failure was
- * client-only (render/commit throw, SPA navigation loader throw). Reports to:
- *  - the worker (`CLIENT_ERROR_PATH`) → `logger.error`, full stack;
- *  - `window.dataLayer` → `deco_error_fallback` event for GA4 counting
- *    (params capped at 100 chars, GA4's limit).
+ * client-only (render/commit throw, SPA navigation loader throw). Reports to
+ * the worker (`CLIENT_ERROR_PATH`) → `logger.error`, full stack + context.
  * Fired once per error instance; never throws.
  */
 function referrerOrigin(): string {
@@ -630,21 +628,6 @@ function reportErrorFallback(error: unknown) {
       CLIENT_ERROR_PATH,
       new Blob([JSON.stringify(payload)], { type: "application/json" }),
     );
-    const w = window as unknown as { dataLayer?: unknown[] };
-    w.dataLayer?.push({
-      event: "deco_error_fallback",
-      error_name: cut(payload["error.name"], 100),
-      error_message: cut(payload["error.message"], 100),
-      error_stack_top: cut(
-        payload["error.stack"]
-          .split("\n")
-          .slice(0, 2)
-          .map((l) => l.trim())
-          .join(" | "),
-        100,
-      ),
-      error_ms_since_load: payload["page.ms_since_load"],
-    });
   } catch {
     /* never break the fallback */
   }
