@@ -15,13 +15,20 @@ interface DraftSlot {
   version: RequestVersion | null;
   visitor: Visitor | null;
   assignments: PathAssignments | null;
+  /** The link named a draft that can't be read anymore: the page renders the release. */
+  unavailable: boolean;
 }
 
 export const draftSlot = cache(
-  (): DraftSlot => ({ version: null, visitor: null, assignments: null }),
+  (): DraftSlot => ({ version: null, visitor: null, assignments: null, unavailable: false }),
 );
 
 /** The version bound to this request (`bindDraft`), or `null` when it renders the current release. */
 export function activeDraftPointer(): string | null {
   return draftSlot().version?.version ?? null;
+}
+
+/** Whether the request's link named a draft that can't be read anymore (`bindDraft`). */
+export function draftUnavailable(): boolean {
+  return draftSlot().unavailable;
 }

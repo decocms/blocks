@@ -33,6 +33,7 @@ vi.mock("react", async (original) => {
 
 const { activeDraftPointer, bindDraft, contentClient, assignedClient, assignmentsSegment } =
   await import("./index.ts");
+const { draftUnavailable } = await import("./slot.ts");
 
 function serve(headers: Record<string, string>): void {
   request.headers = new Headers({ host: "shop.example.com", ...headers });
@@ -68,6 +69,16 @@ describe("bindDraft", () => {
     expect(await bindDraft(testCMS())).toBe(false);
     serve({ "x-deco-version": "junk" });
     expect(await bindDraft(testCMS())).toBe(false);
+  });
+
+  it("the proxy's x-deco-draft-unavailable: the release with the notice, even with the page's ?__draft=", async () => {
+    serve({ "x-deco-draft-unavailable": "1", ...cookie });
+    expect(await bindDraft(testCMS(), { searchParams: { __draft: POINTER } })).toBe(false);
+    expect(activeDraftPointer()).toBe(null);
+    expect(draftUnavailable()).toBe(true);
+    serve(cookie);
+    expect(await bindDraft(testCMS())).toBe(true);
+    expect(draftUnavailable()).toBe(false);
   });
 
   it("the same host allowlist as the proxy, on the visitor's host", async () => {

@@ -34,7 +34,7 @@ import {
   parseAssignmentsSegment,
   withoutDarkTests,
 } from "../assignments.ts";
-import { DRAFT_PARAM, VERSION_HEADER } from "../draft.ts";
+import { DRAFT_PARAM, DRAFT_UNAVAILABLE_HEADER, VERSION_HEADER } from "../draft.ts";
 import { allowedDraft, requestLike } from "../drafts.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
@@ -123,6 +123,11 @@ async function bindVersion(cms: BindCMS, options: BindDraftOptions): Promise<boo
   const param = firstParam(searchParams, DRAFT_PARAM);
   if (param === "off") return false;
   const requestHeaders = await headers();
+  // The proxy read the link's draft and it's gone: the release, with the notice.
+  if (requestHeaders.get(DRAFT_UNAVAILABLE_HEADER) === "1") {
+    draftSlot().unavailable = true;
+    return false;
+  }
   const forwarded = param ?? requestHeaders.get(VERSION_HEADER);
   const query = forwarded ? `?${DRAFT_PARAM}=${encodeURIComponent(forwarded)}` : "";
   const request = requestLike(requestHeaders as Headers, `/${query}`);

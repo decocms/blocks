@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { assign, newVisitor, parseVisitor, serializeVisitor } from "@decocms/blocks/experiments";
 import { NextRequest, NextResponse } from "next/server.js";
-import { describe, expect, it, vi } from "vitest";
-import { POINTER, snapshot, testCMS } from "../__tests__/fixtures.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GONE_POINTER, POINTER, serveDrafts, snapshot, testCMS } from "../__tests__/fixtures.ts";
 import {
   ASSIGNMENTS_ROUTE_PREFIX,
   applyDraft,
@@ -40,6 +40,11 @@ function forwarded(response: Response, name: string): string | null {
   return overridden.includes(name) ? response.headers.get(`x-middleware-request-${name}`) : null;
 }
 
+beforeEach(() => serveDrafts());
+afterEach(() => vi.unstubAllGlobals());
+
+const EXACT = "max-age=0, no-cache, must-revalidate";
+
 describe("decideDraft", () => {
   it("a draft link: the pointer, and the cookie that keeps the preview going", async () => {
     const d = await decideDraft(testCMS(), draftLink());
@@ -51,6 +56,7 @@ describe("decideDraft", () => {
     expect(await decideDraft(testCMS(), withCookie())).toEqual({
       version: { version: POINTER },
       setCookie: null,
+      preview: true,
     });
   });
 
@@ -59,6 +65,7 @@ describe("decideDraft", () => {
     const cms = {
       readVersion: vi.fn(async () => ({ version: POINTER })),
       forRelease: vi.fn(() => real.forRelease()),
+      forDraft: vi.fn((pointer: string) => real.forDraft(pointer)),
     };
     expect(await decideDraft(cms, new NextRequest("https://shop.example.com/shoes?q="))).toEqual({
       version: null,
@@ -66,6 +73,7 @@ describe("decideDraft", () => {
     });
     expect(cms.readVersion).not.toHaveBeenCalled();
     expect(cms.forRelease).not.toHaveBeenCalled();
+    expect(cms.forDraft).not.toHaveBeenCalled();
   });
 
   it("?__draft=off ends the preview on any host, one that may not preview included", async () => {
@@ -80,10 +88,12 @@ describe("decideDraft", () => {
     expect(await decideDraft(cms, draftLink())).toEqual({
       version: null,
       setCookie: null,
+      preview: true,
     });
     expect(await decideDraft(cms, draftLink("/", "acme.deco.site"))).toEqual({
       version: null,
       setCookie: null,
+      preview: true,
     });
     expect(
       (await decideDraft(cms, draftLink("/", "staging.shop.example.com"))).version?.version ?? null,
@@ -109,7 +119,23 @@ describe("decideDraft", () => {
     ).toEqual({
       version: null,
       setCookie: null,
+      preview: true,
     });
+  });
+
+  it("a pointer to a deleted draft: the release, the cookie expired, unavailable (no error)", async () => {
+    const gone = new NextRequest(
+      `https://shop.example.com/shoes?__draft=${encodeURIComponent(GONE_POINTER)}`,
+    );
+    const d = await decideDraft(testCMS(), gone);
+    expect(d.version).toBe(null);
+    expect(d.preview).toBe(true);
+    expect(d.unavailable).toBe(true);
+    expect(d.setCookie).toContain("Max-Age=0");
+    const viaCookie = new NextRequest("https://shop.example.com/shoes", {
+      headers: { cookie: `__deco_draft=${encodeURIComponent(GONE_POINTER)}` },
+    });
+    expect((await decideDraft(testCMS(), viaCookie)).unavailable).toBe(true);
   });
 });
 
@@ -160,7 +186,14 @@ describe("applyDraft", () => {
       setCookie: "__deco_draft=x; Path=/",
     });
     expect(res.headers.get("set-cookie")).toBe("__deco_draft=x; Path=/");
-    expect(res.headers.get("cache-control")).toBe("no-store, private");
+    expect(res.headers.get("cache-control")).toBe(EXACT);
+    expect(res.headers.get("vary")).toBe("Cookie");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("any draft signal (off, a refused host, an unavailable draft): the exact headers", () => {
+    const res = applyDraft(NextResponse.next(), { version: null, setCookie: null, preview: true });
+    expect(res.headers.get("cache-control")).toBe(EXACT);
     expect(res.headers.get("vary")).toBe("Cookie");
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
@@ -181,6 +214,59 @@ describe("draftProxy", () => {
     expect(new URL(res.headers.get("x-middleware-rewrite")!).pathname).toBe("/_draft/shoes");
     expect(res.headers.get("set-cookie")).toContain("__deco_draft=");
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("off goes to the draft route, never the assignments route, and answers max-age=0, no-cache, must-revalidate", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["shop.example.com"], experiments: { hero: 100 } }),
+    );
+    const res = await draftProxy(cms, { assignments: () => true })(
+      new NextRequest("https://shop.example.com/shoes?__draft=off"),
+    );
+    expect(new URL(res.headers.get("x-middleware-rewrite")!).pathname).toBe("/_draft/shoes");
+    expect(forwarded(res, "x-deco-version")).toBe(null);
+    expect(res.headers.get("cache-control")).toBe(EXACT);
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("a request with only the draft cookie never goes to the assignments route", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["shop.example.com"], experiments: { hero: 100 } }),
+    );
+    for (const cookie of [`__deco_draft=${encodeURIComponent(POINTER)}`, "__deco_draft=junk"]) {
+      const res = await draftProxy(cms, { assignments: () => true })(
+        new NextRequest("https://shop.example.com/shoes", { headers: { cookie } }),
+      );
+      expect(new URL(res.headers.get("x-middleware-rewrite")!).pathname, cookie).toBe(
+        "/_draft/shoes",
+      );
+      expect(res.headers.get("cache-control"), cookie).toBe(EXACT);
+    }
+  });
+
+  it("a deleted draft: the draft route renders the release with the notice, the cookie expired", async () => {
+    const res = await draftProxy(testCMS())(
+      new NextRequest(
+        `https://shop.example.com/shoes?__draft=${encodeURIComponent(GONE_POINTER)}`,
+        {
+          headers: { "x-deco-draft-unavailable": "0" },
+        },
+      ),
+    );
+    expect(new URL(res.headers.get("x-middleware-rewrite")!).pathname).toBe("/_draft/shoes");
+    expect(forwarded(res, "x-deco-version")).toBe(null);
+    expect(forwarded(res, "x-deco-draft-unavailable")).toBe("1");
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(res.headers.get("cache-control")).toBe(EXACT);
+  });
+
+  it("a forged x-deco-draft-unavailable never reaches the pages", async () => {
+    const res = await draftProxy(testCMS())(
+      new NextRequest("https://shop.example.com/", {
+        headers: { "x-deco-draft-unavailable": "1" },
+      }),
+    );
+    expect(forwarded(res, "x-deco-draft-unavailable")).toBe(null);
   });
 
   it("rewrite: false keeps the route and still forwards the pointer", async () => {

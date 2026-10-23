@@ -30,8 +30,11 @@
  * (`contentClient`), deciding nothing again. It sends the visitor's cookie on
  * a first visit only, never from a preview.
  *
- * Cached (ISR) pages can't read a request, so a drafted request to one is
- * rewritten onto a dynamic draft route (`/_draft/<path>`, mounted as
+ * Cached (ISR) pages can't read a request, so a preview request (any draft
+ * signal: `?__draft=` with any value, `off` included, or the draft cookie) is
+ * rewritten onto a dynamic draft route, never cached, and answers
+ * `Cache-Control: max-age=0, no-cache, must-revalidate`; a drafted request
+ * is rewritten onto it (`/_draft/<path>`, mounted as
  * `app/%5Fdraft/...`: a literal `_draft` folder is private in Next and never
  * routes), and a published one onto the assignments route
  * (`/_assignments/<assignments>/<path>`, `rewriteToAssignmentsRoute`), where
@@ -47,7 +50,7 @@
  * page. `http.server.request.duration` comes from Next's own request span
  * (`register` from `@decocms/nextjs/instrumentation`).
  */
-import type { CMS, RequestVersion } from "@decocms/blocks";
+import { type CMS, parseDraftPointer, type RequestVersion } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
 import {
@@ -58,7 +61,12 @@ import {
   type RequestAssignments,
   readAssignmentsAndScope,
 } from "../assignments.ts";
-import { DRAFT_ROUTE_PREFIX, draftResponseHeaders, VERSION_HEADER } from "../draft.ts";
+import {
+  DRAFT_ROUTE_PREFIX,
+  DRAFT_UNAVAILABLE_HEADER,
+  draftResponseHeaders,
+  VERSION_HEADER,
+} from "../draft.ts";
 import {
   allowedDraft,
   draftCookie,
@@ -71,8 +79,11 @@ import { VISITOR_HEADER } from "../visitor.ts";
 
 export { requestLike } from "../drafts.ts";
 
-/** What the draft decision needs from the CMS: its preview host check, and the release. */
-export type CMSHandle = Pick<CMS, "readVersion" | "forRelease">;
+/**
+ * What the draft decision needs from the CMS: its preview host check, the
+ * release, and the draft a link names (read once before the page renders).
+ */
+export type CMSHandle = Pick<CMS, "readVersion" | "forRelease" | "forDraft">;
 
 /** What the proxy does with a request's draft state. */
 export interface DraftDecision {
@@ -85,6 +96,18 @@ export interface DraftDecision {
   version: RequestVersion | null;
   /** The `Set-Cookie` the response carries: storing a link's version, or ending a preview. */
   setCookie: string | null;
+  /**
+   * The request carries a draft signal at all (`?__draft=` with any value, or
+   * the draft cookie): it renders on the draft route, never from a cache,
+   * and answers `draftResponseHeaders`, whatever `version` is.
+   */
+  preview?: boolean;
+  /**
+   * The link named a draft that can't be read anymore (deleted, or its host
+   * failing): the release renders, the cookie is expired, and the pages show
+   * the calm notice (`x-deco-draft-unavailable`), never an error page.
+   */
+  unavailable?: true;
 }
 
 export {
@@ -102,11 +125,27 @@ export {
 export { DRAFT_ROUTE_PREFIX, VERSION_HEADER } from "../draft.ts";
 
 const INERT: DraftDecision = Object.freeze({ version: null, setCookie: null });
+/** A preview that renders the release (`off`, a refused host, a value that doesn't parse). */
+const RELEASE_PREVIEW: DraftDecision = Object.freeze({
+  version: null,
+  setCookie: null,
+  preview: true,
+});
+/** A draft version that names no draft: the release, nothing fetched. */
+const LOCAL_VERSION = "local";
+
+/** Whether a version names a saved draft (a pointer, not a release's SHA and not `local`). */
+function namesDraft(version: string): boolean {
+  const parsed = parseDraftPointer(version);
+  return parsed !== null && parsed.version !== LOCAL_VERSION;
+}
 
 /**
  * The version a request renders and the cookie its response sets, on a host
  * the CMS allows (as the pages' `bindDraft` checks again). A request with
- * no `?__draft=` and no draft cookie never reaches the CMS.
+ * no `?__draft=` and no draft cookie never reaches the CMS. A draft pointer
+ * is read once here (`forDraft(...).revision()`, the read the page makes
+ * again): a draft that can't be read gives the release and `unavailable`.
  */
 export async function decideDraft(
   cms: CMSHandle,
@@ -116,15 +155,31 @@ export async function decideDraft(
   const like = requestLike(request.headers, url.pathname + url.search, url.host);
   if (like === null || !hasDraftSignal(like)) return INERT;
   // Ending a preview is allowed on any host, so a cookie set earlier always goes.
-  if (endsPreview(like)) return { version: null, setCookie: draftCookie("", ["Max-Age=0"]) };
+  if (endsPreview(like)) return { ...RELEASE_PREVIEW, setCookie: expiredCookie() };
   const version = await allowedDraft(cms, like);
-  if (version === null) return INERT;
+  if (version === null) return RELEASE_PREVIEW;
+  if (namesDraft(version.version)) {
+    try {
+      await cms.forDraft(version.version).revision();
+    } catch {
+      return { ...RELEASE_PREVIEW, setCookie: expiredCookie(), unavailable: true };
+    }
+  }
   const link = draftLinkValue(like);
-  return { version, setCookie: link ? draftCookie(encodeURIComponent(link)) : null };
+  return {
+    version,
+    setCookie: link ? draftCookie(encodeURIComponent(link)) : null,
+    preview: true,
+  };
+}
+
+/** The `Set-Cookie` that ends a preview. */
+function expiredCookie(): string {
+  return draftCookie("", ["Max-Age=0"]);
 }
 
 /** The headers the proxy writes for the pages: never taken from outside. */
-const OWN_HEADERS = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER];
+const OWN_HEADERS = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER, DRAFT_UNAVAILABLE_HEADER];
 
 /**
  * The request headers to forward: the accepted version on `x-deco-version`,
@@ -141,6 +196,7 @@ export function draftRequestHeaders(
   const headers = new Headers(request.headers);
   for (const name of OWN_HEADERS) headers.delete(name);
   if (decision.version) headers.set(VERSION_HEADER, decision.version.version);
+  if (decision.unavailable) headers.set(DRAFT_UNAVAILABLE_HEADER, "1");
   return headers;
 }
 
@@ -244,10 +300,12 @@ export function isDraftRoutePath(pathname: string): boolean {
 }
 
 /**
- * The rewrite of a drafted request onto the draft route, keeping its path and
- * forwarding the version and, when given, the visitor (`decideVisitor`) and
- * the assignments (`decideAssignments`); `null` when the request isn't
- * drafted or is already on the draft route.
+ * The rewrite of a preview request (a drafted one, or any other with a draft
+ * signal: `off`, a refused host, a draft that can't be read) onto the draft
+ * route, which is dynamic and never cached, keeping its path and forwarding
+ * the version and, when given, the visitor (`decideVisitor`) and the
+ * assignments (`decideAssignments`); `null` when the request isn't a preview
+ * or is already on the draft route.
  */
 export function rewriteToDraftRoute(
   request: NextRequest,
@@ -255,7 +313,7 @@ export function rewriteToDraftRoute(
   visitor?: VisitorDecision,
   assignments?: RequestAssignments,
 ): NextResponse | null {
-  if (!decision.version) return null;
+  if (!decision.version && !decision.preview) return null;
   const url = request.nextUrl.clone();
   if (isDraftRoutePath(url.pathname)) return null;
   url.pathname = `${DRAFT_ROUTE_PREFIX}${url.pathname}`;
@@ -282,7 +340,7 @@ const ASSIGNED_CACHE_CONTROL = "private, no-cache";
  * minutes stale (the first request after that still gets it while Next
  * renders it again), a banner switching on late, which is accepted.
  *
- * `null` for a drafted request (it renders on the draft route, never cached)
+ * `null` for a preview request (it renders on the draft route, never cached)
  * and for a path already on the draft or assignments route. When the content
  * saves tests or campaigns, the response is marked `Cache-Control: private,
  * no-cache`: Next keeps one cached page per set of assignments, but the URL
@@ -297,7 +355,7 @@ export async function rewriteToAssignmentsRoute(
   draft: DraftDecision,
   visitor: VisitorDecision,
 ): Promise<NextResponse | null> {
-  if (draft.version) return null;
+  if (draft.version || draft.preview) return null;
   const url = request.nextUrl.clone();
   if (isDraftRoutePath(url.pathname) || isAssignmentsRoutePath(url.pathname)) return null;
   const { assignments, varies } = await readAssignmentsAndScope(cms, { visitor: visitor.visitor });
@@ -312,15 +370,20 @@ export async function rewriteToAssignmentsRoute(
 }
 
 /**
- * The cookie and the response headers of a draft: `Set-Cookie`, and for a
- * drafted response `Cache-Control: no-store, private`, `Vary: Cookie` and
+ * The cookie and the response headers of a preview: `Set-Cookie`, and for
+ * any request with a draft signal (`preview`, or a version)
+ * `Cache-Control: max-age=0, no-cache, must-revalidate`, `Vary: Cookie` and
  * `X-Robots-Tag: noindex, nofollow` (`draftResponseHeaders`). With the
  * version in a cookie a draft shares its URL with the published page, so a
- * cache keyed on the URL alone would serve it to visitors.
+ * cache keyed on the URL alone would serve it to visitors. The proxy answers
+ * before the page renders, so it can't hold the cookie back from a failed
+ * render; `decideDraft` reads the draft first instead, and a draft that
+ * can't be read expires the cookie.
  */
 export function applyDraft<R extends Response>(response: R, decision: DraftDecision): R {
   if (decision.setCookie) response.headers.append("set-cookie", decision.setCookie);
-  for (const [name, value] of Object.entries(draftResponseHeaders(decision.version?.version))) {
+  const preview = decision.preview === true || decision.version !== null;
+  for (const [name, value] of Object.entries(draftResponseHeaders(preview))) {
     response.headers.set(name, value);
   }
   return response;
@@ -359,7 +422,8 @@ export function draftProxy(
     }
     const decision = await decideDraft(cms, request);
     const visitor = decideVisitor(request, decision);
-    const onAssignmentsRoute = decision.version === null && assignments?.(request) === true;
+    const onAssignmentsRoute =
+      decision.version === null && decision.preview !== true && assignments?.(request) === true;
     const rewritten = onAssignmentsRoute
       ? await rewriteToAssignmentsRoute(cms, request, decision, visitor)
       : null;
