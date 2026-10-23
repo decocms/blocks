@@ -31,6 +31,16 @@ export const DRAFT_COOKIE = "__deco_draft";
  */
 export const VERSION_HEADER = "x-deco-version";
 
+/**
+ * The request header the proxy sets on a draft request it hands the pages:
+ * the id of the release check it made for it (`cms.checkRelease()`), so
+ * `bindDraft`'s host check and the page's draft reads wait for that check
+ * instead of making their own (one `latest.json` read per preview request).
+ * The proxy removes any copy that arrives from outside; an id the CMS didn't
+ * make (a proxy in another process) is a check of its own anyway.
+ */
+export const RELEASE_CHECK_HEADER = "x-deco-release-check";
+
 /** The URL prefix a drafted request is rewritten onto (`app/%5Fdraft/[[...path]]`). */
 export const DRAFT_ROUTE_PREFIX = "/_draft";
 

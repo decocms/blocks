@@ -104,16 +104,24 @@ export interface DraftDecision {
    * the draft is gone (a failure that may pass leaves it), and the page says so calmly (`DraftBadge`'s `unavailable`), never a 500.
    */
   unavailable?: true;
+  /**
+   * The release check made for this draft request (`cms.checkRelease()`):
+   * the host check, the read below and the page's draft reads all wait for
+   * it, so the request reads `latest.json` once.
+   */
+  releaseCheck?: string;
 }
 
 /**
  * The version a request renders, and the cookie its response sets. A draft
+ * request first checks for the latest release, once (`cms.checkRelease()`),
+ * and the host check and every draft read share that check. A draft
  * pointer is read once before the page renders (`forDraft(...).revision()`,
  * the same read the page makes, shared while in flight): a draft that can't
  * be read gives the release and `unavailable`, never an error page.
  */
 export async function decideDraft(
-  cms: Pick<CMS, "readVersion" | "forDraft">,
+  cms: Pick<CMS, "readVersion" | "forDraft" | "checkRelease">,
   request: Request,
 ): Promise<DraftDecision> {
   const url = new URL(request.url);
@@ -122,10 +130,14 @@ export async function decideDraft(
   if (param === DRAFT_OFF) return { version: null, setCookie: expiredCookie() };
   const version = readDraftVersion(request);
   if (version === null) return { version: null, setCookie: null };
-  if ((await cms.readVersion(request)) === null) return { version: null, setCookie: null };
-  if (namesDraft(version.version)) {
+  // One release check per draft request, shared below and by the page.
+  const releaseCheck = namesDraft(version.version) ? await cms.checkRelease() : undefined;
+  if ((await cms.readVersion(request, { releaseCheck })) === null) {
+    return { version: null, setCookie: null };
+  }
+  if (releaseCheck !== undefined) {
     try {
-      await cms.forDraft(version.version).revision();
+      await cms.forDraft(version.version, { releaseCheck }).revision();
     } catch (error) {
       // Gone (deleted): the preview ends. Any other failure (the drafts' host
       // down, a timeout) leaves the cookie alone, so the next request tries again.
@@ -138,6 +150,7 @@ export async function decideDraft(
   return {
     version,
     setCookie: fromLink ? serializeCookie(encodeURIComponent(param), []) : null,
+    ...(releaseCheck === undefined ? {} : { releaseCheck }),
   };
 }
 

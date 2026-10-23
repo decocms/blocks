@@ -57,6 +57,7 @@ describe("decideDraft", () => {
       version: { version: POINTER },
       setCookie: null,
       preview: true,
+      releaseCheck: expect.any(String),
     });
   });
 
@@ -66,6 +67,7 @@ describe("decideDraft", () => {
       readVersion: vi.fn(async () => ({ version: POINTER })),
       forRelease: vi.fn(() => real.forRelease()),
       forDraft: vi.fn((pointer: string) => real.forDraft(pointer)),
+      checkRelease: vi.fn(() => real.checkRelease()),
     };
     expect(await decideDraft(cms, new NextRequest("https://shop.example.com/shoes?q="))).toEqual({
       version: null,
@@ -74,6 +76,7 @@ describe("decideDraft", () => {
     expect(cms.readVersion).not.toHaveBeenCalled();
     expect(cms.forRelease).not.toHaveBeenCalled();
     expect(cms.forDraft).not.toHaveBeenCalled();
+    expect(cms.checkRelease).not.toHaveBeenCalled();
   });
 
   it("?__draft=off ends the preview on any host, one that may not preview included", async () => {

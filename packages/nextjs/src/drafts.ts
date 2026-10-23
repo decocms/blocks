@@ -21,7 +21,13 @@
  *
  * No React, no Next.js and no module state: the proxy and the pages share it.
  */
-import { type CMS, parseVersion, type RequestLike, type RequestVersion } from "@decocms/blocks";
+import {
+  type CMS,
+  parseDraftPointer,
+  parseVersion,
+  type RequestLike,
+  type RequestVersion,
+} from "@decocms/blocks";
 import { DRAFT_COOKIE, DRAFT_PARAM } from "./draft.ts";
 
 const DRAFT_OFF = "off";
@@ -103,10 +109,37 @@ export function requestLike(
 export async function allowedDraft(
   cms: Pick<CMS, "readVersion">,
   request: RequestLike,
+  releaseCheck?: string | null,
 ): Promise<RequestVersion | null> {
   const read = readDraftVersion(request);
   if (read === null) return null;
-  return (await cms.readVersion(request)) === null ? null : read;
+  return (await cms.readVersion(request, { releaseCheck })) === null ? null : read;
+}
+
+/** A draft pointer's version that names no draft: the release, nothing fetched. */
+const LOCAL_VERSION = "local";
+
+/** Whether a version names a saved draft (a pointer, not a release's SHA and not `local`). */
+export function namesDraft(version: string): boolean {
+  const parsed = parseDraftPointer(version);
+  return parsed !== null && parsed.version !== LOCAL_VERSION;
+}
+
+/**
+ * The release check of a request whose link names a draft
+ * (`cms.checkRelease()`), so its host check, its draft reads and its render
+ * share one read of `latest.json`: the one `forwarded` names when the CMS
+ * made it (the proxy's, for the same request), else a new one. `undefined`
+ * for any other request: the release, a release's SHA, no link.
+ */
+export async function draftReleaseCheck(
+  cms: Pick<CMS, "checkRelease">,
+  request: RequestLike,
+  forwarded?: string | null,
+): Promise<string | undefined> {
+  const read = readDraftVersion(request);
+  if (read === null || !namesDraft(read.version)) return undefined;
+  return cms.checkRelease(forwarded);
 }
 
 /**

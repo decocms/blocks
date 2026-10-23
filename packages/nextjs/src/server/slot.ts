@@ -17,10 +17,18 @@ interface DraftSlot {
   assignments: PathAssignments | null;
   /** The link named a draft that can't be read anymore: the page renders the release. */
   unavailable: boolean;
+  /** The request's release check (`cms.checkRelease()`), which its draft reads wait for. */
+  releaseCheck: string | null;
 }
 
 export const draftSlot = cache(
-  (): DraftSlot => ({ version: null, visitor: null, assignments: null, unavailable: false }),
+  (): DraftSlot => ({
+    version: null,
+    visitor: null,
+    assignments: null,
+    unavailable: false,
+    releaseCheck: null,
+  }),
 );
 
 /** The version bound to this request (`bindDraft`), or `null` when it renders the current release. */

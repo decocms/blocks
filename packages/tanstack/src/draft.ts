@@ -31,6 +31,15 @@ export const DRAFT_COOKIE = "__deco_draft";
 export const VERSION_HEADER = "x-deco-version";
 
 /**
+ * The request header the worker sets on a draft request: the id of the
+ * release check it made for it (`cms.checkRelease()`), so the page's draft
+ * reads wait for that check instead of making their own (one `latest.json`
+ * read per preview request). The worker removes any copy that arrives from
+ * outside; an id the CMS didn't make is a check of its own anyway.
+ */
+export const RELEASE_CHECK_HEADER = "x-deco-release-check";
+
+/**
  * The `Cache-Control` of every response to a preview request (a request with
  * `?__draft=`, whatever its value, or the draft cookie): always revalidated,
  * never answered from a cache (PO 2026-10-23).

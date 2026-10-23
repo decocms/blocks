@@ -104,8 +104,17 @@ export class ContentStore {
   #source: Snapshot | Loader;
   #release: Promise<Snapshot> | undefined;
   #updating: Promise<{ updated: boolean }> | undefined;
-  /** The check a draft read waits on when one was already running when it arrived (see `#checkForDraft`). */
-  #queued: Promise<unknown> | undefined;
+  /** The check a draft read waits on when one was already running when it arrived (see `checkRelease`). */
+  #queued: Promise<string> | undefined;
+  /**
+   * Release checks a request can share (`checkRelease`): how many ended (a
+   * check's id is handed out only once it ended), and this store's prefix
+   * for their ids, so an id from another process (or another CMS) is never
+   * taken for one of these. The prefix is made on the first check, never at
+   * module scope.
+   */
+  #checksDone = 0;
+  #checkPrefix: string | undefined;
   readonly #drafts = new BoundedMap<string, CachedDraft>(CACHED_DRAFTS);
   /** Draft reads in flight, so concurrent renders of one draft share one request. */
   readonly #draftReads = new Map<string, Promise<CachedDraft>>();
@@ -153,11 +162,14 @@ export class ContentStore {
    * `304` reuses the body held, a `200` replaces it.
    *
    * Before layering, a draft read checks the source for a newer release and
-   * waits for that check (see `#checkForDraft`), so a draft always shows over
+   * waits for that check (see `checkRelease`), so a draft always shows over
    * the latest release, even in a process that hasn't picked it up yet. The
-   * check runs beside the draft's own revalidation.
+   * check runs beside the draft's own revalidation. With `releaseCheck` (the
+   * id `checkRelease` resolved with, for this request), it waits for that
+   * check instead of making its own; an id this store didn't make is a check
+   * of its own.
    */
-  draft(pointer: string): Promise<Snapshot> {
+  draft(pointer: string, releaseCheck?: string | null): Promise<Snapshot> {
     const parsed = parseDraftPointer(pointer);
     if (parsed === null) {
       return Promise.reject(errors.loaderFailed(`invalid draft pointer "${truncate(pointer)}"`));
@@ -191,7 +203,7 @@ export class ContentStore {
     const changes = read.catch((error: unknown) => {
       throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
     });
-    const release = this.#checkForDraft().then(() => this.release());
+    const release = this.waitForCheck(releaseCheck).then(() => this.release());
     return Promise.all([release, changes]).then(([base, entry]) => {
       let view = entry.views.get(base);
       if (view === undefined) {
@@ -285,25 +297,63 @@ export class ContentStore {
   }
 
   /**
-   * The release check a draft read waits on (PO 2026-10-23: a draft always
-   * shows over the latest release). With no check running, it starts one.
-   * With one running, that one started before this read, so the read waits on
-   * the next one instead, shared by every read that arrives meanwhile: a burst
-   * of draft reads makes at most two checks, and no read relies on a check
-   * that started before it. No time-based throttle: the read right after a
-   * publish always checks. Never rejects (`update()` doesn't), and a check
-   * that hangs ends with the loader's fetch timeout, leaving the release held.
-   * Release reads never come here: they keep the background check.
+   * The release check a draft request waits on (PO 2026-10-23: a draft always
+   * shows over the latest release), resolving with its id once it ends. With
+   * no check running, it starts one. With one running, that one started
+   * before this request, so it waits on the next one instead, shared by every
+   * request that arrives meanwhile: a burst makes at most two checks, and no
+   * request relies on a check that started before it. No time-based throttle:
+   * the request right after a publish always checks. One request shares one
+   * check: the binding passes the id on to the host check and every draft
+   * read (`waitForCheck`), so a preview request reads `latest.json` once.
+   * Never rejects (`update()` doesn't), and a check that hangs ends with the
+   * loader's fetch timeout, leaving the release held. Release reads never
+   * come here: they keep the background check.
+   *
+   * Given the id of a check this store made (one a proxy in front made for
+   * the same request, say; an id is handed out once its check ended), it
+   * resolves with that id at once; any other id is ignored and a check is
+   * made.
    */
-  #checkForDraft(): Promise<void> {
-    if (!this.updatable) return Promise.resolve();
+  checkRelease(releaseCheck?: string | null): Promise<string> {
+    if (!this.updatable) return Promise.resolve(this.#checkId(0));
+    if (typeof releaseCheck === "string" && this.#madeCheck(releaseCheck)) {
+      return Promise.resolve(releaseCheck);
+    }
     const running = this.#updating;
-    if (running === undefined) return this.update().then(() => undefined);
+    if (running === undefined) return this.#startCheck();
     this.#queued ??= running.then(() => {
       this.#queued = undefined;
-      return this.update();
+      return this.#startCheck();
     });
-    return this.#queued.then(() => undefined);
+    return this.#queued;
+  }
+
+  /**
+   * Nothing to wait for when this store made the check `releaseCheck` names
+   * (it ended); with no id, or one this store didn't make, makes a check of
+   * its own (`checkRelease`). A source that can't change never waits.
+   */
+  waitForCheck(releaseCheck: string | null | undefined): Promise<void> {
+    if (!this.updatable) return Promise.resolve();
+    return this.checkRelease(releaseCheck).then(() => undefined);
+  }
+
+  #startCheck(): Promise<string> {
+    return this.update().then(() => this.#checkId(++this.#checksDone));
+  }
+
+  #checkId(n: number): string {
+    this.#checkPrefix ??= `${globalThis.crypto.randomUUID()}:`;
+    return `${this.#checkPrefix}${n}`;
+  }
+
+  /** Whether `id` names a check this store made (and so one that ended). */
+  #madeCheck(id: string): boolean {
+    const prefix = this.#checkPrefix;
+    if (prefix === undefined || !id.startsWith(prefix)) return false;
+    const digits = id.slice(prefix.length);
+    return /^\d{1,15}$/.test(digits) && Number(digits) <= this.#checksDone;
   }
 
   /**

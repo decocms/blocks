@@ -34,8 +34,13 @@ import {
   parseAssignmentsSegment,
   withoutDarkTests,
 } from "../assignments.ts";
-import { DRAFT_PARAM, DRAFT_UNAVAILABLE_HEADER, VERSION_HEADER } from "../draft.ts";
-import { allowedDraft, requestLike } from "../drafts.ts";
+import {
+  DRAFT_PARAM,
+  DRAFT_UNAVAILABLE_HEADER,
+  RELEASE_CHECK_HEADER,
+  VERSION_HEADER,
+} from "../draft.ts";
+import { allowedDraft, draftReleaseCheck, requestLike } from "../drafts.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { activeDraftPointer, draftSlot } from "./slot.ts";
 
@@ -56,7 +61,7 @@ export interface BindDraftOptions {
   searchParams?: SearchParams;
 }
 
-type BindCMS = Pick<CMS, "readVersion" | "forRelease">;
+type BindCMS = Pick<CMS, "readVersion" | "forRelease" | "checkRelease">;
 
 function firstParam(searchParams: SearchParams | undefined, key: string): string | null {
   const raw = searchParams?.[key];
@@ -131,9 +136,19 @@ async function bindVersion(cms: BindCMS, options: BindDraftOptions): Promise<boo
   const forwarded = param ?? requestHeaders.get(VERSION_HEADER);
   const query = forwarded ? `?${DRAFT_PARAM}=${encodeURIComponent(forwarded)}` : "";
   const request = requestLike(requestHeaders as Headers, `/${query}`);
-  const version = request ? await allowedDraft(cms, request) : null;
+  if (request === null) return false;
+  // The proxy's release check for this request (`x-deco-release-check`), or one of its own:
+  // the host check here and the page's draft reads share it.
+  const releaseCheck = await draftReleaseCheck(
+    cms,
+    request,
+    requestHeaders.get(RELEASE_CHECK_HEADER),
+  );
+  const version = await allowedDraft(cms, request, releaseCheck);
   if (version === null) return false;
-  draftSlot().version = version;
+  const slot = draftSlot();
+  slot.version = version;
+  slot.releaseCheck = releaseCheck ?? null;
   return true;
 }
 
@@ -145,8 +160,9 @@ async function bindVersion(cms: BindCMS, options: BindDraftOptions): Promise<boo
  * and campaigns decide instead. Create one per request.
  */
 export function contentClient(cms: Pick<CMS, "client">): Client {
-  const { version, visitor, assignments } = draftSlot();
+  const { version, visitor, assignments, releaseCheck } = draftSlot();
   const options: ClientOptions = { visitor, version: version?.version ?? null };
+  if (version !== null && releaseCheck !== null) options.releaseCheck = releaseCheck;
   if (version?.date !== undefined) options.date = version.date;
   const experiments = over(version?.experiments, assignments?.experiments);
   const campaigns = over(version?.campaigns, assignments?.campaigns);

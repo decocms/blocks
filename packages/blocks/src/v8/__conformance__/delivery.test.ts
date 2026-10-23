@@ -913,6 +913,38 @@ describe("draft previews", () => {
     expect(postNames(await read)).toEqual(["A"]);
   });
 
+  it("DP-19d: one draft request, one check: its host check, the binding's read of the draft and the render share cms.checkRelease()'s check, so the request reads latest.json once", async () => {
+    const api = deliveryApi();
+    api.previewHosts(["staging.example.com"]);
+    api.publish(await hashed("Release A", posted("A")));
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE });
+    await cms.update();
+    api.publish(await hashed("Release B", posted("B"))); // Publish: this isolate holds A
+    const before = api.latestFetches();
+    const request = new Request(
+      `https://staging.example.com/?__draft=${encodeURIComponent(pointer)}`,
+    );
+    // What a binding does for one preview request.
+    const releaseCheck = await cms.checkRelease();
+    expect((await cms.readVersion(request, { releaseCheck }))?.version).toBe(pointer);
+    await cms.forDraft(pointer, { releaseCheck }).revision();
+    const render = cms.client({ version: pointer, releaseCheck });
+    expect(postNames(await render.list<{ name: string }>("post"))).toEqual(["B"]);
+    expect(await titleOf(cms.forDraft(pointer, { releaseCheck }))).toBe("Draft");
+    expect(api.latestFetches() - before).toBe(1);
+    // The next request checks again: no time-based throttle.
+    const next = await cms.checkRelease();
+    expect(next).not.toBe(releaseCheck);
+    expect(api.latestFetches() - before).toBe(2);
+    // Given the id of a check it made (a proxy's, for the same request), it waits for that one.
+    expect(await cms.checkRelease(next)).toBe(next);
+    expect(api.latestFetches() - before).toBe(2);
+    // An id it didn't make (another process's) is a check of its own.
+    await cms.forDraft(pointer, { releaseCheck: "another-process:1" }).revision();
+    expect(api.latestFetches() - before).toBe(3);
+  });
+
   it("DP-20: an entry named __proto__ in set stays an entry", async () => {
     const api = deliveryApi();
     const pointer = api.draft({

@@ -49,7 +49,7 @@ import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/exp
 import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
 import { ASSIGNMENTS_HEADER, serializeAssignments } from "../assignments.ts";
-import { draftResponseHeaders, VERSION_HEADER } from "../draft.ts";
+import { draftResponseHeaders, RELEASE_CHECK_HEADER, VERSION_HEADER } from "../draft.ts";
 import { PAGE_STATUS_HEADER } from "../shared.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { type RequestAssignments, readAssignments } from "./assignments.ts";
@@ -240,12 +240,15 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   // The release's redirects, read once per revision (a draft's are read each time).
   let releaseRedirects: { revision: string; list: Promise<Redirect[]> } | undefined;
 
-  async function redirectsFor(pointer: string | null): Promise<Redirect[]> {
+  async function redirectsFor(
+    pointer: string | null,
+    releaseCheck: string | undefined,
+  ): Promise<Redirect[]> {
     const read = async (client: ReturnType<CMS["forRelease"]>) => {
       const [list] = await client.list<Redirect>("redirect");
       return list ?? [];
     };
-    if (pointer) return read(cms.client({ version: pointer }));
+    if (pointer) return read(cms.client({ version: pointer, releaseCheck }));
     const client = cms.client();
     const revision = await client.revision();
     if (releaseRedirects?.revision !== revision) {
@@ -319,9 +322,13 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     }
   }
 
-  async function findRedirect(url: URL, pointer: string | null): Promise<Response | null> {
+  async function findRedirect(
+    url: URL,
+    pointer: string | null,
+    releaseCheck: string | undefined,
+  ): Promise<Response | null> {
     try {
-      const redirects = await redirectsFor(pointer);
+      const redirects = await redirectsFor(pointer, releaseCheck);
       if (!redirects.length) return null;
       const match = matchRoute(url, { routes: [], redirects });
       if (match.kind !== "redirect") return null;
@@ -367,7 +374,13 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       return { request, visitor: null };
     }
     const { visitor, cookie } = readVisitor(request);
-    const assignments = await readAssignments(cms, { visitor, ...draft.version });
+    // A draft's read shares the request's release check (`decideDraft`), never one of its own.
+    const releaseCheck = draft.version ? draft.releaseCheck : undefined;
+    const assignments = await readAssignments(cms, {
+      visitor,
+      ...draft.version,
+      ...(releaseCheck ? { releaseCheck } : {}),
+    });
     const headers = new Headers(request.headers);
     headers.set(VISITOR_HEADER, serializeVisitor(visitor));
     headers.set(ASSIGNMENTS_HEADER, serializeAssignments(assignments));
@@ -418,7 +431,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       !isServerFnPath(url.pathname) &&
       !BYPASS_PATHS.some((p) => url.pathname.startsWith(p))
     ) {
-      const redirect = await findRedirect(url, draft);
+      const redirect = await findRedirect(url, draft, decision.releaseCheck);
       if (redirect) return { response: redirect, redirect: true };
     }
 
@@ -529,11 +542,15 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     // The page reads the version, the visitor and the assignments from these
     // headers; a copy from outside never counts.
     let request = incoming;
-    const own = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER];
+    const own = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER, RELEASE_CHECK_HEADER];
     if (own.some((name) => incoming.headers.has(name)) || decision.version !== null) {
       const headers = new Headers(incoming.headers);
       for (const name of own) headers.delete(name);
       if (decision.version !== null) headers.set(VERSION_HEADER, decision.version.version);
+      // The page's draft reads wait for the request's release check, never one of their own.
+      if (decision.version !== null && decision.releaseCheck !== undefined) {
+        headers.set(RELEASE_CHECK_HEADER, decision.releaseCheck);
+      }
       request = new Request(incoming, { headers });
     }
 

@@ -50,7 +50,7 @@
  * page. `http.server.request.duration` comes from Next's own request span
  * (`register` from `@decocms/nextjs/instrumentation`).
  */
-import { type CMS, parseDraftPointer, type RequestVersion } from "@decocms/blocks";
+import type { CMS, RequestVersion } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { type NextRequest, NextResponse } from "next/server.js";
 import {
@@ -65,12 +65,14 @@ import {
   DRAFT_ROUTE_PREFIX,
   DRAFT_UNAVAILABLE_HEADER,
   draftResponseHeaders,
+  RELEASE_CHECK_HEADER,
   VERSION_HEADER,
 } from "../draft.ts";
 import {
   allowedDraft,
   draftCookie,
   draftLinkValue,
+  draftReleaseCheck,
   endsPreview,
   hasDraftSignal,
   requestLike,
@@ -83,7 +85,7 @@ export { requestLike } from "../drafts.ts";
  * What the draft decision needs from the CMS: its preview host check, the
  * release, and the draft a link names (read once before the page renders).
  */
-export type CMSHandle = Pick<CMS, "readVersion" | "forRelease" | "forDraft">;
+export type CMSHandle = Pick<CMS, "readVersion" | "forRelease" | "forDraft" | "checkRelease">;
 
 /** What the proxy does with a request's draft state. */
 export interface DraftDecision {
@@ -109,6 +111,12 @@ export interface DraftDecision {
    * the calm notice (`x-deco-draft-unavailable`), never an error page.
    */
   unavailable?: true;
+  /**
+   * The release check made for this draft request (`cms.checkRelease()`),
+   * forwarded on `x-deco-release-check`: the host check, the draft read here
+   * and the page's all wait for it, so the request reads `latest.json` once.
+   */
+  releaseCheck?: string;
 }
 
 export {
@@ -132,19 +140,13 @@ const RELEASE_PREVIEW: DraftDecision = Object.freeze({
   setCookie: null,
   preview: true,
 });
-/** A draft version that names no draft: the release, nothing fetched. */
-const LOCAL_VERSION = "local";
-
-/** Whether a version names a saved draft (a pointer, not a release's SHA and not `local`). */
-function namesDraft(version: string): boolean {
-  const parsed = parseDraftPointer(version);
-  return parsed !== null && parsed.version !== LOCAL_VERSION;
-}
 
 /**
  * The version a request renders and the cookie its response sets, on a host
  * the CMS allows (as the pages' `bindDraft` checks again). A request with
- * no `?__draft=` and no draft cookie never reaches the CMS. A draft pointer
+ * no `?__draft=` and no draft cookie never reaches the CMS. A draft request
+ * checks for the latest release once (`cms.checkRelease()`), shared by the
+ * host check, the read below and the page. A draft pointer
  * is read once here (`forDraft(...).revision()`, the read the page makes
  * again): a draft that can't be read gives the release and `unavailable`.
  */
@@ -157,11 +159,13 @@ export async function decideDraft(
   if (like === null || !hasDraftSignal(like)) return INERT;
   // Ending a preview is allowed on any host, so a cookie set earlier always goes.
   if (endsPreview(like)) return { ...RELEASE_PREVIEW, setCookie: expiredCookie() };
-  const version = await allowedDraft(cms, like);
+  // One release check per draft request, shared below and by the page.
+  const releaseCheck = await draftReleaseCheck(cms, like);
+  const version = await allowedDraft(cms, like, releaseCheck);
   if (version === null) return RELEASE_PREVIEW;
-  if (namesDraft(version.version)) {
+  if (releaseCheck !== undefined) {
     try {
-      await cms.forDraft(version.version).revision();
+      await cms.forDraft(version.version, { releaseCheck }).revision();
     } catch (error) {
       // Gone (deleted): the preview ends. Any other failure (the drafts' host
       // down, a timeout) leaves the cookie alone, so the next request tries again.
@@ -174,6 +178,7 @@ export async function decideDraft(
     version,
     setCookie: link ? draftCookie(encodeURIComponent(link)) : null,
     preview: true,
+    ...(releaseCheck === undefined ? {} : { releaseCheck }),
   };
 }
 
@@ -195,7 +200,13 @@ function expiredCookie(): string {
 }
 
 /** The headers the proxy writes for the pages: never taken from outside. */
-const OWN_HEADERS = [VERSION_HEADER, VISITOR_HEADER, ASSIGNMENTS_HEADER, DRAFT_UNAVAILABLE_HEADER];
+const OWN_HEADERS = [
+  VERSION_HEADER,
+  VISITOR_HEADER,
+  ASSIGNMENTS_HEADER,
+  DRAFT_UNAVAILABLE_HEADER,
+  RELEASE_CHECK_HEADER,
+];
 
 /**
  * The request headers to forward: the accepted version on `x-deco-version`,
@@ -212,6 +223,9 @@ export function draftRequestHeaders(
   const headers = new Headers(request.headers);
   for (const name of OWN_HEADERS) headers.delete(name);
   if (decision.version) headers.set(VERSION_HEADER, decision.version.version);
+  if (decision.version && decision.releaseCheck) {
+    headers.set(RELEASE_CHECK_HEADER, decision.releaseCheck);
+  }
   if (decision.unavailable) headers.set(DRAFT_UNAVAILABLE_HEADER, "1");
   return headers;
 }
@@ -268,8 +282,9 @@ export function applyVisitor<R extends Response>(response: R, decision: VisitorD
 
 /**
  * Each test and campaign on or off for this request, decided once:
- * `cms.client({ visitor, ...version })` (the visitor, and the Studio link's
- * version, moment and switched tests and campaigns) resolving the saved
+ * `cms.client({ visitor, ...version, releaseCheck })` (the visitor, the Studio
+ * link's version, moment and switched tests and campaigns, and the request's
+ * release check) resolving the saved
  * `experiments` and `campaigns` blocks. Missing blocks, or content that
  * doesn't load, give none, never an error.
  */
@@ -278,9 +293,13 @@ export function decideAssignments(
   draft: DraftDecision,
   visitor: VisitorDecision,
 ): Promise<RequestAssignments> {
-  return readAssignmentsAndScope(cms, { visitor: visitor.visitor, ...draft.version }).then(
-    (read) => read.assignments,
-  );
+  // A draft's read shares the request's release check (`decideDraft`), never one of its own.
+  const releaseCheck = draft.version ? draft.releaseCheck : undefined;
+  return readAssignmentsAndScope(cms, {
+    visitor: visitor.visitor,
+    ...draft.version,
+    ...(releaseCheck ? { releaseCheck } : {}),
+  }).then((read) => read.assignments);
 }
 
 /**

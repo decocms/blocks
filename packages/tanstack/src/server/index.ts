@@ -7,15 +7,17 @@
  * outside: the version on `x-deco-version` (a Studio link's draft or old
  * release, after the host allowlist), the visitor on `x-deco-visitor`
  * (`readVisitor` from `@decocms/blocks/experiments`) and each test and
- * campaign on or off on `x-deco-assignments`. These read them, and
- * `contentClient` builds `cms.client({ version, experiments, campaigns })`
- * from them: the page decides nothing again.
+ * campaign on or off on `x-deco-assignments`, and for a draft the release
+ * check it made on `x-deco-release-check`. These read them, and
+ * `contentClient` builds `cms.client({ version, releaseCheck, experiments,
+ * campaigns })` from them: the page decides nothing again, and its draft
+ * reads share the worker's check of the latest release.
  */
 import type { Client, CMS } from "@decocms/blocks";
 import { parseVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { ASSIGNMENTS_HEADER, type DecidedAssignments, parseAssignments } from "../assignments.ts";
-import { VERSION_HEADER } from "../draft.ts";
+import { RELEASE_CHECK_HEADER, VERSION_HEADER } from "../draft.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 
 /**
@@ -54,8 +56,12 @@ export function requestAssignments(request: Request = getRequest()): DecidedAssi
  */
 export function contentClient(cms: CMS, request: Request = getRequest()): Client {
   const decided = requestAssignments(request);
+  const version = requestVersion(request);
+  // The worker's release check for this draft request: the draft waits for it, never one of its own.
+  const releaseCheck = version === null ? null : request.headers.get(RELEASE_CHECK_HEADER);
   return cms.client({
-    version: requestVersion(request),
+    version,
+    ...(releaseCheck ? { releaseCheck } : {}),
     visitor: requestVisitor(request),
     experiments: decided?.experiments,
     campaigns: decided?.campaigns,
