@@ -262,9 +262,13 @@ createCMS({ blocks, content, telemetry: { site: "s", token: "t" } });
 // @ts-expect-error not a documented option
 createCMS({ blocks, content, ignoreCase: true });
 
-assert<Equal<keyof CMS, "client" | "forRelease" | "forDraft" | "update" | "settings" | "readVersion" | "draftPointer" | "draftCookie">>();
+assert<Equal<keyof CMS, "client" | "forRelease" | "forDraft" | "checkRelease" | "update" | "settings" | "readVersion" | "draftPointer" | "draftCookie">>();
 assert<Equal<CMS["client"], (options?: ClientOptions) => Client>>();
-assert<Equal<CMS["readVersion"], (request: RequestLike) => Promise<RequestVersion | null>>>();
+assert<Equal<
+  CMS["readVersion"],
+  (request: RequestLike, options?: { releaseCheck?: string | null }) => Promise<RequestVersion | null>
+>>();
+assert<Equal<CMS["checkRelease"], (releaseCheck?: string | null) => Promise<string>>>();
 assert<Equal<typeof parseVersion, (value: string | null | undefined) => RequestVersion | null>>();
 assert<Equal<
   RequestVersion,
@@ -276,12 +280,13 @@ assert<Equal<CMS["draftCookie"], (request: RequestLike) => Promise<string | null
 assert<Equal<RequestLike, Request | { url: string; headers: { get(name: string): string | null } }>>();
 assert<Equal<CMSSettings, { telemetry?: Telemetry; analytics?: Analytics }>>();
 assert<Equal<EffectiveSettings, { preview: { hosts: string[] }; telemetry: Required<Telemetry>; analytics: Required<Analytics> }>>();
-assert<Equal<CMS["forDraft"], (pointer: string) => Client>>();
+assert<Equal<CMS["forDraft"], (pointer: string, options?: { releaseCheck?: string | null }) => Client>>();
 assert<Equal<CMS["forRelease"], () => Client>>();
 assert<Equal<
   ClientOptions,
   {
     version?: string | null;
+    releaseCheck?: string | null;
     visitor?: Visitor | null;
     date?: Date | null;
     experiments?: Partial<Assignments> | null;

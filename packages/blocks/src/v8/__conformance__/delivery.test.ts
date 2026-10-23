@@ -118,7 +118,18 @@ function deliveryApi() {
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
     requests.push({ url, headers, init });
     if (failAll) throw new TypeError("fetch failed");
-    await gates.get(new URL(url).pathname)?.promise;
+    const gate = gates.get(new URL(url).pathname)?.promise;
+    if (gate) {
+      // A fetch that waits ends when its signal does, as a real one (the loader's timeout).
+      const signal = init?.signal;
+      await Promise.race([
+        gate,
+        new Promise((_, reject) => {
+          if (signal?.aborted) reject(signal.reason);
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+      ]);
+    }
     if (url.startsWith(DRAFTS)) return drafts.fetch(url, init);
     if (!url.startsWith(ORIGIN)) return new Response("wrong host", { status: 599 });
     const p = url.slice(ORIGIN.length).split("?")[0] ?? "";
@@ -208,11 +219,13 @@ describe("content-delivery", () => {
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     const urls = api.requests.map((r) => r.url);
     expect(urls.filter((url) => url.startsWith(DRAFTS))).toHaveLength(1);
+    // The check, the release it names, then the draft read's own check (DP-19).
     expect(urls.filter((url) => url.startsWith(`${ORIGIN}/`) && !url.startsWith(DRAFTS))).toEqual([
       LATEST_URL,
       expect.stringMatching(/\/sites\/acme\/revisions\/[0-9a-f]{40}\.json$/),
+      LATEST_URL,
     ]);
-    expect(urls).toHaveLength(3);
+    expect(urls).toHaveLength(4);
   });
 
   it("CD-3: the bundled module's revision is the canonical content hash; a release's is its commit SHA", async () => {
@@ -822,29 +835,114 @@ describe("draft previews", () => {
     expect(pages).toHaveLength(2);
   });
 
-  it("DP-19: release checks don't depend on drafts: a draft client schedules the same check, never in front of it", async () => {
+  const posted = (name: string) => ({
+    HelloWorld: { __resolveType: "post", name, path: "/x", date: "2026-10-02" },
+  });
+  const postNames = (read: readonly [{ name: string }[] | null, unknown]) =>
+    read[0]?.map((post) => post.name);
+
+  it("DP-19: a draft read first checks for a new release and waits for it: an isolate holding release A whose latest.json moved to B renders the draft over B on the first request", async () => {
     const api = deliveryApi();
-    api.publish(
-      await hashed("Published", {
-        HelloWorld: { __resolveType: "post", name: "Republished", path: "/x", date: "2026-10-02" },
-      }),
-    );
-    const channel = api.gate("/sites/acme/latest.json"); // the background check hangs
+    const a = await hashed("Release A", posted("A"));
+    api.publish(a);
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = cmsOf({ site: SITE });
-    const first = cms.forDraft(pointer);
-    expect((await first.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
-      "Hello, world",
-    ]); // cold: the fallback is the base
-    expect(api.assetFetches()).toBe(0);
-    expect(api.latestFetches()).toBeLessThanOrEqual(1); // scheduled beside the draft, still pending
-    channel.resolve();
+    await cms.update();
+    expect(await cms.forRelease().revision()).toBe(a.revision); // the isolate holds A
+    const b = await hashed("Release B", posted("B"));
+    api.publish(b); // Publish: latest.json names B; this isolate hasn't checked yet
+    const draft = cms.forDraft(pointer);
+    expect(await titleOf(draft)).toBe("Draft");
+    expect(postNames(await draft.list<{ name: string }>("post"))).toEqual(["B"]);
+    expect(await draft.revision()).toContain(b.revision);
+    // Swapped in as the background check swaps a release: the next visitor gets B too.
+    expect(await cms.forRelease().revision()).toBe(b.revision);
+  });
+
+  it("DP-19b: concurrent draft reads share one check; a read arriving while a check is in flight waits for the next one", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE });
+    await cms.update(); // nothing published yet: the bundle
+    const before = api.latestFetches();
+    const a = await hashed("Release A", posted("A"));
+    api.publish(a);
+    const download = api.gate(api.assetPath(a.revision)); // the first check is slow to download A
+    const first = cms.forDraft(pointer).list<{ name: string }>("post");
     await flush();
-    const next = cms.forDraft(pointer);
-    expect(await titleOf(next)).toBe("Draft");
-    expect((await next.list<{ name: string }>("post"))[0]?.map((p) => p.name)).toEqual([
-      "Republished",
-    ]);
+    expect(api.latestFetches() - before).toBe(1);
+    const b = await hashed("Release B", posted("B"));
+    api.publish(b); // published while that check runs: it can't see B
+    const burst = [1, 2, 3].map(() => cms.forDraft(pointer).list<{ name: string }>("post"));
+    await flush();
+    expect(api.latestFetches() - before).toBe(1); // the burst waits for the next check
+    download.resolve();
+    expect(postNames(await first)).toEqual(["A"]);
+    for (const read of burst) expect(postNames(await read)).toEqual(["B"]);
+    expect(api.latestFetches() - before).toBe(2); // one check for the whole burst
+  });
+
+  it("DP-19c: a failed or hanging check never fails the draft: after the timeout it renders over the release held", async () => {
+    const api = deliveryApi();
+    const a = await hashed("Release A", posted("A"));
+    api.publish(a);
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE });
+    await cms.update();
+    // Failing: latest.json answers 503.
+    api.setLatest(new Response("unavailable", { status: 503 }));
+    const failing = cms.forDraft(pointer);
+    expect(await titleOf(failing)).toBe("Draft");
+    expect(postNames(await failing.list<{ name: string }>("post"))).toEqual(["A"]);
+    // Hanging: the check waits until the loader's fetch timeout ends it.
+    const timeouts: AbortController[] = [];
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
+      const controller = new AbortController();
+      timeouts.push(controller);
+      return controller.signal;
+    });
+    api.publish(await hashed("Release B", posted("B")));
+    api.gate("/sites/acme/latest.json"); // never answers
+    const read = cms.forDraft(pointer).list<{ name: string }>("post");
+    expect(await Promise.race([read.then(() => "rendered"), flush(50).then(() => "waiting")])).toBe(
+      "waiting",
+    );
+    for (const controller of timeouts) {
+      controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+    }
+    expect(postNames(await read)).toEqual(["A"]);
+  });
+
+  it("DP-19d: one draft request, one check: its host check, the binding's read of the draft and the render share cms.checkRelease()'s check, so the request reads latest.json once", async () => {
+    const api = deliveryApi();
+    api.previewHosts(["staging.example.com"]);
+    api.publish(await hashed("Release A", posted("A")));
+    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+    const cms = cmsOf({ site: SITE });
+    await cms.update();
+    api.publish(await hashed("Release B", posted("B"))); // Publish: this isolate holds A
+    const before = api.latestFetches();
+    const request = new Request(
+      `https://staging.example.com/?__draft=${encodeURIComponent(pointer)}`,
+    );
+    // What a binding does for one preview request.
+    const releaseCheck = await cms.checkRelease();
+    expect((await cms.readVersion(request, { releaseCheck }))?.version).toBe(pointer);
+    await cms.forDraft(pointer, { releaseCheck }).revision();
+    const render = cms.client({ version: pointer, releaseCheck });
+    expect(postNames(await render.list<{ name: string }>("post"))).toEqual(["B"]);
+    expect(await titleOf(cms.forDraft(pointer, { releaseCheck }))).toBe("Draft");
+    expect(api.latestFetches() - before).toBe(1);
+    // The next request checks again: no time-based throttle.
+    const next = await cms.checkRelease();
+    expect(next).not.toBe(releaseCheck);
+    expect(api.latestFetches() - before).toBe(2);
+    // Given the id of a check it made (a proxy's, for the same request), it waits for that one.
+    expect(await cms.checkRelease(next)).toBe(next);
+    expect(api.latestFetches() - before).toBe(2);
+    // An id it didn't make (another process's) is a check of its own.
+    await cms.forDraft(pointer, { releaseCheck: "another-process:1" }).revision();
+    expect(api.latestFetches() - before).toBe(3);
   });
 
   it("DP-20: an entry named __proto__ in set stays an entry", async () => {

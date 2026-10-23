@@ -15,6 +15,11 @@ export interface RequestScope {
   csegToken?: string;
   /** The draft this request renders (after the worker's host check). */
   draft?: string;
+  /**
+   * The request's link named a draft that can't be read anymore: the page
+   * renders the release, and `DecoPreview` says so calmly (outside Studio's frame).
+   */
+  draftUnavailable?: boolean;
 }
 
 const KEY = Symbol.for("decocms.tanstack.requestScope");

@@ -101,7 +101,11 @@ function StudioPieces({
   editShortcut,
   nonce,
   draft,
-}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce"> & { draft: string | undefined }) {
+  draftUnavailable,
+}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce"> & {
+  draft: string | undefined;
+  draftUnavailable?: boolean;
+}) {
   // Two primitives, so a navigation that keeps the page doesn't re-render the document.
   const pathTemplate = useRouterState({ select: (s) => studioPageOf(s.matches)?.pathTemplate });
   const pageId = useRouterState({ select: (s) => studioPageOf(s.matches)?.id });
@@ -114,7 +118,7 @@ function StudioPieces({
         page={{ pathTemplate, id: pageId }}
         nonce={nonce}
       />
-      <DraftBadge pointer={draft ?? null} />
+      <DraftBadge pointer={draft ?? null} unavailable={draftUnavailable} />
     </>
   );
 }
@@ -151,7 +155,13 @@ export function DecoPreview({ site, editShortcut, nonce }: DecoPreviewProps) {
           dangerouslySetInnerHTML={{ __html: publish }}
         />
       )}
-      <StudioPieces site={site} editShortcut={editShortcut} nonce={nonce} draft={values.draft} />
+      <StudioPieces
+        site={site}
+        editShortcut={editShortcut}
+        nonce={nonce}
+        draft={values.draft}
+        draftUnavailable={values.draftUnavailable}
+      />
     </>
   );
 }
@@ -225,7 +235,13 @@ export function DecoDocument({
           <StableOutlet />
         </Outer>
         {children}
-        <StudioPieces site={site} editShortcut={editShortcut} nonce={nonce} draft={values.draft} />
+        <StudioPieces
+          site={site}
+          editShortcut={editShortcut}
+          nonce={nonce}
+          draft={values.draft}
+          draftUnavailable={values.draftUnavailable}
+        />
         <ScriptOnce>{DATA_EVENT_OBSERVER}</ScriptOnce>
         <Scripts />
       </body>

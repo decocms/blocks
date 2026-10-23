@@ -43,6 +43,7 @@ import type {
   CMSConfig,
   EffectiveSettings,
   Loader,
+  ReleaseCheckOptions,
   RequestLike,
   RequestVersion,
   Snapshot,
@@ -132,12 +133,14 @@ class CMSInstance {
     if (version === undefined) return this.#client(blocks, this.#release(blocks), inputs);
     const parsed = parseClientVersion(version);
     // A version that doesn't parse fails on the first read, as an invalid pointer always has.
-    if (parsed === null) return this.#client(blocks, () => this.#store.draft(version), inputs);
+    const check = options.releaseCheck;
+    if (parsed === null)
+      return this.#client(blocks, () => this.#store.draft(version, check), inputs);
     if (parsed.kind === "revision") {
       return this.#client(blocks, () => this.#store.revision(parsed.sha), inputs);
     }
     const { variants } = parsed.pointer;
-    const load = () => this.#store.draft(version);
+    const load = () => this.#store.draft(version, check);
     if (variants === undefined) return this.#client(blocks, load, inputs);
     return this.#client(blocks, () => load().then((s) => forceVariants(s, variants)), inputs);
   }
@@ -167,10 +170,23 @@ class CMSInstance {
     return deepFreeze({ ...saved, preview: { hosts: previewHosts(hosts, this.#codeHosts) } });
   }
 
-  async readVersion(request: RequestLike): Promise<RequestVersion | null> {
+  async readVersion(
+    request: RequestLike,
+    options: ReleaseCheckOptions = {},
+  ): Promise<RequestVersion | null> {
     const version = readVersion(request);
     if (version === null) return null;
+    // The request's release check first: it reads `latest.json`, the preview hosts with it.
+    if (typeof options.releaseCheck === "string") {
+      await this.#store.waitForCheck(options.releaseCheck);
+    }
     return (await this.#previewAllowed(request)) ? version : null;
+  }
+
+  /** A release check for one draft request (see `ContentStore.checkRelease`); it counts as the background's too. */
+  checkRelease(releaseCheck?: string | null): Promise<string> {
+    if (this.#store.updatable) this.#nextCheck = this.#due();
+    return this.#store.checkRelease(releaseCheck);
   }
 
   async draftCookie(request: RequestLike): Promise<string | null> {
@@ -291,7 +307,8 @@ class CMSInstance {
 
   /**
    * Checks a content source with `update()` on first use and then every
-   * `interval` (± up to 10 s), at an idle moment, never in front of a request.
+   * `interval` (± up to 10 s), at an idle moment, never in front of a release
+   * request (a draft read waits for a check of its own: `ContentStore.draft`).
    */
   #scheduleUpdate(): void {
     if (!this.#store.updatable) return;
@@ -344,8 +361,15 @@ class CMSHandle implements CMS {
     return this.#instance.client(this.#blocks);
   }
 
-  forDraft(pointer: string): Client {
-    return this.#instance.client(this.#blocks, { version: pointer });
+  forDraft(pointer: string, options: ReleaseCheckOptions = {}): Client {
+    return this.#instance.client(this.#blocks, {
+      version: pointer,
+      releaseCheck: options.releaseCheck ?? null,
+    });
+  }
+
+  checkRelease(releaseCheck?: string | null): Promise<string> {
+    return this.#instance.checkRelease(releaseCheck);
   }
 
   update(): Promise<{ updated: boolean }> {
@@ -356,8 +380,8 @@ class CMSHandle implements CMS {
     return this.#instance.settings(this.#blocks);
   }
 
-  readVersion(request: RequestLike): Promise<RequestVersion | null> {
-    return this.#instance.readVersion(request);
+  readVersion(request: RequestLike, options?: ReleaseCheckOptions): Promise<RequestVersion | null> {
+    return this.#instance.readVersion(request, options);
   }
 
   async draftPointer(request: RequestLike): Promise<string | null> {

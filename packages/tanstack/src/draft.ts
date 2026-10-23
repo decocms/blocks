@@ -31,15 +31,35 @@ export const DRAFT_COOKIE = "__deco_draft";
 export const VERSION_HEADER = "x-deco-version";
 
 /**
- * The response headers of a page rendered from a draft: never stored by a
- * browser or a CDN (`Cache-Control: no-store, private`, `Vary: Cookie`) and
- * never indexed (`X-Robots-Tag: noindex, nofollow`). `{}` when `version` is
- * `null`, so the result of the draft decision applies as is.
+ * The request header the worker sets on a draft request: the id of the
+ * release check it made for it (`cms.checkRelease()`), so the page's draft
+ * reads wait for that check instead of making their own (one `latest.json`
+ * read per preview request). The worker removes any copy that arrives from
+ * outside; an id the CMS didn't make is a check of its own anyway.
  */
-export function draftResponseHeaders(version: string | null | undefined): Record<string, string> {
-  if (!version) return {};
+export const RELEASE_CHECK_HEADER = "x-deco-release-check";
+
+/**
+ * The `Cache-Control` of every response to a preview request (a request with
+ * `?__draft=`, whatever its value, or the draft cookie): always revalidated,
+ * never answered from a cache (PO 2026-10-23).
+ */
+export const DRAFT_CACHE_CONTROL = "max-age=0, no-cache, must-revalidate";
+
+/**
+ * The response headers of a preview: never answered from a browser's or a
+ * CDN's cache (`Cache-Control: max-age=0, no-cache, must-revalidate`, `Vary:
+ * Cookie`) and never indexed (`X-Robots-Tag: noindex, nofollow`). `{}` when
+ * `preview` is `null`, `false` or empty, so the result of the draft decision
+ * applies as is: pass the version, or whether the request carries a draft
+ * signal at all (`?__draft=off` and a refused or unavailable draft too).
+ */
+export function draftResponseHeaders(
+  preview: string | boolean | null | undefined,
+): Record<string, string> {
+  if (!preview) return {};
   return {
-    "Cache-Control": "no-store, private",
+    "Cache-Control": DRAFT_CACHE_CONTROL,
     Vary: "Cookie",
     "X-Robots-Tag": "noindex, nofollow",
   };

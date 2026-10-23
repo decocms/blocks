@@ -6,12 +6,15 @@
  */
 import type { CMS } from "@decocms/blocks";
 import { VERSION_HEADER } from "../draft.ts";
+import { hasDraftSignal } from "./drafts.ts";
 
 /**
  * Whether a request may be served from or stored in a shared cache at all:
  * a GET of the current release (`version` `null`: never a preview, a draft
- * or an old release), outside local development, without `Authorization`,
- * and not one of TanStack Start's own `/_build` files. The worker calls a
+ * or an old release), carrying no draft signal at all (no `?__draft=`, `off`
+ * included, and no draft cookie: a preview always renders), outside local
+ * development, without `Authorization`, and not one of TanStack Start's own
+ * `/_build` files. The worker calls a
  * site's `pageCache` only for these.
  */
 export function isCacheable(
@@ -23,6 +26,7 @@ export function isCacheable(
     inputs.version === null &&
     inputs.dev !== true &&
     !request.headers.has("authorization") &&
+    !hasDraftSignal(request) &&
     !new URL(request.url).pathname.startsWith("/_build")
   );
 }

@@ -33,6 +33,7 @@ vi.mock("react", async (original) => {
 
 const { activeDraftPointer, bindDraft, contentClient, assignedClient, assignmentsSegment } =
   await import("./index.ts");
+const { draftUnavailable } = await import("./slot.ts");
 
 function serve(headers: Record<string, string>): void {
   request.headers = new Headers({ host: "shop.example.com", ...headers });
@@ -70,6 +71,16 @@ describe("bindDraft", () => {
     expect(await bindDraft(testCMS())).toBe(false);
   });
 
+  it("the proxy's x-deco-draft-unavailable: the release with the notice, even with the page's ?__draft=", async () => {
+    serve({ "x-deco-draft-unavailable": "1", ...cookie });
+    expect(await bindDraft(testCMS(), { searchParams: { __draft: POINTER } })).toBe(false);
+    expect(activeDraftPointer()).toBe(null);
+    expect(draftUnavailable()).toBe(true);
+    serve(cookie);
+    expect(await bindDraft(testCMS())).toBe(true);
+    expect(draftUnavailable()).toBe(false);
+  });
+
   it("the same host allowlist as the proxy, on the visitor's host", async () => {
     const cms = testCMS(snapshot({ previewHosts: ["staging.shop.example.com"] }));
     serve({ "x-deco-version": POINTER });
@@ -98,7 +109,11 @@ describe("contentClient", () => {
     serve({ ...cookie, "x-deco-visitor": serializeVisitor(visitor) });
     await bindDraft(testCMS());
     contentClient(cms as never);
-    expect(cms.client).toHaveBeenLastCalledWith({ visitor, version: POINTER });
+    expect(cms.client).toHaveBeenLastCalledWith({
+      visitor,
+      version: POINTER,
+      releaseCheck: expect.any(String),
+    });
   });
 });
 
@@ -126,7 +141,11 @@ describe("the visitor the proxy forwarded", () => {
     serve({ ...cookie, "x-deco-visitor": serializeVisitor(visitor) });
     expect(await bindDraft(testCMS())).toBe(true);
     contentClient(cms as never);
-    expect(cms.client).toHaveBeenLastCalledWith({ visitor, version: POINTER });
+    expect(cms.client).toHaveBeenLastCalledWith({
+      visitor,
+      version: POINTER,
+      releaseCheck: expect.any(String),
+    });
   });
 
   it("a preview link's moment and switched tests and campaigns reach the client; the proxy's decisions win", async () => {
@@ -143,6 +162,7 @@ describe("the visitor the proxy forwarded", () => {
     expect(cms.client).toHaveBeenLastCalledWith({
       visitor: null,
       version: POINTER,
+      releaseCheck: expect.any(String),
       date: new Date("2026-11-28T10:00:00Z"),
       experiments: { a: true },
       campaigns: { c: false },
@@ -158,6 +178,7 @@ describe("the visitor the proxy forwarded", () => {
     expect(cms.client).toHaveBeenLastCalledWith({
       visitor: null,
       version: POINTER,
+      releaseCheck: expect.any(String),
       date: new Date("2026-11-28T10:00:00Z"),
       experiments: { a: true, b: false },
       campaigns: { c: true },

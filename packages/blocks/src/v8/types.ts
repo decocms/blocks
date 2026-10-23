@@ -372,6 +372,14 @@ export interface ClientOptions {
    */
   version?: string | null;
   /**
+   * For a draft: the release check made for this request
+   * (`cms.checkRelease()`), so the draft waits for it instead of making a
+   * check of its own; one request, one read of the release metadata. An id
+   * this CMS didn't make (another process's) is a check of its own. Ignored
+   * for the release and a release's SHA.
+   */
+  releaseCheck?: string | null;
+  /**
    * Who is visiting (`readVisitor`, `parseVisitor` or `newVisitor` from
    * `@decocms/blocks/experiments`): the saved block `experiments` decides
    * its tests for them. Without one, every test not in `experiments` is off.
@@ -412,6 +420,13 @@ export interface RequestVersion {
   campaigns?: Assignments;
 }
 
+/**
+ * `cms.readVersion`'s and `cms.forDraft`'s options: the release check made
+ * for the request (`cms.checkRelease()`), so they share it instead of
+ * checking again.
+ */
+export type ReleaseCheckOptions = { releaseCheck?: string | null };
+
 export interface CMS {
   /**
    * A client: the version it reads and the visitor it decides tests for, both
@@ -426,7 +441,22 @@ export interface CMS {
    * default; `createCMS({ preview: { draftHosts } })` replaces the list) and
    * laid over this server's production content.
    */
-  forDraft(pointer: string): Client;
+  forDraft(pointer: string, options?: ReleaseCheckOptions): Client;
+  /**
+   * Checks for the latest release now, as a draft read does before it
+   * renders, and resolves with that check's id once it ends; never rejects.
+   * A request arriving while a check runs waits for the next one, shared by
+   * every request arriving meanwhile; there is no time-based throttle. Pass
+   * the id as `releaseCheck` to `readVersion`, `forDraft` and `client` for
+   * the same request, so its host check, its draft reads and its render
+   * share one check: one read of `latest.json` per preview request. A
+   * binding (`@decocms/tanstack`'s worker, `@decocms/nextjs`'s proxy) makes
+   * one per draft request and hands it down. Given the id of a check this
+   * CMS made (one the proxy in front made for the same request), it waits
+   * for that check and resolves with the same id; an id it didn't make
+   * (another process's) is ignored, and it checks.
+   */
+  checkRelease(releaseCheck?: string | null): Promise<string>;
   /** Ask the content source for newer content now; never throws. */
   update(): Promise<{ updated: boolean }>;
   /**
@@ -453,8 +483,12 @@ export interface CMS {
    * ```ts
    * const client = cms.client({ visitor, ...(await cms.readVersion(request)) });
    * ```
+   *
+   * With `releaseCheck` (the id `checkRelease()` resolved with for this
+   * request), the host check uses the preview hosts that check read instead
+   * of reading the release metadata again.
    */
-  readVersion(request: RequestLike): Promise<RequestVersion | null>;
+  readVersion(request: RequestLike, options?: ReleaseCheckOptions): Promise<RequestVersion | null>;
   /** The version alone (`readVersion(request)`'s `version`), under its earlier name. */
   draftPointer(request: RequestLike): Promise<string | null>;
   /**

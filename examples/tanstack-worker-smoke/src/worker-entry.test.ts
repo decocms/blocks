@@ -13,7 +13,7 @@ import {
   serializeVisitor,
   type Visitor,
 } from "@decocms/blocks/experiments";
-import { DRAFT_PARAM } from "@decocms/tanstack";
+import { DRAFT_COOKIE, DRAFT_PARAM } from "@decocms/tanstack";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const doubles = vi.hoisted(() => {
@@ -192,8 +192,11 @@ describe("the page cache", () => {
 
   it("previews never reach the cache: a draft renders, uncached, and stores nothing", async () => {
     await get("/");
+    // The drafts' host answers the pointer's (empty) changes: the worker reads the draft first.
+    vi.stubGlobal("fetch", async () => Response.json({ set: {}, delete: [] }));
     const draft = await get(`/?${DRAFT_PARAM}=${encodeURIComponent(POINTER)}`);
-    expect(draft.headers.get("cache-control")).toBe("no-store, private");
+    expect(draft.headers.get("set-cookie")).toContain(`${DRAFT_COOKIE}=studio`);
+    expect(draft.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
     expect(draft.headers.has("x-cache")).toBe(false);
     expect(doubles.served).toHaveLength(2);
     expect(cache.keys()).toEqual([KEY]);

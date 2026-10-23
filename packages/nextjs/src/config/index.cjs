@@ -25,7 +25,7 @@
 
 /** `draftResponseHeaders(pointer)` (`src/draft.ts`), as `next.config` header entries. */
 const DRAFT_NO_STORE_HEADERS = [
-  { key: "Cache-Control", value: "no-store, private" },
+  { key: "Cache-Control", value: "max-age=0, no-cache, must-revalidate" },
   { key: "Vary", value: "Cookie" },
   { key: "X-Robots-Tag", value: "noindex, nofollow" },
 ];

@@ -18,9 +18,9 @@ describe("the draft names", () => {
 });
 
 describe("draftResponseHeaders", () => {
-  it("a draft page is never stored and never indexed", () => {
+  it("a preview is always revalidated (max-age=0, no-cache, must-revalidate), never indexed", () => {
     expect(draftResponseHeaders(POINTER)).toEqual({
-      "Cache-Control": "no-store, private",
+      "Cache-Control": "max-age=0, no-cache, must-revalidate",
       Vary: "Cookie",
       "X-Robots-Tag": "noindex, nofollow",
     });
@@ -30,6 +30,11 @@ describe("draftResponseHeaders", () => {
     expect(draftResponseHeaders(null)).toEqual({});
     expect(draftResponseHeaders(undefined)).toEqual({});
     expect(draftResponseHeaders("")).toEqual({});
+    expect(draftResponseHeaders(false)).toEqual({});
+  });
+
+  it("the same headers for any draft signal (true): ?__draft=off, a refused or unavailable draft", () => {
+    expect(draftResponseHeaders(true)).toEqual(draftResponseHeaders(POINTER));
   });
 
   it("each call returns its own object", () => {
@@ -40,7 +45,7 @@ describe("draftResponseHeaders", () => {
 
   it("applies to a Response's headers", () => {
     const response = new Response("x", { headers: draftResponseHeaders(POINTER) });
-    expect(response.headers.get("cache-control")).toBe("no-store, private");
+    expect(response.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");
     expect(response.headers.get("vary")).toBe("Cookie");
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
