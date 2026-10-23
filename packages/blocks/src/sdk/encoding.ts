@@ -14,19 +14,28 @@ function toBytes(data: ArrayBuffer | Uint8Array | string): Uint8Array {
   return data;
 }
 
+type NativeBase64 = { toBase64?: () => string };
+type NativeFromBase64 = { fromBase64?: (b64: string) => Uint8Array<ArrayBuffer> };
+
 export function encodeBase64(data: ArrayBuffer | Uint8Array | string): string {
   const bytes = toBytes(data);
-  // Build the binary string in chunks to avoid blowing the call stack on
-  // large inputs (`String.fromCharCode(...bytes)` spreads the entire array).
+  // workerd encodes natively, straight from the bytes, with the same output as btoa().
+  const native = (bytes as NativeBase64).toBase64;
+  if (native) return native.call(bytes);
+  // Chunked so a large input doesn't blow the call stack. `apply`, not a spread: spreading
+  // a Uint8Array goes through its iterator, one `{ value, done }` object per byte, ~24 MB
+  // of garbage for a 1 MB HTML body.
   let bin = "";
   const CHUNK = 0x8000;
   for (let i = 0; i < bytes.byteLength; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]);
   }
   return btoa(bin);
 }
 
 export function decodeBase64(b64: string): Uint8Array<ArrayBuffer> {
+  const native = (Uint8Array as unknown as NativeFromBase64).fromBase64;
+  if (native) return native(b64);
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
