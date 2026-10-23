@@ -137,6 +137,14 @@ describe("decideDraft", () => {
     });
     expect((await decideDraft(testCMS(), viaCookie)).unavailable).toBe(true);
   });
+
+  it("a draft whose host fails (not gone): the release, unavailable, the cookie kept", async () => {
+    vi.stubGlobal("fetch", async () => new Response("unavailable", { status: 503 }));
+    const d = await decideDraft(testCMS(), withCookie());
+    expect(d.version).toBe(null);
+    expect(d.unavailable).toBe(true);
+    expect(d.setCookie).toBe(null);
+  });
 });
 
 describe("the request the proxy forwards", () => {

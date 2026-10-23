@@ -99,9 +99,9 @@ export interface DraftDecision {
    */
   setCookie: string | null;
   /**
-   * The link named a draft that can't be read anymore (deleted, or its host
-   * failing): the request renders the release, the cookie is expired, and
-   * the page says so calmly (`DraftBadge`'s `unavailable`), never a 500.
+   * The link named a draft that can't be read (deleted, or its host
+   * failing): the request renders the release, the cookie is expired when
+   * the draft is gone (a failure that may pass leaves it), and the page says so calmly (`DraftBadge`'s `unavailable`), never a 500.
    */
   unavailable?: true;
 }
@@ -126,8 +126,11 @@ export async function decideDraft(
   if (namesDraft(version.version)) {
     try {
       await cms.forDraft(version.version).revision();
-    } catch {
-      return { version: null, setCookie: expiredCookie(), unavailable: true };
+    } catch (error) {
+      // Gone (deleted): the preview ends. Any other failure (the drafts' host
+      // down, a timeout) leaves the cookie alone, so the next request tries again.
+      const setCookie = isDraftGone(error) ? expiredCookie() : null;
+      return { version: null, setCookie, unavailable: true };
     }
   }
   // The link's own value goes in the cookie, its preview parameters with it.
@@ -136,6 +139,18 @@ export async function decideDraft(
     version,
     setCookie: fromLink ? serializeCookie(encodeURIComponent(param), []) : null,
   };
+}
+
+/**
+ * Whether a draft read failed because the drafts' host no longer has the
+ * draft (`404`/`410`), as opposed to a failure that may pass (a `5xx`, a
+ * timeout, a network error). Reads the error and its causes.
+ */
+function isDraftGone(error: unknown): boolean {
+  for (let e = error, depth = 0; e instanceof Error && depth < 5; e = e.cause, depth++) {
+    if (/draft changes: HTTP (404|410)\b/.test(e.message)) return true;
+  }
+  return false;
 }
 
 /** The `Set-Cookie` that ends a preview. */

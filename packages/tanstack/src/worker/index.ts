@@ -557,6 +557,9 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
         if (k.toLowerCase() !== "vary") response.headers.set(k, v);
         else appendVary(response.headers, v);
       }
+      // Nor kept by the CDN, whatever a route said: with the draft in a cookie
+      // a preview shares its URL with the published page.
+      response.headers.set("CDN-Cache-Control", "no-store");
     }
     // A link's cookie only with a page that rendered: a failed render never
     // pins the preview to it. The cookie that ends a preview always goes.

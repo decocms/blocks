@@ -449,10 +449,20 @@ describe("drafts", () => {
   it("a draft render answers exactly max-age=0, no-cache, must-revalidate with Vary: Cookie and noindex", async () => {
     // Whatever the app said: a preview is always revalidated.
     const { get } = setup({}, () =>
-      html("x", { "cache-control": "public, s-maxage=3600", vary: "Accept-Encoding" }),
+      html("x", {
+        "cache-control": "public, s-maxage=3600",
+        "cdn-cache-control": "public, max-age=600",
+        vary: "Accept-Encoding",
+      }),
     );
     const res = await get(draftUrl);
     expect(res.headers.get("cache-control")).toBe(EXACT);
+    expect(res.headers.get("cdn-cache-control")).toBe("no-store");
+    // The cookie alone too: the URL is the published page's.
+    const viaCookie = await get("/", {
+      headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
+    });
+    expect(viaCookie.headers.get("cdn-cache-control")).toBe("no-store");
     expect(res.headers.get("vary")).toBe("Accept-Encoding, Cookie");
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     // A CMS redirect under a preview too.
@@ -504,6 +514,18 @@ describe("drafts", () => {
     expect(viaCookie.status).toBe(200);
     expect(entry.served[1]?.scope?.draftUnavailable).toBe(true);
     expect(viaCookie.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("a draft whose host fails (not gone) renders the release with the notice and keeps the cookie", async () => {
+    const { get, entry } = setup();
+    vi.stubGlobal("fetch", async () => new Response("unavailable", { status: 503 }));
+    const res = await get("/", {
+      headers: { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` },
+    });
+    expect(res.status).toBe(200);
+    expect(entry.served[0]?.scope?.draftUnavailable).toBe(true);
+    expect(res.headers.has("set-cookie")).toBe(false);
+    expect(res.headers.get("cache-control")).toBe(EXACT);
   });
 });
 
