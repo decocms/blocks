@@ -587,13 +587,6 @@ function logErrorFallbackOnServer(error: unknown) {
   }
 }
 
-/**
- * Client path: until this existed the fallback discarded `error`, so the
- * "Estamos com uma instabilidade" screen left no trace when the failure was
- * client-only (render/commit throw, SPA navigation loader throw). Reports to
- * the worker (`CLIENT_ERROR_PATH`) → `logger.error`, full stack + context.
- * Fired once per error instance; never throws.
- */
 function referrerOrigin(): string {
   try {
     return document.referrer ? new URL(document.referrer).origin : "";
@@ -602,6 +595,13 @@ function referrerOrigin(): string {
   }
 }
 
+/**
+ * Client path: until this existed the fallback discarded `error`, so the
+ * "Estamos com uma instabilidade" screen left no trace when the failure was
+ * client-only (render/commit throw, SPA navigation loader throw). Reports to
+ * the worker (`CLIENT_ERROR_PATH`) → `logger.error`, full stack + context.
+ * Fired once per error instance; never throws.
+ */
 function reportErrorFallback(error: unknown) {
   try {
     const nav = performance.getEntriesByType?.("navigation")[0] as
