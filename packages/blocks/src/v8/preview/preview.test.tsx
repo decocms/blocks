@@ -90,6 +90,24 @@ describe("DraftBadge", () => {
       }
     });
 
+    it("DraftBadge unavailable shows the notice outside a frame, nothing inside one", () => {
+      act(() => root.render(<DraftBadge pointer={null} unavailable />));
+      expect(container.textContent).toContain(
+        "This draft isn't available anymore. You're seeing the published site.",
+      );
+      expect(container.querySelector('[role="status"]')).not.toBeNull();
+      // Dismissing it leaves the page alone.
+      act(() =>
+        container.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')?.click(),
+      );
+      expect(container.innerHTML).toBe("");
+      act(() => root.unmount());
+      root = createRoot(container);
+      Object.defineProperty(window, "top", { value: {}, configurable: true });
+      act(() => root.render(<DraftBadge pointer={null} unavailable />));
+      expect(container.innerHTML).toBe("");
+    });
+
     it("renders nothing inside a frame (Studio's site editor)", () => {
       Object.defineProperty(window, "top", { value: {}, configurable: true });
       act(() => root.render(<DraftBadge pointer={POINTER} />));

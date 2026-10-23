@@ -11,6 +11,9 @@
  *
  * - Renders nothing without a `pointer`, so a binding can mount it on every
  *   page and pass the request's draft pointer (or `null`).
+ * - `unavailable`: the link named a draft that can't be read anymore, and
+ *   the page shows the published site. Outside a frame, a calm notice says
+ *   so (nothing to fix, nothing to retry); inside Studio's frame, nothing.
  * - Hidden inside a frame: Studio's site editor shows the draft in an iframe
  *   with its own chrome. A reviewer who opens a shared link in their own tab
  *   still sees it.
@@ -39,7 +42,16 @@ export interface DraftBadgeProps {
    * `?__draft=off`, which clears the draft cookie.
    */
   exitHref?: string;
+  /**
+   * The link's draft can't be read anymore (deleted, say): the binding
+   * rendered the published site instead. Shows a calm notice outside a frame.
+   */
+  unavailable?: boolean;
 }
+
+/** What the notice says when a link's draft is gone. */
+const DRAFT_UNAVAILABLE_MESSAGE =
+  "This draft isn't available anymore. You're seeing the published site.";
 
 /**
  * The link "Share preview" copies: the current URL with `?__draft=<pointer>`,
@@ -114,7 +126,7 @@ function ShareIcon() {
   );
 }
 
-export function DraftBadge({ pointer, exitHref }: DraftBadgeProps): ReactNode {
+export function DraftBadge({ pointer, exitHref, unavailable }: DraftBadgeProps): ReactNode {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -161,7 +173,8 @@ export function DraftBadge({ pointer, exitHref }: DraftBadgeProps): ReactNode {
     }
   }, [pointer]);
 
-  if (!pointer || !visible) return null;
+  if (!visible) return null;
+  if (!pointer) return unavailable ? <UnavailableNotice /> : null;
 
   return (
     <div
@@ -231,6 +244,63 @@ export function DraftBadge({ pointer, exitHref }: DraftBadgeProps): ReactNode {
           style={{ display: "block", borderRadius: 4 }}
         />
         <span>Preview mode</span>
+      </button>
+    </div>
+  );
+}
+
+/** The notice for a link whose draft is gone: the published site is what shows. */
+function UnavailableNotice() {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div
+      role="status"
+      data-deco-preview-unavailable=""
+      style={{
+        position: "fixed",
+        bottom: 16,
+        left: 16,
+        zIndex: 2147483647,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        maxWidth: "calc(100vw - 32px)",
+        padding: "8px 8px 8px 12px",
+        background: "#fff",
+        color: "#1a1a1a",
+        borderRadius: 12,
+        boxShadow: "0 8px 30px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.05)",
+        fontFamily:
+          "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        fontSize: 13,
+        lineHeight: 1.4,
+      }}
+    >
+      <img
+        src={DECO_MARK_DATA_URI}
+        alt=""
+        width={18}
+        height={18}
+        style={{ display: "block", borderRadius: 4, flexShrink: 0 }}
+      />
+      <span>{DRAFT_UNAVAILABLE_MESSAGE}</span>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => setDismissed(true)}
+        style={{
+          flexShrink: 0,
+          padding: "2px 8px",
+          background: "transparent",
+          border: "none",
+          color: "inherit",
+          cursor: "pointer",
+          fontSize: 16,
+          lineHeight: 1,
+        }}
+      >
+        ×
       </button>
     </div>
   );
