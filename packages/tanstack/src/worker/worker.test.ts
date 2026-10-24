@@ -151,6 +151,24 @@ describe("always on: security headers and Studio framing", () => {
     expect(res.headers.has("content-security-policy")).toBe(false);
   });
 
+  it("HTML from a server function is sandboxed and never shared (CVE-2026-102989)", async () => {
+    const { get } = setup({}, (request) =>
+      new URL(request.url).pathname.startsWith("/_serverFn/")
+        ? html("<script>alert(1)</script>", { "CDN-Cache-Control": "public, max-age=60" })
+        : html(),
+    );
+    const forged = await get("/_serverFn/abc?payload=%7B%7D");
+    expect(forged.headers.get("content-security-policy")).toBe("sandbox");
+    expect(forged.headers.get("cdn-cache-control")).toBe("no-store");
+    expect((await get("/")).headers.get("content-security-policy")).toContain("frame-ancestors");
+  });
+
+  it("a server function's JSON is left alone", async () => {
+    const { get } = setup({}, () => Response.json({ ok: true }));
+    const res = await get("/_serverFn/abc?payload=%7B%7D");
+    expect(res.headers.has("content-security-policy")).toBe(false);
+  });
+
   it("preload hints go on HTML responses", async () => {
     const { get } = setup({
       preload: { styles: ["/assets/app-123.css"], fonts: ["/fonts/a.woff2"] },

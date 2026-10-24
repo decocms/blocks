@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@decocms/blocks": "workspace:*",
-    "@tanstack/react-router": "1.170.39",
-    "@tanstack/react-start": "1.168.58",
+    "@tanstack/react-router": "1.170.41",
+    "@tanstack/react-start": "1.168.60",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "zod": "^4.6.5"
