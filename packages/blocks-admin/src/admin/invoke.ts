@@ -22,6 +22,7 @@ import {
   type SectionLoaderContext,
   withDraftBlocks,
 } from "@decocms/blocks/cms";
+import { encryptSecret } from "@decocms/blocks/sdk/crypto";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 
 export type InvokeLoader = (props: any, request: Request, ctx?: any) => Promise<any>;
@@ -183,6 +184,27 @@ async function parseBody(request: Request): Promise<any> {
   }
 }
 
+/**
+ * The site's `secrets/encrypt.ts` action, built in because every Fresh site
+ * had it (the `website` app ships it, `$live` on older sites) and Studio's
+ * Secret field calls it on the site to encrypt with the site's own
+ * DECO_CRYPTO_KEY: `POST /live/invoke/website/actions/secrets/encrypt.ts`
+ * `{ value }` → `{ value: hex }`. Without it the field cannot save any secret.
+ * Looked up after the registries, so a site's own handler wins.
+ */
+const encryptSecretAction: InvokeAction = async (props) => {
+  const value = (props as { value?: unknown } | undefined)?.value;
+  if (typeof value !== "string") throw new Error("`value` must be a string");
+  return { value: await encryptSecret(value) };
+};
+
+const BUILTIN_HANDLERS: Record<string, InvokeAction> = {
+  "website/actions/secrets/encrypt.ts": encryptSecretAction,
+  "website/actions/secrets/encrypt": encryptSecretAction,
+  "$live/actions/secrets/encrypt.ts": encryptSecretAction,
+  "$live/actions/secrets/encrypt": encryptSecretAction,
+};
+
 /** Thrown by `parseBody` for a declared-JSON body that does not parse → 400. */
 class InvalidJsonBody extends Error {
   constructor() {
@@ -203,6 +225,9 @@ function findHandler(
 
   const actions = getRegisteredActions();
   if (actions[key]) return { handler: actions[key], type: "action" };
+
+  const builtin = BUILTIN_HANDLERS[key];
+  if (builtin) return { handler: builtin, type: "action" };
 
   return null;
 }
