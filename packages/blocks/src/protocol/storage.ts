@@ -33,7 +33,21 @@ export interface StorageFile {
   version: string;
   /** The file's size in bytes, when the storage knows it without reading the body. */
   size?: number;
+  /**
+   * `true` for a tombstone: a deletion an overlay storage records over its
+   * base, listed only by `writeSnapshot()`. It has no body, and its
+   * `version` is the tombstone's (see `TOMBSTONE_VERSION`).
+   */
+  deleted?: true;
 }
+
+/**
+ * The version an overlay storage reports for a deletion it records (a
+ * tombstone), in `writeSnapshot()`, `changes()` and a commit's result. Any
+ * value no file content has works; the reference storage uses this one, and
+ * a storage that shares clients with it should too.
+ */
+export const TOMBSTONE_VERSION = "tombstone";
 
 /** Every saved-block file at one point in time. */
 export interface StorageSnapshot {
@@ -77,13 +91,15 @@ export interface CommitAttempt {
    * Files to delete. A file that's already gone is fine. For an overlay
    * storage, `blocks.apply` also names files the overlay doesn't hold: the
    * storage records the deletion over its base (a file only the base has
-   * must disappear from `snapshot()`), and drops one neither side has.
+   * must disappear from `snapshot()`, and `writeSnapshot()` lists it as a
+   * tombstone), and drops one neither side has.
    */
   delete: string[];
   /**
    * Versions the files must still have for the commit to land (`null` = must
    * not exist), in the snapshot `base` came from (the overlay, for an overlay
-   * storage's `blocks.apply`). A storage MUST reject the attempt as stale
+   * storage's `blocks.apply`, where a tombstone has its tombstone version
+   * and so is not `null`). A storage MUST reject the attempt as stale
    * when any of them changed, and MAY reject it when anything else changed
    * since `base`.
    */
@@ -127,6 +143,12 @@ export interface StorageChanges {
    */
   files: string[];
   /**
+   * An overlay storage: the tombstones among `files` (the deletions it
+   * records), with the versions `writeSnapshot()` lists them with, which
+   * `changes.list` reports as the deletions' versions. Absent otherwise.
+   */
+  tombstones?: StorageFile[];
+  /**
    * The base's files, with their versions in the base: at least every file
    * whose spelling group (`spellingKey`) a file in `files` belongs to; more
    * is fine.
@@ -139,7 +161,11 @@ export type CommitResult =
       status: "committed";
       /** The revision `snapshot()` reports right after the commit (`blocks.list`'s). */
       revision: string;
-      /** The new version of every file in `put`. */
+      /**
+       * The new version of every file in `put`, and for an overlay storage
+       * the tombstone version of every file in `delete` it recorded as a
+       * deletion over its base (not one it dropped because neither side has it).
+       */
       versions: Record<string, string>;
     }
   | { status: "stale" };
@@ -166,7 +192,10 @@ export interface ContentStorage {
    * base. Its presence makes the endpoint an overlay (`describe.overlay`):
    * `blocks.apply` validates and checks `ifMatch` against this snapshot
    * instead of `snapshot()`, and commits with it as `base`; `readFiles`
-   * reads its files too. A deletion the overlay records is left out. The
+   * reads its files too. A deletion the overlay records is listed as a
+   * tombstone (`deleted: true`, with its tombstone version): for a guard the
+   * overlay holds it, so `ifMatch: null` on it fails and its tombstone
+   * version passes. The
    * revision `snapshot()` reports must move whenever the overlay does, even
    * when the content it shows doesn't (an entry saved with the base's
    * value). Absent

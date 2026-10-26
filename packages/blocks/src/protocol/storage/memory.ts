@@ -13,11 +13,13 @@ import {
   type CommitResult,
   type ContentStorage,
   type StorageDescription,
+  type StorageFile,
   StorageInvalidFileError,
   StorageNotFoundError,
   type StorageSnapshot,
   type StoredFileBody,
   type StoredSchema,
+  TOMBSTONE_VERSION,
 } from "../storage.ts";
 
 /** Everything a memory storage holds; JSON-serializable, so it survives a "restart". */
@@ -40,7 +42,8 @@ export interface MemoryStorageState {
   /**
    * An overlay storage (`writeSnapshot()`, `describe.overlay`), like a hosted
    * draft: `files` is then the overlay alone, laid over `base`, and
-   * `deleted` the base files it deletes. Default `false`.
+   * `deleted` the base files it deletes (its tombstones, which
+   * `writeSnapshot()` lists at `TOMBSTONE_VERSION`). Default `false`.
    */
   overlay: boolean;
   /** For an overlay: base files the overlay deletes. */
@@ -147,14 +150,35 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     };
   }
 
-  /** An overlay's commit: `apply` writes the overlay and records deletions; `discard` drops files from it. */
-  function commitToOverlay(attempt: CommitAttempt): void {
+  /** The overlay's tombstones: the base files it deletes. */
+  const tombstones = (): StorageFile[] =>
+    state.deleted
+      .filter((file) => file in state.base)
+      .map((file) => ({ file, version: TOMBSTONE_VERSION, deleted: true }));
+
+  /** The overlay alone, as `writeSnapshot()` lists it: its files and its tombstones. */
+  async function overlaySnapshot(): Promise<StorageSnapshot> {
+    const own = await snapshotOf(state.files);
+    return { ...own, revision: await contentRevision(), files: [...own.files, ...tombstones()] };
+  }
+
+  /**
+   * An overlay's commit: `apply` writes the overlay and records deletions
+   * (returning their tombstone versions); `discard` drops files from it.
+   */
+  function commitToOverlay(attempt: CommitAttempt): Record<string, string> {
     const touched = [...Object.keys(attempt.put), ...attempt.delete];
     state.deleted = state.deleted.filter((file) => !touched.includes(file));
     for (const file of touched) delete state.files[file];
-    if (attempt.reason === "discard") return;
-    for (const file of attempt.delete) if (file in state.base) state.deleted.push(file);
+    const recorded: Record<string, string> = {};
+    if (attempt.reason === "discard") return recorded;
+    for (const file of attempt.delete) {
+      if (!(file in state.base)) continue;
+      state.deleted.push(file);
+      recorded[file] = TOMBSTONE_VERSION;
+    }
     for (const [file, text] of Object.entries(attempt.put)) state.files[file] = text;
+    return recorded;
   }
 
   async function revisionOf(versions: Map<string, string>): Promise<string> {
@@ -177,16 +201,18 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     if (attempt.expectedBase !== undefined && attempt.expectedBase !== state.baseRevision) {
       return { status: "stale" };
     }
-    // An overlay's apply is guarded against the overlay; anything else against the content.
-    const guarded = state.overlay && attempt.reason !== "discard" ? state.files : content();
-    const versions = await versionsOf(guarded);
+    // An overlay's apply is guarded against the overlay (its tombstones too);
+    // anything else against the content.
+    const overlayApply = state.overlay && attempt.reason !== "discard";
+    const versions = await versionsOf(overlayApply ? state.files : content());
+    if (overlayApply) for (const t of tombstones()) versions.set(t.file, t.version);
     for (const [file, expected] of Object.entries(attempt.expected)) {
       if ((versions.get(file) ?? null) !== expected) return { status: "stale" };
     }
     // Validate everything before mutating, so the commit is all or nothing.
     const written: Record<string, string> = {};
     for (const [file, text] of Object.entries(attempt.put)) written[file] = await version(text);
-    if (state.overlay) commitToOverlay(attempt);
+    if (state.overlay) Object.assign(written, commitToOverlay(attempt));
     else {
       for (const file of attempt.delete) delete state.files[file];
       for (const [file, text] of Object.entries(attempt.put)) state.files[file] = text;
@@ -205,7 +231,7 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
 
     snapshot: () => snapshotOf(content(), contentRevision),
 
-    ...(state.overlay ? { writeSnapshot: () => snapshotOf(state.files) } : {}),
+    ...(state.overlay ? { writeSnapshot: overlaySnapshot } : {}),
 
     async readFiles(_snapshot, files) {
       const out: Record<string, StoredFileBody> = Object.create(null);
@@ -240,8 +266,12 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       );
       if (state.overlay) {
         // The overlay's own files are the changes, even one equal to the base.
-        const deleted = state.deleted.filter((file) => file in state.base);
-        return { files: [...Object.keys(state.files), ...deleted], baseFiles };
+        const deleted = tombstones();
+        return {
+          files: [...Object.keys(state.files), ...deleted.map((t) => t.file)],
+          tombstones: deleted,
+          baseFiles,
+        };
       }
       const baseVersion = new Map(baseFiles.map((f) => [f.file, f.version]));
       const current = new Map(snapshot.files.map((f) => [f.file, f.version]));
@@ -279,7 +309,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
 
     setFile(file, content) {
       if (content === null) delete state.files[file];
-      else state.files[file] = content;
+      else {
+        state.files[file] = content;
+        // An overlay's file replaces its tombstone.
+        state.deleted = state.deleted.filter((deleted) => deleted !== file);
+      }
     },
 
     setBase(files) {

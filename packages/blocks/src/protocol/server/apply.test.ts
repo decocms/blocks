@@ -9,7 +9,7 @@ import { schemaFixture } from "../__tests__/fixtures";
 import { createContentClient } from "../client";
 import { type ContentProtocolError, ErrorCode } from "../errors";
 import { serializeBlock } from "../keys";
-import { type ContentStorage, StorageInvalidFileError } from "../storage";
+import { type ContentStorage, StorageInvalidFileError, TOMBSTONE_VERSION } from "../storage";
 import { createMemoryStorage, type MemoryStorageOptions } from "../storage/memory";
 import type { ContentHandlerOptions } from "./core";
 import { createContentHandler } from "./handler";
@@ -168,6 +168,52 @@ describe("an overlay storage", () => {
     expect(error.data).toEqual({
       entries: { Footer: { expected: listed.versions.Footer, actual: null } },
     });
+  });
+
+  it("holds a deletion as a tombstone: ifMatch null fails, its version passes", async () => {
+    const { client, memory } = overlaySetup();
+    const deleted = await client.blocksApply({ delete: ["Footer", "Nowhere"] });
+    expect(deleted.versions).toEqual({ Footer: TOMBSTONE_VERSION, Nowhere: null });
+    const changes = await client.changesList();
+    if (changes.notModified) throw new Error("expected the changes");
+    expect(changes.changes.Footer).toMatchObject({ kind: "delete", version: TOMBSTONE_VERSION });
+    const error = await rejects(
+      client.blocksApply({ set: { Footer: { v: 2 } }, ifMatch: { Footer: null } }),
+      ErrorCode.Conflict,
+    );
+    expect(error.data).toEqual({
+      entries: { Footer: { expected: null, actual: TOMBSTONE_VERSION } },
+    });
+    // A name neither side has is still not in the overlay.
+    await client.blocksApply({ set: { Nowhere: { v: 1 } }, ifMatch: { Nowhere: null } });
+    await client.blocksApply({
+      set: { Footer: { v: 2 } },
+      ifMatch: { Footer: TOMBSTONE_VERSION },
+    });
+    expect(memory.dump().deleted).toEqual([]);
+    expect(memory.dump().files["Footer.json"]).toBe(file({ v: 2 }));
+  });
+
+  it("guards the tombstone at commit time too", async () => {
+    let raced = false;
+    const memory = createMemoryStorage({
+      state: { base, overlay: true, deleted: ["Footer.json"] },
+      beforeCommit: (_attempt, s) => {
+        if (raced) return;
+        raced = true;
+        // Another save lands on the deleted entry between the guard and the commit.
+        s.setFile("Footer.json", file({ v: 9 }));
+      },
+    });
+    const client = createContentClient({
+      endpoint: "http://test.local/rpc",
+      fetch: createContentHandler(memory, NO_DELAY),
+    });
+    await rejects(
+      client.blocksApply({ set: { Footer: { v: 2 } }, ifMatch: { Footer: TOMBSTONE_VERSION } }),
+      ErrorCode.Conflict,
+    );
+    expect(memory.dump().files["Footer.json"]).toBe(file({ v: 9 }));
   });
 
   it("reports blocks.list's revision", async () => {

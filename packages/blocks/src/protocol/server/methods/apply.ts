@@ -17,7 +17,12 @@
  * 7. On an overlay storage (one with `writeSnapshot()`), everything above
  *    runs against the overlay alone, so a write never reads the base: a
  *    guard compares with the overlay's version, and a delete always reaches
- *    the storage, which records it over the base.
+ *    the storage, which records it over the base. A deletion the overlay
+ *    records (a tombstone) is in the overlay: a guard sees its tombstone
+ *    version, so `ifMatch: null` on it fails and the tombstone version (from
+ *    `changes.list`, a Conflict's `actual`, or the delete's own result)
+ *    passes; the result reports that version for a name the commit deleted
+ *    over the base, and `null` for one neither side had.
  *
  * A commit attempt that finds storage moved is retried against a new
  * snapshot after a jittered backoff, rechecking every guard, up to
@@ -125,7 +130,8 @@ function validateAgainst(
   apply: NormalizedApply,
 ): BlockViolation[] {
   const violations: BlockViolation[] = [];
-  const existing = [...content.entries.keys()];
+  // A name only an overlay's tombstone holds is gone once published: not a collision.
+  const existing = [...content.entries].filter(([, e]) => !e.deleted).map(([name]) => name);
   for (const [name] of apply.set) {
     // Another spelling of an existing entry updates that entry; it isn't a new name.
     if (bySpelling.has(spellingKey(name))) continue;
@@ -224,8 +230,13 @@ function resultFromVersions(
     touched.add(spellingKey(name));
   }
   for (const name of apply.delete) {
-    versions[name] = null;
-    touched.add(spellingKey(name));
+    // An overlay's tombstone, when the commit recorded one: the entry's first, as in content.ts.
+    const key = spellingKey(name);
+    const tombstone = deletedFiles
+      .filter((file) => fullyDecodeFileName(file).name === key && file in fileVersions)
+      .sort()[0];
+    versions[name] = tombstone === undefined ? null : fileVersions[tombstone]!;
+    touched.add(key);
   }
   for (const file of deletedFiles) {
     const name = blockNameFromFile(file);

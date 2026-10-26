@@ -1,8 +1,10 @@
 /**
  * Overlay endpoints (protocol 1.2, `describe.overlay`), such as a hosted
  * draft over the published branch: `blocks.apply`'s `ifMatch` compares with
- * the overlay alone, and `changes.list` is the overlay's own entries. Every
- * case skips on an endpoint that isn't an overlay.
+ * the overlay alone, and `changes.list` is the overlay's own entries. A
+ * deletion the overlay records is one of them: it has a tombstone version,
+ * so `ifMatch: null` on it fails. Every case skips on an endpoint that isn't
+ * an overlay.
  */
 import { ErrorCode } from "../../errors.ts";
 import type { BlocksListResult, ChangesListResult } from "../../types.ts";
@@ -134,13 +136,55 @@ export const overlayCases: ConformanceCase[] = [
       const base = await baseEntry(ctx);
       try {
         const deleted = await ctx.client.blocksApply({ delete: [base.name] });
-        assertEqual(deleted.versions, { [base.name]: null }, "the deleted entry's version");
+        const tombstone = deleted.versions[base.name];
+        assert(typeof tombstone === "string", "the deletion reports its tombstone version");
         assert(!(base.name in (await list(ctx)).blocks), "the entry is gone from blocks.list");
-        assertEqual((await changes(ctx)).changes[base.name]?.kind, "delete", "a delete change");
+        const listed = (await changes(ctx)).changes[base.name];
+        assertEqual(listed?.kind, "delete", "a delete change");
+        assertEqual(listed?.version, tombstone, "changes.list reports the tombstone version");
       } finally {
         await ctx.client.changesDiscard({ names: [base.name] }).catch(() => {});
       }
       assertEqual((await list(ctx)).blocks[base.name], base.value, "a discard brings it back");
+    },
+  },
+  {
+    id: "overlay/if-match-deleted",
+    title:
+      "an entry the overlay deletes is in the overlay: ifMatch null fails, its tombstone passes",
+    async run(ctx) {
+      await overlay(ctx);
+      const base = await baseEntry(ctx);
+      try {
+        await ctx.client.blocksApply({ delete: [base.name] });
+        const tombstone = (await changes(ctx)).changes[base.name]?.version;
+        assert(typeof tombstone === "string", "changes.list reports the tombstone version");
+        const restored = { ...base.value, conformance: ctx.prefix };
+        const error = await expectError(
+          ctx.client.blocksApply({
+            set: { [base.name]: restored },
+            ifMatch: { [base.name]: null },
+          }),
+          ErrorCode.Conflict,
+          "ifMatch null on an entry the overlay deletes",
+        );
+        assertEqual(
+          (error.data as { entries?: unknown })?.entries,
+          { [base.name]: { expected: null, actual: tombstone } },
+          "the conflict's entries",
+        );
+        assert(!(base.name in (await list(ctx)).blocks), "the refused save wrote nothing");
+        const applied = await ctx.client.blocksApply({
+          set: { [base.name]: restored },
+          ifMatch: { [base.name]: tombstone! },
+        });
+        assertEqual((await list(ctx)).blocks[base.name], restored, "the guarded save landed");
+        const listed = (await changes(ctx)).changes[base.name];
+        assertEqual(listed?.kind, "set", "the entry is a set change again");
+        assertEqual(listed?.version, applied.versions[base.name], "with the saved version");
+      } finally {
+        await ctx.client.changesDiscard({ names: [base.name] }).catch(() => {});
+      }
     },
   },
 ];

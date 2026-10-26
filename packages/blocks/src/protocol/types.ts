@@ -74,8 +74,10 @@ export interface DescribeResult {
    * `true` when the endpoint writes to an overlay over its base, such as a
    * hosted draft over the published branch (protocol 1.2). Then
    * `blocks.apply`'s `ifMatch` compares with the overlay alone: an entry the
-   * overlay doesn't hold (or deletes) is `null`, whatever the base has, and
-   * an entry it holds has the `version` `changes.list` reports for it.
+   * overlay doesn't hold is `null`, whatever the base has, and an entry it
+   * holds has the `version` `changes.list` reports for it. A deletion the
+   * overlay records is held too: `changes.list` reports it as a `delete`
+   * with its tombstone version, which `ifMatch` must name (`null` fails).
    * `changes.list` lists every entry the overlay holds, even one equal to the
    * base. Absent: `ifMatch` compares with the content `blocks.list` reports.
    */
@@ -143,14 +145,21 @@ export interface BlocksApplyParams {
   delete?: string[];
   /**
    * A version the entry must have; `null` = must not exist. On an overlay
-   * endpoint (`describe.overlay`), the version it has in the overlay; `null`
-   * = the overlay doesn't hold it.
+   * endpoint (`describe.overlay`), the version it has in the overlay (for a
+   * deletion the overlay records, its tombstone version); `null` = the
+   * overlay doesn't hold it.
    */
   ifMatch?: Record<string, string | null>;
 }
 
 export interface BlocksApplyResult {
   revision: string;
+  /**
+   * Every name written or deleted, with its version now: `null` for a
+   * deleted name, except on an overlay endpoint, where a deletion recorded
+   * over the base reports its tombstone version (what the next `ifMatch`
+   * on it must name).
+   */
   versions: Record<string, string | null>;
 }
 
@@ -170,7 +179,12 @@ export interface ChangesBase {
 export interface Change {
   /** `set`: the entry exists and differs from the base, or is new. `delete`: it's in the base and gone now. */
   kind: "set" | "delete";
-  /** The entry's current version, as `blocks.list` reports it (usable in `ifMatch`); `null` for a `delete`. */
+  /**
+   * The entry's current version, as `blocks.list` reports it (usable in
+   * `ifMatch`). For a `delete`, `null`, except on an overlay endpoint
+   * (`describe.overlay`), where it's the deletion's tombstone version: the
+   * overlay holds the deletion, so a save of the entry must name it.
+   */
   version: string | null;
   /**
    * The entry's version in the base; `null` when the base doesn't have it (a

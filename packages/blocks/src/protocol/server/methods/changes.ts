@@ -71,7 +71,10 @@ const byFile = (a: { file: string }, b: { file: string }) =>
 interface EntryChange {
   name: string;
   kind: "set" | "delete";
-  /** The current winner's version; `null` when no file of the entry exists now. */
+  /**
+   * The current winner's version; for an entry no file of which exists now,
+   * an overlay's tombstone version, else `null`.
+   */
   version: string | null;
   baseVersion: string | null;
   /** The current winning file, when it was readable as a candidate. */
@@ -165,6 +168,9 @@ async function storageChanges(
   const answer = await core.storage.changes(base, snapshot);
   const changes: StorageChanges = {
     files: [...new Set(answer.files.filter(isBlockFileName))].sort(),
+    ...(answer.tombstones
+      ? { tombstones: answer.tombstones.filter((f) => isBlockFileName(f.file)) }
+      : {}),
     baseFiles: answer.baseFiles.filter((f) => isBlockFileName(f.file)),
   };
   core.changesMemo = { revision, changes };
@@ -197,6 +203,12 @@ async function loadChanges(core: Core): Promise<ChangesState> {
     else baseByKey.set(key, [file]);
   }
 
+  // An overlay's deletion is versioned by its first tombstone, as `blocks.apply`'s guard sees it.
+  const tombstoneByKey = new Map<string, string>();
+  for (const t of [...(answer.tombstones ?? [])].sort(byFile)) {
+    if (!tombstoneByKey.has(keyOf(t.file))) tombstoneByKey.set(keyOf(t.file), t.version);
+  }
+
   const bySpelling = entriesBySpelling(content!);
   const changes = new Map<string, EntryChange>();
   for (const [key, changedFiles] of changedByKey) {
@@ -210,7 +222,9 @@ async function loadChanges(core: Core): Promise<ChangesState> {
         current?.name ??
         (winner ? blockNameFromFile(winner.file) : blockNameFromFile(changedFiles[0]!)),
       kind: exists ? "set" : "delete",
-      version: current?.entry.version ?? (exists ? currentFiles[0]!.version : null),
+      version:
+        current?.entry.version ??
+        (exists ? currentFiles[0]!.version : (tombstoneByKey.get(key) ?? null)),
       baseVersion: winner?.version ?? null,
       currentFile: current?.entry.file ?? null,
       baseFile: winner?.file ?? null,
