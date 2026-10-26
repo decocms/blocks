@@ -21,8 +21,9 @@
  *    records (a tombstone) is in the overlay: a guard sees its tombstone
  *    version, so `ifMatch: null` on it fails and the tombstone version (from
  *    `changes.list`, a Conflict's `actual`, or the delete's own result)
- *    passes; the result reports that version for a name the commit deleted
- *    over the base, and `null` for one neither side had.
+ *    passes; the result reports that version for each name the commit
+ *    recorded a tombstone for (a storage may record one even for a name the
+ *    base lacks), and `null` for one it dropped.
  *
  * A commit attempt that finds storage moved is retried against a new
  * snapshot after a jittered backoff, rechecking every guard, up to

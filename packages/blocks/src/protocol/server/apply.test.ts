@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { schemaFixture } from "../__tests__/fixtures";
+import { tombstoneEveryDelete } from "../__tests__/tombstoneEveryDelete";
 import { createContentClient } from "../client";
 import { type ContentProtocolError, ErrorCode } from "../errors";
 import { serializeBlock } from "../keys";
@@ -214,6 +215,53 @@ describe("an overlay storage", () => {
       ErrorCode.Conflict,
     );
     expect(memory.dump().files["Footer.json"]).toBe(file({ v: 9 }));
+  });
+
+  it("treats a tombstone for a name the base lacks like any tombstone", async () => {
+    // Like a hosted draft whose save never reads the base: every delete is
+    // recorded as a tombstone, even of a name the base doesn't have.
+    const memory = createMemoryStorage({ state: { base, overlay: true } });
+    const storage = tombstoneEveryDelete(memory);
+    const client = createContentClient({
+      endpoint: "http://test.local/rpc",
+      fetch: createContentHandler(storage, NO_DELAY),
+    });
+    const listChanges = async () => {
+      const changes = await client.changesList();
+      if (changes.notModified) throw new Error("expected the changes");
+      return changes.changes;
+    };
+
+    const deleted = await client.blocksApply({ delete: ["Nowhere"] });
+    expect(deleted.versions).toEqual({ Nowhere: TOMBSTONE_VERSION });
+    const listed = await client.blocksList();
+    if (listed.notModified) throw new Error("expected the map");
+    expect(listed.blocks).not.toHaveProperty("Nowhere");
+    expect((await listChanges()).Nowhere).toMatchObject({
+      kind: "delete",
+      version: TOMBSTONE_VERSION,
+      baseVersion: null,
+    });
+
+    const error = await rejects(
+      client.blocksApply({ set: { Nowhere: { v: 1 } }, ifMatch: { Nowhere: null } }),
+      ErrorCode.Conflict,
+    );
+    expect(error.data).toEqual({
+      entries: { Nowhere: { expected: null, actual: TOMBSTONE_VERSION } },
+    });
+    const saved = await client.blocksApply({
+      set: { Nowhere: { v: 1 } },
+      ifMatch: { Nowhere: TOMBSTONE_VERSION },
+    });
+    expect((await listChanges()).Nowhere).toMatchObject({
+      kind: "set",
+      version: saved.versions.Nowhere,
+    });
+
+    await client.blocksApply({ delete: ["Nowhere"] });
+    await client.changesDiscard({ names: ["Nowhere"], ifMatch: { Nowhere: TOMBSTONE_VERSION } });
+    expect(await listChanges()).not.toHaveProperty("Nowhere");
   });
 
   it("reports blocks.list's revision", async () => {

@@ -27,6 +27,7 @@ import {
   limitExceeded,
   readOnly,
   unavailable,
+  type VersionMismatch,
 } from "../../errors.ts";
 import {
   blockFileName,
@@ -60,7 +61,7 @@ import type {
 import { type ParsedBody, parseBody } from "../bodyCache.ts";
 import { type LoadedContent, loadCurrentContent } from "../content.ts";
 import { type Core, MAX_BLOCK_BYTES, MAX_NAMES_PER_GET, MAX_OPS_PER_APPLY } from "../core.ts";
-import { checkIfMatch, type EntriesBySpelling, entriesBySpelling } from "./apply.ts";
+import { type EntriesBySpelling, entriesBySpelling } from "./apply.ts";
 
 const keyOf = (file: string) => fullyDecodeFileName(file).name;
 
@@ -417,6 +418,29 @@ function guardExpectations(
   return expected;
 }
 
+/**
+ * `changes.discard`'s guard: each name's version as `changes.list` shows it,
+ * so an overlay's deletion is guarded by its tombstone version (no file of
+ * it exists, so the content alone would say `null`).
+ */
+function discardMismatches(
+  state: ChangesState,
+  ifMatch: Array<[string, string | null]>,
+): Record<string, VersionMismatch> | null {
+  const mismatches: Record<string, VersionMismatch> = {};
+  let failed = false;
+  for (const [name, expected] of ifMatch) {
+    const key = spellingKey(name);
+    const actual =
+      state.bySpelling.get(key)?.entry.version ?? state.changes.get(key)?.version ?? null;
+    if (actual !== expected) {
+      mismatches[name] = { expected, actual };
+      failed = true;
+    }
+  }
+  return failed ? mismatches : null;
+}
+
 export async function changesDiscard(
   core: Core,
   params: ChangesDiscardParams,
@@ -434,7 +458,7 @@ export async function changesDiscard(
 
   for (let attempt = 1; attempt <= core.maxCommitAttempts; attempt++) {
     const state = await loadChanges(core);
-    const mismatches = checkIfMatch(state.bySpelling, { ifMatch });
+    const mismatches = discardMismatches(state, ifMatch);
     if (mismatches) throw conflict({ entries: mismatches });
 
     const restore = new Map<string, StorageFile>();

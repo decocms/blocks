@@ -92,7 +92,9 @@ export interface CommitAttempt {
    * storage, `blocks.apply` also names files the overlay doesn't hold: the
    * storage records the deletion over its base (a file only the base has
    * must disappear from `snapshot()`, and `writeSnapshot()` lists it as a
-   * tombstone), and drops one neither side has.
+   * tombstone). One neither side has it may drop, or record as a tombstone
+   * too (a storage whose write never reads the base can't tell them apart);
+   * the core treats such a tombstone like any other.
    */
   delete: string[];
   /**
@@ -164,7 +166,7 @@ export type CommitResult =
       /**
        * The new version of every file in `put`, and for an overlay storage
        * the tombstone version of every file in `delete` it recorded as a
-       * deletion over its base (not one it dropped because neither side has it).
+       * tombstone (not one it dropped because neither side has it).
        */
       versions: Record<string, string>;
     }

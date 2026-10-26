@@ -5,6 +5,7 @@ import { createContentHandler } from "../server";
 import { createAssetHandler } from "../server/assets";
 import { createMemoryStorage, type MemoryStorage } from "../storage/memory";
 import { route, schemaFixture } from "./fixtures";
+import { tombstoneEveryDelete } from "./tombstoneEveryDelete";
 
 const BASE_ENTRY = "pages-Committed";
 const baseFiles = { [`${BASE_ENTRY}.json`]: '{\n  "path": "/committed"\n}\n' };
@@ -43,6 +44,27 @@ defineConformanceSuite(
     baseEntry: { name: BASE_ENTRY },
   },
   "overlay memory storage conformance",
+);
+
+// An overlay that records a tombstone for every deleted name, even one the
+// base doesn't have, as a hosted draft whose save never reads the base does.
+const everyDeleteStorage = createMemoryStorage({
+  state: { schema: JSON.stringify(schemaFixture), base: baseFiles, overlay: true },
+});
+const everyDelete = route(
+  createContentHandler(tombstoneEveryDelete(everyDeleteStorage)),
+  createAssetHandler(everyDeleteStorage),
+);
+
+defineConformanceSuite(
+  { describe, it },
+  {
+    endpoint: "http://memory.test/rpc",
+    fetch: (request) => everyDelete(request),
+    assetsEndpoint: "http://memory.test/assets/",
+    baseEntry: { name: BASE_ENTRY },
+  },
+  "overlay storage that records every deletion conformance",
 );
 
 const schemaless = createContentHandler(createMemoryStorage());

@@ -319,7 +319,11 @@ export const changesCases: ConformanceCase[] = [
         assertEqual(detail?.after, null, "after is null");
         assertEqual(detail?.before, base.value, "before is the base");
 
-        await ctx.client.changesDiscard({ names: [base.name], ifMatch: { [base.name]: null } });
+        // Guarded with the version changes.list showed (an overlay's tombstone, else null).
+        await ctx.client.changesDiscard({
+          names: [base.name],
+          ifMatch: { [base.name]: listed!.version },
+        });
         const after = await list(ctx);
         assertEqual(after.blocks[base.name], base.value, "the entry is back");
         assert(!(base.name in (await changes(ctx)).changes), "no longer a change");

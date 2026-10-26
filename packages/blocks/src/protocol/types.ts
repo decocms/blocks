@@ -156,9 +156,10 @@ export interface BlocksApplyResult {
   revision: string;
   /**
    * Every name written or deleted, with its version now: `null` for a
-   * deleted name, except on an overlay endpoint, where a deletion recorded
-   * over the base reports its tombstone version (what the next `ifMatch`
-   * on it must name).
+   * deleted name, except on an overlay endpoint, where a deletion the
+   * overlay records reports its tombstone version (what the next `ifMatch`
+   * on it must name). An overlay may record one even for a name the base
+   * lacks; a client treats it like any tombstone.
    */
   versions: Record<string, string | null>;
 }
@@ -177,7 +178,11 @@ export interface ChangesBase {
 
 /** One entry that differs from the base. */
 export interface Change {
-  /** `set`: the entry exists and differs from the base, or is new. `delete`: it's in the base and gone now. */
+  /**
+   * `set`: the entry exists and differs from the base, or is new. `delete`:
+   * it's in the base and gone now; on an overlay endpoint, also a tombstone
+   * the overlay holds for a name the base lacks (`baseVersion: null`).
+   */
   kind: "set" | "delete";
   /**
    * The entry's current version, as `blocks.list` reports it (usable in
@@ -241,7 +246,11 @@ export interface ChangesGetResult {
 export interface ChangesDiscardParams {
   /** Entries to drop back to the base. A name without a change is a no-op. */
   names: string[];
-  /** A version the entry must have now; `null` = must not exist. As in `blocks.apply`. */
+  /**
+   * The version the entry must have now, as `changes.list` reports it; `null`
+   * = must not exist. On an overlay endpoint, a deletion the overlay holds
+   * has its tombstone version, and `null` on it fails.
+   */
   ifMatch?: Record<string, string | null>;
 }
 

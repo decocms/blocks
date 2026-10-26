@@ -142,6 +142,11 @@ export const overlayCases: ConformanceCase[] = [
         const listed = (await changes(ctx)).changes[base.name];
         assertEqual(listed?.kind, "delete", "a delete change");
         assertEqual(listed?.version, tombstone, "changes.list reports the tombstone version");
+        // A discard guarded with the version changes.list showed lands.
+        await ctx.client.changesDiscard({
+          names: [base.name],
+          ifMatch: { [base.name]: tombstone! },
+        });
       } finally {
         await ctx.client.changesDiscard({ names: [base.name] }).catch(() => {});
       }
