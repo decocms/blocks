@@ -242,6 +242,13 @@ describe("an overlay storage", () => {
       version: TOMBSTONE_VERSION,
       baseVersion: null,
     });
+    expect((await client.changesGet({ names: ["Nowhere"] })).entries.Nowhere).toEqual({
+      kind: "delete",
+      before: null,
+      after: null,
+      version: TOMBSTONE_VERSION,
+      baseVersion: null,
+    });
 
     const error = await rejects(
       client.blocksApply({ set: { Nowhere: { v: 1 } }, ifMatch: { Nowhere: null } }),
