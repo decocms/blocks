@@ -5,7 +5,7 @@ import {
   setRedirectSemantics,
 } from "@decocms/blocks/sdk/redirects";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearRedirectCache, lookupExactRedirect } from "./kvRedirects";
+import { clearRedirectCache, isExactRedirectLookupCold, lookupExactRedirect } from "./kvRedirects";
 
 /** Minimal KV binding that records every read. */
 function makeKV(values: Record<string, string> = {}) {
@@ -164,5 +164,21 @@ describe("precedence: exact (KV) over glob (memory)", () => {
       matchPatternRedirect("/shop/other", map);
 
     expect(hit).toMatchObject({ to: "/store/other" });
+  });
+});
+
+describe("isExactRedirectLookupCold", () => {
+  it("is cold until the path has been looked up, hit or miss", async () => {
+    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' });
+    expect(isExactRedirectLookupCold(enabled(kv), "/old")).toBe(true);
+    expect(isExactRedirectLookupCold(enabled(kv), "/nope")).toBe(true);
+    await lookupExactRedirect(enabled(kv), "/old");
+    await lookupExactRedirect(enabled(kv), "/nope");
+    expect(isExactRedirectLookupCold(enabled(kv), "/old")).toBe(false);
+    expect(isExactRedirectLookupCold(enabled(kv), "/nope")).toBe(false);
+  });
+
+  it("is never cold when the lookup cannot run", () => {
+    expect(isExactRedirectLookupCold({}, "/old")).toBe(false);
   });
 });
