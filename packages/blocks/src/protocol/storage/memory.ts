@@ -22,13 +22,12 @@ import {
 
 /** Everything a memory storage holds; JSON-serializable, so it survives a "restart". */
 export interface MemoryStorageState {
-  /** Saved-block files, by file name, with their content. */
+  /** Saved-block files, by file name, with their content (an overlay's own files, for an overlay). */
   files: Record<string, string>;
   /** The content of `schema.gen.json`, or `null` without one. */
   schema: string | null;
   /** The content of `meta.gen.json`, the fallback schema, or `null`. */
   legacySchema?: string | null;
-  secretsPublicKey: string | null;
   assets: Record<string, string>;
   /** `false` simulates an app root with no `.deco` folder at all. */
   hasDecoFolder: boolean;
@@ -38,6 +37,14 @@ export interface MemoryStorageState {
   baseRevision: string;
   /** The base's branch. Default `null`. */
   baseRef: string | null;
+  /**
+   * An overlay storage (`writeSnapshot()`, `describe.overlay`), like a hosted
+   * draft: `files` is then the overlay alone, laid over `base`, and
+   * `deleted` the base files it deletes. Default `false`.
+   */
+  overlay: boolean;
+  /** For an overlay: base files the overlay deletes. */
+  deleted: string[];
 }
 
 export interface MemoryStorageOptions {
@@ -59,7 +66,7 @@ export interface MemoryStorage extends ContentStorage {
   setSchema(schema: string | object | null): void;
   /** Replaces the base's files, as a publish (or an outside commit) would. */
   setBase(files: Record<string, string>): void;
-  /** Makes the current files the base, as a commit of every change would. */
+  /** Makes the current content the base (emptying an overlay), as a commit of every change would. */
   commitBase(): void;
   /** How many commits landed. */
   readonly commits: number;
@@ -72,12 +79,13 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     files: {},
     schema: null,
     legacySchema: null,
-    secretsPublicKey: null,
     assets: {},
     hasDecoFolder: true,
     base: {},
     baseRevision: "base-0",
     baseRef: null,
+    overlay: false,
+    deleted: [],
     ...options.state,
   });
   // structuredClone keeps shared references: the base is never the files object.
@@ -91,18 +99,62 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
   };
   let commits = 0;
 
-  async function currentVersions(): Promise<Map<string, string>> {
+  /** The content `snapshot()` lists: the files, or for an overlay its files laid over the base. */
+  function content(): Record<string, string> {
+    if (!state.overlay) return state.files;
+    const out: Record<string, string> = Object.create(null);
+    for (const [file, text] of Object.entries(state.base)) {
+      if (!state.deleted.includes(file)) out[file] = text;
+    }
+    return Object.assign(out, state.files);
+  }
+
+  async function versionsOf(files: Record<string, string>): Promise<Map<string, string>> {
     const entries = await Promise.all(
-      Object.entries(state.files).map(
-        async ([file, content]) => [file, await version(content)] as const,
-      ),
+      Object.entries(files).map(async ([file, text]) => [file, await version(text)] as const),
     );
     return new Map(entries);
   }
 
-  async function schemaVersion(): Promise<string | null> {
-    const text = state.schema ?? state.legacySchema ?? null;
-    return text === null ? null : version(text);
+  const currentVersions = () => versionsOf(content());
+
+  /**
+   * The revision `snapshot()` reports. An overlay's also moves with the
+   * overlay itself, even when the content it shows doesn't (an entry saved
+   * with the base's value), so `changes.*` never answers from a stale memo.
+   */
+  async function contentRevision(): Promise<string> {
+    const revision = await revisionOf(await currentVersions());
+    if (!state.overlay) return revision;
+    const own = await revisionOf(await versionsOf(state.files));
+    return sha256Hex(`${revision}\n${own}\n${[...state.deleted].sort().join("\n")}`);
+  }
+
+  async function snapshotOf(
+    files: Record<string, string>,
+    revision?: () => Promise<string>,
+  ): Promise<StorageSnapshot> {
+    if (!state.hasDecoFolder) throw new StorageNotFoundError("no .deco folder");
+    const versions = await versionsOf(files);
+    return {
+      revision: revision ? await revision() : await revisionOf(versions),
+      resolvedRef: null,
+      files: [...versions].map(([file, v]) => ({
+        file,
+        version: v,
+        size: new TextEncoder().encode(files[file]).byteLength,
+      })),
+    };
+  }
+
+  /** An overlay's commit: `apply` writes the overlay and records deletions; `discard` drops files from it. */
+  function commitToOverlay(attempt: CommitAttempt): void {
+    const touched = [...Object.keys(attempt.put), ...attempt.delete];
+    state.deleted = state.deleted.filter((file) => !touched.includes(file));
+    for (const file of touched) delete state.files[file];
+    if (attempt.reason === "discard") return;
+    for (const file of attempt.delete) if (file in state.base) state.deleted.push(file);
+    for (const [file, text] of Object.entries(attempt.put)) state.files[file] = text;
   }
 
   async function revisionOf(versions: Map<string, string>): Promise<string> {
@@ -125,25 +177,21 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     if (attempt.expectedBase !== undefined && attempt.expectedBase !== state.baseRevision) {
       return { status: "stale" };
     }
-    if (
-      attempt.expectedSchemaVersion !== undefined &&
-      (await schemaVersion()) !== attempt.expectedSchemaVersion
-    ) {
-      return { status: "stale" };
-    }
-    const versions = await currentVersions();
+    // An overlay's apply is guarded against the overlay; anything else against the content.
+    const guarded = state.overlay && attempt.reason !== "discard" ? state.files : content();
+    const versions = await versionsOf(guarded);
     for (const [file, expected] of Object.entries(attempt.expected)) {
       if ((versions.get(file) ?? null) !== expected) return { status: "stale" };
     }
     // Validate everything before mutating, so the commit is all or nothing.
     const written: Record<string, string> = {};
-    for (const [file, content] of Object.entries(attempt.put))
-      written[file] = await version(content);
-    for (const file of attempt.delete) delete state.files[file];
-    for (const [file, content] of Object.entries(attempt.put)) state.files[file] = content;
-    for (const [file, v] of Object.entries(written)) versions.set(file, v);
-    for (const file of attempt.delete) if (!(file in attempt.put)) versions.delete(file);
-    const revision = await revisionOf(versions);
+    for (const [file, text] of Object.entries(attempt.put)) written[file] = await version(text);
+    if (state.overlay) commitToOverlay(attempt);
+    else {
+      for (const file of attempt.delete) delete state.files[file];
+      for (const [file, text] of Object.entries(attempt.put)) state.files[file] = text;
+    }
+    const revision = await contentRevision();
     commits++;
     return { status: "committed", revision, versions: written };
   }
@@ -155,25 +203,16 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
 
     describe: () => description,
 
-    async snapshot(): Promise<StorageSnapshot> {
-      if (!state.hasDecoFolder) throw new StorageNotFoundError("no .deco folder");
-      const versions = await currentVersions();
-      return {
-        revision: await revisionOf(versions),
-        resolvedRef: null,
-        files: [...versions].map(([file, v]) => ({
-          file,
-          version: v,
-          size: new TextEncoder().encode(state.files[file]).byteLength,
-        })),
-      };
-    },
+    snapshot: () => snapshotOf(content(), contentRevision),
+
+    ...(state.overlay ? { writeSnapshot: () => snapshotOf(state.files) } : {}),
 
     async readFiles(_snapshot, files) {
       const out: Record<string, StoredFileBody> = Object.create(null);
+      const current = content();
       for (const file of files) {
-        if (!(file in state.files)) continue;
-        const text = state.files[file];
+        if (!(file in current)) continue;
+        const text = current[file]!;
         out[file] = { text, version: await version(text) };
         await options.afterRead?.(file, storage);
       }
@@ -185,10 +224,6 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
       const text = state.schema ?? state.legacySchema ?? null;
       if (text === null) return null;
       return { version: await version(text), text, resolvedRef: null };
-    },
-
-    async readSecretsPublicKey() {
-      return state.secretsPublicKey;
     },
 
     async base() {
@@ -203,6 +238,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
           size: new TextEncoder().encode(content).byteLength,
         })),
       );
+      if (state.overlay) {
+        // The overlay's own files are the changes, even one equal to the base.
+        const deleted = state.deleted.filter((file) => file in state.base);
+        return { files: [...Object.keys(state.files), ...deleted], baseFiles };
+      }
       const baseVersion = new Map(baseFiles.map((f) => [f.file, f.version]));
       const current = new Map(snapshot.files.map((f) => [f.file, f.version]));
       const files = new Set<string>();
@@ -248,7 +288,11 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryS
     },
 
     commitBase() {
-      storage.setBase(state.files);
+      storage.setBase(content());
+      if (state.overlay) {
+        state.files = {};
+        state.deleted = [];
+      }
     },
 
     setSchema(schema) {

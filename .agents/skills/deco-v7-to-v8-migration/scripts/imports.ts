@@ -73,7 +73,6 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "Route",
     "remoteLoader",
     "resetForTests",
-    "Secret",
     "Seo",
     "Snapshot",
     "Telemetry",
@@ -84,7 +83,6 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   // Who is in which A/B test: pure helpers a site's own code may call.
   "@decocms/blocks/experiments": "*",
   "@decocms/blocks/analytics": "*",
-  "@decocms/blocks/secrets": "*",
   "@decocms/blocks/cli": "*",
   // Platform-neutral image URLs only; a platform's URLs are its client's /image.
   "@decocms/blocks/image": new Set([

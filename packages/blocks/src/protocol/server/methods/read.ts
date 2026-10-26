@@ -1,7 +1,6 @@
 /**
  * The three read methods: `describe`, `schema.get` and `blocks.list`.
  */
-import { publicKeyDerFromPem } from "../../ciphertext.ts";
 import { unavailable } from "../../errors.ts";
 import {
   ASSETS_URL_PREFIX,
@@ -19,30 +18,8 @@ import type { Core } from "../core.ts";
 
 const DEFAULT_SERVER = { name: "deco-blocks", version: "unknown" };
 
-/** The largest `.deco/secrets.pub` served (a 16384-bit key's PEM is under 3 KiB). */
-const MAX_PUBLIC_KEY_BYTES = 16 * 1024;
-
-/**
- * The public key `describe` may serve: a single `PUBLIC KEY` PEM block of at
- * most 16 KiB. Anything else (a private key committed by mistake, two
- * blocks, stray text) is never broadcast to the site editor.
- */
-function servablePublicKey(text: string | null): string | null {
-  if (text === null) return null;
-  if (new TextEncoder().encode(text).byteLength > MAX_PUBLIC_KEY_BYTES) return null;
-  if (text.includes("PRIVATE KEY")) return null;
-  return publicKeyDerFromPem(text) === null ? null : text;
-}
-
 export async function describe(core: Core): Promise<DescribeResult> {
   const description = await core.description();
-  const stored = await core.storage.readSecretsPublicKey();
-  const publicKey = servablePublicKey(stored);
-  if (stored !== null && publicKey === null) {
-    core.options.onError?.(
-      new Error(".deco/secrets.pub isn't a single PUBLIC KEY PEM block; describe reports no key"),
-    );
-  }
   const readOnly = description.readOnly;
   return {
     protocol: PROTOCOL_NAME,
@@ -62,7 +39,8 @@ export async function describe(core: Core): Promise<DescribeResult> {
             urlPrefix: ASSETS_URL_PREFIX,
             maxBytes: description.assets.maxBytes,
           },
-    secrets: publicKey === null ? null : { publicKey },
+    secrets: null,
+    ...(typeof core.storage.writeSnapshot === "function" ? { overlay: true as const } : {}),
   };
 }
 

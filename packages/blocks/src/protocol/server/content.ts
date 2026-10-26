@@ -40,6 +40,8 @@ interface Options {
   /** Read every body (`blocks.list`), not only the ones that break ties. */
   readAll: boolean;
   cache: BodyCache;
+  /** Takes the snapshot (default: `storage.snapshot()`; `blocks.apply` on an overlay: `writeSnapshot()`). */
+  take?: () => Promise<StorageSnapshot>;
 }
 
 async function loadContent(
@@ -152,7 +154,7 @@ export async function loadCurrentContent(
   shortCircuit?: (snapshot: StorageSnapshot) => boolean,
 ): Promise<{ snapshot: StorageSnapshot; content: LoadedContent | null }> {
   for (let read = 1; read <= MAX_SNAPSHOT_READS; read++) {
-    const snapshot = await storage.snapshot();
+    const snapshot = await (options.take ?? (() => storage.snapshot()))();
     if (shortCircuit?.(snapshot)) return { snapshot, content: null };
     const content = await loadContent(storage, snapshot, options);
     if (!content.moved) return { snapshot, content };

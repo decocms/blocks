@@ -8,8 +8,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { generateSecretsKeyPair } from "../../../protocol/__tests__/fixtures";
-import { encryptToCiphertext } from "../../../protocol/ciphertext";
 import type { Reporter } from "../log";
 
 const WORKSPACE_NODE_MODULES = path.resolve(
@@ -21,7 +19,6 @@ const WORKSPACE_NODE_MODULES = path.resolve(
 export const DECO_TYPES = `
 import type { ReactNode } from "react";
 export type Lazy<T> = () => Promise<T>;
-export type Secret = string & { readonly __secret: true };
 export type BlockFunction = (inputs: any) => unknown | Promise<unknown>;
 export type Blocks = Record<string, BlockFunction>;
 export interface Route { name: string; path: string }
@@ -83,7 +80,7 @@ export function recorder(): Reporter & {
 /**
  * A small store: a hero section, a product card that takes a `Product`, a
  * catalog loader that returns one, a matcher, data-only `post` and `menu`
- * blocks, a `vault` section with lists of secrets and lazy values (and
+ * blocks, a `vault` section with lists of strings and lazy values (and
  * methods), and a legacy alias key.
  */
 export const STORE_FILES: Record<string, string> = {
@@ -100,7 +97,7 @@ export enum Tone { Light = "light", Dark = "dark" }
 `,
   "src/hero.tsx": `
 import type { ReactNode } from "react";
-import type { Lazy, Secret } from "./deco";
+import type { Lazy } from "./deco";
 import type { Product, Tone } from "./model";
 
 /** @title Hero props */
@@ -130,7 +127,6 @@ export interface HeroProps {
   internal?: string;
   product?: Product;
   later?: Lazy<Product>;
-  apiKey?: Secret;
   children?: ReactNode;
   sections?: ReactNode[];
 }
@@ -165,12 +161,12 @@ export const menu = (props: Menu) => props;
 export const footer = (props: { menu: Menu; enabled: boolean; label: string }) => <footer />;
 `,
   "src/vault.tsx": `
-import type { Lazy, Secret } from "./deco";
+import type { Lazy } from "./deco";
 import type { Product } from "./model";
 
 export interface VaultProps {
   label?: string;
-  keys?: Secret[];
+  keys?: string[];
   slots?: Lazy<Product>[];
   /** Methods aren't fields, even ones returning a promise. */
   onLoad?: () => Promise<void>;
@@ -201,12 +197,3 @@ export default {
 } satisfies Blocks;
 `,
 };
-
-/** A `.deco/secrets.pub` key and `value` encrypted to it, by the protocol's `encryptToCiphertext`. */
-export async function sealSecret(
-  value: string,
-  modulusLength = 2048,
-): Promise<{ ciphertext: string; publicKeyPem: string }> {
-  const { publicKeyPem } = await generateSecretsKeyPair(modulusLength);
-  return { ciphertext: await encryptToCiphertext(publicKeyPem, value), publicKeyPem };
-}

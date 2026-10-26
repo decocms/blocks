@@ -90,7 +90,6 @@ describe("groups", () => {
         "greeting",
         "multivariate",
         "lazy",
-        "secret",
       ]),
     );
     expect(meta.manifest.blocks.redirects.redirect).toBeDefined();
@@ -185,15 +184,6 @@ describe("types to fields", () => {
     });
   });
 
-  it("makes Secret a write-only secret block", () => {
-    expect(heroProps().properties.apiKey).toMatchObject({
-      format: "secret",
-      writeOnly: true,
-      required: ["__resolveType", "ciphertext"],
-      properties: { __resolveType: { enum: ["secret"] }, ciphertext: { type: "string" } },
-    });
-  });
-
   it("makes Lazy<T> a lazy block whose value has the form of T", () => {
     const later = heroProps().properties.later;
     expect(later.properties.__resolveType).toEqual({
@@ -203,17 +193,6 @@ describe("types to fields", () => {
     });
     expect(later.required).toEqual(["__resolveType", "value"]);
     expect(later.properties.value.anyOf).toContainEqual(ref("catalog-product"));
-  });
-
-  it("makes Secret[] a list of secret blocks, not of plain strings", () => {
-    const keys = propsOf("vault").properties.keys;
-    expect(keys.type).toBe("array");
-    expect(keys.items).toMatchObject({
-      type: "object",
-      format: "secret",
-      writeOnly: true,
-      properties: { __resolveType: { enum: ["secret"] } },
-    });
   });
 
   it("makes Lazy<T>[] a list of lazy blocks whose value has the form of T", () => {
@@ -380,7 +359,6 @@ describe("built-ins and aliases", () => {
       "redirect",
       "cms-settings",
       "split-traffic",
-      "secret",
     ]) {
       expect(def(name), name).toBeDefined();
     }

@@ -1,7 +1,6 @@
 /**
- * `blocks.apply`'s own size guards and the secret guard.
+ * `blocks.apply`'s own size guards, and the checks it leaves to `deco check`.
  */
-import { encryptToCiphertext, publicKeyPemFromDer } from "../../ciphertext.ts";
 import { ErrorCode, type InvalidBlockData } from "../../errors.ts";
 import { MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY, MAX_REQUEST_BYTES } from "../../server/core.ts";
 import {
@@ -17,27 +16,6 @@ async function writable(ctx: ConformanceContext) {
   const d = await ctx.describe();
   if (d.readOnly) return ctx.skip("read-only endpoint");
   return d;
-}
-
-/** A throwaway public key, for endpoints that don't report one. */
-async function ephemeralPublicKey(): Promise<string> {
-  const pair = (await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt", "decrypt"],
-  )) as CryptoKeyPair;
-  return publicKeyPemFromDer(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey)));
-}
-
-/** A real ciphertext: encrypted with the endpoint's public key when it reports one. */
-async function realCiphertext(ctx: ConformanceContext, value: string): Promise<string> {
-  const publicKey = (await ctx.describe()).secrets?.publicKey ?? (await ephemeralPublicKey());
-  return encryptToCiphertext(publicKey, value);
 }
 
 export const guardCases: ConformanceCase[] = [
@@ -96,41 +74,27 @@ export const guardCases: ConformanceCase[] = [
     },
   },
   {
-    id: "secrets/guard",
-    title: "a Secret field accepts only a secret block with a well-formed ciphertext",
+    id: "writes/schema-free",
+    title: "blocks.apply saves any JSON object, whatever the schema says about it",
     async run(ctx) {
       await writable(ctx);
-      const fixture = ctx.options.secretField;
-      if (!fixture) return ctx.skip("no secretField fixture");
-      const block = (value: unknown) => ({
-        __resolveType: fixture.blockType,
-        [fixture.field]: value,
-      });
-      const plain = ctx.name("plain-secret");
-      const error = await expectError(
-        ctx.client.blocksApply({ set: { [plain]: block("hunter2") } }),
-        ErrorCode.InvalidBlock,
-        "plain text in a Secret field",
-      );
-      const violation = (error.data as InvalidBlockData).violations[0];
-      assertEqual(violation?.name, plain, "the violation names the entry");
-      // Text that only looks like a ciphertext is plain text all the same.
-      for (const ciphertext of ["hunter2", "v1.hunter2", "v1.my-api-key_123", "v1.QUJD.ZGVm"]) {
-        await expectError(
-          ctx.client.blocksApply({
-            set: { [ctx.name("bad-cipher")]: block({ __resolveType: "secret", ciphertext }) },
-          }),
-          ErrorCode.InvalidBlock,
-          `the malformed ciphertext ${JSON.stringify(ciphertext)}`,
-        );
-      }
-      const ok = ctx.name("secret");
-      const ciphertext = await realCiphertext(ctx, "conformance-value");
-      await ctx.client.blocksApply({
-        set: { [ok]: block({ __resolveType: "secret", ciphertext }) },
-      });
+      // The schema is `deco check`'s business, in the site's CI: a write never reads it.
+      const values = {
+        [ctx.name("unknown-type")]: { __resolveType: "conformance/not-in-any-schema.tsx", x: 1 },
+        [ctx.name("v7-secret")]: {
+          __resolveType: "website/loaders/secret.ts",
+          encrypted: "not-a-ciphertext",
+        },
+        [ctx.name("plain-field")]: { __resolveType: "secret", ciphertext: "hunter2" },
+        [ctx.name("no-type")]: { title: 42, sections: "not a list" },
+      };
+      const applied = await ctx.client.blocksApply({ set: values });
       const list = await ctx.client.blocksList();
-      assert(!list.notModified && ok in list.blocks, "an encrypted value is saved");
+      assert(!list.notModified, "an unconditional list returns the map");
+      for (const [name, value] of Object.entries(values)) {
+        assertEqual(list.blocks[name], value, `${name} is saved as sent`);
+        assertEqual(list.versions[name], applied.versions[name], `${name}'s version`);
+      }
     },
   },
 ];

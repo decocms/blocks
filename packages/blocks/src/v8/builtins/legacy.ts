@@ -9,10 +9,10 @@
  *
  * - Redirects keep v7's nested shape: `redirect` returns its arguments as
  *   saved, and `matchRoute` accepts both shapes.
- * - `website/loaders/secret.ts` resolves as `secret`, which needs the
- *   `ciphertext` the one-time re-encryption writes (see
- *   /next/renames-and-migrations#secrets); a v7 `encrypted` value fails that
- *   block with `BLOCK_FAILED`.
+ * - `website/loaders/secret.ts` has no alias: secrets live in the deploy
+ *   platform, read by the site's code and passed as params (see
+ *   /next/renames-and-migrations#secrets), so a leftover v7 secret block
+ *   fails with `UNKNOWN_BLOCK` and `deco check` points it out.
  * - Legacy variants are saved as plain values; on the way to `multivariate`
  *   each one is wrapped in a `lazy` block, so only the chosen one runs.
  */
@@ -36,7 +36,6 @@ export const LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   "website/matchers/always.ts": "always",
   "website/matchers/never.ts": "never",
   "website/loaders/redirect.ts": "redirect",
-  "website/loaders/secret.ts": "secret",
 });
 
 /**

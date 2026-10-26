@@ -3,13 +3,7 @@
  * schema.get, blocks.list and blocks.apply over the memory storage.
  */
 import { describe, expect, it } from "vitest";
-import {
-  CIPHERTEXT,
-  SECRET_BLOCK,
-  SECRET_FIELD,
-  schemaFixture,
-  secretBlock,
-} from "../__tests__/fixtures";
+import { schemaFixture } from "../__tests__/fixtures";
 import { createContentClient } from "../client";
 import { type ContentProtocolError, ErrorCode } from "../errors";
 import { serializeBlock } from "../keys";
@@ -282,7 +276,6 @@ describe("blocks.apply", () => {
           arr: [] as never,
           nil: null as never,
           str: "s" as never,
-          [SECRET_BLOCK]: { __resolveType: SECRET_BLOCK, [SECRET_FIELD]: "plain" },
         },
         delete: ["", "also-gone", ""],
       }),
@@ -294,7 +287,6 @@ describe("blocks.apply", () => {
         ":empty",
         "arr:not-an-object",
         "bad..name:dot-dot",
-        `${SECRET_BLOCK}:secret-field`,
         "nil:not-an-object",
         "str:not-an-object",
         "x.ts:source-extension",
@@ -467,44 +459,18 @@ describe("blocks.apply", () => {
     });
   });
 
-  describe("the secret guard", () => {
-    const newsletter = (apiKey: unknown) => ({
-      __resolveType: SECRET_BLOCK,
-      [SECRET_FIELD]: apiKey,
-    });
-
-    it("refuses plain text in a Secret field, with a pointer to it", async () => {
+  describe("content and the schema", () => {
+    it("saves any JSON object: checking it against the schema is deco check's job", async () => {
       const { client, storage } = setup();
-      const error = await rejects(
-        client.blocksApply({ set: { N: newsletter("hunter2") } }),
-        ErrorCode.InvalidBlock,
-      );
-      expect(error.data).toEqual({
-        violations: [
-          {
-            name: "N",
-            pointer: `/${SECRET_FIELD}`,
-            rule: "secret-field",
-            message: expect.any(String),
-          },
-        ],
-      });
-      expect(storage.commits).toBe(0);
-    });
-
-    it("accepts a secret block with a well-formed ciphertext", async () => {
-      const { client, storage } = setup();
-      await client.blocksApply({ set: { N: newsletter(secretBlock()) } });
-      expect(storage.dump().files["N.json"]).toContain(CIPHERTEXT);
-    });
-
-    it("still checks ciphertexts when the endpoint has no schema", async () => {
-      const { client } = setup({ state: { schema: null } });
-      await rejects(
-        client.blocksApply({ set: { S: secretBlock("plain") } }),
-        ErrorCode.InvalidBlock,
-      );
-      await client.blocksApply({ set: { S: secretBlock() } });
+      const values = {
+        N: { __resolveType: "hero", title: 42, padding: { not: "a string" } },
+        S: { __resolveType: "secret", ciphertext: "plain" },
+        V: { __resolveType: "website/loaders/secret.ts", encrypted: "plain" },
+      };
+      await client.blocksApply({ set: values });
+      for (const [name, value] of Object.entries(values)) {
+        expect(storage.dump().files[`${name}.json`]).toBe(file(value));
+      }
     });
   });
 

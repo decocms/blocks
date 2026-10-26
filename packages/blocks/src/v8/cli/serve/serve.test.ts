@@ -7,13 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { git, gitCommitAll, gitInit } from "../../../protocol/__tests__/git";
 import { defineConformanceSuite } from "../../../protocol/conformance";
 import { gitBlobHash } from "../../../protocol/storage/fs/hash";
-import {
-  createFixture,
-  type Fixture,
-  recorder,
-  STORE_FILES,
-  sealSecret,
-} from "../__tests__/fixture";
+import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
 import { CliError, decoPaths } from "../root";
 import { runCli } from "../run";
 import { type DecoMeta, generateSchema } from "../schema/generate";
@@ -267,8 +261,9 @@ describe("CORS", () => {
 });
 
 describe("the content protocol", () => {
-  it("describes the endpoint: working tree, root, assets and the secrets key", async () => {
-    const { publicKeyPem } = await sealSecret("x");
+  it("describes the endpoint: working tree, root and assets, and no secrets key", async () => {
+    // A key an older site committed is never reported: content holds no secrets.
+    const publicKeyPem = "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n";
     await start({ preview: "http://localhost:3000/" }, { ".deco/secrets.pub": publicKeyPem });
     const { result } = await rpc("describe");
     expect(result).toMatchObject({
@@ -282,8 +277,9 @@ describe("the content protocol", () => {
       pollIntervalMs: 2000,
       preview: { url: "http://localhost:3000" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
-      secrets: { publicKey: publicKeyPem },
+      secrets: null,
     });
+    expect(result).not.toHaveProperty("overlay");
   });
 
   it("reports the app root relative to the repository root", async () => {
@@ -455,12 +451,9 @@ describe("the content protocol's conformance suite, against deco serve", () => {
   let site: Fixture;
   let running: RunningServer;
   let readOnly: RunningServer;
-  let publicKeyPem: string;
   beforeAll(async () => {
-    ({ publicKeyPem } = await sealSecret("x"));
     site = createFixture({
       ".deco/schema.gen.json": meta,
-      ".deco/secrets.pub": publicKeyPem,
       ".deco/blocks/pages-Committed.json": { path: "/committed", title: "In HEAD" },
     });
     gitInit(site.root);
@@ -477,8 +470,6 @@ describe("the content protocol's conformance suite, against deco serve", () => {
   const optionsFor = (server: () => RunningServer) => () => ({
     endpoint: server().endpoint,
     assetsEndpoint: server().endpoint.replace(/\/rpc$/, "/assets/"),
-    secretField: { blockType: "hero", field: "apiKey" },
-    secretsPublicKey: publicKeyPem,
     baseEntry: { name: "pages-Committed" },
   });
   defineConformanceSuite(

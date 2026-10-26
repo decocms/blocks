@@ -17,7 +17,6 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   page: "pages",
   redirect: "redirects",
   "cms-settings": "content",
-  secret: "loaders",
   "split-traffic": "content",
   calendar: "content",
 };
@@ -60,7 +59,6 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
       "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
     icon: "calendar-event",
   },
-  secret: { title: "Secret", description: "An encrypted value, decrypted on the server" },
 };
 
 /** The form of each test in a `split-traffic` block: a whole percentage. */
@@ -265,12 +263,6 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
             },
           },
         },
-      };
-    case "secret":
-      return {
-        type: "object",
-        required: ["ciphertext"],
-        properties: { ciphertext: { type: "string", title: "Ciphertext", writeOnly: true } },
       };
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: deco-v7-to-v8-migration
-description: "@decocms/blocks 8 (the next major): moves a v7 Deco site (@decocms/blocks 7.x with @decocms/tanstack or @decocms/nextjs, @decocms/blocks-admin, @decocms/blocks-cli, v7 @decocms/apps-*) onto @decocms/blocks 8, the v8 bindings (@decocms/tanstack 8, @decocms/nextjs 8) and the thin @decocms/apps-* clients. Runs the one-time migration script (scripts/main.ts: block map with legacy aliases, vendored app loaders, content in .deco/blocks, secret re-encryption, import report), then guides the manual work it reports. Use when a site's package.json depends on @decocms/blocks ^7, @decocms/tanstack, @decocms/nextjs or @decocms/blocks-admin and should move to v8; when the report lists /deco/invoke calls, createDecoWorkerEntry, RequestContext, useCart or other v7 imports to replace; when deco check rejects migrated content; or when a migrated page, draft preview, editor form or parity run differs from v7. Replaces the unpublished @decocms/blocks-migrate package."
+description: "@decocms/blocks 8 (the next major): moves a v7 Deco site (@decocms/blocks 7.x with @decocms/tanstack or @decocms/nextjs, @decocms/blocks-admin, @decocms/blocks-cli, v7 @decocms/apps-*) onto @decocms/blocks 8, the v8 bindings (@decocms/tanstack 8, @decocms/nextjs 8) and the thin @decocms/apps-* clients. Runs the one-time migration script (scripts/main.ts: block map with legacy aliases, vendored app loaders, content in .deco/blocks, v7 secrets listed for the deploy platform, import report), then guides the manual work it reports. Use when a site's package.json depends on @decocms/blocks ^7, @decocms/tanstack, @decocms/nextjs or @decocms/blocks-admin and should move to v8; when the report lists /deco/invoke calls, createDecoWorkerEntry, RequestContext, useCart or other v7 imports to replace; when deco check rejects migrated content; or when a migrated page, draft preview, editor form or parity run differs from v7. Replaces the unpublished @decocms/blocks-migrate package."
 ---
 
 # Deco v7 → v8 Migration
@@ -21,9 +21,8 @@ Not for sites on `@decocms/start@6.x` (upgrade to 7.x first with `decocms-v6-to-
 ## Prerequisites
 
 1. A clean working tree: the script edits files in place.
-2. `DECO_CRYPTO_KEY` (the v7 secret key) in the environment, and `.deco/secrets.pub` committed (see `/next/secrets`). Without them, v7 secrets are reported, not re-encrypted.
-3. **Install `@decocms/blocks@^8.4` before running the script** (not `^8`: `8.0.0` is an accidental v7 build). v7's blocks lacks the `/cli` and `/protocol/keys` the script imports. Keep the v7 `@decocms/apps-*` installed until the script has run: it vendors the app loaders your content calls from `node_modules`.
-4. `typescript` resolvable from the site (the import codemod parses `src/` with it).
+2. **Install `@decocms/blocks@^8.4` before running the script** (not `^8`: `8.0.0` is an accidental v7 build). v7's blocks lacks the `/cli` and `/protocol/keys` the script imports. Keep the v7 `@decocms/apps-*` installed until the script has run: it vendors the app loaders your content calls from `node_modules`.
+3. `typescript` resolvable from the site (the import codemod parses `src/` with it).
 
 ## Run
 
@@ -32,7 +31,7 @@ The script is `scripts/main.ts` in this skill. It resolves `@decocms/blocks` rel
 **From a `decocms/blocks` checkout on the v8 line** (run `bun install` there first):
 
 ```bash
-DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
+bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
 # under Node: npx tsx <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
 ```
 
@@ -41,7 +40,7 @@ DECO_CRYPTO_KEY=… bun <blocks>/.agents/skills/deco-v7-to-v8-migration/scripts/
 ```bash
 cd <site> && bun add @decocms/blocks@^8.4
 cp -R <skill>/scripts .deco-migrate
-DECO_CRYPTO_KEY=… bun .deco-migrate/main.ts --root .
+bun .deco-migrate/main.ts --root .
 rm -rf .deco-migrate
 ```
 

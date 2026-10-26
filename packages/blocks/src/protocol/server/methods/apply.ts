@@ -6,17 +6,22 @@
  *    commit, or none does.
  * 2. Durable when it returns.
  * 3. `set` wins when a name is in both `set` and `delete`.
- * 4. Validated first: names, value shapes, sizes and the secret guard are
- *    checked before anything is written, and every violation is reported.
+ * 4. Validated first: names, value shapes and sizes are checked before
+ *    anything is written, and every violation is reported. The schema isn't
+ *    read: content is checked against it by `deco check`.
  * 5. Preconditions are optional: a failed `ifMatch` writes nothing and
  *    returns a Conflict; without one the last writer wins.
- *
  * 6. Two spellings of one name are one entry: a guard compares against the
  *    entry under any spelling, and the result reports `null` for every other
  *    spelling the commit deleted.
+ * 7. On an overlay storage (one with `writeSnapshot()`), everything above
+ *    runs against the overlay alone, so a write never reads the base: a
+ *    guard compares with the overlay's version, and a delete always reaches
+ *    the storage, which records it over the base.
  *
- * A commit attempt that finds storage moved (files or the schema) is retried against a new snapshot after a jittered
- * backoff, rechecking every guard, up to `maxCommitAttempts` times.
+ * A commit attempt that finds storage moved is retried against a new
+ * snapshot after a jittered backoff, rechecking every guard, up to
+ * `maxCommitAttempts` times.
  */
 import {
   type BlockViolation,
@@ -37,11 +42,9 @@ import {
   serializeBlock,
   spellingKey,
 } from "../../keys.ts";
-import { checkSecrets } from "../../secrets.ts";
-import type { BlocksApplyParams, BlocksApplyResult, DecoMeta } from "../../types.ts";
+import type { BlocksApplyParams, BlocksApplyResult } from "../../types.ts";
 import { type LoadedContent, type LoadedEntry, loadCurrentContent } from "../content.ts";
 import { type Core, MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY } from "../core.ts";
-import { parseSchema } from "./read.ts";
 
 const utf8 = new TextEncoder();
 
@@ -66,7 +69,7 @@ function normalize(params: BlocksApplyParams): NormalizedApply {
 }
 
 /** Checks everything that doesn't depend on stored content. */
-function validateStatic(apply: NormalizedApply, meta: DecoMeta | null) {
+function validateStatic(apply: NormalizedApply) {
   const violations: BlockViolation[] = [];
   const bodies = new Map<string, string>();
   const bySpelling = new Map<string, string>();
@@ -96,7 +99,6 @@ function validateStatic(apply: NormalizedApply, meta: DecoMeta | null) {
       continue;
     }
     bodies.set(name, body);
-    violations.push(...checkSecrets(name, value, meta));
   }
   for (const name of apply.delete) {
     for (const v of checkDeletedName(name))
@@ -147,13 +149,15 @@ interface Plan {
  * spelling. Deleting any spelling of an entry deletes every spelling. Only
  * guarded entries become commit expectations: without `ifMatch`, the last
  * writer wins, so a concurrent save of the same entry must not turn into a
- * retry storm.
+ * retry storm. On an overlay, a delete always names its file, even one the
+ * overlay doesn't hold: the base may have it.
  */
 function plan(
   content: LoadedContent,
   bySpelling: EntriesBySpelling,
   apply: NormalizedApply,
   bodies: Map<string, string>,
+  overlay: boolean,
 ): Plan {
   const versionOf = new Map(
     content.snapshot.files.filter((f) => isBlockFileName(f.file)).map((f) => [f.file, f.version]),
@@ -171,7 +175,7 @@ function plan(
   }
   for (const name of apply.delete) {
     const file = blockFileName(name);
-    if (versionOf.has(file)) deletes.add(file);
+    if (overlay || versionOf.has(file)) deletes.add(file);
     if (bySpelling.has(spellingKey(name))) for (const other of groupFiles(name)) deletes.add(other);
   }
   for (const file of Object.keys(put)) deletes.delete(file);
@@ -230,15 +234,6 @@ function resultFromVersions(
   return { revision, versions };
 }
 
-async function loadSchema(core: Core) {
-  const stored = await core.storage.readSchema();
-  if (stored === null) return { version: null, meta: null };
-  if (core.parsedSchema?.version !== stored.version) {
-    core.parsedSchema = { version: stored.version, meta: parseSchema(stored.text) };
-  }
-  return { version: stored.version, meta: core.parsedSchema.meta };
-}
-
 export async function blocksApply(
   core: Core,
   params: BlocksApplyParams,
@@ -246,33 +241,31 @@ export async function blocksApply(
   const description = await core.description();
   if (description.readOnly) throw readOnly();
   const apply = normalize(params);
+  const { violations: invalid, bodies } = validateStatic(apply);
+  const storage = core.storage;
+  const overlay = typeof storage.writeSnapshot === "function";
+  const take = overlay ? () => storage.writeSnapshot!() : undefined;
 
   for (let attempt = 1; attempt <= core.maxCommitAttempts; attempt++) {
-    const schema = await loadSchema(core);
-    const { violations, bodies } = validateStatic(apply, schema.meta);
-    const { snapshot, content } = await loadCurrentContent(core.storage, {
+    const { snapshot, content } = await loadCurrentContent(storage, {
       readAll: false,
       cache: core.cache,
+      take,
     });
     const bySpelling = entriesBySpelling(content!);
-    violations.push(...validateAgainst(content!, bySpelling, apply));
+    const violations = [...invalid, ...validateAgainst(content!, bySpelling, apply)];
     if (violations.length > 0) throw invalidBlock(violations);
 
     const mismatches = checkIfMatch(bySpelling, apply);
     if (mismatches) throw conflict({ entries: mismatches });
 
-    const { put, delete: deletes, expected } = plan(content!, bySpelling, apply, bodies);
+    const { put, delete: deletes, expected } = plan(content!, bySpelling, apply, bodies, overlay);
     if (Object.keys(put).length === 0 && deletes.length === 0) {
-      return resultFromVersions(apply, snapshot.revision, {}, []);
+      // Nothing to write. The result's revision is blocks.list's, which an overlay's isn't.
+      const revision = overlay ? (await storage.snapshot()).revision : snapshot.revision;
+      return resultFromVersions(apply, revision, {}, []);
     }
-    // The schema the secret check used must still be current at commit time.
-    const result = await core.storage.commit({
-      base: snapshot,
-      put,
-      delete: deletes,
-      expected,
-      ...(apply.set.length > 0 ? { expectedSchemaVersion: schema.version } : {}),
-    });
+    const result = await storage.commit({ base: snapshot, put, delete: deletes, expected });
     if (result.status === "committed") {
       return resultFromVersions(apply, result.revision, result.versions, deletes);
     }

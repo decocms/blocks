@@ -1,5 +1,5 @@
 // @decocms/blocks: the v8 runtime API. The CLI, protocol and helpers live on
-// their own subpaths (`/cli`, `/protocol`, `/fetch`, `/analytics`, `/secrets`).
+// their own subpaths (`/cli`, `/protocol`, `/fetch`, `/analytics`, `/vite`).
 export {
   type Analytics,
   type Block,
@@ -30,7 +30,6 @@ export {
   type Route,
   remoteLoader,
   resetForTests,
-  type Secret,
   type Seo,
   type Snapshot,
   type Telemetry,

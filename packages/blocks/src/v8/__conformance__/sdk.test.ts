@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { isValidElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as root from "../../index";
-import { generateSecretsKeyPair } from "../../protocol/__tests__/fixtures";
 import * as analyticsModule from "../analytics";
 import { AnalyticsScript, track } from "../analytics";
 import { instanceOf } from "../cms";
@@ -26,8 +25,6 @@ import {
   remoteLoader,
   resetForTests,
 } from "../index";
-import * as secretsModule from "../secrets";
-import { encryptSecret } from "../secrets";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
 import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures";
 import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
@@ -103,17 +100,6 @@ function swappableLoader(first: Snapshot) {
   return { loader, publish };
 }
 
-/** PKCS#8 PEM of a freshly generated key pair's private key, plus the public PEM. */
-async function keyPair() {
-  const { privateKey, publicKeyPem } = await generateSecretsKeyPair();
-  const der = new Uint8Array(await crypto.subtle.exportKey("pkcs8", privateKey));
-  const b64 = btoa(String.fromCharCode(...der)).replace(/.{64}/g, "$&\n");
-  return {
-    privateKeyPem: `-----BEGIN PRIVATE KEY-----\n${b64}\n-----END PRIVATE KEY-----\n`,
-    publicKeyPem,
-  };
-}
-
 /** The names a source file re-exports from `from`, in its `export { … } from` block. */
 function exportedNames(source: string, from: string): string[] {
   const re = new RegExp(`export\\s*\\{([^}]*)\\}\\s*from\\s*"${from.replace(/[./]/g, "\\$&")}"`);
@@ -150,7 +136,6 @@ const DOCUMENTED_ROOT_TYPES = [
   "Seo",
   "Page",
   "Redirect",
-  "Secret",
   "Lazy",
   "Variant",
   "Telemetry",
@@ -180,10 +165,11 @@ describe("AR-01 the root exports exactly the documented v8 surface", () => {
   });
 });
 
-describe("AR-02 fetch, analytics and secrets live on their own subpaths", () => {
+describe("AR-02 fetch and analytics live on their own subpaths; there's no secrets subpath", () => {
   it("package.json maps the subpaths to the v8 modules", () => {
     const pkg = JSON.parse(readSource("package.json"));
-    for (const name of ["fetch", "analytics", "secrets"]) {
+    expect(pkg.exports["./secrets"]).toBeUndefined();
+    for (const name of ["fetch", "analytics"]) {
       expect(pkg.exports[`./${name}`]).toEqual({
         types: `./dist/v8/${name}.d.ts`,
         source: `./src/v8/${name}.ts`,
@@ -195,7 +181,6 @@ describe("AR-02 fetch, analytics and secrets live on their own subpaths", () => 
   it("each subpath exports exactly the documented runtime names", () => {
     expect(Object.keys(fetchModule)).toEqual(["createInstrumentedFetch"]);
     expect(Object.keys(analyticsModule).sort()).toEqual(["AnalyticsScript", "track"]);
-    expect(Object.keys(secretsModule)).toEqual(["encryptSecret"]);
   });
 
   it("each subpath exports no undocumented types either", () => {
@@ -203,7 +188,6 @@ describe("AR-02 fetch, analytics and secrets live on their own subpaths", () => 
       [...readSource(rel).matchAll(/^export\s+(?:interface|type)\s+(\w+)/gm)].map((m) => m[1]);
     expect(exportedTypes("src/v8/fetch.ts")).toEqual([]);
     expect(exportedTypes("src/v8/analytics.ts")).toEqual([]);
-    expect(exportedTypes("src/v8/secrets.ts")).toEqual([]);
   });
 
   it("the root doesn't re-export them", () => {
@@ -238,7 +222,7 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
       "sig.ts": `
 import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
-  type Redirect, type Secret, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
+  type Redirect, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
   type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, type RequestVersion,
   currentClient, parseVersion } from "@decocms/blocks";
 import type { Assignments, Visitor } from "@decocms/blocks/experiments";
@@ -251,7 +235,9 @@ declare const blocks: Blocks;
 declare const content: Snapshot;
 declare const loader: Loader;
 createCMS({ blocks, content });
-createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, secrets: { key: "k" }, site: "s", token: "t" });
+createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, site: "s", token: "t" });
+// @ts-expect-error secrets live in the deploy platform: createCMS takes no key
+createCMS({ blocks, content, secrets: { key: "k" } });
 createCMS({ blocks, content, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" }, resource: { "service.version": "abc" } } });
 createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], draftHosts: [".decocms.com"] } });
@@ -315,7 +301,6 @@ assert<Equal<Seo, { title: string; description: string }>>();
 assert<Equal<Page, { name: string; path: string; seo?: Seo; sections: ReactNode[] }>>();
 assert<Equal<Page<{ component: string }>, { name: string; path: string; seo?: Seo; sections: { component: string }[] }>>();
 assert<Equal<Redirect, { from: string; to: string; permanent: boolean; status?: 301 | 302 | 307 | 308; discardQueryParameters?: boolean }>>();
-assert<Equal<Secret, string & { readonly __secret: true }>>();
 assert<Equal<Lazy<number>, () => Promise<number>>>();
 assert<Equal<Variant<number>, { rule: boolean; value: Lazy<number> }>>();
 assert<Equal<Telemetry, { enabled?: boolean; metrics?: boolean; errorSampleRate?: number; traceSampleRate?: number }>>();
@@ -437,22 +422,21 @@ describe("AR-08 site loads hosted releases; token sends telemetry; neither is ne
 });
 
 describe("AR-09 / AR-56 secrets", () => {
-  it("encryptSecret returns a secret block the CMS decrypts with secrets.key; without it the block fails", async () => {
-    const { privateKeyPem, publicKeyPem } = await keyPair();
-    const block = await encryptSecret(publicKeyPem, "s3cret");
-    expect(block.__resolveType).toBe("secret");
-    expect(typeof block.ciphertext).toBe("string");
-
-    const content: Snapshot = { revision: "r", blocks: { ApiKey: block } };
-    const withKey = createCMS({ blocks: {}, content, secrets: { key: privateKeyPem } });
-    expect(await withKey.forRelease().resolve("ApiKey")).toEqual(["s3cret", null]);
-
-    resetForTests();
-    const withoutKey = createCMS({ blocks: {}, content: { ...content } });
-    const [value, error] = await withoutKey.forRelease().resolve("ApiKey");
-    expect(value).toBeNull();
-    expect(error?.code).toBe("BLOCK_FAILED");
-  }, 30_000);
+  it("there's no secret block: a v7 or prerelease secret in content is an unknown block", async () => {
+    const content: Snapshot = {
+      revision: "r",
+      blocks: {
+        ApiKey: { __resolveType: "secret", ciphertext: "v1.x" },
+        Legacy: { __resolveType: "website/loaders/secret.ts", encrypted: "00" },
+      },
+    };
+    const client = createCMS({ blocks: {}, content }).forRelease();
+    for (const name of ["ApiKey", "Legacy"]) {
+      const [value, error] = await client.resolve(name);
+      expect(value).toBeNull();
+      expect(error?.code).toBe("UNKNOWN_BLOCK");
+    }
+  });
 });
 
 describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {

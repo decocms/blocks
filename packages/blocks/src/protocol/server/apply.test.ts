@@ -1,10 +1,11 @@
 // @vitest-environment node
 /**
- * blocks.apply edge cases: spellings under guards, the schema the commit
- * depends on, retry backoff, response budgets and storage-refused names.
+ * blocks.apply edge cases: spellings under guards, writes that never read
+ * the schema, overlays, retry backoff, response budgets and storage-refused
+ * names.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SECRET_BLOCK, SECRET_FIELD, schemaFixture } from "../__tests__/fixtures";
+import { schemaFixture } from "../__tests__/fixtures";
 import { createContentClient } from "../client";
 import { type ContentProtocolError, ErrorCode } from "../errors";
 import { serializeBlock } from "../keys";
@@ -87,51 +88,105 @@ describe("two spellings of one name under guards", () => {
   });
 });
 
-describe("the schema a write depends on", () => {
-  it("passes the schema version to the commit, so the storage checks it atomically", async () => {
-    const attempts: Array<string | null | undefined> = [];
-    const { client } = setup({ beforeCommit: (a) => void attempts.push(a.expectedSchemaVersion) });
-    const { version } = await client.schemaGet();
-    await client.blocksApply({ set: { a: {} } });
-    await client.blocksApply({ delete: ["a"] });
-    // A set depends on the schema (the secret guard); a plain delete doesn't.
-    expect(attempts).toEqual([version, undefined]);
+describe("a write never reads the schema", () => {
+  it("saves without reading it, even when reading it would fail", async () => {
+    const memory = createMemoryStorage();
+    const storage: ContentStorage = {
+      ...memory,
+      readSchema: () => Promise.reject(new Error("blocks.apply must not read the schema")),
+    };
+    const client = createContentClient({
+      endpoint: "http://test.local/rpc",
+      fetch: createContentHandler(storage, NO_DELAY),
+    });
+    const value = { __resolveType: "website/loaders/secret.ts", encrypted: "plain" };
+    await client.blocksApply({ set: { N: value } });
+    await client.blocksApply({ delete: ["N"] });
+    expect(memory.commits).toBe(2);
   });
 
-  it("rechecks the secret guard against a schema that changed before the commit", async () => {
-    const plainSchema = structuredClone(schemaFixture);
-    const definitions = plainSchema.schema!.definitions as Record<string, any>;
-    definitions["bmV3c2xldHRlcg=="].properties[SECRET_FIELD] = { type: "string" };
-    let changed = false;
+  it("isn't retried when the schema changes before the commit", async () => {
     const { client, storage } = setup({
-      state: { schema: JSON.stringify(plainSchema) },
-      beforeCommit: (_attempt, s) => {
-        if (changed) return;
-        changed = true;
-        s.setSchema(schemaFixture); // the field just became a Secret
-      },
+      beforeCommit: (_attempt, s) => s.setSchema({ changed: Math.random() }),
     });
-    const entry = { __resolveType: SECRET_BLOCK, [SECRET_FIELD]: "hunter2" };
-    const error = await rejects(client.blocksApply({ set: { N: entry } }), ErrorCode.InvalidBlock);
-    expect(JSON.stringify(error.data)).toContain("secret-field");
-    expect(storage.commits).toBe(0);
+    await client.blocksApply({ set: { N: { title: 1 } } });
+    expect(storage.commits).toBe(1);
+  });
+});
+
+describe("an overlay storage", () => {
+  const base = { "pages-Home.json": file({ path: "/" }), "Footer.json": file({ v: 1 }) };
+
+  function overlaySetup() {
+    const memory = createMemoryStorage({ state: { base, overlay: true } });
+    const reads = { snapshot: 0 };
+    const storage: ContentStorage = {
+      ...memory,
+      snapshot: () => {
+        reads.snapshot++;
+        return memory.snapshot();
+      },
+    };
+    const client = createContentClient({
+      endpoint: "http://test.local/rpc",
+      fetch: createContentHandler(storage, NO_DELAY),
+    });
+    return { memory, client, reads };
+  }
+
+  it("writes without reading the content under the overlay", async () => {
+    const { memory, client, reads } = overlaySetup();
+    const first = await client.blocksApply({
+      set: { Footer: { v: 2 }, Header: { v: 1 } },
+      ifMatch: { Footer: null, Header: null },
+    });
+    await client.blocksApply({
+      set: { Footer: { v: 3 } },
+      ifMatch: { Footer: first.versions.Footer! },
+    });
+    await client.blocksApply({ delete: ["pages-Home", "Nowhere"] });
+    expect(reads.snapshot).toBe(0);
+    expect(memory.dump().files).toEqual({
+      "Footer.json": file({ v: 3 }),
+      "Header.json": file({ v: 1 }),
+    });
+    // The base's file is deleted over the base; a name neither side has leaves nothing.
+    expect(memory.dump().deleted).toEqual(["pages-Home.json"]);
   });
 
-  it("treats a schema appearing where there was none as a change", async () => {
-    let changed = false;
-    const { client } = setup({
-      state: { schema: null },
-      beforeCommit: (_a, s) => {
-        if (changed) return;
-        changed = true;
-        s.setSchema(schemaFixture);
-      },
-    });
+  it("compares ifMatch with the overlay, not with the content under it", async () => {
+    const { client } = overlaySetup();
+    const listed = await client.blocksList();
+    if (listed.notModified) throw new Error("expected the map");
     const error = await rejects(
-      client.blocksApply({ set: { N: { __resolveType: SECRET_BLOCK, [SECRET_FIELD]: "x" } } }),
-      ErrorCode.InvalidBlock,
+      client.blocksApply({
+        set: { Footer: { v: 2 } },
+        ifMatch: { Footer: listed.versions.Footer! },
+      }),
+      ErrorCode.Conflict,
     );
-    expect(JSON.stringify(error.data)).toContain("secret-field");
+    expect(error.data).toEqual({
+      entries: { Footer: { expected: listed.versions.Footer, actual: null } },
+    });
+  });
+
+  it("reports blocks.list's revision", async () => {
+    const { client } = overlaySetup();
+    const applied = await client.blocksApply({ set: { Footer: { v: 2 } } });
+    const noop = await client.blocksApply({ ifMatch: { Header: null } });
+    const listed = await client.blocksList();
+    expect(listed.revision).toBe(applied.revision);
+    expect(noop.revision).toBe(applied.revision);
+  });
+
+  it("describes itself as an overlay", async () => {
+    const { client } = overlaySetup();
+    expect(await client.describe()).toMatchObject({ overlay: true, secrets: null });
+    const plain = createContentClient({
+      endpoint: "http://test.local/rpc",
+      fetch: createContentHandler(createMemoryStorage(), NO_DELAY),
+    });
+    expect(await plain.describe()).not.toHaveProperty("overlay");
   });
 });
 

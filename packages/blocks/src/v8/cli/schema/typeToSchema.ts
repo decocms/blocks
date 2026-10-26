@@ -13,7 +13,6 @@
  *   return type fits it, decided by TypeScript assignability, not by type
  *   name (spec: schema › Interchangeable blocks).
  * - `Lazy<T>` is a `lazy` block whose `value` has the form of `T`.
- * - `Secret` holds a `secret` block, never a plain string.
  * - `@options` with a literal list becomes an `enum`; a function-backed list
  *   falls back to a text field, since the site editor never runs site code.
  *
@@ -212,6 +211,8 @@ const WIDGET_TYPE_FORMATS: Record<string, string> = {
   TextArea: "textarea",
   Code: "code",
   DateTimeWidget: "date-time",
+  // v7's masked text box. A plain string in content: keep real secrets in the deploy platform.
+  Secret: "password",
 };
 
 /** Apply the format of a widget alias named in `typeHint` to the right inner schema. */
@@ -326,16 +327,6 @@ function lazyInner(type: Type, typeHint = ""): Type | null {
   return inner;
 }
 
-/** `Secret`, from `@decocms/blocks` (`string & { readonly __secret: true }`). */
-function isSecretType(type: Type, typeHint = ""): boolean {
-  if (type.getAliasSymbol()?.getName() === "Secret") return true;
-  if (/^(\w+\.)?Secret$/.test(typeHint.trim())) return true;
-  return (
-    type.isIntersection() &&
-    type.getIntersectionTypes().some((t) => t.getProperty("__secret") !== undefined)
-  );
-}
-
 /**
  * The awaited type: `Promise<T>` is `T`. With `strict`, anything that isn't a
  * promise returns null (used to recognize `() => Promise<T>`).
@@ -426,7 +417,7 @@ export function titleCase(name: string): string {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
-/** `Secret | undefined` → `Secret`: the annotation without its nullish members. */
+/** `Lazy<T> | undefined` → `Lazy<T>`: the annotation without its nullish members. */
 function stripNullish(typeHint: string): string {
   return typeHint.replace(/\s*\|\s*(null|undefined)\b/g, "").trim();
 }
@@ -447,20 +438,6 @@ export function lazySchema(value: any): any {
   };
 }
 
-/** The schema of a `secret` block: a write-only field saved encrypted. */
-function secretSchema(): any {
-  return {
-    type: "object",
-    format: "secret",
-    writeOnly: true,
-    required: ["__resolveType", "ciphertext"],
-    properties: {
-      __resolveType: { type: "string", enum: ["secret"], default: "secret" },
-      ciphertext: { type: "string" },
-    },
-  };
-}
-
 /**
  * The schema of one field: everything a type means at a property position,
  * before the property's own JSDoc and title are applied.
@@ -473,8 +450,6 @@ function fieldSchema(
 ): any {
   const lazy = lazyInner(nonNullable(propType), stripNullish(typeHint));
   if (lazy) return lazySchema(fieldSchema(lazy, lazy.getText(), ctx, visited));
-
-  if (isSecretType(nonNullable(propType), stripNullish(typeHint))) return secretSchema();
 
   if (ctx && isObjectLike(propType) && !isSectionType(nonNullable(propType))) {
     const fits = ctx.fitting(propType);
@@ -598,8 +573,7 @@ export function typeToJsonSchema(
     if (type.isAny() || type.isUnknown()) return {};
 
     // Structural blocks wherever the type appears, not only as a whole field:
-    // `Secret[]` is a list of secret blocks, `Lazy<T>[]` a list of lazy ones.
-    if (isSecretType(type)) return secretSchema();
+    // `Lazy<T>[]` is a list of lazy blocks.
     const lazy = lazyInner(type);
     if (lazy) return lazySchema(fieldSchema(lazy, lazy.getText(), ctx, visited));
 
@@ -742,7 +716,7 @@ export function typeToJsonSchema(
         const tags = getJsDocTags(prop);
         if (tags.ignore) continue;
 
-        // The annotation as written (`ImageWidget`, `Section[]`, `Secret`),
+        // The annotation as written (`ImageWidget`, `Section[]`, `Lazy<T>`),
         // before the checker resolves aliases away.
         const typeNode = decl.getTypeNode();
         const typeHint: string = typeNode ? typeNode.getText() : propType.getText();

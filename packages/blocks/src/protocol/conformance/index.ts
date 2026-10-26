@@ -23,6 +23,7 @@
 import { assetCases } from "./cases/assets.ts";
 import { changesCases } from "./cases/changes.ts";
 import { guardCases } from "./cases/guards.ts";
+import { overlayCases } from "./cases/overlay.ts";
 import { readCases } from "./cases/reads.ts";
 import type { ConformanceCase } from "./cases/types.ts";
 import { wireCases } from "./cases/wire.ts";
@@ -40,6 +41,7 @@ export const conformanceCases: readonly ConformanceCase[] = [
   ...writeCases,
   ...guardCases,
   ...changesCases,
+  ...overlayCases,
   ...assetCases,
 ];
 

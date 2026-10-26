@@ -3,10 +3,9 @@
  * `@decocms/compat-v7`'s widget aliases keep v7's site-editor widgets:
  * `deco schema` reads the alias by name, so a prop typed with an alias
  * imported from the package gets the same field as v7 gave it (an image
- * picker for `ImageWidget`, …). Two follow v8's generator rather than
- * v7's: `Color` is format "color" (v7 wrote "color-input", which the site
- * editor renders the same way) and `Secret` is a secret block (v7: a
- * "password" string; v8 stores secrets encrypted). Runs the
+ * picker for `ImageWidget`, `Secret` a "password" string, …). One follows
+ * v8's generator rather than v7's: `Color` is format "color" (v7 wrote
+ * "color-input", which the site editor renders the same way). Runs the
  * generator on a temp app that installs the package (the workspace's
  * node_modules, so the built dist/ types, as a site would see them). The
  * matchers keep their fields when the site wraps them in its block map.
@@ -57,10 +56,8 @@ export const banner = (props: Props) => ({ component: "banner", props });`,
       expect(p.text).toMatchObject({ type: "string" });
       expect(p.text.format).toBeUndefined();
       expect(p.button.format).toBeUndefined();
-      expect(p.apiKey).toMatchObject({
-        format: "secret",
-        properties: { __resolveType: { enum: ["secret"] } },
-      });
+      // v7's masked text box: a plain string (real secrets live in the deploy platform).
+      expect(p.apiKey).toEqual(expect.objectContaining({ type: "string", format: "password" }));
     } finally {
       fixture.remove();
     }

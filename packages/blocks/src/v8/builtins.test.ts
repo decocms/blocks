@@ -35,12 +35,11 @@ describe("the built-in list", () => {
         "never",
         "page",
         "redirect",
-        "secret",
       ].sort(),
     );
   });
 
-  it("reserves every built-in name, secret included", () => {
+  it("reserves every built-in name, and no longer secret", () => {
     for (const name of [
       "page",
       "redirect",
@@ -53,10 +52,11 @@ describe("the built-in list", () => {
       "calendar",
       "multivariate",
       "lazy",
-      "secret",
     ]) {
       expect(RESERVED_NAMES.has(name), name).toBe(true);
     }
+    // Secrets live in the deploy platform: a site may name a block "secret".
+    expect(RESERVED_NAMES.has("secret")).toBe(false);
   });
 });
 

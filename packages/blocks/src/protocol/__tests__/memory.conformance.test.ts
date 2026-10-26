@@ -4,15 +4,7 @@ import { conformanceCases, defineConformanceSuite, runConformance } from "../con
 import { createContentHandler } from "../server";
 import { createAssetHandler } from "../server/assets";
 import { createMemoryStorage, type MemoryStorage } from "../storage/memory";
-import {
-  generateSecretsKeyPair,
-  route,
-  SECRET_BLOCK,
-  SECRET_FIELD,
-  schemaFixture,
-} from "./fixtures";
-
-const { publicKeyPem: PUBLIC_KEY } = await generateSecretsKeyPair();
+import { route, schemaFixture } from "./fixtures";
 
 const BASE_ENTRY = "pages-Committed";
 const baseFiles = { [`${BASE_ENTRY}.json`]: '{\n  "path": "/committed"\n}\n' };
@@ -20,7 +12,6 @@ const baseFiles = { [`${BASE_ENTRY}.json`]: '{\n  "path": "/committed"\n}\n' };
 const storage: MemoryStorage = createMemoryStorage({
   state: {
     schema: JSON.stringify(schemaFixture),
-    secretsPublicKey: PUBLIC_KEY,
     files: baseFiles,
     base: baseFiles,
   },
@@ -33,10 +24,25 @@ defineConformanceSuite(
     endpoint: "http://memory.test/rpc",
     fetch: (request) => handler(request),
     assetsEndpoint: "http://memory.test/assets/",
-    secretField: { blockType: SECRET_BLOCK, field: SECRET_FIELD },
-    secretsPublicKey: PUBLIC_KEY,
     baseEntry: { name: BASE_ENTRY },
   },
+);
+
+// An overlay over a base, as a hosted draft is over the published branch.
+const overlayStorage: MemoryStorage = createMemoryStorage({
+  state: { schema: JSON.stringify(schemaFixture), base: baseFiles, overlay: true },
+});
+const overlay = route(createContentHandler(overlayStorage), createAssetHandler(overlayStorage));
+
+defineConformanceSuite(
+  { describe, it },
+  {
+    endpoint: "http://memory.test/rpc",
+    fetch: (request) => overlay(request),
+    assetsEndpoint: "http://memory.test/assets/",
+    baseEntry: { name: BASE_ENTRY },
+  },
+  "overlay memory storage conformance",
 );
 
 const schemaless = createContentHandler(createMemoryStorage());
@@ -75,7 +81,7 @@ describe("runConformance", () => {
     });
     expect(report.failed).toBe(0);
     expect(report.passed + report.skipped).toBe(conformanceCases.length);
-    expect(report.outcomes.find((o) => o.id === "secrets/guard")).toMatchObject({
+    expect(report.outcomes.find((o) => o.id === "overlay/if-match")).toMatchObject({
       status: "skipped",
     });
   });

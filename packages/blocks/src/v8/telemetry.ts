@@ -15,7 +15,7 @@
  *   Workers, on an unref'd timer elsewhere); a send that fails is retried
  *   once on 429/502/503/504 and otherwise dropped.
  * - Everything is scrubbed before encoding: no query strings, tokens,
- *   cookies or authorization values, and no value a secret block decrypted.
+ *   cookies or authorization values.
  */
 import { hasBackgroundHook, later, runInBackground } from "./background.ts";
 import { rate, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
@@ -29,7 +29,6 @@ const SINK = Symbol.for("decocms.blocks.telemetry");
 const FLUSH_MS = 10_000;
 const MAX_LOGS = 200;
 const MAX_SPANS = 1_000;
-const MAX_SECRETS = 1_000;
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
 /** OpenTelemetry's recommended `http.*.request.duration` buckets, in seconds. */
 const BOUNDS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10];
@@ -131,17 +130,10 @@ export class TelemetryPipeline {
   #spans: (SpanInput & { spanId: string })[] = [];
   #windowStart = Date.now();
   #scheduled = false;
-  /** Values secret blocks decrypted, replaced with `[redacted]` wherever they'd be sent. */
-  readonly #secrets = new Set<string>();
 
   constructor(destination: Destination) {
     this.#destination = destination;
     this.apply(TELEMETRY_DEFAULTS);
-  }
-
-  /** Never send `value`: it's replaced with `[redacted]` in every log, span and label. */
-  redact(value: string): void {
-    if (value.length > 0 && this.#secrets.size < MAX_SECRETS) this.#secrets.add(value);
   }
 
   /** The release being served: its revision labels batches. */
@@ -272,8 +264,7 @@ export class TelemetryPipeline {
     this.#histograms = new Map();
     this.#logs = [];
     this.#spans = [];
-    const scrub = (text: string) => this.#scrub(text);
-    const encode = (attributes: Attributes) => encodeAttributes(attributes, scrub);
+    const encode = encodeAttributes;
     const resource = { attributes: encode(this.#resource()) };
     const scope = { name: "@decocms/blocks" };
     const sends: Promise<void>[] = [];
@@ -326,7 +317,7 @@ export class TelemetryPipeline {
                     timeUnixNano: nanos(log.time),
                     severityNumber: 17,
                     severityText: "ERROR",
-                    body: { stringValue: scrub(log.message) },
+                    body: { stringValue: scrubText(log.message) },
                     attributes: encode(log.attributes),
                   })),
                 },
@@ -365,12 +356,6 @@ export class TelemetryPipeline {
       );
     }
     await Promise.all(sends);
-  }
-
-  #scrub(text: string): string {
-    let out = text;
-    for (const secret of this.#secrets) out = out.split(secret).join("[redacted]");
-    return scrubText(out);
   }
 
   #schedule(): void {
@@ -480,14 +465,14 @@ function randomHex(bytes: number): string {
   return Array.from(values, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function encodeAttributes(attributes: Attributes, scrub: (text: string) => string) {
+function encodeAttributes(attributes: Attributes) {
   return Object.entries(attributes)
     .filter(([, value]) => value !== undefined)
     .map(([key, value]) => ({
       key,
       value:
         typeof value === "string"
-          ? { stringValue: scrub(value) }
+          ? { stringValue: scrubText(value) }
           : typeof value === "boolean"
             ? { boolValue: value }
             : Number.isInteger(value)

@@ -30,16 +30,16 @@ export const readCases: ConformanceCase[] = [
         assert(d.assets.maxBytes > 0 && typeof d.assets.dir === "string", "assets");
       }
       assert(d.secrets === null || typeof d.secrets.publicKey === "string", "secrets");
+      assert(d.overlay === undefined || d.overlay === true, "overlay is absent or true");
     },
   },
   {
     id: "describe/secrets",
-    title: "describe returns the committed public key for secrets",
+    title: "describe reports no secrets key: content holds no secrets",
     async run(ctx) {
-      const expected = ctx.options.secretsPublicKey;
-      if (expected === undefined) return ctx.skip("no secretsPublicKey fixture");
       const d = await ctx.client.describe();
-      assertEqual(d.secrets, { publicKey: expected }, "describe.secrets");
+      if (d.version.minor < 2) return ctx.skip(`protocol 1.${d.version.minor} predates 1.2`);
+      assertEqual(d.secrets, null, "describe.secrets");
     },
   },
   {

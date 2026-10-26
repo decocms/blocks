@@ -3,7 +3,7 @@
  * matchers-and-variants, copied as written (imports point at the package, as
  * an app's would). Used by ./syntax.test.ts.
  */
-import type { Blocks, Lazy, Page, Secret } from "@decocms/blocks";
+import type { Blocks, Lazy, Page } from "@decocms/blocks";
 
 // --- blocks.mdx › Functions as blocks: src/promo-banner.tsx -----------------
 export interface PromoBannerProps {
@@ -73,17 +73,28 @@ export const blockMap = {
   "promo-banner": PromoBanner,
 } satisfies Blocks;
 
-// --- built-in-blocks.mdx › Type a field as a secret: src/newsletter.tsx -----
-export interface NewsletterProps {
-  listId: string;
-  /** @title API key */
-  apiKey: Secret;
+// --- built-in-blocks.mdx › Secrets: src/contact-form.tsx -------------------
+// The key isn't a prop: the site's code creates the email client with it, from
+// the deploy platform's secrets (`resend` in the docs, a parameter here).
+export interface ContactFormProps {
+  /** @title Send messages to */
+  to: string;
+  subject: string;
 }
 
-export function newsletter(props: NewsletterProps) {
-  const key: string = props.apiKey; // "uses it like any string"
-  return { listId: props.listId, keyLength: key.length };
+export interface EmailClient {
+  sendEmail(email: { from: string; to: string; subject: string; text: string }): Promise<unknown>;
 }
+
+export const contactForm = (email: EmailClient) => async (props: ContactFormProps) => {
+  await email.sendEmail({
+    from: "site@example.com",
+    to: props.to,
+    subject: props.subject,
+    text: "",
+  });
+  return { to: props.to };
+};
 
 // --- built-in-blocks.mdx › Change a built-in: .deco/index.ts -----------------
 export const seo = (props: { title: string; description: string }) => props;

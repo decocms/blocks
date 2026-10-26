@@ -9,7 +9,6 @@
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
 import { builtIns } from "./builtins/index.ts";
-import { secretBlock } from "./builtins/secret.ts";
 import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
 import type { Overrides } from "./current.ts";
@@ -62,13 +61,12 @@ interface Fingerprint {
   interval: number;
   telemetry: string;
   preview: string;
-  secrets: string;
   token: string;
 }
 
 /**
  * The state one content root shares across `createCMS` calls: the content
- * store, caps, telemetry and secret key. Each call gets its own handle
+ * store, caps and telemetry. Each call gets its own handle
  * holding its own block map (see `CMSHandle`).
  */
 class CMSInstance {
@@ -77,8 +75,6 @@ class CMSInstance {
   readonly #store: ContentStore;
   readonly #interval: number;
   readonly #warned = new Set<string>();
-  /** The built-ins with a `secret` that holds this instance's key (the first call's). */
-  readonly #builtIns: Readonly<Blocks>;
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
   /** Settings of a `CMS` block with nothing to run, per release snapshot. */
@@ -107,10 +103,6 @@ class CMSInstance {
       this.#telemetry = new TelemetryPipeline(destination);
       setCurrentTelemetry(this.#telemetry);
     }
-    // Decrypted values never leave in telemetry: the pipeline redacts each one.
-    const telemetry = this.#telemetry;
-    const secret = secretBlock(config.secrets?.key, (value) => telemetry?.redact(value));
-    this.#builtIns = Object.freeze({ ...builtIns, secret });
   }
 
   /**
@@ -233,7 +225,7 @@ class CMSInstance {
         new CMSClient({
           load: () => Promise.resolve(snapshot),
           blocks,
-          builtIns: this.#builtIns,
+          builtIns,
           date: Date.now(),
           onCollision: (name) => this.#warnCollision(name),
         }),
@@ -298,7 +290,7 @@ class CMSInstance {
     return new CMSClient({
       load,
       blocks,
-      builtIns: this.#builtIns,
+      builtIns,
       ...inputs,
       onCollision: (name) => this.#warnCollision(name),
       telemetry: this.#telemetry?.forClient(),
@@ -336,8 +328,8 @@ const INSTANCE = Symbol.for("decocms.blocks.cms.instance");
 
 /**
  * What `createCMS` returns: the shared instance plus the block map of this
- * call. Every handle on one content root shares its content, caps, telemetry
- * and secret key; each resolves with the block map it was created with.
+ * call. Every handle on one content root shares its content, caps and
+ * telemetry; each resolves with the block map it was created with.
  */
 class CMSHandle implements CMS {
   readonly #instance: CMSInstance;
@@ -552,7 +544,6 @@ function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {
     interval,
     telemetry: stableJson(config.telemetry ?? null),
     preview: stableJson(config.preview ?? null),
-    secrets: config.secrets?.key ? fnv1a(config.secrets.key) : "",
     token: config.token ? fnv1a(config.token) : "",
   };
 }

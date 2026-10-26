@@ -11,7 +11,7 @@ import { BINDING_NAMES, MOVES, rewriteImports, V8_API, v7ImageUrl } from "./impo
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport } from "./report";
 import { reportWorkerEntry, WORKER_ENTRY_EXAMPLE } from "./scaffold";
-import { reencryptSecrets } from "./secrets";
+import { listSecrets } from "./secrets";
 import { foldSiteSettings } from "./siteSettings";
 import { locateAppModule, vendorModule } from "./vendor";
 
@@ -164,35 +164,39 @@ describe("legacy type names", () => {
 });
 
 describe("secrets", () => {
-  it("reports a v7 secret with no encrypted value", async () => {
-    site({
+  it("lists every v7 secret for the deploy platform, top-level or inside a block, and changes nothing", () => {
+    const inline = { __resolveType: "website/loaders/secret.ts", encrypted: "abcd", name: "KEY" };
+    const files = {
       ".deco/blocks/Key.json": { __resolveType: "website/loaders/secret.ts", name: "ACME_KEY" },
-    });
+      ".deco/blocks/App.json": { __resolveType: "site/apps/x.ts", token: inline },
+      ".deco/blocks/Bare.json": { __resolveType: "website/loaders/secret", encrypted: "00" },
+    };
+    site(files);
     const report = createReport();
-    await reencryptSecrets(root, report);
-    expect(report.manual).toEqual([
-      expect.objectContaining({
-        subject: "Key.json",
-        message: expect.stringContaining("no encrypted value (it read env ACME_KEY)"),
-      }),
-    ]);
-  });
-
-  it("leaves v7 secrets in place, reported, without a public key", async () => {
-    const secret = { __resolveType: "website/loaders/secret.ts", encrypted: "abcd", name: "KEY" };
-    site({ ".deco/blocks/App.json": { __resolveType: "site/apps/x.ts", token: secret } });
-    const report = createReport();
-    await reencryptSecrets(root, report);
+    listSecrets(root, report);
     expect(report.manual).toEqual([
       expect.objectContaining({
         step: "secrets",
         subject: "App.json",
-        message: expect.stringContaining("create the key pair"),
+        message: expect.stringMatching(
+          /^a v7 secret inside "App": .*such as KEY \(the variable v7 read it from\)/,
+        ),
+      }),
+      expect.objectContaining({
+        step: "secrets",
+        subject: "Bare.json",
+        message: expect.stringMatching(/^a v7 secret: secrets live in your deploy platform now/),
+      }),
+      expect.objectContaining({
+        step: "secrets",
+        subject: "Key.json",
+        message: expect.stringContaining("such as ACME_KEY"),
       }),
     ]);
-    expect(
-      JSON.parse(fs.readFileSync(path.join(root, ".deco/blocks/App.json"), "utf8")).token,
-    ).toEqual(secret);
+    for (const [file, value] of Object.entries(files)) {
+      expect(JSON.parse(fs.readFileSync(path.join(root, file), "utf8"))).toEqual(value);
+    }
+    expect(report.done).toEqual([]);
   });
 });
 

@@ -32,7 +32,6 @@ export type {
   RequestVersion,
   Result,
   Route,
-  Secret,
   Seo,
   Snapshot,
   Telemetry,

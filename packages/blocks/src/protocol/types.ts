@@ -8,10 +8,12 @@ export const PROTOCOL_NAME = "deco-content";
 
 /**
  * Minors only add. A client refuses another major, and a server older than
- * `REQUIRED_PROTOCOL_MINOR` (1.1 added `changes.*`; 1.0 is `@decocms/blocks`
- * 8.1.x and older).
+ * `REQUIRED_PROTOCOL_MINOR`. 1.0 is `@decocms/blocks` 8.1.x and older; 1.1
+ * added `changes.*`; 1.2 added overlay endpoints (`describe.overlay`), and
+ * `blocks.apply` no longer reads the schema (`describe.secrets` is always
+ * `null`: secrets live in the deploy platform, not in content).
  */
-export const PROTOCOL_VERSION = { major: 1, minor: 1 } as const;
+export const PROTOCOL_VERSION = { major: 1, minor: 2 } as const;
 
 /**
  * The oldest minor this package's client talks to. Bump it only when the
@@ -62,8 +64,22 @@ export interface DescribeResult {
   preview: null | { url: string };
   /** Dir relative to the repository root; `null` when read-only or uploads go to hosted storage. */
   assets: null | { dir: string; urlPrefix: typeof ASSETS_URL_PREFIX; maxBytes: number };
-  /** The contents of `<root>/.deco/secrets.pub`; `null` without one. */
+  /**
+   * Always `null` from protocol 1.2 on: content holds no secrets (they live
+   * in the deploy platform, and the site's code passes them as params). A
+   * 1.0 or 1.1 server reported `<root>/.deco/secrets.pub` here.
+   */
   secrets: null | { publicKey: string };
+  /**
+   * `true` when the endpoint writes to an overlay over its base, such as a
+   * hosted draft over the published branch (protocol 1.2). Then
+   * `blocks.apply`'s `ifMatch` compares with the overlay alone: an entry the
+   * overlay doesn't hold (or deletes) is `null`, whatever the base has, and
+   * an entry it holds has the `version` `changes.list` reports for it.
+   * `changes.list` lists every entry the overlay holds, even one equal to the
+   * base. Absent: `ifMatch` compares with the content `blocks.list` reports.
+   */
+  overlay?: true;
 }
 
 /** The schema file, in the site editor's `deco-meta@1` format. */
@@ -125,7 +141,11 @@ export interface BlocksApplyParams {
   set?: Record<string, Record<string, unknown>>;
   /** A missing name counts as deleted. */
   delete?: string[];
-  /** A version the entry must have; `null` = must not exist. */
+  /**
+   * A version the entry must have; `null` = must not exist. On an overlay
+   * endpoint (`describe.overlay`), the version it has in the overlay; `null`
+   * = the overlay doesn't hold it.
+   */
   ifMatch?: Record<string, string | null>;
 }
 

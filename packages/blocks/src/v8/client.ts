@@ -25,7 +25,7 @@ interface ClientOptions {
   /** Loads this client's snapshot; called at most once. */
   load: () => Promise<Snapshot>;
   blocks: Blocks;
-  /** The built-ins, with this CMS's `secret`. */
+  /** The built-in blocks. */
   builtIns: Readonly<Blocks>;
   /** Who is visiting (copied and frozen); `null` for none. */
   visitor?: Visitor | null;
