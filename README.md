@@ -128,7 +128,7 @@ Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./exa
 Moving a v7 site (`@decocms/blocks` 7.x with `@decocms/tanstack` or `@decocms/nextjs`) to v8 is the [`deco-v7-to-v8-migration`](./.agents/skills/deco-v7-to-v8-migration) agent skill. Point your coding agent at it, or run its script yourself from a checkout of this branch:
 
 ```bash
-DECO_CRYPTO_KEY=… bun .agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
+bun .agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
 ```
 
 It writes the block map with your v7 type names as aliases, vendors the app loaders your content calls, moves content to `.deco/blocks`, lists v7 secrets to move to your deploy platform's secrets and reports every v7 import with its replacement. See the skill's `SKILL.md` and the docs page "Migrating from v7" (`/next/renames-and-migrations`).
