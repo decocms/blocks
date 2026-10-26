@@ -111,6 +111,19 @@ export async function lookupExactRedirect(
   return selectExactRedirect(stored, pathname);
 }
 
+/**
+ * Whether `lookupExactRedirect` for this path would go to KV — i.e. the
+ * isolate memo has no live entry for it. A memo hit (redirect or confirmed
+ * miss) resolves within microtasks, so overlapping it with the render only
+ * buys a render to throw away; callers take the serial path then.
+ */
+export function isExactRedirectLookupCold(env: Record<string, unknown>, pathname: string): boolean {
+  if (!getFastDeployKV(env)) return false;
+  const deploymentId = getDeploymentId(env);
+  if (!deploymentId) return false;
+  return peek(redirectKey(deploymentId, normalizePath(pathname))) === undefined;
+}
+
 async function read(
   kv: { get(key: string): Promise<string | null> },
   key: string,

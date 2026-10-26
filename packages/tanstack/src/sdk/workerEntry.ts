@@ -107,7 +107,7 @@ import {
   requestCarriesDraft,
 } from "./draft";
 import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
-import { lookupExactRedirect } from "./kvRedirects";
+import { isExactRedirectLookupCold, lookupExactRedirect } from "./kvRedirects";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
 
@@ -2544,10 +2544,16 @@ export function createDecoWorkerEntry(
     // none. Other methods keep the serial path — overlapping would run a
     // side-effecting handler for a URL that redirects. A matching glob also
     // keeps it, because an exact KV rule must beat the glob.
+    // A warm memo answers within microtasks: overlapping would start a render
+    // only to discard it, on every hit of a hot redirected URL.
+    const overlap =
+      !pattern &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      isExactRedirectLookupCold(env as Record<string, unknown>, url.pathname);
     const kvRedirect = lookupExactRedirect(env as Record<string, unknown>, url.pathname).catch(
       () => null,
     );
-    if (pattern || (request.method !== "GET" && request.method !== "HEAD")) {
+    if (!overlap) {
       const redirect = (await kvRedirect) ?? pattern;
       return redirect ? toResponse(redirect) : serveAfterRedirects(request, url, env, ctx);
     }
