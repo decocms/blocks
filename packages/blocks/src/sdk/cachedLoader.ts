@@ -55,6 +55,15 @@ export interface CachedLoaderOptions {
   staleWhileRevalidate?: number;
   /** Key function to generate a cache key from loader props. Default: JSON.stringify. */
   keyFn?: (props: unknown) => string;
+  /**
+   * Whether a resolved result is stored. Returning `false` hands the value to
+   * the caller without writing it — e.g. an empty search that may just be the
+   * index rebuilding, which would otherwise be served as "not found" for the
+   * whole window. On a background SWR refresh the stale entry is kept. Use this
+   * instead of throwing to skip the write: a throw is counted as a loader error.
+   * Default: every resolved result is stored.
+   */
+  shouldCache?: (result: unknown) => boolean;
 }
 
 /**
@@ -270,6 +279,7 @@ export function createCachedLoader<TProps, TResult>(
     staleIfError = 0,
     staleWhileRevalidate = 300_000,
     keyFn = JSON.stringify,
+    shouldCache,
   } = resolved;
 
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
@@ -381,6 +391,11 @@ export function createCachedLoader<TProps, TResult>(
               // Skip the write if a purge cleared the cache mid-refresh — otherwise
               // we'd re-insert pre-purge data the purge was meant to drop.
               if (gen !== cacheGeneration) return;
+              // Uncacheable result: keep serving the stale entry, retry on the next hit.
+              if (shouldCache && !shouldCache(result)) {
+                entry.refreshing = false;
+                return;
+              }
               setCacheEntry(
                 cacheKey,
                 {
@@ -429,7 +444,8 @@ export function createCachedLoader<TProps, TResult>(
         recordLoaderMetric(name, performance.now() - loaderStart, "MISS");
         // Skip caching if a purge landed while this loader was in flight — still
         // return the fresh value to the caller, just don't persist a raced entry.
-        if (gen === cacheGeneration) {
+        // Same for a result the caller marked uncacheable.
+        if (gen === cacheGeneration && (!shouldCache || shouldCache(result))) {
           setCacheEntry(
             cacheKey,
             {
