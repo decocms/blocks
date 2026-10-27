@@ -21,13 +21,7 @@ import { ensureGitWorkTree, git, gitInit } from "../../protocol/__tests__/git";
 import { ErrorCode } from "../../protocol/errors";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
 import { BLOCKS_MAJOR } from "../../protocol/types";
-import {
-  createFixture,
-  type Fixture,
-  recorder,
-  STORE_FILES,
-  sealSecret,
-} from "../cli/__tests__/fixture";
+import { createFixture, type Fixture, recorder, STORE_FILES } from "../cli/__tests__/fixture";
 import { runCli } from "../cli/run";
 import { type RunningServer, startServer } from "../cli/serve/server";
 import { createCMS, resetForTests } from "../cms";
@@ -181,7 +175,7 @@ export type TextTone = "black" | "white";
 `,
   "src/sections.tsx": `
 import type { ReactNode } from "react";
-import type { Lazy, Secret } from "@decocms/blocks";
+import type { Lazy } from "@decocms/blocks";
 import type { BrandColor, Hero, Post, Product, Seo, TextTone, Tone } from "./model";
 
 export interface AllProps {
@@ -195,7 +189,6 @@ export interface AllProps {
   endsOn?: string;
   one: ReactNode;
   many: ReactNode[];
-  apiKey: Secret;
   product: Product;
   later: Lazy<Hero>;
   featured?: Post;
@@ -853,18 +846,14 @@ describe("schema.mdx", () => {
       type: "array",
       items: { $ref: "#/definitions/__SECTION_REF__" },
     });
-    expect(p.apiKey).toMatchObject({
-      format: "secret",
-      writeOnly: true,
-      properties: { __resolveType: { enum: ["secret"] }, ciphertext: { type: "string" } },
-    });
   });
 
-  it("sch-04 / sch-10 / sch-11: Secret, Lazy and Block are types exported from @decocms/blocks", () => {
+  it("sch-04 / sch-10 / sch-11: Lazy and Block are types exported from @decocms/blocks; Secret isn't", () => {
     const src = fs.readFileSync(path.join(PKG, "src/index.ts"), "utf8");
-    for (const name of ["Secret", "Lazy", "Block", "Blocks", "Route"]) {
+    for (const name of ["Lazy", "Block", "Blocks", "Route"]) {
       expect(src).toMatch(new RegExp(`type ${name},`));
     }
+    expect(src).not.toMatch(/\bSecret\b/);
   });
 
   it("sch-05 / sch-06: sync and async functions returning Product both fit a `product: Product` field", () => {
@@ -1169,15 +1158,10 @@ describe("checking.mdx", () => {
     expect(r.out).toMatch(/\/summer/);
   });
 
-  it("chk-07: ciphertext is checked for shape, with no key", async () => {
-    const { ciphertext } = await sealSecret("re_123");
-    expect(store.exists(".deco/secrets.pub")).toBe(false);
-    const ok = await check({ H: { ...hero, apiKey: { __resolveType: "secret", ciphertext } } });
-    expect(ok.code, ok.out).toBe(0);
-    const bad = await check({
-      H: { ...hero, apiKey: { __resolveType: "secret", ciphertext: "v1.nope" } },
-    });
-    expect(bad.code).toBe(1);
+  it("chk-07: a leftover secret block points to the deploy platform's secrets", async () => {
+    const r = await check({ K: { __resolveType: "website/loaders/secret.ts", encrypted: "00" } });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("secrets live in your deploy platform's secrets");
   });
 
   it("chk-08: a variant after always is a warning, exit 0", async () => {
@@ -1403,15 +1387,14 @@ describe("site-editor.mdx", () => {
     expect(r.headers["access-control-allow-origin"]).toBe("https://example.com");
   });
 
-  it("se-07: describe.secrets.publicKey is .deco/secrets.pub", async () => {
-    const without = fixture();
-    const s1 = await serveFixture(without.root);
-    expect((await call(s1, "describe")).result.secrets).toBeNull();
+  it("se-07: describe.secrets is null, even with an old committed .deco/secrets.pub", async () => {
     const withKey = fixture();
-    const { publicKeyPem } = await sealSecret("x");
-    withKey.write(".deco/secrets.pub", publicKeyPem);
+    withKey.write(
+      ".deco/secrets.pub",
+      "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n",
+    );
     const s2 = await serveFixture(withKey.root);
-    expect((await call(s2, "describe")).result.secrets).toEqual({ publicKey: publicKeyPem });
+    expect((await call(s2, "describe")).result.secrets).toBeNull();
   });
 
   it("se-08: block-level @title, description and @image reach the block's definition", () => {
@@ -1784,12 +1767,11 @@ describe("content-protocol.mdx", () => {
     expect((await call(s1, "blocks.list")).result.blocks.cp31).toEqual(block);
   });
 
-  it("cp-32: a Secret field holding a plain string is InvalidBlock", async () => {
-    const r = await call(s, "blocks.apply", {
-      set: { cp32: { __resolveType: "hero", title: "x", size: "md", apiKey: "plaintext" } },
-    });
-    expect(r.error.code).toBe(ErrorCode.InvalidBlock);
-    expect(app.exists(".deco/blocks/cp32.json")).toBe(false);
+  it("cp-32: blocks.apply doesn't check an entry against the schema: deco check does", async () => {
+    const entry = { __resolveType: "hero", title: 42, size: "huge", apiKey: "plaintext" };
+    const r = await call(s, "blocks.apply", { set: { cp32: entry } });
+    expect(r.error).toBeUndefined();
+    expect((await call(s, "blocks.list")).result.blocks.cp32).toEqual(entry);
   });
 
   it("cp-33 / si-05 / si-06: blocks.apply takes at most 500 names; describe advertises no limits", async () => {
@@ -1883,7 +1865,7 @@ describe("content-protocol.mdx", () => {
       /from "[./]*protocol\//.test(fs.readFileSync(path.join(PKG, "src/v8", f), "utf8")),
     );
     expect(offenders).toEqual([]);
-    const SHARED_LEAVES = ["canonical", "ciphertext"].map((m) => path.join(PKG, "src/v8", m));
+    const SHARED_LEAVES = ["canonical"].map((m) => path.join(PKG, "src/v8", m));
     for (const leaf of SHARED_LEAVES) {
       expect(fs.readFileSync(`${leaf}.ts`, "utf8"), leaf).not.toMatch(/^import /m);
     }
@@ -1901,9 +1883,9 @@ describe("content-protocol.mdx", () => {
           const target = path
             .resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec)
             .replace(/\.tsx?$/, "");
-          // The canonical hash and the ciphertext format are the SDK's own
-          // dependency-free leaf modules (no imports at all); the protocol
-          // re-exports them rather than keep a second copy.
+          // The canonical hash is the SDK's own dependency-free leaf module
+          // (no imports at all); the protocol re-exports it rather than keep
+          // a second copy.
           if (SHARED_LEAVES.includes(target)) continue;
           expect(target, `${f}: ${spec}`).toContain(path.join(PKG, "src/protocol"));
           continue;
@@ -1942,8 +1924,6 @@ describe("content-protocol.mdx", () => {
   it("cp-50: deco serve passes the conformance suite", async () => {
     const { runConformance } = await import("@decocms/blocks/protocol/conformance");
     const f = fixture();
-    const { publicKeyPem } = await sealSecret("x");
-    f.write(".deco/secrets.pub", publicKeyPem);
     fs.copyFileSync(
       path.join(app.root, ".deco/schema.gen.json"),
       path.join(f.root, ".deco/schema.gen.json"),
@@ -1952,8 +1932,6 @@ describe("content-protocol.mdx", () => {
     const report = await runConformance({
       endpoint: s1.endpoint,
       assetsEndpoint: s1.endpoint.replace("/rpc", "/assets/"),
-      secretField: { blockType: "hero", field: "apiKey" },
-      secretsPublicKey: publicKeyPem,
     } as never);
     const failed = (report as any).cases?.filter((c: Json) => c.status === "failed") ?? [];
     expect(failed.map((c: Json) => `${c.id}: ${c.error ?? c.message ?? ""}`)).toEqual([]);
@@ -2159,7 +2137,6 @@ export default { page, multivariate } satisfies Blocks;
       "website/matchers/always.ts": "always",
       "website/matchers/never.ts": "never",
       "website/loaders/redirect.ts": "redirect",
-      "website/loaders/secret.ts": "secret",
     };
     expect(meta.aliases).toEqual(documented);
     const keys = Object.values(groups()).flatMap((g: any) => Object.keys(g));
@@ -2213,7 +2190,7 @@ export default { page, multivariate } satisfies Blocks;
     expect(ran).toEqual(["chosen"]);
   });
 
-  it("sc-17: the v7-to-v8 migration re-encrypts v7 secrets", () => {
+  it("sc-17: the v7-to-v8 migration lists v7 secrets for the deploy platform, without decrypting them", () => {
     const dir = path.join(REPO, ".agents/skills/deco-v7-to-v8-migration/scripts");
     const all = fs
       .readdirSync(dir, { recursive: true, encoding: "utf8" })
@@ -2221,7 +2198,8 @@ export default { page, multivariate } satisfies Blocks;
       .map((f) => fs.readFileSync(path.join(dir, f), "utf8"))
       .join("\n");
     expect(all).toMatch(/website\/loaders\/secret\.ts/);
-    expect(all).toMatch(/encryptToCiphertext|reencrypt|re-encrypt/i);
+    expect(all).toMatch(/deploy platform/);
+    expect(all).not.toMatch(/encryptToCiphertext|secrets\.pub|subtle\.decrypt|createDecipheriv/);
   });
 });
 

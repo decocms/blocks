@@ -36,7 +36,6 @@ export function typecheck(files: Record<string, string>): string[] {
       "@decocms/blocks": [path.join(src, "index.ts")],
       "@decocms/blocks/fetch": [path.join(src, "v8/fetch.ts")],
       "@decocms/blocks/analytics": [path.join(src, "v8/analytics.ts")],
-      "@decocms/blocks/secrets": [path.join(src, "v8/secrets.ts")],
     },
   };
   const host = ts.createCompilerHost(options, true);

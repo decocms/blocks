@@ -10,7 +10,7 @@
  * - the walk resolves each name (block type, built-in, alias or saved block),
  *   checks that the block fits the field it sits in (by the field's list of
  *   functions whose return type fits it), and handles the structural blocks
- *   (`multivariate`, `lazy`, `secret`) and references;
+ *   (`multivariate`, `lazy`) and references;
  * - Ajv checks one block's props at a time. Its schema is the generated one
  *   with every field also accepting any block, so nested blocks never show up
  *   as union noise in the parent: the walk checks them on their own, against
@@ -19,7 +19,6 @@
 
 import fs from "node:fs";
 import { Ajv, type ValidateFunction } from "ajv";
-import { isWellFormedCiphertext } from "../../../protocol/secrets.ts";
 import { BLOCKS_MAJOR } from "../../../protocol/types.ts";
 import {
   CALENDAR_TYPE,
@@ -72,23 +71,23 @@ function isLazyShape(schema: Json): boolean {
   return !!e && e.length === 1 && e[0] === "lazy" && !!schema.properties.value;
 }
 
-/** A `secret` block's shape inline in a field: the field is `Secret`. */
-function isSecretShape(schema: Json): boolean {
-  const e = resolveTypeEnum(schema);
-  return !!e && e.length === 1 && e[0] === "secret" && schema.format === "secret";
-}
-
 /** The definition key of a block type, if `schema` is a block type's definition. */
 function blockDefinitionName(schema: Json): string | null {
   const e = resolveTypeEnum(schema);
   return e && e.length === 1 && typeof schema.title === "string" && !schema.format ? e[0] : null;
 }
 
+/** Where a secret goes instead of a block. */
+const SECRETS_MOVED =
+  "secrets live in your deploy platform's secrets, not in content: read the value in your site's code and pass it as a param, then delete this block; see /next/built-in-blocks#secrets";
+
 /** Prerelease built-ins folded into the CMS settings block, or renamed, with no alias. */
 const FOLDED_BUILT_INS: Record<string, string> = {
   telemetry: `the built-in is now the telemetry section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
   analytics: `the built-in is now the analytics section of the "${SETTINGS_BLOCK}" block (type "${SETTINGS_TYPE}"); see /next/renames-and-migrations#site-settings`,
   "date-windows": `the built-in is now "${CALENDAR_TYPE}": set the saved block "${CAMPAIGNS_BLOCK}" to { "__resolveType": "${CALENDAR_TYPE}", … }`,
+  secret: SECRETS_MOVED,
+  "website/loaders/secret.ts": SECRETS_MOVED,
 };
 
 /** A `CMS` block saved with preview hosts, which Studio keeps now (in the release it publishes). */
@@ -160,12 +159,12 @@ class ValidationDocument {
 
   private transform(node: Json, wrap: boolean, top = false): Json {
     if (!isObject(node)) return node;
-    // Fields that hold a structural block (Lazy<T>, Secret), as a field or a
-    // list item, are entirely the walk's job: it reports a plain value there
-    // and checks a block on its own. Ajv accepts anything in them.
-    if (!top && (isLazyShape(node) || isSecretShape(node))) {
+    // Fields that hold a structural block (Lazy<T>), as a field or a list
+    // item, are entirely the walk's job: it reports a plain value there and
+    // checks a block on its own. Ajv accepts anything in them.
+    if (!top && isLazyShape(node)) {
       // Still register the lazy value's form: the walk validates it.
-      if (isLazyShape(node)) this.transform(node.properties.value, true);
+      this.transform(node.properties.value, true);
       return {};
     }
     const copy: Record<string, Json> = {};
@@ -314,8 +313,6 @@ function formatsFor(doc: Json): Record<string, true | ((value: string) => boolea
   visit(doc);
   return formats;
 }
-
-const CIPHERTEXT_PROBLEM = "not a well-formed ciphertext (v1.<wrappedKey>.<iv>.<ciphertext>)";
 
 // ---------------------------------------------------------------------------
 // The checker
@@ -562,9 +559,6 @@ class Checker {
       return isLazyShape(resolved) ? null : "a lazy block only fits a Lazy<T> field";
     }
     if (isLazyShape(resolved)) return "this field is Lazy<T>: wrap the value in a lazy block";
-    if (isSecretShape(resolved)) {
-      return type === "secret" ? null : "this field is a Secret: it takes a secret block";
-    }
     const allowed = this.allowedTypes(field);
     if (allowed.has(type)) return null;
     if (allowed.size === 0) return "this field takes a plain value";
@@ -589,21 +583,15 @@ class Checker {
 
   /**
    * A plain value in a field that only takes a structural block: `Lazy<T>`
-   * needs a `lazy` block and `Secret` a `secret` block, in a list item or a
-   * union member as much as in a field of its own. Reports it and returns
-   * true when the field is one of those (nothing else to check then).
+   * needs a `lazy` block, in a list item or a union member as much as in a
+   * field of its own. Reports it and returns true when the field is one
+   * (nothing else to check then).
    */
   private structuralProblem(ctx: Context, value: Json, path: string, field: Json): boolean {
     const resolved = this.deref(field);
     if (isLazyShape(resolved)) {
       if (value !== undefined && value !== null) {
         this.report(ctx, path, "this field is Lazy<T>: wrap the value in a lazy block");
-      }
-      return true;
-    }
-    if (isSecretShape(resolved)) {
-      if (value !== undefined && value !== null) {
-        this.report(ctx, path, "plain text in a Secret field: save it as a secret block");
       }
       return true;
     }
@@ -725,13 +713,6 @@ class Checker {
         this.checkProps(ctx, block, path, false);
         const inner = field === null ? null : (this.deref(field)?.properties?.value ?? null);
         if ("value" in block) this.checkValue(ctx, block.value, joinPath(path, "/value"), inner);
-        return;
-      }
-      case "secret": {
-        this.checkProps(ctx, block, path, false);
-        if ("ciphertext" in block && !isWellFormedCiphertext(block.ciphertext)) {
-          this.report(ctx, joinPath(path, "/ciphertext"), CIPHERTEXT_PROBLEM);
-        }
         return;
       }
       case EXPERIMENT_RULE: {

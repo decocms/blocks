@@ -159,7 +159,6 @@ describe("quickstart", () => {
         "experiment",
         "multivariate",
         "lazy",
-        "secret",
       ].sort(),
     );
     const client = createCMS({ blocks: {}, content: snap({}) }).forRelease();

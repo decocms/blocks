@@ -28,7 +28,6 @@ export const BUILT_IN_USES: Readonly<Record<string, string>> = Object.freeze({
   page: "Studio's page list and page editor rely on it",
   redirect: "Studio's redirect list relies on it",
   "cms-settings": "the saved block CMS relies on it, and Studio's settings edit that block",
-  secret: "Studio's secret fields rely on it to keep their values encrypted",
   "split-traffic":
     "the saved block experiments relies on it, and Studio's Experiments view edits its percentages",
   calendar: "the saved block campaigns relies on it, and Studio's Campaigns view edits its dates",

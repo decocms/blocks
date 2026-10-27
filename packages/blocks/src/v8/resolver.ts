@@ -33,7 +33,7 @@ type Path = (string | number)[];
 interface ResolverOptions {
   snapshot: Snapshot;
   blocks: Blocks;
-  /** The built-ins, with this CMS's `secret`. */
+  /** The built-in blocks. */
   builtIns: Readonly<Blocks>;
   /** The client this resolver belongs to: `currentClient()` while a block function runs. */
   client?: Client;

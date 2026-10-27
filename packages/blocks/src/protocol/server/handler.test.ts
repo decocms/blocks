@@ -14,8 +14,6 @@ import { MAX_REQUEST_BYTES } from "./core";
 import { createContentHandler } from "./handler";
 
 const URL_ = "http://test.local/rpc";
-const PUBLIC_KEY =
-  "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----\n";
 
 function post(body: unknown, headers: Record<string, string> = {}) {
   return new Request(URL_, {
@@ -127,12 +125,16 @@ describe("HTTP", () => {
   });
 
   it("compresses responses when the request accepts gzip", async () => {
-    const { handler } = setup();
+    // Over the 1 KiB a response needs before it's worth compressing.
+    const schema = { ...schemaFixture, notes: "x".repeat(2048) };
+    const handler = createContentHandler(
+      createMemoryStorage({ state: { schema: JSON.stringify(schema) } }),
+    );
     const gz = await handler(post(rpc(1, "schema.get"), { "accept-encoding": "gzip, deflate" }));
     expect(gz.headers.get("content-encoding")).toBe("gzip");
     expect(gz.headers.get("vary")).toBe("Accept-Encoding");
     const decoded = (await readResponseJson(gz)) as any;
-    expect(decoded.result.schema).toEqual(schemaFixture);
+    expect(decoded.result.schema).toEqual(schema);
     const plain = await handler(post(rpc(1, "schema.get")));
     expect(plain.headers.get("content-encoding")).toBeNull();
     const refused = await handler(post(rpc(1, "schema.get"), { "accept-encoding": "gzip;q=0" }));
@@ -283,7 +285,6 @@ describe("storage failures", () => {
 describe("describe", () => {
   it("reports the storage and the features", async () => {
     const storage = createMemoryStorage({
-      state: { secretsPublicKey: PUBLIC_KEY },
       description: { kind: "working-tree", root: "apps/storefront" },
     });
     const handler = createContentHandler(storage, {
@@ -293,7 +294,7 @@ describe("describe", () => {
     const { result } = (await call(handler, rpc(1, "describe"))).body;
     expect(result).toEqual({
       protocol: "deco-content",
-      version: { major: 1, minor: 1 },
+      version: { major: 1, minor: 2 },
       server: { name: "deco-cli", version: "8.0.0" },
       kind: "working-tree",
       readOnly: false,
@@ -302,36 +303,8 @@ describe("describe", () => {
       pollIntervalMs: 2000,
       preview: { url: "http://localhost:5173" },
       assets: { dir: "public/assets", urlPrefix: "/assets/", maxBytes: 25 * 1024 * 1024 },
-      secrets: { publicKey: PUBLIC_KEY },
+      secrets: null,
     });
-  });
-
-  it.each([
-    ["a private key", PUBLIC_KEY.replace(/PUBLIC/g, "PRIVATE")],
-    [
-      "a public key followed by a private one",
-      `${PUBLIC_KEY}${PUBLIC_KEY.replace(/PUBLIC/g, "PRIVATE")}`,
-    ],
-    [
-      "an RSA private key",
-      "-----BEGIN RSA PRIVATE KEY-----\nQUJD\n-----END RSA PRIVATE KEY-----\n",
-    ],
-    ["two public keys", PUBLIC_KEY + PUBLIC_KEY],
-    ["something that isn't PEM", "ssh-rsa AAAAB3NzaC1yc2E"],
-    [
-      "a file over 16 KiB",
-      `-----BEGIN PUBLIC KEY-----\n${"QUJD".repeat(4200)}\n-----END PUBLIC KEY-----\n`,
-    ],
-  ])("never serves %s as the secrets public key", async (_label, text) => {
-    const onError = vi.fn();
-    const handler = createContentHandler(
-      createMemoryStorage({ state: { secretsPublicKey: text } }),
-      { onError },
-    );
-    const { result } = (await call(handler, rpc(1, "describe"))).body;
-    expect(result.secrets).toBeNull();
-    expect(JSON.stringify(result)).not.toContain("PRIVATE");
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
   it("polls a git storage every 30 seconds by default", async () => {
@@ -339,7 +312,7 @@ describe("describe", () => {
     expect((await call(handler, rpc(1, "describe"))).body.result.pollIntervalMs).toBe(30000);
   });
 
-  it("reports no assets, and no secrets without a key, on a read-only endpoint", async () => {
+  it("reports no assets on a read-only endpoint", async () => {
     const handler = createContentHandler(createMemoryStorage({ description: { readOnly: true } }));
     const { result } = (await call(handler, rpc(1, "describe"))).body;
     expect(result.readOnly).toBe(true);

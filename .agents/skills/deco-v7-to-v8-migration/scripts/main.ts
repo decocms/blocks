@@ -7,8 +7,7 @@ import { VTEX_INVOKE_MODES, VtexInvokeChoiceNeeded, type VtexInvokeMode } from "
 const USAGE = `Usage: bun scripts/main.ts [--root <dir>] [--decofile <file>] [--vtex-invoke keep|v8]
 
 Migrates a v7 Deco site to the next major, in place, and prints what is left
-to do. Run it on a clean working tree with DECO_CRYPTO_KEY set and
-.deco/secrets.pub committed (see /next/renames-and-migrations).
+to do. Run it on a clean working tree (see /next/renames-and-migrations).
 
   --root <dir>       the app root, with the site's package.json (default: .)
   --decofile <file>  content to split into .deco/blocks when the site has none

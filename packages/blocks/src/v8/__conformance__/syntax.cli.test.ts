@@ -11,9 +11,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateSecretsKeyPair } from "../../protocol/__tests__/fixtures";
 import { gitInit } from "../../protocol/__tests__/git";
-import { encryptToCiphertext } from "../../protocol/ciphertext";
 import { createFixture, type Fixture, recorder } from "../cli/__tests__/fixture";
 import { runCli } from "../cli/run";
 import { toBase64 } from "../cli/schema/typeToSchema";
@@ -32,10 +30,9 @@ const BUILT_INS = [
   "redirect",
   "cms-settings",
   "split-traffic",
-  "secret",
 ];
 
-/** The docs' app: block map, components, matchers, a newsletter with a Secret. */
+/** The docs' app: block map, components, matchers, a contact form whose key isn't content. */
 const APP: Record<string, string> = {
   "src/promo-banner.tsx": `
 export interface PromoBannerProps {
@@ -63,16 +60,14 @@ export async function lazyCard({ title, product }: { title: string; product: Laz
   return <div>{title}{(await product()).name}</div>;
 }
 `,
-  "src/newsletter.tsx": `
-import type { Secret } from "@decocms/blocks";
-
-export interface NewsletterProps {
-  listId: string;
-  /** @title API key */
-  apiKey: Secret;
+  "src/contact-form.tsx": `
+export interface ContactFormProps {
+  /** @title Send messages to */
+  to: string;
+  subject: string;
 }
-export function Newsletter(props: NewsletterProps) {
-  return <form data-list={props.listId} />;
+export function ContactForm(props: ContactFormProps) {
+  return <form data-to={props.to} />;
 }
 `,
   "src/matchers.ts": `
@@ -94,7 +89,7 @@ import type { Blocks, Page } from "@decocms/blocks";
 import { catalogProduct } from "../src/catalog-product";
 import { productCard, lazyCard } from "../src/product-card";
 import { PromoBanner } from "../src/promo-banner";
-import { Newsletter } from "../src/newsletter";
+import { ContactForm } from "../src/contact-form";
 import { weekday } from "../src/matchers";
 import seo from "../src/seo";
 import hero from "../src/hero";
@@ -108,7 +103,7 @@ export default {
   "product-card": productCard,
   "lazy-card": lazyCard,
   "promo-banner": PromoBanner,
-  newsletter: Newsletter,
+  "contact-form": ContactForm,
   weekday,
   seo,
   hero,
@@ -229,13 +224,12 @@ describe("deco schema", () => {
     }
   }, 120_000);
 
-  it("builtin-12: a Secret field is marked write-only secret (a password box in the editor)", () => {
-    const props = JSON.stringify(meta.schema.definitions);
-    expect(props).toContain('"title":"API key"');
-    const apiKey = Object.values(meta.schema.definitions)
-      .map((d: any) => d?.properties?.apiKey)
-      .find(Boolean);
-    expect(apiKey).toMatchObject({ format: "secret", writeOnly: true });
+  it("builtin-12: the contact form's form has the fields editors choose, and no key", () => {
+    const form = Object.values(meta.schema.definitions)
+      .map((d: any) => d?.properties)
+      .find((p: any) => p?.to && p?.subject);
+    expect(form.to).toMatchObject({ type: "string", title: "Send messages to" });
+    expect(JSON.stringify(meta.schema.definitions)).not.toMatch(/"format":"secret"|apiKey/);
   });
 
   it("builtin-07: the redirect schema's status enum is 301, 302, 307, 308", () => {
@@ -315,34 +309,16 @@ describe("deco check", () => {
     }
   });
 
-  it("builtin-23: needs no key: checks ciphertexts are well formed without decrypting", async () => {
-    const { publicKeyPem } = await generateSecretsKeyPair(2048);
-    const ciphertext = await encryptToCiphertext(publicKeyPem, "re_live_123");
-    const good = await checkWith({
-      Newsletter: {
-        __resolveType: "newsletter",
-        listId: "l",
-        apiKey: { __resolveType: "secret", ciphertext },
-      },
-    });
-    expect(good.code, good.out).toBe(0);
-    const bad = await checkWith({
-      Newsletter: {
-        __resolveType: "newsletter",
-        listId: "l",
-        apiKey: { __resolveType: "secret", ciphertext: "v1.nope" },
-      },
-    });
-    expect(bad.code).toBe(1);
-    expect(bad.out).toContain("not a well-formed ciphertext");
-  });
-
-  it("builtin-20 (check side): plain text in a Secret field is an error", async () => {
-    const { code, out } = await checkWith({
-      Newsletter: { __resolveType: "newsletter", listId: "l", apiKey: "plaintext" },
-    });
-    expect(code).toBe(1);
-    expect(out).toContain("Secret");
+  it("builtin-13: points a leftover secret block to the deploy platform's secrets", async () => {
+    for (const block of [
+      { __resolveType: "website/loaders/secret.ts", encrypted: "00", name: "RESEND_API_KEY" },
+      { __resolveType: "secret", ciphertext: "v1.x" },
+    ]) {
+      const { code, out } = await checkWith({ Key: block });
+      expect(code).toBe(1);
+      expect(out).toContain(`unknown block type "${block.__resolveType}"`);
+      expect(out).toContain("secrets live in your deploy platform's secrets");
+    }
   });
 
   it("lazy-06: a Lazy<T> field without a lazy block, and a lazy block in a plain field, both fail", async () => {
@@ -406,8 +382,8 @@ describe("deco check", () => {
 });
 
 describe("deco serve", () => {
-  it("builtin-13: serves the committed .deco/secrets.pub to the site editor", async () => {
-    const { publicKeyPem } = await generateSecretsKeyPair(2048);
+  it("builtin-14: never serves a key to the site editor, even an old committed .deco/secrets.pub", async () => {
+    const publicKeyPem = "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n";
     const site = createFixture({ ".deco/secrets.pub": publicKeyPem });
     site.write(".deco/schema.gen.json", meta);
     gitInit(site.root);
@@ -438,7 +414,7 @@ describe("deco serve", () => {
         req.on("error", reject);
         req.end(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }));
       });
-      expect(body.result.secrets).toEqual({ publicKey: publicKeyPem });
+      expect(body.result.secrets).toBeNull();
     } finally {
       await server.close();
       site.remove();

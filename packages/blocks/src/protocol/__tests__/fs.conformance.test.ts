@@ -13,19 +13,11 @@ import { defineConformanceSuite } from "../conformance";
 import { createContentHandler } from "../server";
 import { createAssetHandler } from "../server/assets";
 import { createFsStorage } from "../storage/fs";
-import {
-  generateSecretsKeyPair,
-  route,
-  SECRET_BLOCK,
-  SECRET_FIELD,
-  schemaFixture,
-} from "./fixtures";
+import { route, schemaFixture } from "./fixtures";
 import { gitInit } from "./git";
 import { serve } from "./nodeServer";
 
 const BASE_ENTRY = "pages-Committed";
-
-let PUBLIC_KEY: string;
 
 let root: string;
 let unbornRoot: string;
@@ -34,11 +26,14 @@ let readOnlyServer: Awaited<ReturnType<typeof serve>>;
 let unbornServer: Awaited<ReturnType<typeof serve>>;
 
 beforeAll(async () => {
-  PUBLIC_KEY = (await generateSecretsKeyPair()).publicKeyPem;
   root = await mkdtemp(join(tmpdir(), "deco-fs-conformance-"));
   await mkdir(join(root, ".deco", "blocks"), { recursive: true });
   await writeFile(join(root, ".deco", "schema.gen.json"), JSON.stringify(schemaFixture, null, 2));
-  await writeFile(join(root, ".deco", "secrets.pub"), PUBLIC_KEY);
+  // A key a 8.x site may still have committed: describe never reports it.
+  await writeFile(
+    join(root, ".deco", "secrets.pub"),
+    "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n",
+  );
   await writeFile(join(root, ".deco", "index.ts"), "export default {};\n");
   await writeFile(
     join(root, ".deco", "blocks", `${BASE_ENTRY}.json`),
@@ -71,8 +66,6 @@ defineConformanceSuite(
   () => ({
     endpoint: `${server.origin}/rpc`,
     assetsEndpoint: `${server.origin}/assets/`,
-    secretField: { blockType: SECRET_BLOCK, field: SECRET_FIELD },
-    secretsPublicKey: PUBLIC_KEY,
     baseEntry: { name: BASE_ENTRY },
   }),
   "filesystem storage conformance (over HTTP)",
@@ -82,7 +75,7 @@ defineConformanceSuite(
   { describe, it },
   () => ({ endpoint: `${unbornServer.origin}/rpc`, hasSchema: false, emptyBase: true }),
   "filesystem storage conformance, repository without commits (over HTTP)",
-  (testCase) => !testCase.id.startsWith("secrets/") && !testCase.id.startsWith("assets/"),
+  (testCase) => !testCase.id.startsWith("assets/"),
 );
 
 defineConformanceSuite(
@@ -90,7 +83,6 @@ defineConformanceSuite(
   () => ({
     endpoint: `${readOnlyServer.origin}/rpc`,
     assetsEndpoint: `${readOnlyServer.origin}/assets/`,
-    secretsPublicKey: PUBLIC_KEY,
   }),
   "read-only filesystem storage conformance (over HTTP)",
 );

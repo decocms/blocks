@@ -374,7 +374,7 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     expect(await check("2030-01-01T00:00:00Z", "day")).toBe(false);
   });
 
-  it("X19 built-in-blocks: a built-in never fails with UNKNOWN_BLOCK (secret without key is BLOCK_FAILED); a block-map key replaces a built-in", async () => {
+  it("X19 built-in-blocks: there's no secret built-in (UNKNOWN_BLOCK); a block-map key replaces a built-in", async () => {
     const cms = createCMS({
       blocks: { page: (p: Record<string, unknown>) => ({ ...p, wrapped: true }) },
       content: snap({}),
@@ -382,7 +382,7 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
     const [, error] = await cms
       .forRelease()
       .resolve({ __resolveType: "secret", ciphertext: "v1.x" });
-    expect(error?.code).toBe("BLOCK_FAILED");
+    expect(error?.code).toBe("UNKNOWN_BLOCK");
     const [page] = await cms
       .forRelease()
       .resolve({ __resolveType: "page", name: "n", path: "/", sections: [] });

@@ -151,9 +151,6 @@ export interface LegacyRedirect {
   };
 }
 
-/** A field the site editor saves encrypted, as a `secret` block. */
-export type Secret = string & { readonly __secret: true };
-
 /** A prop the built-in `lazy` block fills; resolves its value when called, at most once. */
 export type Lazy<T> = () => Promise<T>;
 
@@ -298,8 +295,6 @@ export interface CMSConfig {
      */
     draftHosts?: string[];
   };
-  /** The private key that decrypts `secret` blocks. */
-  secrets?: { key?: string };
   /**
    * Your site ID (Studio's site slug): turns on hosted releases from
    * `delivery.decocms.com`. Drafts don't need it.

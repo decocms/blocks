@@ -85,7 +85,7 @@ describe("snapshot", () => {
   });
 });
 
-describe("schema and secrets", () => {
+describe("schema", () => {
   it("reads schema.gen.json, falling back to meta.gen.json", async () => {
     const storage = createFsStorage({ root });
     expect(await storage.readSchema()).toBeNull();
@@ -100,17 +100,13 @@ describe("schema and secrets", () => {
     });
   });
 
-  it("reads .deco/secrets.pub as is", async () => {
+  it("never reports a committed .deco/secrets.pub: content holds no secrets", async () => {
     const storage = createFsStorage({ root });
-    expect(await storage.readSecretsPublicKey()).toBeNull();
     await writeFile(
       join(root, ".deco", "secrets.pub"),
       "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n",
     );
-    expect(await storage.readSecretsPublicKey()).toBe(
-      "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n",
-    );
-    expect((await clientFor(storage).describe()).secrets?.publicKey).toContain("BEGIN PUBLIC KEY");
+    expect((await clientFor(storage).describe()).secrets).toBeNull();
   });
 });
 
@@ -197,40 +193,14 @@ describe("commits", () => {
     expect(await list()).toEqual(["a.json"]);
   });
 
-  it("are stale when the schema changed since the core read it", async () => {
+  it("don't depend on the schema", async () => {
     await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":1}');
     const storage = createFsStorage({ root });
     const base = await storage.snapshot();
-    const schema = await storage.readSchema();
     await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":2}');
     const attempt = { base, put: { "a.json": "{}\n" }, delete: [], expected: {} };
-    expect(await storage.commit({ ...attempt, expectedSchemaVersion: schema!.version })).toEqual({
-      status: "stale",
-    });
-    expect(await storage.commit({ ...attempt, expectedSchemaVersion: null })).toEqual({
-      status: "stale",
-    });
-    expect(await list()).toEqual([]);
-    const current = await storage.readSchema();
-    expect(
-      (await storage.commit({ ...attempt, expectedSchemaVersion: current!.version })).status,
-    ).toBe("committed");
-  });
-
-  it("compare the meta.gen.json fallback when there's no schema.gen.json", async () => {
-    await writeFile(join(root, ".deco", "meta.gen.json"), '{"v":1}');
-    const storage = createFsStorage({ root });
-    const base = await storage.snapshot();
-    const legacy = await storage.readSchema();
-    await writeFile(join(root, ".deco", "schema.gen.json"), '{"v":2}');
-    const result = await storage.commit({
-      base,
-      put: { "a.json": "{}\n" },
-      delete: [],
-      expected: {},
-      expectedSchemaVersion: legacy!.version,
-    });
-    expect(result).toEqual({ status: "stale" });
+    expect((await storage.commit(attempt)).status).toBe("committed");
+    expect(await list()).toEqual(["a.json"]);
   });
 
   it("read bodies with the version of the bytes actually read", async () => {

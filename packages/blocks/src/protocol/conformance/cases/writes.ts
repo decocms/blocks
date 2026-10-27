@@ -27,6 +27,16 @@ function violations(error: { data: unknown }): InvalidBlockData["violations"] {
   return data!.violations;
 }
 
+/**
+ * A deleted name's version in a `blocks.apply` result: `null`, except on an
+ * overlay, which may record a tombstone even for a name the base lacks (a
+ * hosted draft's save never reads the base) and then reports its version.
+ */
+async function assertDeletedVersion(ctx: ConformanceContext, version: unknown, label: string) {
+  if ((await ctx.describe()).overlay === true && typeof version === "string") return;
+  assertEqual(version, null, label);
+}
+
 export const writeCases: ConformanceCase[] = [
   {
     id: "apply/create-and-read",
@@ -54,7 +64,7 @@ export const writeCases: ConformanceCase[] = [
       const [a, b, c] = [ctx.name("a"), ctx.name("b"), ctx.name("c")];
       await ctx.client.blocksApply({ set: { [a]: { v: 1 }, [b]: { v: 2 } } });
       const result = await ctx.client.blocksApply({ set: { [c]: { v: 3 } }, delete: [a] });
-      assertEqual(result.versions[a], null, "a deleted entry's version is null");
+      await assertDeletedVersion(ctx, result.versions[a], "a deleted entry's version is null");
       const after = await list(ctx);
       assert(!(a in after.blocks), "the deleted entry is gone");
       assertEqual(after.blocks[b], { v: 2 }, "the untouched entry stays");
@@ -82,7 +92,8 @@ export const writeCases: ConformanceCase[] = [
       await writable(ctx);
       const name = ctx.name("missing");
       const result = await ctx.client.blocksApply({ delete: [name] });
-      assertEqual(result.versions, { [name]: null }, "versions");
+      assertEqual(Object.keys(result.versions), [name], "versions");
+      await assertDeletedVersion(ctx, result.versions[name], "the missing name's version");
     },
   },
   {
@@ -149,7 +160,8 @@ export const writeCases: ConformanceCase[] = [
       }
       // A name ending in a source extension can still be deleted.
       const result = await ctx.client.blocksApply({ delete: [`${p}-mod.ts`] });
-      assertEqual(result.versions, { [`${p}-mod.ts`]: null }, "deleting a .ts name");
+      assertEqual(Object.keys(result.versions), [`${p}-mod.ts`], "deleting a .ts name");
+      await assertDeletedVersion(ctx, result.versions[`${p}-mod.ts`], "the .ts name's version");
     },
   },
   {

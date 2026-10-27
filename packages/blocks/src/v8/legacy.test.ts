@@ -44,7 +44,6 @@ describe("the built-in legacy alias table", () => {
       "website/matchers/always.ts": "always",
       "website/matchers/never.ts": "never",
       "website/loaders/redirect.ts": "redirect",
-      "website/loaders/secret.ts": "secret",
     });
     for (const target of Object.values(LEGACY_ALIASES)) expect(builtIns).toHaveProperty(target);
   });
@@ -171,13 +170,13 @@ describe("the built-in legacy alias table", () => {
     await expect(c.resolve("Legacy")).resolves.toEqual([{ redirect: legacy.redirect }, null]);
   });
 
-  it("resolves website/loaders/secret.ts as secret: a v7 value fails with BLOCK_FAILED, not UNKNOWN_BLOCK", async () => {
+  it("has no alias for website/loaders/secret.ts: secrets live in the deploy platform", async () => {
     const [, error] = await client({}, {}).resolve({
       __resolveType: "website/loaders/secret.ts",
       encrypted: "00",
       name: "TOKEN",
     });
-    expect(error?.code).toBe("BLOCK_FAILED");
+    expect(error?.code).toBe("UNKNOWN_BLOCK");
   });
 
   it("gives way to the snapshot's alias table and to the block map", async () => {
@@ -284,16 +283,13 @@ describe("real v7 content", () => {
       const { blocks, registered } = siteBlocks(content);
       // The bridge, not the site, covers the well-known names this content uses.
       expect(registered).not.toContain("website/pages/Page.tsx");
-      expect(registered).not.toContain("website/loaders/secret.ts");
+      // Secrets have no built-in: a v7 secret block is the site's to move to its deploy platform.
+      expect(registered.includes("website/loaders/secret.ts")).toBe(site === "storefront-tanstack");
 
       const c = createCMS({ blocks, content: { revision: "v7", blocks: content } }).forRelease();
       const results = await Promise.all(Object.keys(content).map((name) => c.resolve(name)));
       const failures = errorsIn(results);
-      expect(failures.filter((e) => e.code === "UNKNOWN_BLOCK")).toEqual([]);
-      // The one expected failure: the Shopify app's v7 secret, not yet re-encrypted.
-      expect(failures.map((e) => [e.code, e.path])).toEqual(
-        site === "storefront-tanstack" ? [["BLOCK_FAILED", ["adminAccessToken"]]] : [],
-      );
+      expect(failures.map((e) => [e.code, e.path])).toEqual([]);
 
       const [pages] = await c.list<Block>("page");
       const legacyPages = Object.values(content).filter(
@@ -330,6 +326,7 @@ describe("real v7 content", () => {
       "resolved",
       "website/functions/requestToParam.ts",
       "website/loaders/fonts/googleFonts.ts",
+      "website/loaders/secret.ts",
       "website/matchers/device.ts",
       "website/matchers/random.ts",
       "website/sections/Rendering/Lazy.tsx",

@@ -8,7 +8,8 @@
  *    matchers and date rules holding their own dates reported (moved by
  *    hand into the saved blocks `experiments` and `campaigns`);
  *    then site settings folded into the `CMS` block (`.deco/blocks/CMS.json`);
- * 2. secrets: v7 secrets re-encrypted with `.deco/secrets.pub`;
+ * 2. secrets: each v7 secret listed, to move to the deploy platform's
+ *    secrets (content holds none);
  * 3. block map: the site's v7 section-loader registration turned into an
  *    export, then `.deco/index.ts` with aliases under the v7 names (v7's
  *    matchers from `@decocms/compat-v7/matchers`, `loadSections` running the
@@ -48,7 +49,7 @@ import { rewriteInvokes, vtexInvokeMapKeysUsed } from "./invoke";
 import { renameLegacyTypes } from "./legacyNames";
 import { createReport, type Report } from "./report";
 import { reportWorkerEntry, writeScaffold } from "./scaffold";
-import { reencryptSecrets } from "./secrets";
+import { listSecrets } from "./secrets";
 import { wireSectionLoaders } from "./sectionLoaders";
 import { foldSiteSettings } from "./siteSettings";
 import { rewriteLoaderContext, rewritePartialImports, writeStubs } from "./stubs";
@@ -151,7 +152,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   reportTestsAndDates(root, report);
   const apps = writeAppClients(root, report);
   foldSiteSettings(root, report);
-  await reencryptSecrets(root, report);
+  listSecrets(root, report);
   const wiring = wireSectionLoaders(root, report);
   const { vendored } = writeBlockMap(root, report, wiring, apps);
   const stubs = new Set([

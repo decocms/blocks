@@ -97,11 +97,6 @@
 			"source": "./src/v8/preview/index.ts",
 			"default": "./dist/v8/preview/index.js"
 		},
-		"./secrets": {
-			"types": "./dist/v8/secrets.d.ts",
-			"source": "./src/v8/secrets.ts",
-			"default": "./dist/v8/secrets.js"
-		},
 		"./vite": {
 			"types": "./dist/v8/vite/index.d.ts",
 			"source": "./src/v8/vite/index.ts",

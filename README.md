@@ -54,7 +54,7 @@ All packages are versioned and released in lockstep, starting at 8.4.0 for the b
 
 | Package | Purpose |
 | --- | --- |
-| [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`), secrets (`/secrets`) and the `vite dev` content reload plugin (`/vite`). |
+| [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`) and the `vite dev` content reload plugin (`/vite`). |
 | [`@decocms/tanstack`](./packages/tanstack) | TanStack Start on Cloudflare Workers, deployed the Deco way: the edge worker (`/worker`), the root document (`/react`), the router (`/router`), the server-function fetch (`/start`), server helpers (`/server`) and the Vite plugin (`/vite`). |
 | [`@decocms/nextjs`](./packages/nextjs) | Any Next.js App Router app: draft previews in the proxy (`/proxy`) and the pages (`/server`), the preview badge and the Studio bridge (root), `withDeco()` for `next.config` (`/config`) and a next/image loader (`/image-loader`). |
 | [`@decocms/compat-v7`](./packages/compat-v7) | v7's pure helpers with v7's output, for sites moved from v7: section types and widget aliases (`/types`), device detection (`/device`), inline scripts (`/script`), `clx` (`/clx`), v7's matchers, with the sticky random (`/matchers`), v7's section loader runner with its mixins (`/sections`), `@decocms/apps-commerce`'s types and helpers (`/commerce/*`), and v7's device context and A/B cookie for each binding (`/tanstack`, `/nextjs`). No v7 runtime. |
@@ -128,10 +128,10 @@ Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./exa
 Moving a v7 site (`@decocms/blocks` 7.x with `@decocms/tanstack` or `@decocms/nextjs`) to v8 is the [`deco-v7-to-v8-migration`](./.agents/skills/deco-v7-to-v8-migration) agent skill. Point your coding agent at it, or run its script yourself from a checkout of this branch:
 
 ```bash
-DECO_CRYPTO_KEY=… bun .agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
+bun .agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
 ```
 
-It writes the block map with your v7 type names as aliases, vendors the app loaders your content calls, moves content to `.deco/blocks`, re-encrypts secrets and reports every v7 import with its replacement. See the skill's `SKILL.md` and the docs page "Migrating from v7" (`/next/renames-and-migrations`).
+It writes the block map with your v7 type names as aliases, vendors the app loaders your content calls, moves content to `.deco/blocks`, lists v7 secrets to move to your deploy platform's secrets and reports every v7 import with its replacement. See the skill's `SKILL.md` and the docs page "Migrating from v7" (`/next/renames-and-migrations`).
 
 Older migrations (Fresh to TanStack, `@decocms/start` 6.x to 7.x) target v7: use the playbooks on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
 

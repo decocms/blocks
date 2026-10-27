@@ -6,8 +6,7 @@
  * base (what `changes.*` compares the content with: the files that differ
  * from it, and reading base bodies).
  * The protocol core (`createContentHandler`) owns everything else: the
- * JSON-RPC layer, validation, the file-name rule, the secret guard, limits and
- * retries. Storages deal in *files* inside `<root>/.deco/blocks`; entry names
+ * JSON-RPC layer, validation, the file-name rule, limits and retries. Storages deal in *files* inside `<root>/.deco/blocks`; entry names
  * are the core's business.
  *
  * Browser-safe: types and small error classes only.
@@ -34,7 +33,21 @@ export interface StorageFile {
   version: string;
   /** The file's size in bytes, when the storage knows it without reading the body. */
   size?: number;
+  /**
+   * `true` for a tombstone: a deletion an overlay storage records over its
+   * base, listed only by `writeSnapshot()`. It has no body, and its
+   * `version` is the tombstone's (see `TOMBSTONE_VERSION`).
+   */
+  deleted?: true;
 }
+
+/**
+ * The version an overlay storage reports for a deletion it records (a
+ * tombstone), in `writeSnapshot()`, `changes()` and a commit's result. Any
+ * value no file content has works; the reference storage uses this one, and
+ * a storage that shares clients with it should too.
+ */
+export const TOMBSTONE_VERSION = "tombstone";
 
 /** Every saved-block file at one point in time. */
 export interface StorageSnapshot {
@@ -67,25 +80,32 @@ export interface StoredSchema {
 
 /** One atomic commit attempt. */
 export interface CommitAttempt {
-  /** The snapshot the core validated against. */
+  /**
+   * The snapshot the core validated against: `writeSnapshot()`'s for an
+   * overlay storage (`blocks.apply`), `snapshot()`'s otherwise.
+   */
   base: StorageSnapshot;
   /** Files to write, by file name, with their full content. */
   put: Record<string, string>;
-  /** Files to delete. A file that's already gone is fine. */
+  /**
+   * Files to delete. A file that's already gone is fine. For an overlay
+   * storage, `blocks.apply` also names files the overlay doesn't hold: the
+   * storage records the deletion over its base (a file only the base has
+   * must disappear from `snapshot()`, and `writeSnapshot()` lists it as a
+   * tombstone). One neither side has it may drop, or record as a tombstone
+   * too (a storage whose write never reads the base can't tell them apart);
+   * the core treats such a tombstone like any other.
+   */
   delete: string[];
   /**
    * Versions the files must still have for the commit to land (`null` = must
-   * not exist). A storage MUST reject the attempt as stale when any of them
-   * changed, and MAY reject it when anything else changed since `base`.
+   * not exist), in the snapshot `base` came from (the overlay, for an overlay
+   * storage's `blocks.apply`, where a tombstone has its tombstone version
+   * and so is not `null`). A storage MUST reject the attempt as stale
+   * when any of them changed, and MAY reject it when anything else changed
+   * since `base`.
    */
   expected: Record<string, string | null>;
-  /**
-   * The schema version the core validated against (`null` = no schema), when
-   * the write depends on it (the secret guard checks `set` against it). When set,
-   * a storage MUST reject the attempt as stale if the schema's version at
-   * commit time differs, checked atomically with `expected`.
-   */
-  expectedSchemaVersion?: string | null;
   /**
    * The base revision (`StorageBase.revision`) the core computed the write
    * from, when the write depends on it (`changes.discard` restores base
@@ -96,7 +116,9 @@ export interface CommitAttempt {
   /**
    * Why the core commits: `apply` (default) or `discard`. For logs, and a
    * storage with a staging area (the fs storage's git index) also unstages
-   * the files a `discard` writes or deletes, in the same commit.
+   * the files a `discard` writes or deletes, in the same commit. An overlay
+   * storage applies a `discard` by dropping those files from the overlay, so
+   * the base shows through (`put` holds the base's own bytes).
    */
   reason?: "apply" | "discard";
 }
@@ -116,9 +138,18 @@ export interface StorageChanges {
    * in the base, in the base and not in the snapshot, or in both with
    * different content. A file whose content equals the base's (the storage
    * decides equality, such as honouring git's eol conversion) MUST NOT be
-   * listed, so a file a discard just restored is never listed again.
+   * listed, so a file a discard just restored is never listed again. An
+   * overlay storage instead lists exactly the files its overlay holds, and
+   * the deletions it records of files the base has, even a file equal to the
+   * base's: the overlay's own entries are the changes.
    */
   files: string[];
+  /**
+   * An overlay storage: the tombstones among `files` (the deletions it
+   * records), with the versions `writeSnapshot()` lists them with, which
+   * `changes.list` reports as the deletions' versions. Absent otherwise.
+   */
+  tombstones?: StorageFile[];
   /**
    * The base's files, with their versions in the base: at least every file
    * whose spelling group (`spellingKey`) a file in `files` belongs to; more
@@ -130,8 +161,13 @@ export interface StorageChanges {
 export type CommitResult =
   | {
       status: "committed";
+      /** The revision `snapshot()` reports right after the commit (`blocks.list`'s). */
       revision: string;
-      /** The new version of every file in `put`. */
+      /**
+       * The new version of every file in `put`, and for an overlay storage
+       * the tombstone version of every file in `delete` it recorded as a
+       * tombstone (not one it dropped because neither side has it).
+       */
       versions: Record<string, string>;
     }
   | { status: "stale" };
@@ -152,8 +188,23 @@ export interface ContentStorage {
   readFiles(snapshot: StorageSnapshot, files: string[]): Promise<Record<string, StoredFileBody>>;
   /** Reads `schema.gen.json`, falling back to `meta.gen.json`; `null` when neither exists. */
   readSchema(): Promise<StoredSchema | null>;
-  /** Reads `<root>/.deco/secrets.pub`; `null` without one. */
-  readSecretsPublicKey(): Promise<string | null>;
+  /**
+   * An overlay storage's own files: what it holds over its base (a hosted
+   * draft's blocks over the published branch), read without reading the
+   * base. Its presence makes the endpoint an overlay (`describe.overlay`):
+   * `blocks.apply` validates and checks `ifMatch` against this snapshot
+   * instead of `snapshot()`, and commits with it as `base`; `readFiles`
+   * reads its files too. A deletion the overlay records is listed as a
+   * tombstone (`deleted: true`, with its tombstone version): for a guard the
+   * overlay holds it, so `ifMatch: null` on it fails and its tombstone
+   * version passes. The
+   * revision `snapshot()` reports must move whenever the overlay does, even
+   * when the content it shows doesn't (an entry saved with the base's
+   * value). Absent
+   * for a storage that writes its content directly (a working tree, a
+   * branch).
+   */
+  writeSnapshot?(): Promise<StorageSnapshot>;
   /** One all-or-nothing commit attempt; durable when it resolves. */
   commit(attempt: CommitAttempt): Promise<CommitResult>;
   /**

@@ -8,10 +8,12 @@ export const PROTOCOL_NAME = "deco-content";
 
 /**
  * Minors only add. A client refuses another major, and a server older than
- * `REQUIRED_PROTOCOL_MINOR` (1.1 added `changes.*`; 1.0 is `@decocms/blocks`
- * 8.1.x and older).
+ * `REQUIRED_PROTOCOL_MINOR`. 1.0 is `@decocms/blocks` 8.1.x and older; 1.1
+ * added `changes.*`; 1.2 added overlay endpoints (`describe.overlay`), and
+ * `blocks.apply` no longer reads the schema (`describe.secrets` is always
+ * `null`: secrets live in the deploy platform, not in content).
  */
-export const PROTOCOL_VERSION = { major: 1, minor: 1 } as const;
+export const PROTOCOL_VERSION = { major: 1, minor: 2 } as const;
 
 /**
  * The oldest minor this package's client talks to. Bump it only when the
@@ -62,8 +64,24 @@ export interface DescribeResult {
   preview: null | { url: string };
   /** Dir relative to the repository root; `null` when read-only or uploads go to hosted storage. */
   assets: null | { dir: string; urlPrefix: typeof ASSETS_URL_PREFIX; maxBytes: number };
-  /** The contents of `<root>/.deco/secrets.pub`; `null` without one. */
+  /**
+   * Always `null` from protocol 1.2 on: content holds no secrets (they live
+   * in the deploy platform, and the site's code passes them as params). A
+   * 1.0 or 1.1 server reported `<root>/.deco/secrets.pub` here.
+   */
   secrets: null | { publicKey: string };
+  /**
+   * `true` when the endpoint writes to an overlay over its base, such as a
+   * hosted draft over the published branch (protocol 1.2). Then
+   * `blocks.apply`'s `ifMatch` compares with the overlay alone: an entry the
+   * overlay doesn't hold is `null`, whatever the base has, and an entry it
+   * holds has the `version` `changes.list` reports for it. A deletion the
+   * overlay records is held too: `changes.list` reports it as a `delete`
+   * with its tombstone version, which `ifMatch` must name (`null` fails).
+   * `changes.list` lists every entry the overlay holds, even one equal to the
+   * base. Absent: `ifMatch` compares with the content `blocks.list` reports.
+   */
+  overlay?: true;
 }
 
 /** The schema file, in the site editor's `deco-meta@1` format. */
@@ -125,12 +143,24 @@ export interface BlocksApplyParams {
   set?: Record<string, Record<string, unknown>>;
   /** A missing name counts as deleted. */
   delete?: string[];
-  /** A version the entry must have; `null` = must not exist. */
+  /**
+   * A version the entry must have; `null` = must not exist. On an overlay
+   * endpoint (`describe.overlay`), the version it has in the overlay (for a
+   * deletion the overlay records, its tombstone version); `null` = the
+   * overlay doesn't hold it.
+   */
   ifMatch?: Record<string, string | null>;
 }
 
 export interface BlocksApplyResult {
   revision: string;
+  /**
+   * Every name written or deleted, with its version now: `null` for a
+   * deleted name, except on an overlay endpoint, where a deletion the
+   * overlay records reports its tombstone version (what the next `ifMatch`
+   * on it must name). An overlay may record one even for a name the base
+   * lacks; a client treats it like any tombstone.
+   */
   versions: Record<string, string | null>;
 }
 
@@ -148,9 +178,18 @@ export interface ChangesBase {
 
 /** One entry that differs from the base. */
 export interface Change {
-  /** `set`: the entry exists and differs from the base, or is new. `delete`: it's in the base and gone now. */
+  /**
+   * `set`: the entry exists and differs from the base, or is new. `delete`:
+   * it's in the base and gone now; on an overlay endpoint, also a tombstone
+   * the overlay holds for a name the base lacks (`baseVersion: null`).
+   */
   kind: "set" | "delete";
-  /** The entry's current version, as `blocks.list` reports it (usable in `ifMatch`); `null` for a `delete`. */
+  /**
+   * The entry's current version, as `blocks.list` reports it (usable in
+   * `ifMatch`). For a `delete`, `null`, except on an overlay endpoint
+   * (`describe.overlay`), where it's the deletion's tombstone version: the
+   * overlay holds the deletion, so a save of the entry must name it.
+   */
   version: string | null;
   /**
    * The entry's version in the base; `null` when the base doesn't have it (a
@@ -207,7 +246,11 @@ export interface ChangesGetResult {
 export interface ChangesDiscardParams {
   /** Entries to drop back to the base. A name without a change is a no-op. */
   names: string[];
-  /** A version the entry must have now; `null` = must not exist. As in `blocks.apply`. */
+  /**
+   * The version the entry must have now, as `changes.list` reports it; `null`
+   * = must not exist. On an overlay endpoint, a deletion the overlay holds
+   * has its tombstone version, and `null` on it fails.
+   */
   ifMatch?: Record<string, string | null>;
 }
 

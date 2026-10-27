@@ -95,10 +95,13 @@ export const changesCases: ConformanceCase[] = [
         "base.resolvedRef is a string or null",
       );
       assert(typeof first.changes === "object" && first.changes !== null, "a changes map");
+      const overlay = (await ctx.describe()).overlay === true;
       for (const [name, change] of Object.entries(first.changes)) {
         assert(change.kind === "set" || change.kind === "delete", `${name}: kind`);
-        if (change.kind === "delete") assertEqual(change.version, null, `${name}: version`);
-        else assert(typeof change.version === "string", `${name}: a version`);
+        // An overlay holds its deletions: a delete carries the tombstone's version.
+        if (change.kind === "delete" && !overlay) {
+          assertEqual(change.version, null, `${name}: version`);
+        } else assert(typeof change.version === "string", `${name}: a version`);
       }
       const poll = await ctx.client.changesList({ ifNoneMatch: first.revision });
       assert(poll.notModified, "polling with the returned revision is 'not modified'");
@@ -304,14 +307,23 @@ export const changesCases: ConformanceCase[] = [
         const listed = (await changes(ctx)).changes[base.name];
         assert(listed !== undefined, "the deleted entry is listed");
         assertEqual(listed!.kind, "delete", "kind");
-        assertEqual(listed!.version, null, "version");
+        if ((await ctx.describe()).overlay === true) {
+          assert(
+            typeof listed!.version === "string",
+            "an overlay's delete has a tombstone version",
+          );
+        } else assertEqual(listed!.version, null, "version");
         assert(typeof listed!.baseVersion === "string", "a base version");
 
         const detail = (await ctx.client.changesGet({ names: [base.name] })).entries[base.name];
         assertEqual(detail?.after, null, "after is null");
         assertEqual(detail?.before, base.value, "before is the base");
 
-        await ctx.client.changesDiscard({ names: [base.name], ifMatch: { [base.name]: null } });
+        // Guarded with the version changes.list showed (an overlay's tombstone, else null).
+        await ctx.client.changesDiscard({
+          names: [base.name],
+          ifMatch: { [base.name]: listed!.version },
+        });
         const after = await list(ctx);
         assertEqual(after.blocks[base.name], base.value, "the entry is back");
         assert(!(base.name in (await changes(ctx)).changes), "no longer a change");

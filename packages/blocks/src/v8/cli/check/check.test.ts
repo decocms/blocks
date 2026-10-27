@@ -1,13 +1,7 @@
 // @vitest-environment node
 import Ajv from "ajv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  createFixture,
-  type Fixture,
-  recorder,
-  STORE_FILES,
-  sealSecret,
-} from "../__tests__/fixture";
+import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
 import { BUILT_IN_BLOCKS, BUILT_IN_USES } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
@@ -410,53 +404,26 @@ describe("routes", () => {
   });
 });
 
-describe("secrets", () => {
-  it("accepts a well-formed secret block in a Secret field", async () => {
-    const { ciphertext } = await sealSecret("re_123");
-    expect(run({ Hero: { ...hero, apiKey: { __resolveType: "secret", ciphertext } } })).toEqual([]);
-  });
-
-  it("rejects malformed ciphertext and plain text", () => {
+describe("leftover secret blocks", () => {
+  it("points a v7 or prerelease secret block to the deploy platform's secrets", () => {
+    const moved =
+      "secrets live in your deploy platform's secrets, not in content: read the value in your site's code and pass it as a param, then delete this block; see /next/built-in-blocks#secrets";
     expect(
       lines(
         run({
-          A: { ...hero, apiKey: { __resolveType: "secret", ciphertext: "v1.AbX3" } },
-          B: { ...hero, apiKey: "sk_live_123" },
-          C: { __resolveType: "secret", ciphertext: "nope" },
+          A: { __resolveType: "website/loaders/secret.ts", encrypted: "x" },
+          B: { __resolveType: "secret", ciphertext: "v1.AbX3" },
         }),
       ),
     ).toEqual([
-      "A.json apiKey.ciphertext: not a well-formed ciphertext (v1.<wrappedKey>.<iv>.<ciphertext>)",
-      "B.json apiKey: plain text in a Secret field: save it as a secret block",
-      "C.json ciphertext: not a well-formed ciphertext (v1.<wrappedKey>.<iv>.<ciphertext>)",
+      `A.json unknown block type "website/loaders/secret.ts": ${moved}`,
+      `B.json unknown block type "secret": ${moved}`,
     ]);
   });
 });
 
-describe("lists of secrets and lazy values", () => {
+describe("lists of lazy values", () => {
   const vault = (extra: Record<string, unknown>) => ({ __resolveType: "vault", ...extra });
-
-  it("rejects plain text in a Secret[] item", async () => {
-    const { ciphertext } = await sealSecret("k");
-    const blocks = {
-      V: vault({ keys: [{ __resolveType: "secret", ciphertext }, "plaintext", null] }),
-    };
-    expect(lines(run(blocks))).toEqual([
-      "V.json keys[1]: plain text in a Secret field: save it as a secret block",
-    ]);
-  });
-
-  it("rejects a saved reference that isn't a secret in a Secret field", () => {
-    const blocks = {
-      Promo: { __resolveType: "catalog-product", slug: "x" },
-      A: { ...hero, apiKey: { __resolveType: "Promo" } },
-      V: vault({ keys: [{ __resolveType: "Promo" }] }),
-    };
-    expect(lines(run(blocks))).toEqual([
-      'A.json apiKey: saved block "Promo" (a "catalog-product") doesn\'t fit here: this field is a Secret: it takes a secret block',
-      'V.json keys[0]: saved block "Promo" (a "catalog-product") doesn\'t fit here: this field is a Secret: it takes a secret block',
-    ]);
-  });
 
   it("requires a lazy block in each Lazy<T>[] item and checks its value as a T", () => {
     expect(
@@ -1185,9 +1152,9 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
       group![name] = { ...group![name], namespace: "site" };
       replaced.push(name);
     }
-    expect(replaced).toHaveLength(12);
+    expect(replaced).toHaveLength(11);
     const warnings = lines(checkContent(own, saved({})));
-    expect(warnings).toHaveLength(12);
+    expect(warnings).toHaveLength(11);
     for (const name of BUILT_IN_BLOCKS) {
       expect(BUILT_IN_USES[name], name).toBeTruthy();
       expect(warnings).toContain(

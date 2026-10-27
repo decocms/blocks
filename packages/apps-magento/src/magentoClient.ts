@@ -3,8 +3,8 @@
  * APIs, over the framework's instrumented fetch (provider "magento"). See
  * /next/upstream-clients.
  *
- * Configuration comes in as arguments; the site reads its environment (or a
- * `secret` block) where it creates the client. Converters, hooks, cart and
+ * Configuration comes in as arguments; the site reads its credentials from
+ * its deploy platform's secrets where it creates the client. Converters, hooks, cart and
  * session flows, caching and feature toggles belong to the site (platform
  * templates), not here.
  */

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * End to end: a small v7 site (sections, an app loader its content calls, a
- * v7 secret, v7 async-rendering wrappers) goes through `migrate`, then
+ * v7 secret to move to the deploy platform, v7 async-rendering wrappers) goes through `migrate`, then
  * through `deco schema`, `deco content` and `deco check`, and its content
  * resolves with `createCMS`.
  */
@@ -32,51 +32,21 @@ const quiet: Reporter & { text: string[] } = {
   },
 };
 
+/** A reporter that keeps every line, to read what a command printed. */
+function recorderOf(): Reporter & { text: string[] } {
+  const text: string[] = [];
+  const keep = (m: string) => void text.push(m);
+  return { text, info: keep, warn: keep, error: keep };
+}
+
 function write(root: string, file: string, data: string | object) {
   const full = path.join(root, file);
   fs.mkdirSync(path.dirname(full), { recursive: true });
   fs.writeFileSync(full, typeof data === "string" ? data : `${JSON.stringify(data, null, 2)}\n`);
 }
 
-/** v7's secret format: AES-CBC under DECO_CRYPTO_KEY, base64 of `{ key, iv }`, hex output. */
-async function v7CryptoKey() {
-  const key = crypto.getRandomValues(new Uint8Array(32));
-  const iv = crypto.getRandomValues(new Uint8Array(16));
-  const aes = await crypto.subtle.importKey("raw", key, "AES-CBC", false, ["encrypt"]);
-  return {
-    env: btoa(JSON.stringify({ key: [...key], iv: [...iv] })),
-    encrypt: async (value: string) =>
-      Buffer.from(
-        await crypto.subtle.encrypt({ name: "AES-CBC", iv }, aes, new TextEncoder().encode(value)),
-      ).toString("hex"),
-  };
-}
-
-async function keyPair() {
-  const pair = (await crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt", "decrypt"],
-  )) as CryptoKeyPair;
-  const spki = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
-  const pkcs8 = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString(
-    "base64",
-  );
-  return {
-    publicKeyPem: `-----BEGIN PUBLIC KEY-----\n${Buffer.from(spki).toString("base64")}\n-----END PUBLIC KEY-----\n`,
-    privateKeyPem: `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----\n`,
-  };
-}
-
 let root: string;
 let report: Report;
-let privateKeyPem: string;
-const savedEnv = process.env.DECO_CRYPTO_KEY;
 
 beforeAll(async () => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "deco-v7-to-v8-")));
@@ -192,11 +162,6 @@ beforeAll(async () => {
 
   // v7 content: a page with both sections, the shelf fed by the app loader, a
   // v7 secret, Lazy wrappers (no async rendering in v8) and v7's generated files.
-  const crypto7 = await v7CryptoKey();
-  process.env.DECO_CRYPTO_KEY = crypto7.env;
-  const keys = await keyPair();
-  privateKeyPem = keys.privateKeyPem;
-  write(root, ".deco/secrets.pub", keys.publicKeyPem);
   // v7's extra preview hosts: Studio knows the site's addresses now, so the migration drops them
   // silently (the Site block's previewHosts: steps.test.ts).
   write(root, ".env", "DECO_ALLOWED_PREVIEW_HOSTS=staging.example.com\n");
@@ -218,7 +183,7 @@ beforeAll(async () => {
   });
   write(root, ".deco/blocks/API_KEY.json", {
     __resolveType: "website/loaders/secret.ts",
-    encrypted: await crypto7.encrypt("s3cret-value"),
+    encrypted: "8f3a0c",
     name: "ACME_API_KEY",
   });
   write(root, ".deco/blocks/Lazy%20Hero.json", {
@@ -242,8 +207,6 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  process.env.DECO_CRYPTO_KEY = savedEnv;
-  if (savedEnv === undefined) delete process.env.DECO_CRYPTO_KEY;
   resetForTests();
   fs.rmSync(root, { recursive: true, force: true });
 });
@@ -343,11 +306,19 @@ describe("migrate", () => {
     );
   });
 
-  it("re-encrypts the v7 secret with the site's public key", () => {
-    const secret = JSON.parse(read(".deco/blocks/API_KEY.json"));
-    expect(Object.keys(secret)).toEqual(["__resolveType", "ciphertext"]);
-    expect(secret.__resolveType).toBe("secret");
-    expect(read(".deco/blocks/API_KEY.json")).not.toContain("s3cret-value");
+  it("lists the v7 secret for the deploy platform's secrets, and leaves it as it was", () => {
+    expect(JSON.parse(read(".deco/blocks/API_KEY.json"))).toEqual({
+      __resolveType: "website/loaders/secret.ts",
+      encrypted: "8f3a0c",
+      name: "ACME_API_KEY",
+    });
+    const notes = report.manual.filter((n) => n.step === "secrets");
+    expect(notes).toEqual([
+      expect.objectContaining({
+        subject: "API_KEY.json",
+        message: expect.stringContaining("deploy platform's secrets, such as ACME_API_KEY"),
+      }),
+    ]);
   });
 
   it("folds settings into the CMS block and deletes the prerelease block", () => {
@@ -366,8 +337,14 @@ describe("migrate", () => {
     );
   });
 
-  it("leaves a tree that passes deco schema, deco content and deco check", async () => {
+  it("leaves a tree that passes deco schema, deco content and deco check, once the v7 secret is moved", async () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
+    expect(await content({ root, reporter: quiet })).toBe(0);
+    // deco check points at the one manual step left in content: the v7 secret.
+    const pointed = recorderOf();
+    expect(check({ root, reporter: pointed })).toBe(1);
+    expect(pointed.text.join("\n")).toContain("secrets live in your deploy platform's secrets");
+    fs.rmSync(path.join(root, ".deco/blocks/API_KEY.json"));
     expect(await content({ root, reporter: quiet })).toBe(0);
     expect(check({ root, reporter: quiet })).toBe(0);
     // Nothing to warn about: preview hosts are Studio's, not the site's.
@@ -376,17 +353,16 @@ describe("migrate", () => {
     // deco schema runs the TypeScript compiler: seconds on a loaded machine.
   }, 30_000);
 
-  it("resolves the migrated content: v7 names through the aliases, the secret with the new key", async () => {
+  it("resolves the migrated content: v7 names through the aliases", async () => {
     await content({ root, reporter: quiet });
     const blocks = (await import(pathToFileURL(path.join(root, ".deco/index.ts")).href)).default;
     const snapshot = (await import(pathToFileURL(path.join(root, ".deco/blocks.gen.ts")).href))
       .default;
-    const cms = createCMS({ blocks, content: snapshot, secrets: { key: privateKeyPem } });
+    const cms = createCMS({ blocks, content: snapshot });
     const client = cms.forRelease();
     const [page, error] = await client.resolve<any>("pages-home");
     expect(error).toBeNull();
     expect(page.sections).toEqual(SECTIONS);
-    expect(await client.resolve("API_KEY")).toEqual(["s3cret-value", null]);
   });
 
   it("writes the view registry: each section's module by its v7 type name", () => {

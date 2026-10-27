@@ -11,7 +11,6 @@ import {
   StorageNotFoundError,
   StorageUnavailableError,
 } from "../storage.ts";
-import type { DecoMeta } from "../types.ts";
 import { BodyCache } from "./bodyCache.ts";
 
 const MiB = 1024 * 1024;
@@ -51,8 +50,6 @@ const DEFAULT_RETRY_DELAY = { minMs: 50, maxMs: 200 };
 
 export class Core {
   readonly cache: BodyCache;
-  /** The last parsed schema, by version: the secret guard reads it on every write. */
-  parsedSchema: { version: string; meta: DecoMeta } | null = null;
   /**
    * The last `storage.changes()` answer, by changes revision (base plus
    * content): a poll on unchanged content and base doesn't ask the storage

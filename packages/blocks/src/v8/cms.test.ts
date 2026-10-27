@@ -543,17 +543,17 @@ describe("one instance per process", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("interval");
     expect(warn.mock.calls[0]?.[0]).toContain("telemetry");
-    expect(warn.mock.calls[0]?.[0]).not.toContain("secrets");
+    expect(warn.mock.calls[0]?.[0]).not.toContain("token");
   });
 
-  it("the warning never prints a secret", () => {
+  it("the warning never prints a token", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = docsSnapshot();
-    createCMS({ blocks: {}, content, secrets: { key: "PEM-ONE" } });
-    createCMS({ blocks: {}, content, secrets: { key: "PEM-TWO" } });
+    createCMS({ blocks: {}, content, site: "acme", token: "TOKEN-ONE" });
+    createCMS({ blocks: {}, content, site: "acme", token: "TOKEN-TWO" });
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain("secrets");
-    expect(warn.mock.calls[0]?.[0]).not.toContain("PEM");
+    expect(warn.mock.calls[0]?.[0]).toContain("token");
+    expect(warn.mock.calls[0]?.[0]).not.toContain("TOKEN-");
   });
 
   it("equal options in a different key order don't warn", () => {

@@ -25,7 +25,7 @@ export default function Banner(props: SectionProps<typeof loader>) {
 
 - `SectionProps<typeof loader>` is the loader's return value, awaited. v7 also unwrapped a `Promise`; for a synchronous loader, v7 gave the loader's own type, and here it gives the value.
 - `Resolved<T>`, `LoadingFallbackProps` and `Flag` are v7's.
-- The widget aliases (`ImageWidget`, `VideoWidget`, `HTMLWidget`, `RichText`, `TextArea`, `Color`, `TextWidget`, `ButtonWidget`, `Secret`) are strings. `deco schema` reads them by name, so a field gets the site editor's widget as it did on v7. `Secret` makes the field a secret block, as v8's `Secret` does. `@decocms/compat-v7/types/widgets` has the aliases alone.
+- The widget aliases (`ImageWidget`, `VideoWidget`, `HTMLWidget`, `RichText`, `TextArea`, `Color`, `TextWidget`, `ButtonWidget`, `Secret`) are strings. `deco schema` reads them by name, so a field gets the site editor's widget as it did on v7. `Secret` is v7's masked text box: a plain string saved in content, so keep real credentials in your deploy platform's secrets, read by the site's code and passed as params. `@decocms/compat-v7/types/widgets` has the aliases alone.
 
 v7's `AppContext` and `FnContext` aren't here: they describe the `ctx` argument, which v8 doesn't pass.
 

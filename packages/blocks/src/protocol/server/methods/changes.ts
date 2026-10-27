@@ -27,6 +27,7 @@ import {
   limitExceeded,
   readOnly,
   unavailable,
+  type VersionMismatch,
 } from "../../errors.ts";
 import {
   blockFileName,
@@ -60,7 +61,7 @@ import type {
 import { type ParsedBody, parseBody } from "../bodyCache.ts";
 import { type LoadedContent, loadCurrentContent } from "../content.ts";
 import { type Core, MAX_BLOCK_BYTES, MAX_NAMES_PER_GET, MAX_OPS_PER_APPLY } from "../core.ts";
-import { checkIfMatch, type EntriesBySpelling, entriesBySpelling } from "./apply.ts";
+import { type EntriesBySpelling, entriesBySpelling } from "./apply.ts";
 
 const keyOf = (file: string) => fullyDecodeFileName(file).name;
 
@@ -71,7 +72,10 @@ const byFile = (a: { file: string }, b: { file: string }) =>
 interface EntryChange {
   name: string;
   kind: "set" | "delete";
-  /** The current winner's version; `null` when no file of the entry exists now. */
+  /**
+   * The current winner's version; for an entry no file of which exists now,
+   * an overlay's tombstone version, else `null`.
+   */
   version: string | null;
   baseVersion: string | null;
   /** The current winning file, when it was readable as a candidate. */
@@ -165,6 +169,9 @@ async function storageChanges(
   const answer = await core.storage.changes(base, snapshot);
   const changes: StorageChanges = {
     files: [...new Set(answer.files.filter(isBlockFileName))].sort(),
+    ...(answer.tombstones
+      ? { tombstones: answer.tombstones.filter((f) => isBlockFileName(f.file)) }
+      : {}),
     baseFiles: answer.baseFiles.filter((f) => isBlockFileName(f.file)),
   };
   core.changesMemo = { revision, changes };
@@ -197,6 +204,12 @@ async function loadChanges(core: Core): Promise<ChangesState> {
     else baseByKey.set(key, [file]);
   }
 
+  // An overlay's deletion is versioned by its first tombstone, as `blocks.apply`'s guard sees it.
+  const tombstoneByKey = new Map<string, string>();
+  for (const t of [...(answer.tombstones ?? [])].sort(byFile)) {
+    if (!tombstoneByKey.has(keyOf(t.file))) tombstoneByKey.set(keyOf(t.file), t.version);
+  }
+
   const bySpelling = entriesBySpelling(content!);
   const changes = new Map<string, EntryChange>();
   for (const [key, changedFiles] of changedByKey) {
@@ -210,7 +223,9 @@ async function loadChanges(core: Core): Promise<ChangesState> {
         current?.name ??
         (winner ? blockNameFromFile(winner.file) : blockNameFromFile(changedFiles[0]!)),
       kind: exists ? "set" : "delete",
-      version: current?.entry.version ?? (exists ? currentFiles[0]!.version : null),
+      version:
+        current?.entry.version ??
+        (exists ? currentFiles[0]!.version : (tombstoneByKey.get(key) ?? null)),
       baseVersion: winner?.version ?? null,
       currentFile: current?.entry.file ?? null,
       baseFile: winner?.file ?? null,
@@ -403,6 +418,29 @@ function guardExpectations(
   return expected;
 }
 
+/**
+ * `changes.discard`'s guard: each name's version as `changes.list` shows it,
+ * so an overlay's deletion is guarded by its tombstone version (no file of
+ * it exists, so the content alone would say `null`).
+ */
+function discardMismatches(
+  state: ChangesState,
+  ifMatch: Array<[string, string | null]>,
+): Record<string, VersionMismatch> | null {
+  const mismatches: Record<string, VersionMismatch> = {};
+  let failed = false;
+  for (const [name, expected] of ifMatch) {
+    const key = spellingKey(name);
+    const actual =
+      state.bySpelling.get(key)?.entry.version ?? state.changes.get(key)?.version ?? null;
+    if (actual !== expected) {
+      mismatches[name] = { expected, actual };
+      failed = true;
+    }
+  }
+  return failed ? mismatches : null;
+}
+
 export async function changesDiscard(
   core: Core,
   params: ChangesDiscardParams,
@@ -420,7 +458,7 @@ export async function changesDiscard(
 
   for (let attempt = 1; attempt <= core.maxCommitAttempts; attempt++) {
     const state = await loadChanges(core);
-    const mismatches = checkIfMatch(state.bySpelling, { ifMatch });
+    const mismatches = discardMismatches(state, ifMatch);
     if (mismatches) throw conflict({ entries: mismatches });
 
     const restore = new Map<string, StorageFile>();

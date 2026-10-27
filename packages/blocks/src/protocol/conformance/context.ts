@@ -17,13 +17,6 @@ export interface ConformanceOptions {
   headers?: Record<string, string>;
   /** A fetch implementation (defaults to the global one); use it to call a handler in process. */
   fetch?: (request: Request) => Promise<Response>;
-  /**
-   * A block type in the endpoint's schema with a `Secret` field, so the
-   * secret guard can be checked. Leave out to skip those cases.
-   */
-  secretField?: { blockType: string; field: string };
-  /** The `.deco/secrets.pub` content the endpoint should report, if the harness wrote one. */
-  secretsPublicKey?: string;
   /** Whether the endpoint has a schema (default true). `false` checks the `schema: null` result instead. */
   hasSchema?: boolean;
   /**

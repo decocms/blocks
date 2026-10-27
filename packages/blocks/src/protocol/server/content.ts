@@ -5,7 +5,13 @@
  * needs bodies only to break ties between spellings).
  */
 import { unavailable } from "../errors.ts";
-import { entryHasPath, fullyDecodeFileName, isBlockFileName, resolveSpellings } from "../keys.ts";
+import {
+  blockNameFromFile,
+  entryHasPath,
+  fullyDecodeFileName,
+  isBlockFileName,
+  resolveSpellings,
+} from "../keys.ts";
 import type { ContentStorage, StorageFile, StorageSnapshot } from "../storage.ts";
 import type { Diagnostic } from "../types.ts";
 import { type BodyCache, type ParsedBody, parseBody } from "./bodyCache.ts";
@@ -16,13 +22,18 @@ export interface LoadedEntry {
   version: string;
   /** The parsed entry; absent when the body wasn't needed. */
   value?: Record<string, unknown>;
+  /**
+   * `true` for an entry an overlay deletes (only in `writeSnapshot()`'s
+   * listing): no file of it exists, and `version` is its tombstone's.
+   */
+  deleted?: true;
 }
 
 export interface LoadedContent {
   snapshot: StorageSnapshot;
   /** Every entry, by name, in file-name order of the winning files. */
   entries: Map<string, LoadedEntry>;
-  /** Every saved-block file, valid or not, by spelling key. */
+  /** Every saved-block file, valid or not, by spelling key (tombstones too). */
   groups: Map<string, StorageFile[]>;
   /** Files skipped or shadowed. */
   diagnostics: Diagnostic[];
@@ -40,6 +51,8 @@ interface Options {
   /** Read every body (`blocks.list`), not only the ones that break ties. */
   readAll: boolean;
   cache: BodyCache;
+  /** Takes the snapshot (default: `storage.snapshot()`; `blocks.apply` on an overlay: `writeSnapshot()`). */
+  take?: () => Promise<StorageSnapshot>;
 }
 
 async function loadContent(
@@ -60,7 +73,9 @@ async function loadContent(
   let moved = false;
   const parsed = new Map<string, ParsedBody>();
   const toRead: StorageFile[] = [];
-  for (const group of groups.values()) {
+  for (const all of groups.values()) {
+    // A tombstone has no body: it's never read, nor a spelling that competes.
+    const group = all.filter((f) => !f.deleted);
     if (!readAll && group.length < 2) continue;
     for (const file of group) {
       // An existing file over MAX_BLOCK_BYTES is unreadable, like invalid JSON: it's
@@ -106,6 +121,7 @@ async function loadContent(
   let bytes = 0;
   const candidates: Array<StorageFile & { hasPath: boolean; value?: Record<string, unknown> }> = [];
   for (const file of files) {
+    if (file.deleted) continue;
     const body = parsed.get(file.file);
     if (body === undefined) {
       // Not read: a single spelling whose body wasn't needed, or a file that vanished.
@@ -133,6 +149,16 @@ async function loadContent(
       });
     }
   }
+  // An entry the overlay deletes (no spelling of it left) holds its first tombstone's version.
+  for (const group of groups.values()) {
+    if (group.some((f) => !f.deleted)) continue;
+    const tombstone = [...group].sort((a, b) => (a.file < b.file ? -1 : 1))[0]!;
+    entries.set(blockNameFromFile(tombstone.file), {
+      file: tombstone.file,
+      version: tombstone.version,
+      deleted: true,
+    });
+  }
   diagnostics.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
   return { snapshot, entries, groups, diagnostics, bytes, moved };
 }
@@ -152,7 +178,7 @@ export async function loadCurrentContent(
   shortCircuit?: (snapshot: StorageSnapshot) => boolean,
 ): Promise<{ snapshot: StorageSnapshot; content: LoadedContent | null }> {
   for (let read = 1; read <= MAX_SNAPSHOT_READS; read++) {
-    const snapshot = await storage.snapshot();
+    const snapshot = await (options.take ?? (() => storage.snapshot()))();
     if (shortCircuit?.(snapshot)) return { snapshot, content: null };
     const content = await loadContent(storage, snapshot, options);
     if (!content.moved) return { snapshot, content };

@@ -13,7 +13,8 @@ Saved content stores type names in `__resolveType`. Treat them like database col
 | `website/matchers/always.ts` | `always` |
 | `website/matchers/never.ts` | `never` |
 | `website/loaders/redirect.ts` | `redirect` |
-| `website/loaders/secret.ts` | `secret` |
+
+`website/loaders/secret.ts` has no built-in: secrets live in the deploy platform's secrets, and the script lists each one (`reference/script-steps.md`, step 2).
 
 ## Rewritten in content by the script
 

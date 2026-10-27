@@ -5,7 +5,6 @@
  * Inside the app root (the folder that contains `.deco/`):
  * - `.deco/blocks/*.json` — the saved blocks; the only thing it writes.
  * - `.deco/schema.gen.json`, falling back to `.deco/meta.gen.json` — read only.
- * - `.deco/secrets.pub` — read only, reported by `describe`.
  * - `.deco/index.ts` is code and is never written.
  * - Uploads go to `public/assets` (or `assetsDir`), never overwriting a file.
  *
@@ -103,15 +102,6 @@ async function findRepoRoot(start: string): Promise<string> {
   for (let dir = start; ; dir = dirname(dir)) {
     if (await exists(join(dir, ".git"))) return dir;
     if (dirname(dir) === dir) return start;
-  }
-}
-
-async function readTextOrNull(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    if (isMissing(error)) return null;
-    throw error;
   }
 }
 
@@ -274,8 +264,6 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
 
     readSchema,
 
-    readSecretsPublicKey: () => readTextOrNull(join(decoDir, "secrets.pub")),
-
     async commit(attempt): Promise<CommitResult> {
       if (readOnly) throw new StorageUnavailableError("the storage is read-only");
       for (const file of [
@@ -298,12 +286,6 @@ export function createFsStorage(options: FsStorageOptions): FsStorage {
             (await gitBase.base()).revision !== attempt.expectedBase
           ) {
             return { status: "stale" } as const;
-          }
-          if (attempt.expectedSchemaVersion !== undefined) {
-            const schema = await readSchema();
-            if ((schema?.version ?? null) !== attempt.expectedSchemaVersion) {
-              return { status: "stale" } as const;
-            }
           }
           for (const [file, expected] of Object.entries(attempt.expected)) {
             if ((await freshVersion(file)) !== expected) return { status: "stale" } as const;

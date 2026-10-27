@@ -284,14 +284,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
   // -------------------------------------------------------------------------
   // 2. Fields → blocks: which functions' return types fit an object field.
   // -------------------------------------------------------------------------
-  const STRUCTURAL = new Set<string>([
-    "lazy",
-    "multivariate",
-    "secret",
-    "always",
-    "never",
-    "campaign",
-  ]);
+  const STRUCTURAL = new Set<string>(["lazy", "multivariate", "always", "never", "campaign"]);
   const candidates: Pick<BlockInfo, "key" | "returnType">[] = infos.filter(
     (info) =>
       info.group !== "sections" &&

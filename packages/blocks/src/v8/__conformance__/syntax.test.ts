@@ -5,29 +5,11 @@
  * the claim it checks. Examples are run as the docs write them, through the
  * package's public entry points.
  */
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { gunzipSync } from "node:zlib";
-import type {
-  Block,
-  Blocks,
-  CMSError,
-  Lazy,
-  Page,
-  Result,
-  Route,
-  Secret,
-  Seo,
-} from "@decocms/blocks";
+import type { Block, Blocks, CMSError, Lazy, Page, Result, Route, Seo } from "@decocms/blocks";
 import * as root from "@decocms/blocks";
 import { createCMS, resetForTests } from "@decocms/blocks";
-import { encryptSecret } from "@decocms/blocks/secrets";
 import { isValidElement, type ReactElement } from "react";
-import { afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { checkSecrets } from "../../protocol/secrets";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import { builtIns } from "../builtins/index";
 import {
@@ -36,8 +18,8 @@ import {
   bucket,
   catalogCalls,
   catalogProduct,
+  contactForm,
   lazyProductCard,
-  newsletter,
   not,
   PromoBanner,
   productCard,
@@ -48,7 +30,6 @@ import {
   weekdayBlockMap,
 } from "./syntaxExamples";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
 const BUILT_INS = [
   "lazy",
   "multivariate",
@@ -59,7 +40,6 @@ const BUILT_INS = [
   "page",
   "redirect",
   "cms-settings",
-  "secret",
   "split-traffic",
   "calendar",
 ];
@@ -75,12 +55,8 @@ afterEach(() => {
 });
 
 let revisions = 0;
-function cmsWith(blocks: Blocks, saved: Record<string, unknown> = {}, key?: string) {
-  return createCMS({
-    blocks,
-    content: { revision: `rev-${++revisions}`, blocks: saved },
-    ...(key === undefined ? {} : { secrets: { key } }),
-  });
+function cmsWith(blocks: Blocks, saved: Record<string, unknown> = {}) {
+  return createCMS({ blocks, content: { revision: `rev-${++revisions}`, blocks: saved } });
 }
 const clientWith = (blocks: Blocks, saved: Record<string, unknown> = {}) =>
   cmsWith(blocks, saved).forRelease();
@@ -272,7 +248,7 @@ describe("blocks", () => {
     expect(error?.code).toBe("UNKNOWN_BLOCK");
   });
 
-  it("blocks-13/builtin-01: exactly twelve built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
+  it("blocks-13/builtin-01: exactly eleven built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
     expect(Object.keys(builtIns).sort()).toEqual([...BUILT_INS].sort());
     const client = clientWith({});
     for (const name of BUILT_INS) {
@@ -750,261 +726,36 @@ describe("built-in blocks", () => {
 // ===========================================================================
 
 describe("secrets", () => {
-  let pub: string;
-  let priv: string;
-  let tmp: string;
-
-  beforeAll(() => {
-    // builtin-16: the docs' OpenSSL commands, as written.
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "deco-secrets-"));
-    fs.mkdirSync(path.join(tmp, ".deco"));
-    execFileSync(
-      "openssl",
-      [
-        "genpkey",
-        "-algorithm",
-        "RSA",
-        "-pkeyopt",
-        "rsa_keygen_bits:3072",
-        "-out",
-        "deco-secrets.key",
-      ],
-      { cwd: tmp, stdio: "ignore" },
-    );
-    execFileSync(
-      "openssl",
-      ["pkey", "-in", "deco-secrets.key", "-pubout", "-out", ".deco/secrets.pub"],
-      {
-        cwd: tmp,
-        stdio: "ignore",
-      },
-    );
-    priv = fs.readFileSync(path.join(tmp, "deco-secrets.key"), "utf8");
-    pub = fs.readFileSync(path.join(tmp, ".deco/secrets.pub"), "utf8");
-    return () => fs.rmSync(tmp, { recursive: true, force: true });
-  }, 60_000);
-
-  it("builtin-14: encryptSecret returns a ready secret block", async () => {
-    const block = await encryptSecret(pub, "x");
-    expect(block.__resolveType).toBe("secret");
-    expect(block.ciphertext).toMatch(/^v1\./);
+  it("builtin-10: there's no secret block: content holds no secrets, and secret is an ordinary name", async () => {
+    expect(builtIns).not.toHaveProperty("secret");
+    const [, error] = await clientWith({}).resolve({ __resolveType: "secret", ciphertext: "v1.x" });
+    expect(error?.code).toBe("UNKNOWN_BLOCK");
+    // Not reserved: a site may have a block of its own by that name.
+    const [mine] = await clientWith({ secret: () => "mine" }).resolve({ __resolveType: "secret" });
+    expect(mine).toBe("mine");
+    // createCMS takes no key: there's nothing for it to decrypt.
+    type Config = Parameters<typeof createCMS>[0];
+    expectTypeOf<"secrets" extends keyof Config ? true : false>().toEqualTypeOf<false>();
+    expect(Object.keys(root)).not.toContain("encryptSecret");
   });
 
-  it("builtin-10/builtin-15/builtin-16: createCMS({ secrets: { key } }) decrypts with OpenSSL's keys, line breaks included", async () => {
-    expect(priv).toContain("-----BEGIN PRIVATE KEY-----\n");
-    const block = await encryptSecret(pub, "abc");
-    const env = { DECO_SECRETS_KEY: priv } as Record<string, string | undefined>;
-    const cms = createCMS({
-      blocks: {},
-      content: { revision: "r", blocks: {} },
-      secrets: { key: env.DECO_SECRETS_KEY },
-    });
-    expect(await cms.forRelease().resolve(block)).toEqual(["abc", null]);
-  });
-
-  it("builtin-11: Secret is a tagged string usable as a string (the newsletter example)", async () => {
-    expectTypeOf<Secret>().toMatchTypeOf<string>();
-    const block = await encryptSecret(pub, "re_live_123");
-    const cms = cmsWith({ newsletter }, {}, priv);
-    expect(
-      await cms
-        .forRelease()
-        .resolve({ __resolveType: "newsletter", listId: "weekly", apiKey: block }),
-    ).toEqual([{ listId: "weekly", keyLength: 11 }, null]);
-  });
-
-  it("builtin-17: AES-256-GCM per value, wrapped with RSA-OAEP SHA-256, via Web Crypto; @decocms/blocks/secrets bundles for a browser", async () => {
-    const importKey = vi.spyOn(crypto.subtle, "importKey");
-    const encrypt = vi.spyOn(crypto.subtle, "encrypt");
-    await encryptSecret(pub, "x");
-    expect(
-      importKey.mock.calls.some(
-        (c) =>
-          c[0] === "spki" &&
-          (c[2] as RsaHashedImportParams).name === "RSA-OAEP" &&
-          (c[2] as RsaHashedImportParams).hash === "SHA-256",
-      ),
-    ).toBe(true);
-    const aesKeyBytes = importKey.mock.calls.find((c) => c[0] === "raw")?.[1] as Uint8Array;
-    expect(aesKeyBytes.byteLength).toBe(32);
-    expect(encrypt.mock.calls.map((c) => (c[0] as { name: string }).name).sort()).toEqual([
-      "AES-GCM",
-      "RSA-OAEP",
-    ]);
-    const esbuild = path.join(here, "../../../../../node_modules/.bin/esbuild");
-    const out = execFileSync(
-      esbuild,
-      [path.join(here, "../secrets.ts"), "--bundle", "--format=esm", "--platform=browser"],
-      {
-        encoding: "utf8",
-      },
-    );
-    expect(out).not.toMatch(/node:|require\(/);
-    expect(out).toContain("encryptSecret");
-  });
-
-  it("builtin-18 (browser): a secret block resolved in a browser fails with BLOCK_FAILED", async () => {
-    const block = await encryptSecret(pub, "abc");
-    const cms = cmsWith({}, {}, priv);
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("document", {});
-    const [value, error] = await cms.forRelease().resolve(block);
-    expect(value).toBeNull();
-    expect(error?.code).toBe("BLOCK_FAILED");
-  });
-
-  it("builtin-18 (server only): the core registers no taint hook; a secret stays server-side by resolution", async () => {
-    // built-in-blocks.mdx › Secrets: secrets resolve on the server only; any
-    // taint (React's experimental_taintUniqueValue) is the site's own code.
-    const hook = Symbol.for("decocms.blocks.taint");
-    const taint = vi.fn();
-    (globalThis as Record<symbol, unknown>)[hook] = taint;
-    try {
-      const block = await encryptSecret(pub, "abc");
-      const [value] = await cmsWith({}, {}, priv).forRelease().resolve(block);
-      expect(value).toBe("abc");
-      expect(taint).not.toHaveBeenCalled();
-    } finally {
-      delete (globalThis as Record<symbol, unknown>)[hook];
-    }
-  });
-
-  it("builtin-19: { run: false } and client.list return the secret block as saved", async () => {
-    const block = await encryptSecret(pub, "abc");
-    const client = cmsWith(
-      { newsletter },
-      { Newsletter: { __resolveType: "newsletter", listId: "l", apiKey: block } },
-      priv,
-    ).forRelease();
-    expect((await client.resolve("Newsletter", { run: false }))[0]).toEqual({
-      __resolveType: "newsletter",
-      listId: "l",
-      apiKey: block,
-    });
-    expect((await client.list("newsletter"))[0]).toEqual([
-      { __resolveType: "newsletter", listId: "l", apiKey: block },
-    ]);
-  });
-
-  it("builtin-20: the content protocol refuses a plain string in a Secret field", () => {
-    const meta = {
-      manifest: {
-        blocks: { sections: { newsletter: { $ref: "#/definitions/bmV3c2xldHRlcg==" } } },
-      },
-      schema: {
-        definitions: {
-          "bmV3c2xldHRlcg==": {
-            type: "object",
-            properties: {
-              __resolveType: { enum: ["newsletter"] },
-              apiKey: { type: "object", format: "secret" },
-            },
-          },
-        },
-        root: {},
+  it("builtin-11: the contact form example: the key comes from the deploy platform, content holds what editors choose", async () => {
+    // What the deploy platform holds, read by the site's code (process.env in the docs).
+    const platformSecrets = { RESEND_API_KEY: "re_live_123" };
+    const sent: { apiKey: string; to: string }[] = [];
+    const resend = {
+      async sendEmail(email: { to: string }) {
+        sent.push({ apiKey: platformSecrets.RESEND_API_KEY, to: email.to });
+        return { id: "1" };
       },
     };
-    const violations = checkSecrets(
-      "Newsletter",
-      { __resolveType: "newsletter", apiKey: "plaintext" },
-      meta as never,
-    );
-    expect(violations.map((v) => v.rule)).toEqual(["secret-field"]);
-  });
-
-  it("builtin-21: without a key, or with the wrong one, only the secret block fails (BLOCK_FAILED)", async () => {
-    const block = await encryptSecret(pub, "abc");
-    const page = {
-      __resolveType: "page",
-      name: "Home",
-      path: "/",
-      sections: [
-        { __resolveType: "promo-banner", title: "ok", href: "/" },
-        { __resolveType: "newsletter", listId: "l", apiKey: block },
-      ],
+    const saved = {
+      Contact: { __resolveType: "contact-form", to: "sales@example.com", subject: "Hello" },
     };
-    const blocks = { ...blockMap, newsletter };
-    // The whole page fails (a nested failure stops the parent); each section on its own:
-    const client = cmsWith(blocks).forRelease();
-    const [whole, wholeError] = await client.resolve(page);
-    expect(whole).toBeNull();
-    expect(wholeError?.code).toBe("BLOCK_FAILED");
-    const [stored] = await client.resolve(page, { run: false });
-    const results = await Promise.all(
-      (stored as typeof page).sections.map((s) => client.resolve(s)),
-    );
-    expect(results[0][1]).toBeNull();
-    expect(results[1][1]?.code).toBe("BLOCK_FAILED");
-    const wrong = await encryptSecret(pub, "abc");
-    const other = execFileSync(
-      "openssl",
-      ["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
-      { encoding: "utf8" },
-    );
-    expect((await cmsWith({}, {}, other).forRelease().resolve(wrong))[1]?.code).toBe(
-      "BLOCK_FAILED",
-    );
-  }, 30_000);
-
-  it("builtin-22: decrypted values never appear in telemetry logs or spans", async () => {
-    const plaintext = "re_live_PLAINTEXT_42";
-    const sent: string[] = [];
-    vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
-      const raw = Buffer.from(init?.body as Uint8Array);
-      sent.push(
-        new Headers(init?.headers).get("content-encoding") === "gzip"
-          ? gunzipSync(raw).toString()
-          : raw.toString(),
-      );
-      return new Response(null, { status: 200 });
-    });
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const tasks: (() => Promise<void>)[] = [];
-    const hook = Symbol.for("decocms.blocks.background");
-    (globalThis as Record<symbol, unknown>)[hook] = (t: () => Promise<void>) => tasks.push(t);
-    const now = Date.now.bind(Date);
-    let clock = 0;
-    vi.spyOn(Date, "now").mockImplementation(() => now() + clock);
-    try {
-      const block = await encryptSecret(pub, plaintext);
-      const cms = createCMS({
-        blocks: {
-          // An upstream error that quotes the key, as SDKs often do.
-          send: ({ apiKey }: { apiKey: string }) => {
-            throw new Error(`401 from upstream: invalid key ${apiKey}`);
-          },
-          ok: ({ apiKey }: { apiKey: string }) => apiKey.length,
-        },
-        content: {
-          revision: "r",
-          blocks: {
-            CMS: {
-              __resolveType: "cms-settings",
-              telemetry: { traceSampleRate: 1, errorSampleRate: 1 },
-            },
-          },
-        },
-        secrets: { key: priv },
-        telemetry: {
-          endpoint: "https://otel.example.com",
-          limits: { traceSampleRate: 1, errorSampleRate: 1 },
-        },
-      });
-      await cms.forRelease().revision();
-      const client = cms.forRelease();
-      expect((await client.resolve({ __resolveType: "ok", apiKey: block }))[1]).toBeNull();
-      expect((await client.resolve({ __resolveType: "send", apiKey: block }))[1]?.code).toBe(
-        "BLOCK_FAILED",
-      );
-      while (tasks.length > 0) {
-        clock += 10_000;
-        await Promise.all(tasks.splice(0).map((t) => t()));
-      }
-      expect(sent.length).toBeGreaterThan(0);
-      expect(sent.join("\n")).not.toContain(plaintext);
-    } finally {
-      delete (globalThis as Record<symbol, unknown>)[hook];
-    }
+    const client = cmsWith({ "contact-form": contactForm(resend) }, saved).forRelease();
+    expect(await client.resolve("Contact")).toEqual([{ to: "sales@example.com" }, null]);
+    expect(sent).toEqual([{ apiKey: "re_live_123", to: "sales@example.com" }]);
+    expect(JSON.stringify(saved)).not.toContain("re_live_123");
   });
 });
 

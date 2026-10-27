@@ -26,6 +26,7 @@ import { BUILT_IN_BLOCKS, LEGACY_ALIASES } from "@decocms/blocks/cli";
 import { type Framework, siteBlocksVersion, siteFramework } from "./framework";
 import { matcherEntry, V7_MATCHER_HINT, v7Matcher } from "./matchers";
 import type { Report } from "./report";
+import { V7_SECRET_TYPES } from "./secrets";
 import type { SectionLoaderWiring } from "./sectionLoaders";
 import { firstFile, locateAppModule, vendorModule } from "./vendor";
 import { forEachBlock, readContent } from "./walk";
@@ -176,7 +177,11 @@ export function writeBlockMap(
   const builtIn = new Set(BUILT_IN_BLOCKS);
   const types = new Set(
     [...used.keys()].filter(
-      (t) => !Object.hasOwn(blocks, t) && !builtIn.has(t) && !Object.hasOwn(LEGACY_ALIASES, t),
+      (t) =>
+        !Object.hasOwn(blocks, t) &&
+        !builtIn.has(t) &&
+        !Object.hasOwn(LEGACY_ALIASES, t) &&
+        !V7_SECRET_TYPES.has(t),
     ),
   );
   for (const file of listFiles(path.join(root, "src", "sections"), /\.tsx$/)) {
