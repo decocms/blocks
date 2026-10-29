@@ -518,6 +518,42 @@ describe("loadBlocks draft snapshot semantics", () => {
     });
   });
 
+  it("returns the same composed object on every call for the same draft", () => {
+    setBlocks({ "pages-home-1": { name: "Home", path: "/", sections: [{}] } });
+    const draft = {
+      "pages-home-1": { name: "Home", path: "/", sections: [{}] },
+      "pages-new-2": { name: "New", path: "/new", sections: [{}] },
+    };
+    setDraftOverrideGetter(() => draft);
+
+    // Identity is what keeps the per-blocks caches (page index) warm.
+    expect(loadBlocks()).toBe(loadBlocks());
+    withDraftBlocks(draft, () => {
+      expect(loadBlocks()).toBe(loadBlocks());
+    });
+    expect(findPageByPath("/new")?.blockKey).toBe("pages-new-2");
+  });
+
+  it("recomposes after setBlocks, including the same base mutated in place", () => {
+    const base: Record<string, unknown> = {
+      "__csv_redirects__a.csv": { redirects: [] },
+    };
+    setBlocks(base);
+    const draft = { "pages-home-1": { name: "Home", path: "/", sections: [{}] } };
+    setDraftOverrideGetter(() => draft);
+    const first = loadBlocks();
+    expect(first["__csv_redirects__b.csv"]).toBeUndefined();
+
+    base["__csv_redirects__b.csv"] = { redirects: [] };
+    setBlocks(base);
+    const second = loadBlocks();
+    expect(second).not.toBe(first);
+    expect(second["__csv_redirects__b.csv"]).toEqual({ redirects: [] });
+
+    setBlocks({});
+    expect(loadBlocks()).not.toBe(second);
+  });
+
   it("withDraftBlocks applies snapshot semantics; withBlocksOverride keeps merge", () => {
     setBlocks({
       "pages-home-1": { name: "Home", path: "/", sections: [{}] },
