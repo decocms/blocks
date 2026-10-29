@@ -632,7 +632,9 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       const loadGenModule = () => {
         if (genModule) return Promise.resolve(genModule);
         return import("tsx/esm/api")
-          .then(({ tsImport }) => tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url))
+          .then(({ tsImport }) =>
+            tsImport("@decocms/blocks-cli/generate-blocks", import.meta.url),
+          )
           .then((mod) => {
             if (typeof mod.generateBlocks !== "function") {
               // tsx 4.22.0–4.22.4 has a loader-hook state bug (fixed upstream
@@ -923,7 +925,10 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
             stdio: "inherit",
           });
         } catch (err) {
-          console.warn("[deco] meta.gen.json cold-start generation failed:", err?.message ?? err);
+          console.warn(
+            "[deco] meta.gen.json cold-start generation failed:",
+            err?.message ?? err,
+          );
         }
       }
 
@@ -970,10 +975,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         }
         scaffoldInFlight = true;
         const start = Date.now();
-        const scriptPath = path.resolve(
-          cwd,
-          "node_modules/@decocms/blocks-cli/scripts/generate.ts",
-        );
+        const scriptPath = path.resolve(cwd, "node_modules/@decocms/blocks-cli/scripts/generate.ts");
         const cmd = `npx tsx ${JSON.stringify(scriptPath)} --only sections,loaders,invoke --site ${schemaSiteName}`;
         exec(cmd, { cwd }, (err) => {
           scaffoldInFlight = false;
@@ -1264,9 +1266,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         // normal plugin pipeline (where TanStack Start's compiler
         // transforms it correctly) instead of esbuild's pre-bundler.
         env.optimizeDeps = env.optimizeDeps || {};
-        env.optimizeDeps.exclude = [
-          ...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"]),
-        ];
+        env.optimizeDeps.exclude = [...new Set([...(env.optimizeDeps.exclude || []), "@decocms/tanstack"])];
       }
     },
 

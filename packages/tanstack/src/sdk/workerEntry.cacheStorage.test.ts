@@ -7,8 +7,8 @@ import {
   createKVCacheStorage,
   getCacheStorageContext,
 } from "@decocms/blocks/sdk/cacheStorage";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFetchCache } from "@decocms/blocks/sdk/fetchCache";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetKvHydrationStateForTests, DATA_VERSION_TIMEOUT_MS } from "./kvHydration";
 
 const FETCH_KNOBS = {
@@ -17,6 +17,7 @@ const FETCH_KNOBS = {
   staleIfErrorMs: 60_000,
   inflightBackstopMs: 5_000,
 };
+
 import { createDecoWorkerEntry } from "./workerEntry";
 
 function makeKV(): CacheKVNamespace {
@@ -35,6 +36,12 @@ const jobs: Promise<unknown>[] = [];
 const ctx = { waitUntil: (work: Promise<unknown>) => jobs.push(work), passThroughOnException() {} };
 async function flush() {
   while (jobs.length) await Promise.all(jobs.splice(0));
+}
+// A STALE-HIT only starts its revalidation once the stale body went out
+// (afterBodySent), so every fetch here reads the body, like a real client.
+async function served(pending: Promise<Response>): Promise<Response> {
+  const res = await pending;
+  return new Response(await res.text(), res);
 }
 const request = (path = "/", headers: Record<string, string> = {}) =>
   new Request(`https://shop.test${path}`, {
@@ -64,14 +71,18 @@ describe("worker cache storage injection", () => {
     };
     const bindings = env();
     const first = createDecoWorkerEntry(origin, options);
-    expect((await first.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("MISS");
+    expect((await served(first.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "MISS",
+    );
     await flush();
     const second = createDecoWorkerEntry(origin, options);
-    const hit = await second.fetch(request(), bindings, ctx);
+    const hit = await served(second.fetch(request(), bindings, ctx));
     expect(hit.headers.get("x-cache")).toBe("HIT");
     expect(await hit.text()).toBe("page");
     expect(origin.fetch).toHaveBeenCalledTimes(1);
-    const changed = await second.fetch(request(), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    const changed = await served(
+      second.fetch(request(), { ...bindings, BUILD_HASH: "build-B" }, ctx),
+    );
     expect(changed.headers.get("x-cache")).toBe("MISS");
     await flush();
   });
@@ -101,10 +112,10 @@ describe("worker cache storage injection", () => {
       const origin = versionedOrigin();
       const worker = createDecoWorkerEntry(origin, options);
       const bindings = { ...env(), ...extra };
-      await worker.fetch(request(), bindings, ctx);
+      await served(worker.fetch(request(), bindings, ctx));
       await flush();
       setBlocks({ published: { __resolveType: "x" } });
-      const after = await worker.fetch(request(), bindings, ctx);
+      const after = await served(worker.fetch(request(), bindings, ctx));
       expect(after.headers.get("x-cache")).toBe("MISS");
       expect(after.headers.has("x-deco-revision")).toBe(false);
       await flush();
@@ -115,17 +126,21 @@ describe("worker cache storage injection", () => {
     const origin = versionedOrigin();
     const worker = createDecoWorkerEntry(origin, options);
     const bindings = { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" };
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("MISS");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "MISS",
+    );
     await flush();
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "HIT",
+    );
 
     setBlocks({ published: { __resolveType: "x" } });
-    const stale = await worker.fetch(request(), bindings, ctx);
+    const stale = await served(worker.fetch(request(), bindings, ctx));
     expect(stale.headers.get("x-cache")).toBe("STALE-HIT");
     expect(await stale.text()).toBe("page v1");
     await flush();
 
-    const refreshed = await worker.fetch(request(), bindings, ctx);
+    const refreshed = await served(worker.fetch(request(), bindings, ctx));
     expect(refreshed.headers.get("x-cache")).toBe("HIT");
     expect(await refreshed.text()).toBe("page v2");
     expect(origin.fetch).toHaveBeenCalledTimes(2);
@@ -138,16 +153,18 @@ describe("worker cache storage injection", () => {
     const worker = createDecoWorkerEntry(origin, options);
     const DECO_KV = makeKV();
     const bindings = { ...env(), DECO_KV, DECO_HTML_CACHE_ON_PUBLISH: "stale" };
-    await worker.fetch(request(), bindings, ctx);
+    await served(worker.fetch(request(), bindings, ctx));
     await flush();
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "HIT",
+    );
 
-    const purged = await worker.fetch(purgeAll(), bindings, ctx);
+    const purged = await served(worker.fetch(purgeAll(), bindings, ctx));
     expect(purged.status).toBe(200);
     const { version } = (await purged.json()) as { version: string };
     expect(await DECO_KV.get("cache:html-version")).toBe(version);
 
-    const after = await worker.fetch(request(), bindings, ctx);
+    const after = await served(worker.fetch(request(), bindings, ctx));
     expect(after.headers.get("x-cache")).toBe("MISS");
     expect(await after.text()).toBe("page v2");
     await flush();
@@ -155,13 +172,15 @@ describe("worker cache storage injection", () => {
     // Another isolate (another colo) adopts the version on its next read of the key.
     __resetKvHydrationStateForTests();
     const other = createDecoWorkerEntry(origin, options);
-    expect((await other.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+    expect((await served(other.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "HIT",
+    );
     await flush();
   });
 
   it('{"all": true} is refused without the stale mode or without DECO_KV', async () => {
     const worker = createDecoWorkerEntry(versionedOrigin(), options);
-    expect((await worker.fetch(purgeAll(), env(), ctx)).status).toBe(400);
+    expect((await served(worker.fetch(purgeAll(), env(), ctx))).status).toBe(400);
     const noKv = await worker.fetch(
       purgeAll(),
       { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" },
@@ -173,8 +192,11 @@ describe("worker cache storage injection", () => {
       body: JSON.stringify({ all: true }),
     });
     expect(
-      (await worker.fetch(unauthorized, { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" }, ctx))
-        .status,
+      (
+        await served(
+          worker.fetch(unauthorized, { ...env(), DECO_HTML_CACHE_ON_PUBLISH: "stale" }, ctx),
+        )
+      ).status,
     ).toBe(401);
   });
 
@@ -193,13 +215,15 @@ describe("worker cache storage injection", () => {
     };
     const worker = createDecoWorkerEntry(origin, options);
     const bindings = staleEnv();
-    await worker.fetch(request(), bindings, ctx);
+    await served(worker.fetch(request(), bindings, ctx));
     await flush();
     // Old content must not become a fresh HIT under the new revision.
-    const next = await worker.fetch(request(), bindings, ctx);
+    const next = await served(worker.fetch(request(), bindings, ctx));
     expect(next.headers.get("x-cache")).toBe("STALE-HIT");
     await flush();
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "HIT",
+    );
   });
 
   it("an isolate that hasn't polled the publish yet doesn't put its old revision back", async () => {
@@ -215,15 +239,17 @@ describe("worker cache storage injection", () => {
     const worker = createDecoWorkerEntry(origin, options);
     setBlocks(PUBLISHED);
     await DECO_KV.put("index:revision:dep-1", getRevision() ?? "", { expirationTtl: 60 });
-    await worker.fetch(request(), bindings, ctx); // v1, at the published revision
+    await served(worker.fetch(request(), bindings, ctx)); // v1, at the published revision
     await flush();
 
     setBlocks({}); // a laggard isolate, still on the previous revision
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("STALE-HIT");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "STALE-HIT",
+    );
     await flush(); // renders v2 at the old revision — must not be stored
 
     setBlocks(PUBLISHED);
-    const current = await worker.fetch(request(), bindings, ctx);
+    const current = await served(worker.fetch(request(), bindings, ctx));
     expect(current.headers.get("x-cache")).toBe("HIT");
     expect(await current.text()).toBe("page v1");
     await flush();
@@ -242,15 +268,15 @@ describe("worker cache storage injection", () => {
     };
     const worker = createDecoWorkerEntry(origin, options);
     const bindings = staleEnv();
-    await worker.fetch(request("/night-sale"), bindings, ctx);
+    await served(worker.fetch(request("/night-sale"), bindings, ctx));
     await flush();
     setBlocks(PUBLISHED);
     status = 404;
-    expect((await worker.fetch(request("/night-sale"), bindings, ctx)).headers.get("x-cache")).toBe(
-      "STALE-HIT",
-    );
+    expect(
+      (await served(worker.fetch(request("/night-sale"), bindings, ctx))).headers.get("x-cache"),
+    ).toBe("STALE-HIT");
     await flush();
-    const after = await worker.fetch(request("/night-sale"), bindings, ctx);
+    const after = await served(worker.fetch(request("/night-sale"), bindings, ctx));
     expect(after.status).toBe(404);
     expect(await after.text()).toBe("gone");
   });
@@ -273,13 +299,13 @@ describe("worker cache storage injection", () => {
       };
       const worker = createDecoWorkerEntry(origin, options);
       const bindings = staleEnv();
-      await worker.fetch(request("/kept"), bindings, ctx);
+      await served(worker.fetch(request("/kept"), bindings, ctx));
       await flush();
       setBlocks(PUBLISHED);
       current = status;
-      await worker.fetch(request("/kept"), bindings, ctx);
+      await served(worker.fetch(request("/kept"), bindings, ctx));
       await flush();
-      const after = await worker.fetch(request("/kept"), bindings, ctx);
+      const after = await served(worker.fetch(request("/kept"), bindings, ctx));
       expect(after.headers.get("x-cache")).toBe("STALE-HIT");
       expect(await after.text()).toBe("landing");
       await flush();
@@ -300,24 +326,24 @@ describe("worker cache storage injection", () => {
     const bindings = staleEnv();
     const post = () =>
       new Request("https://shop.test/_serverFn/public", { method: "POST", body: '"q"' });
-    await worker.fetch(post(), bindings, ctx);
+    await served(worker.fetch(post(), bindings, ctx));
     await flush();
-    const hit = await worker.fetch(post(), bindings, ctx);
+    const hit = await served(worker.fetch(post(), bindings, ctx));
     expect(hit.headers.get("x-cache")).toBe("HIT");
     expect(hit.headers.has("x-deco-revision")).toBe(false);
     setBlocks(PUBLISHED);
-    const stale = await worker.fetch(post(), bindings, ctx);
+    const stale = await served(worker.fetch(post(), bindings, ctx));
     expect(stale.headers.get("x-cache")).toBe("STALE-HIT");
     expect(await stale.text()).toBe('"v1"');
     expect(stale.headers.has("x-deco-revision")).toBe(false);
     await flush();
-    expect(await (await worker.fetch(post(), bindings, ctx)).text()).toBe('"v2"');
+    expect(await (await served(worker.fetch(post(), bindings, ctx))).text()).toBe('"v2"');
     await flush();
 
     const page = createDecoWorkerEntry(versionedOrigin(), options);
-    await page.fetch(request("/leak"), bindings, ctx);
+    await served(page.fetch(request("/leak"), bindings, ctx));
     await flush();
-    const htmlHit = await page.fetch(request("/leak"), bindings, ctx);
+    const htmlHit = await served(page.fetch(request("/leak"), bindings, ctx));
     expect(htmlHit.headers.get("x-cache")).toBe("HIT");
     expect(htmlHit.headers.has("x-deco-revision")).toBe(false);
   });
@@ -356,12 +382,12 @@ describe("worker cache storage injection", () => {
     };
     const worker = createDecoWorkerEntry(origin, options);
     const bindings = env();
-    await worker.fetch(request("/one"), bindings, ctx);
+    await served(worker.fetch(request("/one"), bindings, ctx));
     await flush();
     clearLoaderCache();
-    await worker.fetch(request("/two"), bindings, ctx);
+    await served(worker.fetch(request("/two"), bindings, ctx));
     expect(upstream).toHaveBeenCalledTimes(1);
-    await worker.fetch(request("/two", { authorization: "Bearer private" }), bindings, ctx);
+    await served(worker.fetch(request("/two", { authorization: "Bearer private" }), bindings, ctx));
     expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
   });
@@ -386,16 +412,18 @@ describe("worker cache storage injection", () => {
   it("DECO_DATA_CACHE_ON_DEPLOY=preserve keeps fetch results across deploys and publishes", async () => {
     const { worker, upstream } = fetchWorker();
     const bindings = { ...env(), DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
-    await worker.fetch(request("/one"), bindings, ctx);
+    await served(worker.fetch(request("/one"), bindings, ctx));
     await flush();
     // Distinct paths: only the fetch cache is under test, not the HTML cache.
-    await worker.fetch(request("/two"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    await served(worker.fetch(request("/two"), { ...bindings, BUILD_HASH: "build-B" }, ctx));
     // A CMS publish (new decofile revision) keeps them too.
     setBlocks({ published: { __resolveType: "x" } });
-    await worker.fetch(request("/three"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    await served(worker.fetch(request("/three"), { ...bindings, BUILD_HASH: "build-B" }, ctx));
     expect(upstream).toHaveBeenCalledTimes(1);
     // A new DECO_DATA_CACHE_PURGE value drops the preserved data once.
-    await worker.fetch(request("/four"), { ...bindings, DECO_DATA_CACHE_PURGE: "2026-09-22" }, ctx);
+    await served(
+      worker.fetch(request("/four"), { ...bindings, DECO_DATA_CACHE_PURGE: "2026-09-22" }, ctx),
+    );
     expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
   });
@@ -414,10 +442,10 @@ describe("worker cache storage injection", () => {
       options,
     );
     const bindings = { ...env(), DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
-    await worker.fetch(request("/a"), bindings, ctx);
+    await served(worker.fetch(request("/a"), bindings, ctx));
     await flush();
     clearLoaderCache();
-    await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+    await served(worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx));
     expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
   });
@@ -430,9 +458,9 @@ describe("worker cache storage injection", () => {
     ]) {
       const { worker, upstream } = fetchWorker();
       const bindings = { ...env(), ...extra };
-      await worker.fetch(request("/a"), bindings, ctx);
+      await served(worker.fetch(request("/a"), bindings, ctx));
       await flush();
-      await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+      await served(worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx));
       expect(upstream).toHaveBeenCalledTimes(2);
       await flush();
     }
@@ -443,13 +471,13 @@ describe("worker cache storage injection", () => {
     const { worker, upstream } = fetchWorker();
     const DECO_KV = makeKV();
     const bindings = { ...env(), DECO_KV, DECO_DATA_CACHE_ON_DEPLOY: "preserve" };
-    await worker.fetch(request("/a"), bindings, ctx);
+    await served(worker.fetch(request("/a"), bindings, ctx));
     await flush();
-    await worker.fetch(request("/b"), bindings, ctx);
+    await served(worker.fetch(request("/b"), bindings, ctx));
     expect(upstream).toHaveBeenCalledTimes(1);
     await DECO_KV.put("cache:data-version", "v2", { expirationTtl: 60 });
     __resetKvHydrationStateForTests(); // skip the poll interval
-    await worker.fetch(request("/c"), bindings, ctx);
+    await served(worker.fetch(request("/c"), bindings, ctx));
     expect(upstream).toHaveBeenCalledTimes(2);
     await flush();
   });
@@ -475,9 +503,9 @@ describe("worker cache storage injection", () => {
     const run = async (opts: object, extra: Record<string, string>) => {
       const { worker, upstream } = fetchWorker(opts);
       const bindings = { ...env(), ...extra };
-      await worker.fetch(request("/a"), bindings, ctx);
+      await served(worker.fetch(request("/a"), bindings, ctx));
       await flush();
-      await worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx);
+      await served(worker.fetch(request("/b"), { ...bindings, BUILD_HASH: "build-B" }, ctx));
       await flush();
       return upstream.mock.calls.length;
     };
@@ -500,22 +528,22 @@ describe("worker cache storage injection", () => {
     const bindings = env();
     const post = (body: string) =>
       new Request("https://shop.test/_serverFn/public", { method: "POST", body });
-    expect((await worker.fetch(post('"first"'), bindings, ctx)).headers.get("x-cache")).toBe(
-      "MISS",
-    );
+    expect(
+      (await served(worker.fetch(post('"first"'), bindings, ctx))).headers.get("x-cache"),
+    ).toBe("MISS");
     await flush();
-    const hit = await worker.fetch(post('"first"'), bindings, ctx);
+    const hit = await served(worker.fetch(post('"first"'), bindings, ctx));
     expect(hit.headers.get("x-cache")).toBe("HIT");
     expect(await hit.text()).toBe('"first"');
-    expect((await worker.fetch(post('"second"'), bindings, ctx)).headers.get("x-cache")).toBe(
-      "MISS",
-    );
+    expect(
+      (await served(worker.fetch(post('"second"'), bindings, ctx))).headers.get("x-cache"),
+    ).toBe("MISS");
     await flush();
     expect(origin.fetch).toHaveBeenCalledTimes(2);
     const unmarked = createDecoWorkerEntry({ fetch: async () => new Response("private") }, options);
-    expect((await unmarked.fetch(post('"third"'), bindings, ctx)).headers.get("x-cache")).toBe(
-      "BYPASS",
-    );
+    expect(
+      (await served(unmarked.fetch(post('"third"'), bindings, ctx))).headers.get("x-cache"),
+    ).toBe("BYPASS");
   });
 
   it("purges HTML through the configured adapter", async () => {
@@ -524,9 +552,11 @@ describe("worker cache storage injection", () => {
       options,
     );
     const bindings = env();
-    await worker.fetch(request(), bindings, ctx);
+    await served(worker.fetch(request(), bindings, ctx));
     await flush();
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("HIT");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "HIT",
+    );
     const purge = await worker.fetch(
       new Request("https://shop.test/_cache/purge", {
         method: "POST",
@@ -537,7 +567,9 @@ describe("worker cache storage injection", () => {
       ctx,
     );
     expect(purge.status).toBe(200);
-    expect((await worker.fetch(request(), bindings, ctx)).headers.get("x-cache")).toBe("MISS");
+    expect((await served(worker.fetch(request(), bindings, ctx))).headers.get("x-cache")).toBe(
+      "MISS",
+    );
     await flush();
   });
 });
