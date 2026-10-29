@@ -1588,14 +1588,31 @@ export function createDecoWorkerEntry(
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
   }
 
+  let warnedEdgeCacheVersion = false;
+
   /**
    * Version for edge cache keys (HTML + `/_serverFn`). See `edgeCacheVersion`.
    * The `a:` prefix keeps an assets hash from ever colliding with a build hash.
    */
   function getEdgeCacheVersion(env: Record<string, unknown>): string {
-    if (edgeCacheVersion === "assets" && cacheVersionEnv !== false && !env[cacheVersionEnv]) {
+    if (edgeCacheVersion === "assets") {
       const assets = typeof __DECO_ASSETS_HASH__ !== "undefined" ? __DECO_ASSETS_HASH__ : "";
-      if (assets && !assets.startsWith("__DECO_")) return `a:${assets}`;
+      const usable = assets && !assets.startsWith("__DECO_");
+      if (cacheVersionEnv !== false && !env[cacheVersionEnv] && usable) return `a:${assets}`;
+      // Still safe (keys on the build hash), but a site that opted in for warm
+      // deploys should know it isn't getting them.
+      if (!warnedEdgeCacheVersion) {
+        warnedEdgeCacheVersion = true;
+        console.warn(
+          '[deco] edgeCacheVersion: "assets" inactive — ' +
+            (cacheVersionEnv === false
+              ? "cacheVersionEnv is false"
+              : env[cacheVersionEnv]
+                ? `env.${cacheVersionEnv} is set and wins`
+                : "no client assets hash in this bundle (decoVitePlugin missing or server built first)") +
+            "; keying the edge cache on the build hash.",
+        );
+      }
     }
     return getBuildHash(env);
   }

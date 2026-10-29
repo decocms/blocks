@@ -89,18 +89,25 @@ function resolveBuildHash() {
 export const ASSETS_HASH_PLACEHOLDER = "__DECO_ASSETS_HASH_UNRESOLVED__";
 
 /**
- * Hash of a client bundle's output file names. Vite names them by content, so
- * the hash moves exactly when an asset an HTML document can reference moves.
- * `exclude` drops outputs that aren't referenced by documents (the admin
- * schema asset).
+ * Hash of a client bundle's outputs: file name plus content (chunk code, asset
+ * source). Content, not just names, so a site that sets
+ * `rollupOptions.output.*FileNames` without `[hash]` still gets a new hash when
+ * its JS/CSS changes. `exclude` drops outputs no document references (the
+ * admin schema asset).
  *
- * @param {Iterable<string>} fileNames
+ * @param {Record<string, { type: string, code?: string, source?: string | Uint8Array }>} bundle
  * @param {Set<string>} [exclude]
  * @returns {string}
  */
-export function hashClientAssets(fileNames, exclude = new Set()) {
-  const names = [...fileNames].filter((n) => !exclude.has(n)).sort();
-  return createHash("sha256").update(names.join("\n")).digest("hex").slice(0, 12);
+export function hashClientAssets(bundle, exclude = new Set()) {
+  const h = createHash("sha256");
+  for (const name of Object.keys(bundle).sort()) {
+    if (exclude.has(name)) continue;
+    const out = bundle[name];
+    h.update(name).update("\0");
+    h.update(out.type === "chunk" ? (out.code ?? "") : (out.source ?? "")).update("\0");
+  }
+  return h.digest("hex").slice(0, 12);
 }
 
 /**
@@ -1233,7 +1240,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
     generateBundle(_, bundle) {
       if (this.environment?.name === "client") {
         clientAssetsHash = hashClientAssets(
-          Object.keys(bundle),
+          bundle,
           new Set(metaAssetFile ? [metaAssetFile.fileName] : []),
         );
       }

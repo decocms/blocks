@@ -341,17 +341,20 @@ describe("decoVitePlugin({ metaAsset }) — admin schema as a static asset", () 
 });
 
 describe("decoVitePlugin __DECO_ASSETS_HASH__", () => {
-  it("hashes client file names independent of order, minus excluded ones", () => {
-    const a = hashClientAssets(["assets/a-1.js", "assets/b-2.css"]);
+  it("hashes client outputs by name and content, independent of order", () => {
+    const js = (code) => ({ type: "chunk", code });
+    const css = (source) => ({ type: "asset", source });
+    const a = hashClientAssets({ "assets/a.js": js("1"), "assets/b.css": css("x") });
     expect(a).toMatch(/^[0-9a-f]{12}$/);
-    expect(hashClientAssets(["assets/b-2.css", "assets/a-1.js"])).toBe(a);
+    expect(hashClientAssets({ "assets/b.css": css("x"), "assets/a.js": js("1") })).toBe(a);
     expect(
       hashClientAssets(
-        ["assets/a-1.js", "assets/b-2.css", "_deco/meta-x.json"],
-        new Set(["_deco/meta-x.json"]),
+        { "assets/a.js": js("1"), "assets/b.css": css("x"), "_deco/meta.json": css("s") },
+        new Set(["_deco/meta.json"]),
       ),
     ).toBe(a);
-    expect(hashClientAssets(["assets/a-9.js", "assets/b-2.css"])).not.toBe(a);
+    // Same (unhashed) file name, new content → new hash.
+    expect(hashClientAssets({ "assets/a.js": js("2"), "assets/b.css": css("x") })).not.toBe(a);
   });
 
   it("defines the placeholder on build and splices the client hash into server chunks", () => {
@@ -364,10 +367,12 @@ describe("decoVitePlugin __DECO_ASSETS_HASH__", () => {
     p.generateBundle.call(
       { environment: { name: "client" }, emitFile() {} },
       {},
-      { "assets/a-1.js": { type: "asset" } },
+      { "assets/a-1.js": { type: "chunk", code: "c" } },
     );
     const out = p.renderChunk.call({ environment: { name: "ssr" } }, code);
-    expect(out.code).toBe(`const h = "${hashClientAssets(["assets/a-1.js"])}";`);
+    expect(out.code).toBe(
+      `const h = "${hashClientAssets({ "assets/a-1.js": { type: "chunk", code: "c" } })}";`,
+    );
     // Client chunks are never rewritten.
     expect(p.renderChunk.call({ environment: { name: "client" } }, code)).toBeNull();
   });

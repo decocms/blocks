@@ -85,12 +85,18 @@ describe("edgeCacheVersion", () => {
     expect((await get()).headers.get("x-cache")).toBe("MISS");
   });
 
-  it('"assets": the unresolved placeholder falls back to the build hash', async () => {
+  it('"assets": the unresolved placeholder falls back to the build hash, and says so', async () => {
     g.__DECO_ASSETS_HASH__ = "__DECO_ASSETS_HASH_UNRESOLVED__";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { get } = setup("assets");
     await get();
     g.__DECO_BUILD_HASH__ = "build-B";
     expect((await get()).headers.get("x-cache")).toBe("MISS");
+    const msgs = warn.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes("edgeCacheVersion"));
+    expect(msgs).toHaveLength(1);
+    warn.mockRestore();
   });
 
   it('"assets": an explicit env BUILD_HASH still wins', async () => {
