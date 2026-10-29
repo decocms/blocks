@@ -85,6 +85,24 @@ function resolveBuildHash() {
   return Date.now().toString(36);
 }
 
+/** Stands in for `__DECO_ASSETS_HASH__` until the client build has run. */
+export const ASSETS_HASH_PLACEHOLDER = "__DECO_ASSETS_HASH_UNRESOLVED__";
+
+/**
+ * Hash of a client bundle's output file names. Vite names them by content, so
+ * the hash moves exactly when an asset an HTML document can reference moves.
+ * `exclude` drops outputs that aren't referenced by documents (the admin
+ * schema asset).
+ *
+ * @param {Iterable<string>} fileNames
+ * @param {Set<string>} [exclude]
+ * @returns {string}
+ */
+export function hashClientAssets(fileNames, exclude = new Set()) {
+  const names = [...fileNames].filter((n) => !exclude.has(n)).sort();
+  return createHash("sha256").update(names.join("\n")).digest("hex").slice(0, 12);
+}
+
 /**
  * Admin routes whose preflight the worker answers (`tryAdminRoute` in
  * `sdk/workerEntry.ts`).
@@ -339,6 +357,12 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
   let metaAssetFile = null;
   /** @type {string | null} */
   let clientOutDir = null;
+  // Set by the client build's `generateBundle`, consumed by the server build's
+  // `renderChunk` (the server build runs after the client one). If the order is
+  // ever reversed this stays null and the placeholder survives, which the
+  // runtime treats as "no assets hash" and keys on the build hash instead.
+  /** @type {string | null} */
+  let clientAssetsHash = null;
 
   /** @type {import("vite").Plugin} */
   const plugin = {
@@ -1018,6 +1042,9 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       cfg.define = {
         ...cfg.define,
         __DECO_BUILD_HASH__: JSON.stringify(buildHash),
+        // Opt-in edge cache versioning (`edgeCacheVersion: "assets"`); the real
+        // value is spliced in by `renderChunk` below.
+        __DECO_ASSETS_HASH__: JSON.stringify(command === "build" ? ASSETS_HASH_PLACEHOLDER : "dev"),
         // Tells the runtime whether this bundle actually ships a decofile.
         // `ensureBlocksHydrated` needs a build-time answer: with no bundled
         // snapshot, its "warn and serve bundled" recovery would serve an EMPTY
@@ -1027,6 +1054,25 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         // look stubbed.
         __DECO_BLOCKS_STUBBED__: JSON.stringify(stubBlocks && command === "build"),
       };
+
+      // The browser bundle gets no build hash. Its only reader there is
+      // `cachedLoader`, whose cache lives as long as the page — a deploy reloads
+      // the bundle anyway. Inlining the commit SHA made a shared vendor chunk,
+      // and every chunk importing it, change name on every deploy: browsers
+      // re-downloaded all JS after each one, and the client asset hash
+      // (`__DECO_ASSETS_HASH__`) could never stay stable across deploys.
+      if (command === "build") {
+        cfg.environments = {
+          ...cfg.environments,
+          client: {
+            ...cfg.environments?.client,
+            define: {
+              ...cfg.environments?.client?.define,
+              __DECO_BUILD_HASH__: JSON.stringify(""),
+            },
+          },
+        };
+      }
 
       // Only split chunks for production builds — dev uses unbundled ESM.
       if (command !== "build") return cfg;
@@ -1178,7 +1224,19 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       writeFileSync(out, metaAssetFile.payload);
     },
 
+    renderChunk(code) {
+      if (!clientAssetsHash || this.environment?.name === "client") return null;
+      if (!code.includes(ASSETS_HASH_PLACEHOLDER)) return null;
+      return { code: code.replaceAll(ASSETS_HASH_PLACEHOLDER, clientAssetsHash), map: null };
+    },
+
     generateBundle(_, bundle) {
+      if (this.environment?.name === "client") {
+        clientAssetsHash = hashClientAssets(
+          Object.keys(bundle),
+          new Set(metaAssetFile ? [metaAssetFile.fileName] : []),
+        );
+      }
       if (metaAssetFile && this.environment?.name === "client") {
         this.emitFile({
           type: "asset",

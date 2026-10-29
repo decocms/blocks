@@ -122,6 +122,16 @@ import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationR
 declare const __DECO_BUILD_HASH__: string | undefined;
 
 /**
+ * Hash of the client bundle's file names, injected by `decoVitePlugin()` once
+ * the client build has run (see `src/vite/plugin.js`). Those names are content
+ * hashes, so this changes only when the JS/CSS an HTML document references
+ * changes. Still the unresolved placeholder when the server bundle was built
+ * before the client one — `getEdgeCacheVersion()` then falls back to the build
+ * hash.
+ */
+declare const __DECO_ASSETS_HASH__: string | undefined;
+
+/**
  * The five canonical cache-decision strings stamped on the `X-Cache`
  * response header (and on the `decision` label of `cache_*_total`
  * metrics). Used by the request-metric label enrichment to keep label
@@ -422,6 +432,24 @@ export interface DecoWorkerEntryOptions {
    * ```
    */
   cacheVersionEnv?: string | false;
+  /**
+   * What versions the edge cache keys (HTML documents and `/_serverFn`
+   * responses).
+   *
+   * - `"build"` (default): the per-deploy build hash. Every deploy starts the
+   *   edge cache cold, including deploys that change no client asset.
+   * - `"assets"`: a hash of the client bundle's file names. A deploy that
+   *   leaves every client chunk/stylesheet unchanged keeps the edge cache warm;
+   *   one that changes any of them gets a new namespace, so a cached document
+   *   never points at a dead asset. Trade-off: a server-only change (loader,
+   *   middleware) reaches cached pages as they revalidate — within the
+   *   profile's fresh window plus one stale-while-revalidate serve — instead of
+   *   at deploy time.
+   *
+   * An explicit `env[cacheVersionEnv]` still wins in both modes; the loader
+   * cache and the `X-Cache-Version` header keep the build hash.
+   */
+  edgeCacheVersion?: "build" | "assets";
 
   /**
    * Environment variable choosing what a deploy does to the `createFetchCache`
@@ -1289,6 +1317,7 @@ export function createDecoWorkerEntry(
     redirects: redirectsOpt,
     previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
+    edgeCacheVersion = "build",
     dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
     securityHeaders: securityHeadersOpt,
     csp: cspOpt,
@@ -1559,6 +1588,18 @@ export function createDecoWorkerEntry(
     return typeof __DECO_BUILD_HASH__ !== "undefined" ? __DECO_BUILD_HASH__ : "";
   }
 
+  /**
+   * Version for edge cache keys (HTML + `/_serverFn`). See `edgeCacheVersion`.
+   * The `a:` prefix keeps an assets hash from ever colliding with a build hash.
+   */
+  function getEdgeCacheVersion(env: Record<string, unknown>): string {
+    if (edgeCacheVersion === "assets" && cacheVersionEnv !== false && !env[cacheVersionEnv]) {
+      const assets = typeof __DECO_ASSETS_HASH__ !== "undefined" ? __DECO_ASSETS_HASH__ : "";
+      if (assets && !assets.startsWith("__DECO_")) return `a:${assets}`;
+    }
+    return getBuildHash(env);
+  }
+
   function readRequestCookie(request: Request, name: string): string | undefined {
     for (const pair of (request.headers.get("cookie") ?? "").split(";")) {
       const idx = pair.indexOf("=");
@@ -1631,7 +1672,7 @@ export function createDecoWorkerEntry(
     const expected = segmentToken(
       requestSegmentDescriptor(request),
       buildSegment(request).loggedIn === true,
-      getBuildHash(env),
+      getEdgeCacheVersion(env),
     );
     return expected !== null && marker === expected;
   }
@@ -1691,7 +1732,7 @@ export function createDecoWorkerEntry(
       }
     }
 
-    const version = getBuildHash(env);
+    const version = getEdgeCacheVersion(env);
     if (version) {
       url.searchParams.set("__v", version);
     }
@@ -1865,7 +1906,7 @@ export function createDecoWorkerEntry(
             for (const bot of botVariants) {
               for (const fetchReq of fetchVariants) {
                 const url = new URL(p, baseUrl);
-                const purgeVersion = getBuildHash(env);
+                const purgeVersion = getEdgeCacheVersion(env);
                 if (purgeVersion) url.searchParams.set("__v", purgeVersion);
                 if (cc) url.searchParams.set("__cf_geo", cc);
                 if (bot) url.searchParams.set("__bot", "1");
@@ -1899,7 +1940,7 @@ export function createDecoWorkerEntry(
             for (const bot of botVariants) {
               for (const fetchReq of fetchVariants) {
                 const url = new URL(p, baseUrl);
-                const purgeVersion = getBuildHash(env);
+                const purgeVersion = getEdgeCacheVersion(env);
                 if (purgeVersion) url.searchParams.set("__v", purgeVersion);
                 if (cc) url.searchParams.set("__cf_geo", cc);
                 if (bot) url.searchParams.set("__bot", "1");
@@ -1972,7 +2013,7 @@ export function createDecoWorkerEntry(
     return storage
       ? createResponseCache(
           storage,
-          JSON.stringify([new URL(request.url).origin, getBuildHash(env), getRevision()]),
+          JSON.stringify([new URL(request.url).origin, getEdgeCacheVersion(env), getRevision()]),
         )
       : null;
   }
@@ -2212,7 +2253,7 @@ export function createDecoWorkerEntry(
               const token = segmentToken(
                 requestSegmentDescriptor(request),
                 buildSegment(request).loggedIn === true,
-                getBuildHash(env),
+                getEdgeCacheVersion(env),
               );
               if (token) RequestContext.setBag(CSEG_BAG_KEY, token);
             }
@@ -2856,7 +2897,7 @@ export function createDecoWorkerEntry(
       // different regions or channels get separate cache entries.
       const cacheKeyUrl = new URL(request.url);
       cacheKeyUrl.searchParams.set("__body", bodyHash);
-      const sfnVersion = getBuildHash(env);
+      const sfnVersion = getEdgeCacheVersion(env);
       if (sfnVersion) cacheKeyUrl.searchParams.set("__v", sfnVersion);
       if (sfnSegment) {
         cacheKeyUrl.searchParams.set("__seg", hashSegment(sfnSegment));

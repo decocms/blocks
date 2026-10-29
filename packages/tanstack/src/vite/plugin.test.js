@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildMetaAsset, decoVitePlugin, generateSchemaArgs } from "./plugin.js";
+import {
+  ASSETS_HASH_PLACEHOLDER,
+  buildMetaAsset,
+  decoVitePlugin,
+  generateSchemaArgs,
+  hashClientAssets,
+} from "./plugin.js";
 
 /**
  * The Vite plugin's `resolveId` / `load` hooks are pure functions over their
@@ -331,5 +337,52 @@ describe("decoVitePlugin({ metaAsset }) — admin schema as a static asset", () 
     expect(JSON.parse(asset.payload).etag).toBe(asset.etag);
     expect(buildMetaAsset("[1]")).toBeNull();
     expect(buildMetaAsset("not json")).toBeNull();
+  });
+});
+
+describe("decoVitePlugin __DECO_ASSETS_HASH__", () => {
+  it("hashes client file names independent of order, minus excluded ones", () => {
+    const a = hashClientAssets(["assets/a-1.js", "assets/b-2.css"]);
+    expect(a).toMatch(/^[0-9a-f]{12}$/);
+    expect(hashClientAssets(["assets/b-2.css", "assets/a-1.js"])).toBe(a);
+    expect(
+      hashClientAssets(
+        ["assets/a-1.js", "assets/b-2.css", "_deco/meta-x.json"],
+        new Set(["_deco/meta-x.json"]),
+      ),
+    ).toBe(a);
+    expect(hashClientAssets(["assets/a-9.js", "assets/b-2.css"])).not.toBe(a);
+  });
+
+  it("defines the placeholder on build and splices the client hash into server chunks", () => {
+    const p = getPlugin();
+    const cfg = p.config({}, { command: "build" });
+    expect(cfg.define.__DECO_ASSETS_HASH__).toBe(JSON.stringify(ASSETS_HASH_PLACEHOLDER));
+    const code = `const h = "${ASSETS_HASH_PLACEHOLDER}";`;
+    // Before the client build: nothing to splice, placeholder survives.
+    expect(p.renderChunk.call({ environment: { name: "ssr" } }, code)).toBeNull();
+    p.generateBundle.call(
+      { environment: { name: "client" }, emitFile() {} },
+      {},
+      { "assets/a-1.js": { type: "asset" } },
+    );
+    const out = p.renderChunk.call({ environment: { name: "ssr" } }, code);
+    expect(out.code).toBe(`const h = "${hashClientAssets(["assets/a-1.js"])}";`);
+    // Client chunks are never rewritten.
+    expect(p.renderChunk.call({ environment: { name: "client" } }, code)).toBeNull();
+  });
+});
+
+describe("decoVitePlugin client build hash", () => {
+  it("keeps the commit SHA out of the browser bundle on build", () => {
+    process.env.WORKERS_CI_COMMIT_SHA = "abcdef1234567890";
+    const cfg = getPlugin().config({}, { command: "build" });
+    expect(cfg.define.__DECO_BUILD_HASH__).toBe(JSON.stringify("abcdef123456"));
+    expect(cfg.environments.client.define.__DECO_BUILD_HASH__).toBe(JSON.stringify(""));
+    delete process.env.WORKERS_CI_COMMIT_SHA;
+  });
+
+  it("leaves dev untouched", () => {
+    expect(getPlugin().config({}, { command: "serve" }).environments?.client).toBeUndefined();
   });
 });
