@@ -188,6 +188,38 @@ function applyDraftSnapshot(
 }
 
 /**
+ * The composed snapshot per draft object, so every `loadBlocks()` in a draft
+ * render returns the SAME blocks object. Without it each call built a fresh
+ * ~2k-key copy, and every cache keyed by the blocks object (`pageIndexCache`:
+ * the sorted page list with its compiled URLPatterns) missed on every call —
+ * a draft render of a 1.2k-page decofile spent seconds of CPU rebuilding it.
+ * The resolved draft is itself cached per version (`resolveDraftDecofile`), so
+ * the entry is reused across requests on the same version too. Valid only for
+ * the base it was built on: `revision` catches a `setBlocks()` that hands back
+ * the same object mutated in place.
+ */
+type SnapshotEntry = {
+  base: Record<string, unknown>;
+  revision: string | null;
+  out: Record<string, unknown>;
+};
+if (!G.__deco.snapshotCache) G.__deco.snapshotCache = new WeakMap();
+const snapshotCache: WeakMap<Record<string, unknown>, SnapshotEntry> =
+  G.__deco.snapshotCache;
+
+function draftSnapshot(
+  draft: Record<string, unknown>,
+): Record<string, unknown> {
+  const hit = snapshotCache.get(draft);
+  if (hit && hit.base === blockData && hit.revision === revision) {
+    return hit.out;
+  }
+  const out = applyDraftSnapshot(blockData, draft);
+  snapshotCache.set(draft, { base: blockData, revision, out });
+  return out;
+}
+
+/**
  * Load the current blocks. If running inside a `withBlocksOverride` /
  * `withDraftBlocks` scope (admin preview / draft endpoints) or a request
  * carrying an ambient draft, that override composes over the base blocks
@@ -207,10 +239,10 @@ export function loadBlocks(): Record<string, unknown> {
   if (scoped) {
     return scoped.mode === "merge"
       ? mergeOverride(blockData, scoped.blocks)
-      : applyDraftSnapshot(blockData, scoped.blocks);
+      : draftSnapshot(scoped.blocks);
   }
   const draft = getRequestDraftOverride();
-  if (draft) return applyDraftSnapshot(blockData, draft);
+  if (draft) return draftSnapshot(draft);
   return blockData;
 }
 
