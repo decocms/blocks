@@ -46,28 +46,31 @@
  * development host, skip, and say nothing. Attributes cannot lose that race because
  * they are on the element that is executing.
  *
- * ## Off by default
+ * ## Third-party by default
  *
- * `DECO_ANALYTICS_ENABLED` must be set to `true`. This is the inverse of
- * `ONEDOLLAR_ENABLED`, which defaults to on, and the asymmetry is deliberate: one is
- * the incumbent and the other is being introduced. The two gates are also
- * independent, so a site can run both during a shadow comparison and neither gate
- * can turn the other off.
+ * The tag loads from the collector's origin and `DECO_ANALYTICS_SITE_KEY` identifies
+ * the site. Without a key it renders nothing: on that origin nothing else identifies
+ * the site, so its events would be dropped. `DECO_ANALYTICS_FIRST_PARTY=true` opts
+ * into the site's own host, which must route `/_dq/*` to the collector.
+ *
+ * `DECO_ANALYTICS_ENABLED=false` turns it off. That gate and `ONEDOLLAR_ENABLED` are
+ * independent, so a site can run both during a shadow comparison and neither can turn
+ * the other off.
  */
 
 export interface Props {
 	/**
-	 * Where the collector is published. Empty means same-origin, which is the
-	 * intended deployment: the script and the beacon are served from the site's own
-	 * hostname so no third-party request is involved and nothing is blocked.
+	 * Where the collector is published. Empty means same-origin: the script and the
+	 * beacon are served from the site's own hostname, which must route `/_dq/*` to the
+	 * collector.
 	 */
 	origin?: string;
 	/**
-	 * The site's public key, for sites NOT served through our CDN.
+	 * The site's public key, which identifies it on the collector's origin.
 	 *
-	 * Sites behind our edge are identified by the `Host` header, which a visitor
-	 * cannot forge; those must leave this unset. A key travels in the page source
-	 * where anyone can read and reuse it, so a key-identified site is recorded with
+	 * First-party sites are identified by the `Host` header, which a visitor cannot
+	 * forge; those must leave this unset. A key travels in the page source where anyone
+	 * can read and reuse it, so a key-identified site is recorded with
 	 * `site_id_source = tag` and is never billed from.
 	 */
 	siteKey?: string;
@@ -82,21 +85,23 @@ export interface Props {
 	debug?: boolean;
 }
 
-/** Same-origin. See {@link Props.origin}. */
-export const DEFAULT_ORIGIN = "";
+/** The collector's own origin. See {@link Props.origin}. */
+export const DEFAULT_ORIGIN = "https://analytics.decocdn.com";
 
 /**
- * Opt-in, and independent of `ONEDOLLAR_ENABLED` so both can run at once.
+ * On unless "false", and independent of `ONEDOLLAR_ENABLED` so both can run at once.
  */
-const DECO_ANALYTICS_ENABLED = process.env.DECO_ANALYTICS_ENABLED === "true";
+const DECO_ANALYTICS_ENABLED = process.env.DECO_ANALYTICS_ENABLED !== "false";
+const DECO_ANALYTICS_FIRST_PARTY = process.env.DECO_ANALYTICS_FIRST_PARTY === "true";
 const DECO_ANALYTICS_ORIGIN = process.env.DECO_ANALYTICS_ORIGIN;
 const DECO_ANALYTICS_SITE_KEY = process.env.DECO_ANALYTICS_SITE_KEY;
 
 function Stats({ origin, siteKey, defer, dev, debug }: Props) {
 	if (!DECO_ANALYTICS_ENABLED) return null;
 
-	const base = origin ?? DECO_ANALYTICS_ORIGIN ?? DEFAULT_ORIGIN;
+	const base = origin ?? DECO_ANALYTICS_ORIGIN ?? (DECO_ANALYTICS_FIRST_PARTY ? "" : DEFAULT_ORIGIN);
 	const key = siteKey ?? DECO_ANALYTICS_SITE_KEY;
+	if (base === DEFAULT_ORIGIN && !key) return null;
 
 	return (
 		<>
