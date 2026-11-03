@@ -3,6 +3,12 @@ import type { Analytics, CMSSettings, Redirect, Telemetry } from "../types.ts";
 /** The hosted Deco CMS collector: where page views go when `collector` is left out. */
 export const HOSTED_ANALYTICS_COLLECTOR = "https://d.lilstts.com/events";
 
+/** Where the Deco Analytics tag loads from unless the site opts into first-party. */
+export const DECO_ANALYTICS_ORIGIN = "https://analytics.decocdn.com";
+
+/** The Deco Analytics tag's path, on that origin or on a first-party site's own host. */
+export const DECO_ANALYTICS_SCRIPT = "/_dq/a.js";
+
 /**
  * `page`: its inputs are already resolved (`seo` and every block in
  * `sections`), so the page is its input.
@@ -44,6 +50,8 @@ export function analyticsSection(section: unknown): Required<Analytics> {
         ? a.collector
         : HOSTED_ANALYTICS_COLLECTOR,
     enabled: typeof a.enabled === "boolean" ? a.enabled : true,
+    decoAnalyticsKey: typeof a.decoAnalyticsKey === "string" ? a.decoAnalyticsKey : "",
+    decoAnalyticsFirstParty: a.decoAnalyticsFirstParty === true,
   };
 }
 

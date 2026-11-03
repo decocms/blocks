@@ -699,7 +699,16 @@ describe("built-in blocks", () => {
     expect(
       await clientWith({}).resolve({ __resolveType: "cms-settings", preview, telemetry }),
     ).toEqual([
-      { preview, telemetry, analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true } },
+      {
+        preview,
+        telemetry,
+        analytics: {
+          collector: HOSTED_ANALYTICS_COLLECTOR,
+          enabled: true,
+          decoAnalyticsKey: "",
+          decoAnalyticsFirstParty: false,
+        },
+      },
       null,
     ]);
     expect(HOSTED_ANALYTICS_COLLECTOR).toMatch(/^https:\/\//);

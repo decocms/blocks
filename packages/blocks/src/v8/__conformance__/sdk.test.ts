@@ -304,7 +304,7 @@ assert<Equal<Redirect, { from: string; to: string; permanent: boolean; status?: 
 assert<Equal<Lazy<number>, () => Promise<number>>>();
 assert<Equal<Variant<number>, { rule: boolean; value: Lazy<number> }>>();
 assert<Equal<Telemetry, { enabled?: boolean; metrics?: boolean; errorSampleRate?: number; traceSampleRate?: number }>>();
-assert<Equal<Analytics, { collector?: string; enabled?: boolean }>>();
+assert<Equal<Analytics, { collector?: string; enabled?: boolean; decoAnalyticsKey?: string; decoAnalyticsFirstParty?: boolean }>>();
 assert<Equal<CMSError["code"], "NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_FAILED" | "LOADER_FAILED">>();
 assert<Equal<CMSError, { code: CMSError["code"]; message: string; path: (string | number)[]; cause?: unknown }>>();
 assert<Equal<Result<number>, [number, null] | [null, CMSError]>>();
@@ -1229,7 +1229,12 @@ describe("AR-55 / AR-61 analytics", () => {
   it("the analytics section of cms.settings() fills the defaults", async () => {
     const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
     const { analytics } = await cms.settings();
-    expect(analytics).toEqual({ collector: expect.stringMatching(/^https:\/\//), enabled: true });
+    expect(analytics).toEqual({
+      collector: expect.stringMatching(/^https:\/\//),
+      enabled: true,
+      decoAnalyticsKey: "",
+      decoAnalyticsFirstParty: false,
+    });
   });
 });
 

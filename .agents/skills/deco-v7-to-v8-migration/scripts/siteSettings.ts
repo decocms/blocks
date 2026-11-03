@@ -247,7 +247,7 @@ export function foldSiteSettings(root: string, report: Report): void {
       step: "settings",
       subject: "DECO_ANALYTICS_ENABLED, ONEDOLLAR_ENABLED, ONEDOLLAR_COLLECTOR",
       message:
-        "if your hosting sets them, the enabled ones become the analytics section's enabled and ONEDOLLAR_COLLECTOR its collector (/next/analytics)",
+        "if your hosting sets them, ONEDOLLAR_ENABLED becomes the analytics section's enabled and ONEDOLLAR_COLLECTOR its collector; the Deco Analytics tag renders with decoAnalyticsKey, or with decoAnalyticsFirstParty on a host that routes /_dq/* to the collector (/next/analytics)",
     },
   );
 }

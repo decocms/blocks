@@ -506,20 +506,35 @@ describe("redirect, cms-settings", () => {
     expect(await client({}).resolve({ __resolveType: "cms-settings" })).toEqual([
       {
         telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
-        analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
+        analytics: {
+          collector: HOSTED_ANALYTICS_COLLECTOR,
+          enabled: true,
+          decoAnalyticsKey: "",
+          decoAnalyticsFirstParty: false,
+        },
       },
       null,
     ]);
     const saved = {
       preview: { hosts: ["staging.example.com"] },
       telemetry: { enabled: false, errorSampleRate: 0.5 },
-      analytics: { collector: "https://stats.example.com/events", enabled: false },
+      analytics: {
+        collector: "https://stats.example.com/events",
+        enabled: false,
+        decoAnalyticsKey: "dq_abc",
+        decoAnalyticsFirstParty: true,
+      },
     };
     expect(await client({}).resolve({ __resolveType: "cms-settings", ...saved })).toEqual([
       {
         preview: { hosts: ["staging.example.com"] },
         telemetry: { enabled: false, metrics: true, errorSampleRate: 0.5, traceSampleRate: 0 },
-        analytics: { collector: "https://stats.example.com/events", enabled: false },
+        analytics: {
+          collector: "https://stats.example.com/events",
+          enabled: false,
+          decoAnalyticsKey: "dq_abc",
+          decoAnalyticsFirstParty: true,
+        },
       },
       null,
     ]);

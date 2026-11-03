@@ -204,6 +204,10 @@ export interface Analytics {
   collector?: string;
   /** Default `true`; `false` makes `AnalyticsScript` render nothing. */
   enabled?: boolean;
+  /** Public key from the site's Deco Analytics registration; renders its tag from the collector's origin. */
+  decoAnalyticsKey?: string;
+  /** Default `false`; `true` renders the Deco Analytics tag from the site's own host, which must route `/_dq/*` to the collector. */
+  decoAnalyticsFirstParty?: boolean;
 }
 
 /** Anything with a `url` and `headers`: a fetch `Request`, a `NextRequest`, a framework wrapper. */
