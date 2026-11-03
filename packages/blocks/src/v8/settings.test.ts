@@ -16,7 +16,7 @@ const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=a
 const DEFAULTS: EffectiveSettings = {
   preview: { hosts: ["*"] },
   telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
-  analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true },
+  analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true, decoAnalytics: true },
 };
 
 beforeEach(() => resetForTests());
@@ -88,7 +88,11 @@ describe("cms.settings(): defaults", () => {
     expect(await cms.settings()).toEqual({
       preview: { hosts: ["*"] },
       telemetry: { enabled: true, metrics: false, errorSampleRate: 0.05, traceSampleRate: 0 },
-      analytics: { collector: "https://stats.example.com/events", enabled: true },
+      analytics: {
+        collector: "https://stats.example.com/events",
+        enabled: true,
+        decoAnalytics: true,
+      },
     });
   });
 
@@ -105,7 +109,7 @@ describe("cms.settings(): defaults", () => {
       content: withSettings({
         preview: { hosts: "staging.example.com" },
         telemetry: { enabled: "no", errorSampleRate: "high" },
-        analytics: { collector: 42, enabled: null },
+        analytics: { collector: 42, enabled: null, decoAnalytics: "no" },
       }),
     });
     expect(await cms.settings()).toEqual(DEFAULTS);
@@ -288,7 +292,7 @@ describe("cms.settings(): variants", () => {
     expect(await cms.settings()).toEqual({
       preview: { hosts: ["staging.example.com", "*.example.com"] },
       telemetry: DEFAULTS.telemetry,
-      analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false },
+      analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false, decoAnalytics: true },
     });
   });
 });

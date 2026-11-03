@@ -539,9 +539,13 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
         expect(JSON.stringify(definition)).not.toContain(`"${forbidden}"`);
       }
       expect(fields).not.toContain("endpoint");
-      // ana-02: the analytics section has collector and enabled only (no site ID).
+      // ana-02: the analytics section has collector, enabled and decoAnalytics only (no site ID).
       const analytics = settings.properties.analytics;
-      expect(Object.keys(analytics.properties ?? {}).sort()).toEqual(["collector", "enabled"]);
+      expect(Object.keys(analytics.properties ?? {}).sort()).toEqual([
+        "collector",
+        "decoAnalytics",
+        "enabled",
+      ]);
       // The old built-ins are gone, with no alias.
       expect(meta.schema.definitions[toBase64("telemetry")]).toBeUndefined();
       expect(meta.schema.definitions[toBase64("analytics")]).toBeUndefined();

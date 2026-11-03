@@ -10,7 +10,7 @@ import { AnalyticsScript, track } from "@decocms/blocks/analytics";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
+import { DECO_ANALYTICS_SCRIPT, HOSTED_ANALYTICS_COLLECTOR } from "../builtins/data";
 import { builtIns } from "../builtins/index";
 import { createCMS, resetForTests } from "../cms";
 import type { Analytics } from "../types";
@@ -66,7 +66,7 @@ afterEach(() => {
 
 /** Runs the script AnalyticsScript renders, as the browser would. */
 function runTracker(props: Analytics) {
-  const element = AnalyticsScript(props) as ReactElement<{
+  const element = AnalyticsScript({ ...props, decoAnalytics: false }) as ReactElement<{
     "data-url": string;
     dangerouslySetInnerHTML: { __html: string };
   }>;
@@ -98,16 +98,22 @@ describe("the analytics section of the CMS settings (analytics.mdx)", () => {
     expect(await resolveAnalytics({})).toEqual({
       collector: HOSTED_ANALYTICS_COLLECTOR,
       enabled: true,
+      decoAnalytics: true,
     });
     expect(await resolveAnalytics({ collector: COLLECTOR })).toEqual({
       collector: COLLECTOR,
       enabled: true,
+      decoAnalytics: true,
     });
   });
 
-  it("ana-02: the analytics section's fields are collector and enabled only (no site ID)", async () => {
+  it("ana-02: the analytics section's fields are collector, enabled and decoAnalytics only (no site ID)", async () => {
     // The resolved settings carry nothing else either.
-    expect(Object.keys(await resolveAnalytics({})).sort()).toEqual(["collector", "enabled"]);
+    expect(Object.keys(await resolveAnalytics({})).sort()).toEqual([
+      "collector",
+      "decoAnalytics",
+      "enabled",
+    ]);
   });
 
   it("ana-03: @decocms/blocks/analytics exports AnalyticsScript and track", () => {
@@ -123,11 +129,32 @@ describe("the analytics section of the CMS settings (analytics.mdx)", () => {
     expect(html).toContain(HOSTED_ANALYTICS_COLLECTOR);
   });
 
+  it("ana-04: AnalyticsScript also renders the Deco Analytics tag, same-origin and async, by default", async () => {
+    const cms = createCMS({ blocks: {}, content: { revision: "r", blocks: {} } });
+    const { analytics } = await cms.settings();
+    const html = renderToStaticMarkup(<AnalyticsScript {...analytics} />);
+    expect(html).toContain(`<script async="" src="${DECO_ANALYTICS_SCRIPT}"></script>`);
+    expect(renderToStaticMarkup(<AnalyticsScript />)).toContain(DECO_ANALYTICS_SCRIPT);
+  });
+
+  it("ana-04: decoAnalytics: false renders the tracker without the Deco Analytics tag", async () => {
+    const settings = await resolveAnalytics({ decoAnalytics: false });
+    expect(settings.decoAnalytics).toBe(false);
+    const html = renderToStaticMarkup(<AnalyticsScript {...settings} />);
+    expect(html).toContain(HOSTED_ANALYTICS_COLLECTOR);
+    expect(html).not.toContain(DECO_ANALYTICS_SCRIPT);
+  });
+
+  it("ana-04: a decoAnalytics that isn't a boolean falls back to the default", async () => {
+    expect((await resolveAnalytics({ decoAnalytics: "no" })).decoAnalytics).toBe(true);
+  });
+
   it("ana-05/ana-09: enabled: false renders nothing", async () => {
     expect(renderToStaticMarkup(<AnalyticsScript enabled={false} />)).toBe("");
     const settings = await resolveAnalytics({ enabled: false });
     expect(settings.enabled).toBe(false);
     expect(renderToStaticMarkup(<AnalyticsScript {...settings} />)).toBe("");
+    expect(renderToStaticMarkup(<AnalyticsScript enabled={false} decoAnalytics />)).toBe("");
   });
 
   it("ana-10: the section can have variants, picked when cms.settings() is called", async () => {
@@ -156,7 +183,11 @@ describe("the analytics section of the CMS settings (analytics.mdx)", () => {
       },
     });
     const { analytics } = await cms.settings();
-    expect(analytics).toEqual({ collector: HOSTED_ANALYTICS_COLLECTOR, enabled: false });
+    expect(analytics).toEqual({
+      collector: HOSTED_ANALYTICS_COLLECTOR,
+      enabled: false,
+      decoAnalytics: true,
+    });
   });
 
   it("up-04: the framework ships always, never, campaign, multivariate and cms-settings built-ins", () => {

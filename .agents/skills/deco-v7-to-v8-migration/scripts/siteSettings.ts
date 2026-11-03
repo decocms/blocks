@@ -247,7 +247,7 @@ export function foldSiteSettings(root: string, report: Report): void {
       step: "settings",
       subject: "DECO_ANALYTICS_ENABLED, ONEDOLLAR_ENABLED, ONEDOLLAR_COLLECTOR",
       message:
-        "if your hosting sets them, the enabled ones become the analytics section's enabled and ONEDOLLAR_COLLECTOR its collector (/next/analytics)",
+        "if your hosting sets them, DECO_ANALYTICS_ENABLED becomes the analytics section's decoAnalytics, ONEDOLLAR_ENABLED its enabled and ONEDOLLAR_COLLECTOR its collector (/next/analytics)",
     },
   );
 }
