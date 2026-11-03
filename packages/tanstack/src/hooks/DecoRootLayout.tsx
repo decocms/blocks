@@ -172,9 +172,8 @@ export function DecoRootLayout({
          * still flow while every commerce event went nowhere, with no error. Here the
          * parser has already executed the bootstrap.
          *
-         * Rendering unconditionally is safe — the component returns null unless
-         * DECO_ANALYTICS_ENABLED is exactly "true", which is what makes this an env-var
-         * change for a site instead of a code change.
+         * On for every site unless DECO_ANALYTICS_ENABLED is exactly "false", which is
+         * what makes turning it off an env-var change for a site instead of a code change.
          */}
         <Stats />
         <NavigationProgress />

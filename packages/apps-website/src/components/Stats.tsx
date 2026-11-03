@@ -7,7 +7,7 @@
  * component never needed to be here — it is a `<link>` and a `<script>` pointing at our own
  * collector, not a vendor integration like `OneDollarStats`.
  *
- * Sites do not need to import it at all any more. Set `DECO_ANALYTICS_ENABLED=true`.
+ * Sites do not need to import it at all any more: it is on unless `DECO_ANALYTICS_ENABLED=false`.
  */
 export {
 	Stats as default,

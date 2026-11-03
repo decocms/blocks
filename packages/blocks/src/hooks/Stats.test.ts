@@ -25,25 +25,20 @@ async function render(props: Record<string, unknown> = {}) {
 }
 
 describe("Stats", () => {
-	it("is mounted by the framework, so rendering it unconditionally must be inert", async () => {
-		// DecoRootLayout renders <Stats /> for every site, enabled or not. That is only safe
-		// because the gate returns null rather than, say, rendering a script pointing at nothing
-		// -- a site that never opted in must emit no tag, no preconnect and no request.
+	it("is mounted by the framework and renders the tag with no variable set", async () => {
+		// DecoRootLayout renders <Stats /> for every site, so every site gets the tag by default.
 		delete process.env.DECO_ANALYTICS_ENABLED;
-		expect(await render()).toBe("");
+		expect(await render()).toContain('src="/_dq/a.js"');
 	});
 
-	it("renders nothing unless explicitly enabled", async () => {
-		delete process.env.DECO_ANALYTICS_ENABLED;
+	it("renders nothing only when explicitly disabled", async () => {
+		process.env.DECO_ANALYTICS_ENABLED = "false";
 		expect(await render()).toBe("");
 
-		// Not "any truthy value". `ONEDOLLAR_ENABLED` defaults to ON and is disabled with
-		// "false"; this one defaults to OFF and needs "true". A loose check here would make
-		// `DECO_ANALYTICS_ENABLED=0` turn analytics on, which is the opposite of what anyone
-		// setting it to 0 intends.
-		process.env.DECO_ANALYTICS_ENABLED = "1";
+		// The same rule as `ONEDOLLAR_ENABLED`: only the exact string "false" turns it off.
 		vi.resetModules();
-		expect(await render()).toBe("");
+		process.env.DECO_ANALYTICS_ENABLED = "true";
+		expect(await render()).toContain('src="/_dq/a.js"');
 	});
 
 	it("points at the same origin by default, and preconnects only when it does not", async () => {

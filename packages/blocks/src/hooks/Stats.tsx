@@ -46,13 +46,12 @@
  * development host, skip, and say nothing. Attributes cannot lose that race because
  * they are on the element that is executing.
  *
- * ## Off by default
+ * ## On by default
  *
- * `DECO_ANALYTICS_ENABLED` must be set to `true`. This is the inverse of
- * `ONEDOLLAR_ENABLED`, which defaults to on, and the asymmetry is deliberate: one is
- * the incumbent and the other is being introduced. The two gates are also
- * independent, so a site can run both during a shadow comparison and neither gate
- * can turn the other off.
+ * Like `ONEDOLLAR_ENABLED`: set `DECO_ANALYTICS_ENABLED=false` to turn it off. The
+ * collector drops events from a host it has no registration for, so a site collects
+ * once it is registered. The two gates are independent, so a site can run both
+ * during a shadow comparison and neither gate can turn the other off.
  */
 
 export interface Props {
@@ -86,9 +85,9 @@ export interface Props {
 export const DEFAULT_ORIGIN = "";
 
 /**
- * Opt-in, and independent of `ONEDOLLAR_ENABLED` so both can run at once.
+ * On unless "false", and independent of `ONEDOLLAR_ENABLED` so both can run at once.
  */
-const DECO_ANALYTICS_ENABLED = process.env.DECO_ANALYTICS_ENABLED === "true";
+const DECO_ANALYTICS_ENABLED = process.env.DECO_ANALYTICS_ENABLED !== "false";
 const DECO_ANALYTICS_ORIGIN = process.env.DECO_ANALYTICS_ORIGIN;
 const DECO_ANALYTICS_SITE_KEY = process.env.DECO_ANALYTICS_SITE_KEY;
 
