@@ -25,31 +25,42 @@ async function render(props: Record<string, unknown> = {}) {
 }
 
 describe("Stats", () => {
-	it("is mounted by the framework and renders the tag with no variable set", async () => {
-		// DecoRootLayout renders <Stats /> for every site, so every site gets the tag by default.
-		delete process.env.DECO_ANALYTICS_ENABLED;
-		expect(await render()).toContain('src="/_dq/a.js"');
-	});
-
-	it("renders nothing only when explicitly disabled", async () => {
-		process.env.DECO_ANALYTICS_ENABLED = "false";
+	it("is mounted by the framework, so rendering it with no key must be inert", async () => {
+		// DecoRootLayout renders <Stats /> for every site. On the collector's origin only a key
+		// identifies the site, so without one there is no tag, no preconnect and no request.
+		delete process.env.DECO_ANALYTICS_SITE_KEY;
 		expect(await render()).toBe("");
-
-		// The same rule as `ONEDOLLAR_ENABLED`: only the exact string "false" turns it off.
-		vi.resetModules();
-		process.env.DECO_ANALYTICS_ENABLED = "true";
-		expect(await render()).toContain('src="/_dq/a.js"');
 	});
 
-	it("points at the same origin by default, and preconnects only when it does not", async () => {
-		process.env.DECO_ANALYTICS_ENABLED = "true";
-		const same = await render();
-		expect(same).toContain('src="/_dq/a.js"');
+	it("loads from the collector's origin with a key, and preconnects to it", async () => {
+		process.env.DECO_ANALYTICS_SITE_KEY = "dq_abc123";
+		const html = await render();
+		expect(html).toContain('src="https://analytics.decocdn.com/_dq/a.js?k=dq_abc123"');
+		expect(html).toContain("preconnect");
+	});
+
+	it("renders nothing when explicitly disabled, even with a key or first-party", async () => {
+		process.env.DECO_ANALYTICS_ENABLED = "false";
+		process.env.DECO_ANALYTICS_SITE_KEY = "dq_abc123";
+		process.env.DECO_ANALYTICS_FIRST_PARTY = "true";
+		expect(await render()).toBe("");
+	});
+
+	it("is first-party only when opted in: same origin, no key needed, no preconnect", async () => {
+		process.env.DECO_ANALYTICS_FIRST_PARTY = "true";
+		const html = await render();
+		expect(html).toContain('src="/_dq/a.js"');
 		// A preconnect to the page's own origin is a wasted hint, and on some browsers a
 		// second connection opened for nothing.
-		expect(same).not.toContain("preconnect");
+		expect(html).not.toContain("preconnect");
 
+		// Only the exact string opts in.
 		vi.resetModules();
+		process.env.DECO_ANALYTICS_FIRST_PARTY = "1";
+		expect(await render()).toBe("");
+	});
+
+	it("uses a custom origin as given, with or without a key", async () => {
 		process.env.DECO_ANALYTICS_ORIGIN = "https://analytics.example.com";
 		const cross = await render();
 		expect(cross).toContain('src="https://analytics.example.com/_dq/a.js"');
@@ -57,7 +68,7 @@ describe("Stats", () => {
 	});
 
 	it("carries dev and debug as attributes, and omits them when off", async () => {
-		process.env.DECO_ANALYTICS_ENABLED = "true";
+		process.env.DECO_ANALYTICS_FIRST_PARTY = "true";
 		// The whole reason these are attributes: TanStack hoists `<script async>` into `<head>`
 		// above any inline config block, so a global set alongside the tag loses the race and the
 		// collector boots into silence with no error.
@@ -74,8 +85,8 @@ describe("Stats", () => {
 	});
 
 	it("puts the site key in the URL, because that is where the collector reads it", async () => {
-		process.env.DECO_ANALYTICS_ENABLED = "true";
-		// Sites behind our edge are identified by the Host header, which a visitor cannot forge.
+		process.env.DECO_ANALYTICS_FIRST_PARTY = "true";
+		// First-party sites are identified by the Host header, which a visitor cannot forge.
 		// Emitting an empty key would put a `tag`-sourced identity on a site that has a
 		// trustworthy one, and `tag` is the source that must never reach an invoice.
 		const none = await render();
@@ -94,7 +105,7 @@ describe("Stats", () => {
 	});
 
 	it("uses defer only when asked, async otherwise", async () => {
-		process.env.DECO_ANALYTICS_ENABLED = "true";
+		process.env.DECO_ANALYTICS_FIRST_PARTY = "true";
 		// Nothing visual may depend on this script. `async` is what keeps a slow or failed
 		// collector from becoming a slow or broken page.
 		expect(await render()).toContain("async");

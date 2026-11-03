@@ -7,7 +7,9 @@
  * component never needed to be here — it is a `<link>` and a `<script>` pointing at our own
  * collector, not a vendor integration like `OneDollarStats`.
  *
- * Sites do not need to import it at all any more: it is on unless `DECO_ANALYTICS_ENABLED=false`.
+ * TanStack sites on `DecoRootLayout` do not need to import it any more: set
+ * `DECO_ANALYTICS_SITE_KEY`, or `DECO_ANALYTICS_FIRST_PARTY=true`. The Next.js layout does not
+ * mount it.
  */
 export {
 	Stats as default,
