@@ -8,8 +8,8 @@
  * collector, not a vendor integration like `OneDollarStats`.
  *
  * TanStack sites on `DecoRootLayout` do not need to import it any more: set
- * `DECO_ANALYTICS_SITE_KEY`, or `DECO_ANALYTICS_FIRST_PARTY=true`. The Next.js layout does not
- * mount it.
+ * `DECO_ANALYTICS_SITE_KEY`, `DECO_ANALYTICS_FIRST_PARTY=true` or `DECO_ANALYTICS_ORIGIN`. The
+ * Next.js layout does not mount it.
  */
 export {
 	Stats as default,
