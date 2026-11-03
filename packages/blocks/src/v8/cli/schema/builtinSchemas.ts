@@ -260,7 +260,12 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
             properties: {
               collector: { type: "string", title: "Collector" },
               enabled: { type: "boolean", title: "Enabled", default: true },
-              decoAnalytics: { type: "boolean", title: "Deco Analytics", default: true },
+              decoAnalyticsKey: { type: "string", title: "Deco Analytics key" },
+              decoAnalyticsFirstParty: {
+                type: "boolean",
+                title: "Deco Analytics first-party",
+                default: false,
+              },
             },
           },
         },

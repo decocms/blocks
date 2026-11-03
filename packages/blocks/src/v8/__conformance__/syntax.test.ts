@@ -702,7 +702,12 @@ describe("built-in blocks", () => {
       {
         preview,
         telemetry,
-        analytics: { collector: HOSTED_ANALYTICS_COLLECTOR, enabled: true, decoAnalytics: true },
+        analytics: {
+          collector: HOSTED_ANALYTICS_COLLECTOR,
+          enabled: true,
+          decoAnalyticsKey: "",
+          decoAnalyticsFirstParty: false,
+        },
       },
       null,
     ]);

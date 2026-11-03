@@ -7,11 +7,7 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnalyticsScript, track } from "./analytics";
-import {
-  analyticsSection as analytics,
-  DECO_ANALYTICS_SCRIPT,
-  HOSTED_ANALYTICS_COLLECTOR,
-} from "./builtins/data";
+import { analyticsSection as analytics, HOSTED_ANALYTICS_COLLECTOR } from "./builtins/data";
 
 const COLLECTOR = "https://stats.example.com/events";
 
@@ -56,7 +52,7 @@ afterEach(() => {
 
 /** Runs the script AnalyticsScript renders, as the browser would. */
 function runTracker(props = analytics({ collector: COLLECTOR })) {
-  const element = AnalyticsScript({ ...props, decoAnalytics: false }) as ReactElement<{
+  const element = AnalyticsScript(props) as ReactElement<{
     "data-url": string;
     dangerouslySetInnerHTML: { __html: string };
   }>;
@@ -81,30 +77,12 @@ describe("AnalyticsScript", () => {
     expect(beacons).toHaveLength(0);
   });
 
-  it("renders the tracker with the collector, the hosted one by default", () => {
-    expect(
-      renderToStaticMarkup(
-        AnalyticsScript({ collector: COLLECTOR, decoAnalytics: false }) as ReactElement,
-      ),
-    ).toMatch(
+  it("renders one script tag with the collector, the hosted one by default", () => {
+    expect(renderToStaticMarkup(AnalyticsScript({ collector: COLLECTOR }) as ReactElement)).toMatch(
       /^<script data-url="https:\/\/stats\.example\.com\/events">\(function\(\)\{.*<\/script>$/,
     );
-    const element = AnalyticsScript({ decoAnalytics: false }) as ReactElement<{
-      "data-url": string;
-    }>;
+    const element = AnalyticsScript({}) as ReactElement<{ "data-url": string }>;
     expect(element.props["data-url"]).toBe(HOSTED_ANALYTICS_COLLECTOR);
-  });
-
-  it("renders the Deco Analytics tag beside the tracker unless decoAnalytics is false", () => {
-    const html = renderToStaticMarkup(AnalyticsScript(analytics({})) as ReactElement);
-    expect(html).toContain(`<script data-url="${HOSTED_ANALYTICS_COLLECTOR}">`);
-    expect(html).toContain(`<script async="" src="${DECO_ANALYTICS_SCRIPT}"></script>`);
-    expect(renderToStaticMarkup(AnalyticsScript({}) as ReactElement)).toContain(
-      DECO_ANALYTICS_SCRIPT,
-    );
-    expect(
-      renderToStaticMarkup(AnalyticsScript(analytics({ decoAnalytics: false })) as ReactElement),
-    ).not.toContain(DECO_ANALYTICS_SCRIPT);
   });
 
   it("renders nothing when enabled is false", () => {
