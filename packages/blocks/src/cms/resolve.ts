@@ -5,7 +5,12 @@ import { detectDevice } from "../sdk/detectDevice";
 import { djb2Hex } from "../sdk/djb2";
 import { stickyDecide } from "../sdk/experiments";
 import { parseSegmentCookie, SEGMENT_COOKIE, type StoredFlag, trafficToPct } from "../sdk/flags";
-import { withInflightTimeout } from "../sdk/inflightTimeout";
+import {
+  joinSlot,
+  publishInflight,
+  releaseSlot,
+  withInflightTimeout,
+} from "../sdk/inflightTimeout";
 import { normalizeUrlsInObject } from "../sdk/normalizeUrls";
 import { stripTrackingParams } from "../sdk/urlUtils";
 import {
@@ -2535,18 +2540,22 @@ async function resolveDecoPageImpl(
             const cached = await getCachedResolvedLayout(cacheKey);
             if (cached) return cached;
 
-            const inflight = resolvedLayoutInflight.get(cacheKey);
-            if (inflight) return inflight;
-
-            const p = withInflightTimeout(
+            const resolveLayout = () =>
               resolveRawSection(section, rctx).then((results) => {
                 setCachedResolvedLayout(cacheKey, results);
                 return results;
-              }),
-              `resolvedLayout ${cacheKey}`,
-            ).finally(() => resolvedLayoutInflight.delete(cacheKey));
-            resolvedLayoutInflight.set(cacheKey, p);
-            return p;
+              });
+
+            // Joined on this request's own timer: a flight whose owner request
+            // was cancelled never settles, so evict it and resolve here instead.
+            const inflight = resolvedLayoutInflight.get(cacheKey);
+            if (inflight)
+              return joinSlot(resolvedLayoutInflight, cacheKey, inflight, resolveLayout);
+
+            const p = withInflightTimeout(resolveLayout(), `resolvedLayout ${cacheKey}`).finally(
+              () => releaseSlot(resolvedLayoutInflight, cacheKey, p),
+            );
+            return publishInflight(resolvedLayoutInflight, cacheKey, p);
           }
 
           return resolveRawSection(section, rctx);
@@ -2641,18 +2650,21 @@ export async function resolvePageSections(
           const cached = await getCachedResolvedLayout(cacheKey);
           if (cached) return cached;
 
-          const inflight = resolvedLayoutInflight.get(cacheKey);
-          if (inflight) return inflight;
-
-          const p = withInflightTimeout(
+          const resolveLayout = () =>
             resolveRawSection(section, rctx).then((results) => {
               setCachedResolvedLayout(cacheKey, results);
               return results;
-            }),
-            `resolvedLayout ${cacheKey}`,
-          ).finally(() => resolvedLayoutInflight.delete(cacheKey));
-          resolvedLayoutInflight.set(cacheKey, p);
-          return p;
+            });
+
+          // Joined on this request's own timer: a flight whose owner request
+          // was cancelled never settles, so evict it and resolve here instead.
+          const inflight = resolvedLayoutInflight.get(cacheKey);
+          if (inflight) return joinSlot(resolvedLayoutInflight, cacheKey, inflight, resolveLayout);
+
+          const p = withInflightTimeout(resolveLayout(), `resolvedLayout ${cacheKey}`).finally(() =>
+            releaseSlot(resolvedLayoutInflight, cacheKey, p),
+          );
+          return publishInflight(resolvedLayoutInflight, cacheKey, p);
         }
 
         return resolveRawSection(section, rctx);

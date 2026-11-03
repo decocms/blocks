@@ -58,6 +58,7 @@
 		"./sdk/env": "./src/sdk/env.ts",
 		"./sdk/fetchCache": "./src/sdk/fetchCache.ts",
 		"./sdk/fetchTimeout": "./src/sdk/fetchTimeout.ts",
+		"./sdk/inflightTimeout": "./src/sdk/inflightTimeout.ts",
 		"./sdk/experiments": "./src/sdk/experiments.ts",
 		"./sdk/flags": "./src/sdk/flags.ts",
 		"./sdk/http": "./src/sdk/http.ts",
