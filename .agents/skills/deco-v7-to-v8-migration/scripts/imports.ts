@@ -53,6 +53,8 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "CMS",
     "CMSError",
     "CMSSettings",
+    "ContentUnavailableError",
+    "ContentUnavailableReason",
     "createCMS",
     "currentClient",
     "DraftPointer",

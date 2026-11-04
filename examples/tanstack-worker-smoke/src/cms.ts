@@ -3,12 +3,11 @@ import { contentClient } from "@decocms/tanstack/server";
 import blocks from "../.deco";
 import content from "../.deco/blocks.gen";
 
-// Serves the content module: the content of the commit this build was made from. A hosted site
-// previews where Studio's release metadata says; this bundled content lists its local host here.
+// Serves the content module (no site: a hosted site reads its content from the delivery CDN at
+// runtime and previews where Studio's release metadata says); it lists its local host here.
 export const cms = createCMS({
   blocks,
   content,
-  dev: import.meta.env.DEV,
   preview: { hosts: ["127.0.0.1"] },
 });
 
