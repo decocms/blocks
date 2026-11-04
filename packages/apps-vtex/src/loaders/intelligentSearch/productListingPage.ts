@@ -155,6 +155,7 @@ interface ISProductSearchResult {
 	correction?: { misspelled?: boolean };
 	operator?: string;
 	redirect?: string;
+	searchId?: string;
 }
 
 interface ISFacetValueBoolean {
@@ -523,6 +524,7 @@ export default async function vtexProductListingPage(
 
 		return {
 			"@type": "ProductListingPage",
+			searchId: productsResult.searchId,
 			breadcrumb: {
 				"@type": "BreadcrumbList",
 				itemListElement: breadcrumbItems,

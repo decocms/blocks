@@ -841,6 +841,8 @@ export interface ProductListingPage {
 	pageInfo: PageInfo;
 	sortOptions: SortOption[];
 	seo?: Seo | null;
+	/** Identifies the search for analytics, when the platform returns one (VTEX Activity Flow). */
+	searchId?: string;
 }
 export interface Seo {
 	title: string;

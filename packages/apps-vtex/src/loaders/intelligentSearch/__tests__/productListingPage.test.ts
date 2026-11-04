@@ -170,6 +170,44 @@ describe("vtexProductListingPage — invalid ?page=", () => {
 	});
 });
 
+describe("vtexProductListingPage — searchId", () => {
+	const mockProductSearch = (body: Record<string, unknown>) => {
+		setVtexFetch(((url: string) => {
+			const isProductSearch = new URL(url).pathname.includes("/product_search/");
+			return Promise.resolve({
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				json: () => Promise.resolve(isProductSearch ? body : { facets: [] }),
+			} as Response);
+		}) as typeof fetch);
+	};
+
+	const productSearch = { products: [], recordsFiltered: 0, pagination: { perPage: 12 } };
+
+	beforeEach(() => {
+		clearFetchCache();
+		configureVtex({ account: "testaccount" });
+	});
+
+	afterEach(() => {
+		setVtexFetch(globalThis.fetch);
+	});
+
+	it("returns the searchId of the product_search response", async () => {
+		mockProductSearch({ ...productSearch, searchId: "search-1" });
+		const result = await vtexProductListingPage({ query: "camisa" });
+		expect(result?.searchId).toBe("search-1");
+	});
+
+	it("leaves it undefined when the response has none", async () => {
+		mockProductSearch(productSearch);
+		const result = await vtexProductListingPage({ query: "camisa" });
+		expect(result).not.toBeNull();
+		expect(result?.searchId).toBeUndefined();
+	});
+});
+
 // The switch is site content, not code: it rides on the VTEX app block like the
 // other `advancedConfigs`, and both paths that build the config from the block
 // carry it — so the per-resolve rebuild keeps it instead of wiping it.
