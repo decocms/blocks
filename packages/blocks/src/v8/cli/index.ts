@@ -4,7 +4,7 @@
  * does either, so neither the CLI nor the TypeScript compiler it loads ever
  * reaches an app bundle.
  *
- * The four commands and their options, plus what the one-time migration
+ * The commands and their options, plus what the one-time migration
  * (the `deco-v7-to-v8-migration` skill) reads: the built-in block names, the alias
  * table, the saved-blocks reader and the host-pattern parser.
  */
@@ -15,4 +15,3 @@ export { type ContentOptions, content, readSavedBlocks, type SavedBlocks } from 
 export { type Reporter, silentReporter } from "./log.ts";
 export { runCli } from "./run.ts";
 export { type SchemaOptions, schema } from "./schema/index.ts";
-export { type ServeOptions, serve } from "./serve/server.ts";

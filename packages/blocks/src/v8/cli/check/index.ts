@@ -1031,7 +1031,7 @@ export interface CheckOptions {
   reporter?: Reporter;
 }
 
-function readSchemaFile(file: string): DecoMeta {
+export function readSchemaFile(file: string): DecoMeta {
   let text: string;
   try {
     text = fs.readFileSync(file, "utf8");
@@ -1073,7 +1073,19 @@ export function check(options: CheckOptions = {}): number {
   const reporter = options.reporter ?? consoleReporter;
   const paths = decoPaths(findDecoRoot(options));
   const meta = readSchemaFile(paths.schema);
-  const saved = readSavedBlocks(paths.blocks);
+  return reportCheck(meta, readSavedBlocks(paths.blocks), reporter).exitCode;
+}
+
+export interface CheckReport {
+  exitCode: number;
+  count: number;
+  errors: number;
+  warnings: number;
+  problems: Problem[];
+}
+
+/** Check saved blocks against the local schema and print the problems and a summary. */
+export function reportCheck(meta: DecoMeta, saved: SavedBlocks, reporter: Reporter): CheckReport {
   const problems = checkContent(meta, saved);
   const errors = problems.filter((p) => p.severity === "error").length;
   const warnings = problems.length - errors;
@@ -1086,7 +1098,7 @@ export function check(options: CheckOptions = {}): number {
   const summary = checkSummary(count, errors, warnings, reporter.color);
   if (errors > 0) reporter.error(summary);
   else reporter.info(summary);
-  return errors > 0 ? 1 : 0;
+  return { exitCode: errors > 0 ? 1 : 0, count, errors, warnings, problems };
 }
 
 /**

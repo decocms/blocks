@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { gitInit } from "../../protocol/__tests__/git";
 import { createFixture, type Fixture, recorder, STORE_FILES } from "./__tests__/fixture";
 import { parseFlags, runCli, USAGE } from "./run";
 
@@ -21,19 +20,25 @@ describe("flags", () => {
       root: "apps/a",
       watch: true,
     });
-    expect(parseFlags("serve", ["--port=5000", "--host", "0.0.0.0", "--read-only"])).toEqual({
-      port: "5000",
-      host: "0.0.0.0",
-      "read-only": true,
+    expect(parseFlags("push", ["--draft=pdp", "--ours", "--json"])).toEqual({
+      draft: "pdp",
+      ours: true,
+      json: true,
     });
+    expect(parseFlags("publish", ["--draft", "a/b", "--message=Black Friday"])).toEqual({
+      draft: "a/b",
+      message: "Black Friday",
+    });
+    expect(parseFlags("drafts", ["new", "pdp"])).toEqual({ _: ["new", "pdp"] });
+    expect(parseFlags("schema", ["push"])).toEqual({ _: ["push"] });
   });
 
   it("takes --color and --no-color on every command, the last one winning", () => {
     expect(parseFlags("check", ["--color"])).toEqual({ color: true });
     expect(parseFlags("schema", ["--no-color", "--watch"])).toEqual({ color: false, watch: true });
     expect(parseFlags("schema", ["--check"])).toEqual({ check: true });
-    expect(parseFlags("serve", ["--no-color", "--color"])).toEqual({ color: true });
-    expect(parseFlags("content", [])).toEqual({});
+    expect(parseFlags("pull", ["--no-color", "--color"])).toEqual({ color: true });
+    expect(parseFlags("releases", [])).toEqual({});
   });
 
   it.each([
@@ -41,8 +46,10 @@ describe("flags", () => {
     [["--no-color=1"], "schema", /--no-color takes no value/],
     [["--watch"], "check", /unknown flag --watch/],
     [["--root"], "check", /--root needs a value/],
-    [["extra"], "content", /unexpected argument "extra"/],
-    [["--watch=yes"], "content", /--watch takes no value/],
+    [["extra"], "check", /unexpected argument "extra"/],
+    [["--watch=yes"], "schema", /--watch takes no value/],
+    [["new", "pdp", "more"], "drafts", /unexpected argument "more"/],
+    [["--force=yes"], "pull", /--force takes no value/],
   ])("rejects %j for %s", (args, command, message) => {
     expect(() => parseFlags(command, args)).toThrow(message);
   });
@@ -53,16 +60,19 @@ describe("runCli", () => {
     const out = recorder();
     expect(await runCli(["--help"], { reporter: out })).toBe(0);
     expect(out.text()).toBe(USAGE);
-    expect(await runCli([], { reporter: recorder() })).toBe(1);
+    expect(await runCli([], { reporter: recorder() })).toBe(64);
   });
 
-  it("rejects an unknown command and bad flags with exit 1", async () => {
+  it("rejects an unknown command and bad flags as usage errors (exit 64)", async () => {
     const out = recorder();
-    expect(await runCli(["deploy"], { reporter: out })).toBe(1);
+    expect(await runCli(["deploy"], { reporter: out })).toBe(64);
     expect(out.text()).toContain('unknown command "deploy"');
-    expect(await runCli(["check", "--nope"], { reporter: recorder() })).toBe(1);
+    expect(await runCli(["check", "--nope"], { reporter: recorder() })).toBe(64);
+    // deco content and deco serve are gone.
+    expect(await runCli(["content"], { reporter: recorder() })).toBe(64);
+    expect(await runCli(["serve"], { reporter: recorder() })).toBe(64);
     const proto = recorder();
-    expect(await runCli(["constructor"], { reporter: proto })).toBe(1);
+    expect(await runCli(["constructor"], { reporter: proto })).toBe(64);
     expect(proto.text()).toContain('unknown command "constructor"');
     expect(() => parseFlags("check", ["--toString", "x"])).toThrow(/unknown flag --toString/);
   });
@@ -71,13 +81,13 @@ describe("runCli", () => {
     fixture = createFixture();
     fs.rmSync(path.join(fixture.root, ".deco"), { recursive: true });
     const out = recorder();
-    expect(await runCli(["content"], { cwd: fixture.root, reporter: out })).toBe(1);
+    expect(await runCli(["check"], { cwd: fixture.root, reporter: out })).toBe(1);
     expect(out.text()).toBe(
       `no .deco/ found from ${fixture.root}; run inside your app or pass --root`,
     );
   });
 
-  it("runs schema, content and check against --root from a monorepo root", async () => {
+  it("runs schema and check against --root from a monorepo root", async () => {
     fixture = createFixture();
     for (const [file, content] of Object.entries(STORE_FILES))
       fixture.write(`apps/store/${file}`, content);
@@ -87,29 +97,10 @@ describe("runCli", () => {
     const out = recorder();
     const args = ["--root", "apps/store"];
     expect(await runCli(["schema", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
-    expect(await runCli(["content", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
     expect(await runCli(["check", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
     expect(fixture.exists("apps/store/.deco/schema.gen.json")).toBe(true);
-    expect(fixture.exists("apps/store/.deco/blocks.gen.ts")).toBe(true);
     expect(out.lines.at(-1)?.message).toBe("2 saved blocks checked: 0 errors, 0 warnings");
   }, 60_000);
-
-  it("deco content --watch regenerates when a file is added", async () => {
-    fixture = createFixture({ ".deco/blocks/A.json": hero });
-    let stop!: () => void;
-    const until = new Promise<void>((resolve) => {
-      stop = resolve;
-    });
-    const out = recorder();
-    const done = runCli(["content", "--watch"], { cwd: fixture.root, reporter: out, until });
-    await waitFor(() => out.text().includes("watching for changes"));
-    await settle();
-    expect(fixture.read(".deco/blocks.gen.ts")).toContain('"A"');
-    fixture.write(".deco/blocks/B.json", hero);
-    await waitFor(() => fixture.read(".deco/blocks.gen.ts").includes('"B"'));
-    stop();
-    expect(await done).toBe(0);
-  }, 20_000);
 
   it("deco schema --watch regenerates when a source file changes", async () => {
     fixture = createFixture({
@@ -167,37 +158,19 @@ describe("runCli", () => {
     stop();
     expect(await done).toBe(0);
   }, 60_000);
-
-  it("deco serve runs until stopped", async () => {
-    fixture = createFixture();
-    gitInit(fixture.root);
-    let stop!: () => void;
-    const until = new Promise<void>((resolve) => {
-      stop = resolve;
-    });
-    const out = recorder();
-    const done = runCli(["serve", "--port", "0"], {
-      cwd: fixture.root,
-      reporter: out,
-      until,
-    });
-    await waitFor(() => out.text().includes("Site editor"));
-    stop();
-    expect(await done).toBe(0);
-  }, 20_000);
 });
 
 describe("the bin", () => {
   it("runs under plain Node, from the compiled dist/", () => {
     fixture = createFixture();
-    fixture.write(".deco/blocks/A.json", hero);
-    const result = spawnSync(process.execPath, [path.join(packageRoot, "bin/deco.js"), "content"], {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, "bin/deco.js"), "login"], {
       cwd: fixture.root,
       encoding: "utf8",
+      env: { ...process.env, DECO_STUDIO_URL: "https://studio.example" },
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/wrote \.deco\/blocks\.gen\.ts \(1 blocks/);
+    expect(result.stdout).toContain("npx decocms auth login --target=https://studio.example");
   }, 30_000);
 
   it("exits 1 when a command fails", () => {
@@ -320,7 +293,7 @@ describe("deco schema --check", () => {
   it("can't be combined with --watch", async () => {
     fixture = createFixture(files("{ title: string }"));
     const { code, out } = await check(["--watch"]);
-    expect(code).toBe(1);
+    expect(code).toBe(64);
     expect(out.text()).toContain("--watch and --check can't be combined");
   });
 
@@ -337,6 +310,34 @@ describe("deco schema --check", () => {
     expect(fresh.stderr).toBe("");
     expect(fresh.status).toBe(0);
   }, 60_000);
+});
+
+describe("--json", () => {
+  it("deco check --json prints one object on stdout: the problems and the outcome", async () => {
+    fixture = createFixture();
+    const lines: string[] = [];
+    const run = (argv: string[]) =>
+      runCli(argv, { cwd: fixture.root, reporter: recorder(), stdout: (t) => lines.push(t) });
+    expect(await run(["check", "--json"])).toBe(1);
+    expect(JSON.parse(lines.pop()!)).toMatchObject({
+      ok: false,
+      exitCode: 1,
+      error: { message: expect.stringContaining("run deco schema first") },
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it("the bin's --json writes only JSON to stdout, the rest to stderr", () => {
+    fixture = createFixture();
+    const result = spawnSync(
+      process.execPath,
+      [path.join(packageRoot, "bin/deco.js"), "push", "--json"],
+      { cwd: fixture.root, encoding: "utf8" },
+    );
+    expect(result.status).toBe(64);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, exitCode: 64 });
+    expect(result.stderr).toContain("--draft=<name>");
+  }, 30_000);
 });
 
 describe("nothing in app bundles", () => {

@@ -1,9 +1,46 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/** Exit codes (spec: cli › Exit codes). */
+export const EXIT = {
+  ok: 0,
+  /** `deco check` found problems, or any other failure not below. */
+  failed: 1,
+  conflict: 2,
+  auth: 3,
+  network: 4,
+  /** A save answered Unavailable, or a publish ran out of attempts: run again. */
+  busy: 5,
+  usage: 64,
+} as const;
+
+export interface CliErrorOptions {
+  /** The exit code (default 1). */
+  exitCode?: number;
+  /** A snake_case code for `--json` (default `failed`). */
+  code?: string;
+  /** Extra fields for the `--json` envelope. */
+  details?: Record<string, unknown>;
+}
+
 /** An error the CLI prints as a single line, without a stack trace. */
 export class CliError extends Error {
   override name = "CliError";
+  readonly exitCode: number;
+  readonly code: string;
+  readonly details: Record<string, unknown> | undefined;
+
+  constructor(message: string, options: CliErrorOptions = {}) {
+    super(message);
+    this.exitCode = options.exitCode ?? EXIT.failed;
+    this.code = options.code ?? (this.exitCode === EXIT.usage ? "usage" : "failed");
+    this.details = options.details;
+  }
+}
+
+/** A usage error (exit 64). */
+export function usageError(message: string): CliError {
+  return new CliError(message, { exitCode: EXIT.usage, code: "usage" });
 }
 
 function isDirectory(p: string): boolean {
@@ -48,7 +85,12 @@ export function decoPaths(root: string) {
     blocks: path.join(deco, "blocks"),
     schema: path.join(deco, "schema.gen.json"),
     legacySchema: path.join(deco, "meta.gen.json"),
+    /** The content module, `.deco/blocks.gen.ts`, for content without a site. */
     content: path.join(deco, "blocks.gen.ts"),
+    /** `{org, site}`, committed: the site the remote commands talk to. */
+    link: path.join(deco, "link.json"),
+    /** What `deco pull` wrote, git-ignored: the base of `deco diff` and `deco push`. */
+    pull: path.join(deco, "pull.json"),
     blockMapCandidates: [path.join(deco, "index.ts"), path.join(deco, "index.tsx")],
   };
 }

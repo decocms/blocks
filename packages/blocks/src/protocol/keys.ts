@@ -1,7 +1,7 @@
 /**
  * The one file-name rule for saved blocks (`@decocms/blocks/protocol/keys`).
  *
- * The site editor, `deco serve` and `deco content` all import this module, so
+ * The site editor, the deco CLI and the content module all import this module, so
  * an entry the site editor edits is the entry the app renders:
  *
  * - **Name to file:** `encodeURIComponent(name) + ".json"`, directly in

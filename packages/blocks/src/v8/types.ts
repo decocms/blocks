@@ -38,7 +38,7 @@ export type Snapshot = {
 };
 
 /**
- * The content module `deco content` writes: a snapshot plus `root`, the
+ * The content module `content()` (from `@decocms/blocks/cli`) writes: a snapshot plus `root`, the
  * `.deco` folder it was generated from, which `createCMS` keys its instance
  * on (see /next/api-reference#one-instance-per-process). Not exported.
  */
