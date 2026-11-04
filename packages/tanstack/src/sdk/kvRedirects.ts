@@ -91,11 +91,20 @@ export function clearRedirectCache(): void {
  * cannot run (fast-deploy off, no deployment id, KV error). A KV failure must
  * not 5xx a page that would otherwise render: the worst outcome is the request
  * proceeds and the URL serves its normal response.
+ *
+ * Only navigations (GET/HEAD) read KV. A content redirect is a navigation
+ * concept, and the rest of the traffic — the commerce proxy's cart/checkout
+ * POSTs above all — has a fresh path per request (`/orderForm/<id>/…`), so the
+ * isolate memo never hits and every one paid a serial KV miss (p75 ~160ms on
+ * a production storefront) before reaching its handler. In-memory rules
+ * (exact and glob) still apply to every method; only the KV read is gated.
  */
 export async function lookupExactRedirect(
   env: Record<string, unknown>,
   pathname: string,
+  method = "GET",
 ): Promise<Redirect | null> {
+  if (method !== "GET" && method !== "HEAD") return null;
   const kv = getFastDeployKV(env);
   if (!kv) return null;
 

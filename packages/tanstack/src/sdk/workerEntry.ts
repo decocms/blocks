@@ -2494,7 +2494,7 @@ export function createDecoWorkerEntry(
     // stays one read, keyed by pathname.
     const cmsRedirect =
       matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
-      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname)) ??
+      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname, request.method)) ??
       matchPatternRedirect(url.pathname, _redirectMap!);
     if (cmsRedirect) {
       return new Response(null, {
