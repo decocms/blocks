@@ -90,6 +90,11 @@ describe("deco login, init and link", () => {
     const r = await deco(["pull"]);
     expect(r.code).toBe(64);
     expect(r.text).toContain("deco link <org>/<site>");
+    fs.rmSync(path.join(fixture.root, ".deco"), { recursive: true });
+    const none = await deco(["drafts", "list"]);
+    expect(none.code).toBe(64);
+    expect(none.text).toContain("deco link <org>/<site>");
+    expect(studio.requests).toHaveLength(0);
   });
 });
 

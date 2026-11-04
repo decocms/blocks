@@ -259,6 +259,22 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
   return outcome.exitCode;
 }
 
+/**
+ * The root of a remote command. With no `.deco/` at all there is no
+ * `.deco/link.json` either, which contract §7.4 makes a usage error (64), as
+ * when `.deco/` exists without it; local commands keep exit 1.
+ */
+function remoteRoot(options: { root?: string; cwd?: string }): string {
+  try {
+    return findDecoRoot(options);
+  } catch (error) {
+    if (error instanceof CliError && error.exitCode !== EXIT.usage) {
+      throw usageError(`${error.message}; then deco link <org>/<site>`);
+    }
+    throw error;
+  }
+}
+
 async function runCommand(
   command: string,
   flags: ParsedFlags,
@@ -269,7 +285,7 @@ async function runCommand(
   const root = flags.root as string | undefined;
   const base = { root, cwd: options.cwd, reporter };
   const remote = (): RemoteContext => ({
-    paths: decoPaths(findDecoRoot(base)),
+    paths: decoPaths(remoteRoot(base)),
     reporter,
     env: options.env,
     fetch: options.fetch ?? fetch,
