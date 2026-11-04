@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFixture } from "../cli/__tests__/fixture";
+import { content as writeContentModule } from "../cli/content";
+import { silentReporter } from "../cli/log";
 import { decoPaths } from "../cli/root";
 import { generateSchema } from "../cli/schema/generate";
 import { toBase64 } from "../cli/schema/typeToSchema";
@@ -615,17 +617,13 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
     expect(sent.some((s) => s.url.endsWith("/v1/logs"))).toBe(true);
   });
 
-  it("tel-20: deco content doesn't create .deco/blocks/CMS.json", () => {
+  it("tel-20: writing the content module doesn't create .deco/blocks/CMS.json", async () => {
     const fixture = createFixture({
       ".deco/index.ts": "export default {};\n",
       ".deco/blocks/Home.json": { __resolveType: "page", name: "Home", path: "/", sections: [] },
     });
     try {
-      execFileSync(process.execPath, [path.join(PACKAGE, "bin/deco.js"), "content"], {
-        cwd: fixture.root,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
+      expect(await writeContentModule({ cwd: fixture.root, reporter: silentReporter })).toBe(0);
       expect(fixture.exists(".deco/blocks.gen.ts")).toBe(true);
       expect(fixture.exists(".deco/blocks/CMS.json")).toBe(false);
     } finally {

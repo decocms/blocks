@@ -1,21 +1,20 @@
 // @vitest-environment node
 /**
- * Docs conformance, CLI side: the `.deco` folder, `deco schema`, `deco
- * content`, `deco check` and `deco serve` as blocks, saved-blocks,
- * built-in-blocks, lazy-blocks and matchers-and-variants describe them.
+ * Docs conformance, CLI side: the `.deco` folder, `deco schema`, the content
+ * module (`content()` from `@decocms/blocks/cli`, for content without a site)
+ * and `deco check` as blocks, saved-blocks, built-in-blocks, lazy-blocks and
+ * matchers-and-variants describe them.
  * Fixture apps import from `@decocms/blocks` exactly as the docs' examples do.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { gitInit } from "../../protocol/__tests__/git";
 import { createFixture, type Fixture, recorder } from "../cli/__tests__/fixture";
+import { content } from "../cli/content";
 import { runCli } from "../cli/run";
 import { toBase64 } from "../cli/schema/typeToSchema";
-import { startServer } from "../cli/serve/server";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE = path.resolve(here, "../../..");
@@ -147,10 +146,9 @@ beforeAll(async () => {
 afterAll(() => app?.remove());
 
 describe("the .deco folder", () => {
-  it("saved-01: deco schema writes schema.gen.json, deco content writes blocks.gen.ts; the examples gitignore blocks.gen.ts", async () => {
+  it("saved-01: deco schema writes schema.gen.json, content() writes blocks.gen.ts; the examples gitignore blocks.gen.ts", async () => {
     expect(app.exists(".deco/schema.gen.json")).toBe(true);
-    const { code, out } = await deco(["content"], app.root);
-    expect(code, out).toBe(0);
+    expect(await content({ cwd: app.root, reporter: recorder() })).toBe(0);
     expect(app.exists(".deco/blocks.gen.ts")).toBe(true);
     const repo = path.resolve(PACKAGE, "../..");
     for (const example of ["tanstack-smoke", "nextjs-smoke"]) {
@@ -173,16 +171,18 @@ describe("the .deco folder", () => {
     const nested = path.join(app.root, "src", "deep", "er");
     fs.mkdirSync(nested, { recursive: true });
     fs.rmSync(path.join(app.root, ".deco/blocks.gen.ts"), { force: true });
-    expect((await deco(["content"], nested)).code).toBe(0);
+    expect(await content({ cwd: nested, reporter: recorder() })).toBe(0);
     expect(app.exists(".deco/blocks.gen.ts")).toBe(true);
     fs.rmSync(path.join(app.root, ".deco/blocks.gen.ts"));
-    expect((await deco(["content", "--root", app.root], path.parse(app.root).root)).code).toBe(0);
+    expect(
+      await content({ root: app.root, cwd: path.parse(app.root).root, reporter: recorder() }),
+    ).toBe(0);
     expect(app.exists(".deco/blocks.gen.ts")).toBe(true);
     expect((await deco(["check"], nested)).code).toBe(0);
   });
 
-  it("saved-03/saved-11: deco content bundles every file in .deco/blocks, named by its file name", async () => {
-    await deco(["content"], app.root);
+  it("saved-03/saved-11: the content module bundles every file in .deco/blocks, named by its file name", async () => {
+    await content({ cwd: app.root, reporter: recorder() });
     const mod = await import(
       `${pathToFileURL(path.join(app.root, ".deco/blocks.gen.ts")).href}?t=${Date.now()}`
     );
@@ -378,46 +378,5 @@ describe("deco check", () => {
     expect(lines.some((l) => l.level === "warn" && l.message.includes("can never be picked"))).toBe(
       true,
     );
-  });
-});
-
-describe("deco serve", () => {
-  it("builtin-14: never serves a key to the site editor, even an old committed .deco/secrets.pub", async () => {
-    const publicKeyPem = "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n";
-    const site = createFixture({ ".deco/secrets.pub": publicKeyPem });
-    site.write(".deco/schema.gen.json", meta);
-    gitInit(site.root);
-    const server = await startServer({
-      cwd: site.root,
-      port: 0,
-      reporter: recorder(),
-    });
-    try {
-      const body: any = await new Promise((resolve, reject) => {
-        const req = http.request(
-          {
-            host: "127.0.0.1",
-            port: server.port,
-            method: "POST",
-            path: "/rpc",
-            headers: {
-              host: `127.0.0.1:${server.port}`,
-              "content-type": "application/json",
-            },
-          },
-          (res) => {
-            const chunks: Buffer[] = [];
-            res.on("data", (c) => chunks.push(c));
-            res.on("end", () => resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))));
-          },
-        );
-        req.on("error", reject);
-        req.end(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }));
-      });
-      expect(body.result.secrets).toBeNull();
-    } finally {
-      await server.close();
-      site.remove();
-    }
   });
 });

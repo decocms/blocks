@@ -1,26 +1,23 @@
 // @vitest-environment node
 /**
  * Docs conformance, CLI side: releases-and-deployment (prebuild, revisions),
- * draft-synchronization (deco serve, ifMatch, polling, deco check),
- * hosted-releases-internals (the content module's identity) and
- * hosted-site-editor (deco serve's root, uploads and polling). Runs the real
- * commands on temp fixture projects.
+ * draft-synchronization (the fs storage, deco check), hosted-releases-internals
+ * (the content module's identity) and hosted-site-editor (image fields). Runs
+ * the real commands on temp fixture projects. `deco content` and `deco serve`
+ * are gone: hosted content arrives at runtime, and the remote commands are
+ * covered in ../cli/__tests__/remote.test.ts.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { gitInit } from "../../protocol/__tests__/git";
-import { createContentClient } from "../../protocol/client";
-import { ContentProtocolError, ErrorCode } from "../../protocol/errors";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createFixture, type Fixture, recorder, STORE_FILES } from "../cli/__tests__/fixture";
 import { checkContent } from "../cli/check/index";
 import { type readSavedBlocks, writeContent } from "../cli/content";
 import { decoPaths } from "../cli/root";
-import { parseFlags, runCli } from "../cli/run";
+import { runCli } from "../cli/run";
 import { type DecoMeta, generateSchema } from "../cli/schema/generate";
-import { startServer } from "../cli/serve/server";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.resolve(HERE, "../../../bin/deco.js");
@@ -47,11 +44,9 @@ afterEach(() => {
 const run = (args: string[], cwd: string) => runCli(args, { cwd, reporter: recorder() });
 
 describe("releases-and-deployment", () => {
-  it("RD-1: prebuild (deco schema && deco content && deco check) writes the content module; unfit content fails the build", async () => {
+  it("RD-1: deco schema && deco check pass on fitting content; unfit content fails the build", async () => {
     fixture = createFixture({ ...STORE_FILES, ".deco/blocks/Home.json": home });
     expect(await run(["schema"], fixture.root)).toBe(0);
-    expect(await run(["content"], fixture.root)).toBe(0);
-    expect(fixture.exists(".deco/blocks.gen.ts")).toBe(true);
     expect(await run(["check"], fixture.root)).toBe(0);
     fixture.write(".deco/blocks/Home.json", {
       ...home,
@@ -60,15 +55,20 @@ describe("releases-and-deployment", () => {
     expect(await run(["check"], fixture.root)).not.toBe(0);
   }, 60_000);
 
-  it("RD-1: the real deco bin runs `deco content` and `deco check` with exit codes", () => {
+  it("RD-1: the real deco bin runs `deco check` with exit codes; `deco content` is gone", () => {
     fixture = createFixture({ ".deco/blocks/Home.json": home });
     fixture.write(".deco/schema.gen.json", meta);
     const content = spawnSync(process.execPath, [BIN, "content"], {
       cwd: fixture.root,
       encoding: "utf8",
     });
-    expect(content.status, content.stderr).toBe(0);
-    expect(fixture.read(".deco/blocks.gen.ts")).toContain('"Home"');
+    expect(content.status).toBe(64);
+    expect(content.stderr).toContain('unknown command "content"');
+    const fits = spawnSync(process.execPath, [BIN, "check"], {
+      cwd: fixture.root,
+      encoding: "utf8",
+    });
+    expect(fits.status, fits.stderr).toBe(0);
     fixture.write(".deco/blocks/Bad.json", { __resolveType: "no-such-type" });
     const check = spawnSync(process.execPath, [BIN, "check"], {
       cwd: fixture.root,
@@ -77,7 +77,7 @@ describe("releases-and-deployment", () => {
     expect(check.status).not.toBe(0);
   }, 60_000);
 
-  it("RD-3: deco content's revision hashes the whole map: same content, same revision; any edit, a new one", async () => {
+  it("RD-3: the content module's revision hashes the whole map: same content, same revision; any edit, a new one", async () => {
     const a = createFixture();
     const b = createFixture();
     try {
@@ -113,9 +113,8 @@ describe("hosted-releases-internals", () => {
 });
 
 describe("draft-synchronization", () => {
-  it("DS-2: deco serve edits the working tree only: no GitHub calls, no commits; git writes only a discard's unstage", () => {
+  it("DS-2: the fs storage edits the working tree only: no GitHub calls, no commits; git writes only a discard's unstage", () => {
     const sources = [
-      "../cli/serve/server.ts",
       ...fs
         .readdirSync(path.join(HERE, "../../protocol/storage/fs"))
         .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
@@ -157,57 +156,6 @@ describe("draft-synchronization", () => {
     expect(unstageSeen).toBe(true);
   });
 
-  describe("against a running deco serve", () => {
-    let site: Fixture;
-    let server: Awaited<ReturnType<typeof startServer>>;
-    beforeAll(async () => {
-      site = createFixture({ ".deco/blocks/Hero.json": hero });
-      site.write(".deco/schema.gen.json", meta);
-      fs.mkdirSync(path.join(site.root, "apps"), { recursive: true });
-      gitInit(site.root);
-      server = await startServer({
-        cwd: site.root,
-        port: 0,
-        reporter: recorder(),
-      });
-    });
-    afterAll(async () => {
-      await server?.close();
-      site?.remove();
-    });
-    const client = () => createContentClient({ endpoint: server.endpoint });
-
-    it("DS-5: a save with a stale ifMatch is a Conflict; without ifMatch the last writer wins", async () => {
-      const listed = await client().blocksList();
-      if (listed.notModified) throw new Error("unexpected notModified");
-      const stale = listed.versions.Hero!;
-      await client().blocksApply({ set: { Hero: { ...hero, title: "Other editor" } } });
-      const error = await client()
-        .blocksApply({ set: { Hero: { ...hero, title: "Mine" } }, ifMatch: { Hero: stale } })
-        .catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(ContentProtocolError);
-      expect((error as ContentProtocolError).code).toBe(ErrorCode.Conflict);
-      await client().blocksApply({ set: { Hero: { ...hero, title: "Last writer" } } });
-      expect(JSON.parse(site.read(".deco/blocks/Hero.json")).title).toBe("Last writer");
-    });
-
-    it("DS-6/HSE-2: the protocol is polling-based: plain reads see changes; local poll ~2 s", async () => {
-      const description = await client().describe();
-      expect(description.pollIntervalMs).toBe(2000);
-      const before = await client().blocksList();
-      site.write(".deco/blocks/Hero.json", { ...hero, title: "Edited on disk" });
-      const after = await client().blocksList();
-      if (after.notModified || before.notModified) throw new Error("unexpected notModified");
-      expect(after.revision).not.toBe(before.revision);
-      expect(after.blocks.Hero?.title).toBe("Edited on disk");
-    });
-
-    it("HSE-1: uploads default to public/assets", async () => {
-      const description = await client().describe();
-      expect(description.assets?.dir).toBe("public/assets");
-    });
-  });
-
   it("DS-7: deco check reports route conflicts and broken references", async () => {
     fixture = createFixture({
       ".deco/blocks/A.json": home,
@@ -224,36 +172,6 @@ describe("draft-synchronization", () => {
 });
 
 describe("hosted-site-editor", () => {
-  it("HSE-1: deco serve finds .deco from a subfolder, or takes --root; --assets moves uploads", async () => {
-    expect(parseFlags("serve", ["--root", "apps/web", "--assets", "static/uploads"])).toEqual({
-      root: "apps/web",
-      assets: "static/uploads",
-    });
-    fixture = createFixture({ ".deco/blocks/Hero.json": hero });
-    fixture.write(".deco/schema.gen.json", meta);
-    fs.mkdirSync(path.join(fixture.root, "src", "deep"), { recursive: true });
-    gitInit(fixture.root);
-    for (const options of [
-      { cwd: path.join(fixture.root, "src", "deep") },
-      { cwd: "/", root: fixture.root, assets: "static/uploads" },
-    ]) {
-      const server = await startServer({
-        port: 0,
-        reporter: recorder(),
-        ...options,
-      });
-      try {
-        const c = createContentClient({ endpoint: server.endpoint });
-        const listed = await c.blocksList();
-        expect(listed.notModified ? null : Object.keys(listed.blocks)).toEqual(["Hero"]);
-        const d = await c.describe();
-        expect(d.assets?.dir).toBe("assets" in options ? "static/uploads" : "public/assets");
-      } finally {
-        await server.close();
-      }
-    }
-  });
-
   it("HSE-4: an image field holds either a CDN URL or a repository-relative upload path", () => {
     for (const image of [
       "https://assets.decocms.com/acme/summer-banner.jpg",
