@@ -563,6 +563,7 @@ export interface ProductSearchResult {
   correction?: Correction;
   /**
    * @description Identifies this search for VTEX Activity Flow (`data-af-search-id`).
+   * A cached response shares its id between visitors.
    */
   searchId?: string;
 }
