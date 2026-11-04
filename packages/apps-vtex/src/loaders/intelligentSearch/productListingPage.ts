@@ -524,11 +524,6 @@ export default async function vtexProductListingPage(
 
 		return {
 			"@type": "ProductListingPage",
-			// A redirected search shows no results, and Activity Flow must not track it.
-			additionalProperty:
-				productsResult.searchId && !productsResult.redirect
-					? [{ "@type": "PropertyValue", name: "searchId", value: productsResult.searchId }]
-					: undefined,
 			breadcrumb: {
 				"@type": "BreadcrumbList",
 				itemListElement: breadcrumbItems,
@@ -542,6 +537,8 @@ export default async function vtexProductListingPage(
 				currentPage: page + currentPageoffset,
 				records: recordsFiltered,
 				recordPerPage: pagination.perPage,
+				// A redirected search shows no results, and Activity Flow must not track it.
+				searchId: productsResult.redirect ? undefined : productsResult.searchId || undefined,
 			},
 			sortOptions: [
 				{ value: "", label: "relevance:desc" },

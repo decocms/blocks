@@ -832,6 +832,8 @@ export interface PageInfo {
 	records?: number | undefined;
 	recordPerPage?: number | undefined;
 	pageTypes?: PageType[];
+	/** Identifies the search for analytics, when the platform returns one (VTEX Activity Flow). */
+	searchId?: string;
 }
 export interface ProductListingPage {
 	"@type": "ProductListingPage";
@@ -841,8 +843,6 @@ export interface ProductListingPage {
 	pageInfo: PageInfo;
 	sortOptions: SortOption[];
 	seo?: Seo | null;
-	/** Platform-specific values with no field of their own, e.g. VTEX Intelligent Search's `searchId`. */
-	additionalProperty?: PropertyValue[];
 }
 export interface Seo {
 	title: string;
