@@ -93,7 +93,7 @@ describe("deco login, init and link", () => {
     fs.rmSync(path.join(fixture.root, ".deco"), { recursive: true });
     const none = await deco(["drafts", "list"]);
     expect(none.code).toBe(64);
-    expect(none.text).toContain("deco link <org>/<site>");
+    expect(none.text).toContain("run inside your app or pass --root");
     expect(studio.requests).toHaveLength(0);
   });
 });

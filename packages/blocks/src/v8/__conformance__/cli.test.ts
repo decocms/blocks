@@ -553,9 +553,17 @@ describe("cli.mdx", () => {
 
   it("cli-09: no .deco up the tree gives the documented error", async () => {
     const dir = tmpDir();
-    for (const cmd of ["schema", "check", "pull", "push --draft=x", "drafts list"]) {
+    // Local commands exit 1; remote ones have no .deco/link.json either, a
+    // usage error (64, contract §7.4). The message is the same.
+    for (const [cmd, code] of [
+      ["schema", 1],
+      ["check", 1],
+      ["pull", 64],
+      ["push --draft=x", 64],
+      ["drafts list", 64],
+    ] as const) {
       const r = await deco(cmd.split(" "), dir);
-      expect(r.code).not.toBe(0);
+      expect(r.code).toBe(code);
       expect(r.out).toBe(`no .deco/ found from ${dir}; run inside your app or pass --root`);
     }
     // Through the real bin too: the message lands on stderr.
