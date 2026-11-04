@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "deco schema && deco content",
+    "predev": "deco schema && node ../content-module.mjs",
     "dev": "next dev",
-    "prebuild": "deco schema && deco content && deco check",
+    "prebuild": "deco schema && node ../content-module.mjs && deco check",
     "build": "next build",
-    "pretypecheck": "deco content",
+    "pretypecheck": "node ../content-module.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "node smoke.mjs"
   },

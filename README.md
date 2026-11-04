@@ -103,17 +103,28 @@ import hero from "../src/sections/hero";
 export default { hero } satisfies Blocks;
 ```
 
-Generate the schema and the content module (`deco schema && deco content`, in `predev`/`prebuild`), then read content through the CMS:
+Name the Studio site, and read content through the CMS. Content isn't bundled: the client fetches the latest release from the CDN at runtime.
 
 ```ts
 import { createCMS } from "@decocms/blocks";
 import blocks from "./.deco";
-import content from "./.deco/blocks.gen";
 
-export const cms = createCMS({ blocks, content });
+export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
 
 const [props, error] = await cms.forRelease().resolve("Home Hero");
 ```
+
+On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key):
+
+```bash
+deco link <org>/<site>            # writes .deco/link.json (commit it)
+deco pull                         # production into .deco/blocks (git-ignored); or --draft=<name>
+deco check && deco diff
+deco push --draft=pdp-copy        # exit 2 on a conflict; --ours / --theirs
+deco publish --draft=pdp-copy     # makes the draft live
+```
+
+`deco drafts`, `deco releases` and `deco check --draft=<name> | --revision=<id>` cover the rest; every command takes `--json`. Exit codes: 0 ok, 1 failed, 2 conflict, 3 auth, 4 network, 5 busy (run again), 64 usage.
 
 ### TanStack Start
 
