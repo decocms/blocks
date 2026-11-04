@@ -78,7 +78,7 @@ async function hosted() {
 }
 
 /** The page's half: `bindDraft`, then two reads (a page and its layout). */
-async function renderPage(cms: ReturnType<typeof hosted>["cms"], headers: Headers) {
+async function renderPage(cms: Awaited<ReturnType<typeof hosted>>["cms"], headers: Headers) {
   // Next hands the page the request's host.
   if (!headers.has("host")) headers.set("host", "shop.example.com");
   request.headers = headers;
