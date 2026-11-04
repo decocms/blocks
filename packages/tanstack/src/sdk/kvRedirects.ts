@@ -98,6 +98,13 @@ export function clearRedirectCache(): void {
  * isolate memo never hits and every one paid a serial KV miss (p75 ~160ms on
  * a production storefront) before reaching its handler. In-memory rules
  * (exact and glob) still apply to every method; only the KV read is gated.
+ *
+ * Trade-off: a temporary rule is served as 307, which browsers follow with the
+ * original method, so a KV-only 307 on a form/webhook path used to forward the
+ * POST and now lets it reach that path's handler. On a non-fast-deploy site
+ * the same rule is in memory and still redirects POSTs — the behaviour differs
+ * by deploy mode for that one case. Content redirects are navigation-only in
+ * practice; a site that redirects POST endpoints should do it in code.
  */
 export async function lookupExactRedirect(
   env: Record<string, unknown>,

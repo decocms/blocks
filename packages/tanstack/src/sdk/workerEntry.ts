@@ -2492,6 +2492,9 @@ export function createDecoWorkerEntry(
     // glob win over an exact rule, inverting the precedence.
     // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
     // stays one read, keyed by pathname.
+    // That precedence holds for navigations (GET/HEAD) only: other methods
+    // skip the KV read (see `lookupExactRedirect`), so for a POST a glob can
+    // answer where a KV-only exact rule would have.
     const cmsRedirect =
       matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
       (await lookupExactRedirect(env as Record<string, unknown>, url.pathname, request.method)) ??
