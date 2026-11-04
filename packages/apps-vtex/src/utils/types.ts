@@ -561,6 +561,10 @@ export interface ProductSearchResult {
   redirect: string;
   fuzzy: string;
   correction?: Correction;
+  /**
+   * @description Identifies this search for VTEX Activity Flow (`data-af-search-id`).
+   */
+  searchId?: string;
 }
 
 export interface Correction {

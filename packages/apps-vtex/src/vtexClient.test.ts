@@ -55,6 +55,20 @@ afterEach(() => {
 });
 
 describe("createVtexClient", () => {
+  it("returns the searchId of a product search", async () => {
+    const vtex = createVtexClient({
+      account: "store",
+      appKey: "key",
+      appToken: "token",
+      fetch: (async () =>
+        new Response(
+          '{"products":[],"searchId":"search-1"}',
+        )) as unknown as typeof globalThis.fetch,
+    });
+    const result = await vtex.search.products({ query: "q" });
+    expect(result.searchId).toBe("search-1");
+  });
+
   it("uses the instrumented fetch as provider vtex, with retries and a circuit breaker on", () => {
     createVtexClient({ account: "store" });
     expect(instrumented.options[0]).toMatchObject({
