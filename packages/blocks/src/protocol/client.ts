@@ -94,7 +94,7 @@ const REQUIRED_VERSION = { major: PROTOCOL_VERSION.major, minor: REQUIRED_PROTOC
 const OUTDATED_MESSAGE =
   `the endpoint speaks an older ${PROTOCOL_NAME} than this client needs ` +
   `(${REQUIRED_VERSION.major}.${REQUIRED_VERSION.minor} or newer): update @decocms/blocks in the site ` +
-  "(8.2.0 or newer) and restart the server";
+  "(8.2.0 or newer) and start deco serve again";
 
 function unsupportedEndpoint(
   message: string,

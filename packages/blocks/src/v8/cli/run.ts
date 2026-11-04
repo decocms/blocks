@@ -155,7 +155,7 @@ export interface RunOptions {
   reporter?: Reporter;
   /** Resolves when a `--watch` run should stop (tests); defaults to SIGINT/SIGTERM. */
   until?: Promise<void>;
-  /** The environment (`DECO_STUDIO_URL`, `DECO_TOKEN`); defaults to `process.env`. */
+  /** The environment (`DECO_STUDIO_URL`, `DECO_TOKEN`); defaults to the process's. */
   env?: Env;
   /** Defaults to the global `fetch`. */
   fetch?: Fetch;
@@ -230,7 +230,8 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
           ? Boolean(options.reporter.color)
           : !json && Boolean(process.stdout.isTTY && process.stderr.isTTY);
     reporter = withColor(reporter, color);
-    outcome = await runCommand(command, flags, { ...options, reporter });
+    const env = options.env ?? process.env;
+    outcome = await runCommand(command, flags, { ...options, env, reporter });
   } catch (error) {
     if (!(error instanceof CliError)) throw error;
     reporter.error(error.message);
@@ -261,7 +262,7 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
 async function runCommand(
   command: string,
   flags: ParsedFlags,
-  options: RunOptions & { reporter: Reporter },
+  options: RunOptions & { env: Env; reporter: Reporter },
 ): Promise<Outcome> {
   const { reporter } = options;
   const positionals = (flags._ as string[] | undefined) ?? [];
@@ -270,7 +271,7 @@ async function runCommand(
   const remote = (): RemoteContext => ({
     paths: decoPaths(findDecoRoot(base)),
     reporter,
-    env: options.env ?? process.env,
+    env: options.env,
     fetch: options.fetch ?? fetch,
     runCommand: options.runCommand,
   });
@@ -283,7 +284,7 @@ async function runCommand(
         };
   switch (command) {
     case "login":
-      return login({ env: options.env ?? process.env, reporter });
+      return login({ env: options.env, reporter });
     case "init":
     case "link": {
       const link = parseLinkTarget(positionals[0]);
