@@ -82,6 +82,7 @@ import {
   loadRedirects,
   matchExactRedirect,
   matchPatternRedirect,
+  type Redirect,
   type RedirectMap,
   type RedirectSemantics,
   redirectLocation,
@@ -106,9 +107,43 @@ import {
   requestCarriesDraft,
 } from "./draft";
 import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
-import { lookupExactRedirect } from "./kvRedirects";
+import { isExactRedirectLookupCold, lookupExactRedirect } from "./kvRedirects";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
 import { type SpeculationRulesConfig, setSpeculationRules } from "./speculationRules";
+
+/**
+ * Answer `rendered` unless `lookup` finds a redirect — in which case the
+ * redirect wins whatever order the two settle in. A redirect that settles first
+ * answers at once; otherwise the response is held until the lookup settles, so
+ * no page ever leaves for a URL that redirects. The discarded body is
+ * cancelled. A failed render is only rethrown when there is no redirect,
+ * matching the serial path, where the render never ran.
+ */
+export async function withExactRedirect(
+  rendered: Promise<Response>,
+  lookup: Promise<Redirect | null>,
+  toResponse: (redirect: Redirect) => Response,
+): Promise<Response> {
+  const settled = rendered.then(
+    (response) => ({ ok: true as const, response }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  const discard = () =>
+    void settled.then((s) => (s.ok ? s.response.body?.cancel() : undefined)).catch(() => {});
+  const early = await Promise.race([lookup, settled.then(() => null)]);
+  if (early) {
+    discard();
+    return toResponse(early);
+  }
+  const redirect = await lookup;
+  if (redirect) {
+    discard();
+    return toResponse(redirect);
+  }
+  const outcome = await settled;
+  if (!outcome.ok) throw outcome.error;
+  return outcome.response;
+}
 
 /**
  * Build-time identifier injected by `decoVitePlugin()` (see
@@ -2492,17 +2527,49 @@ export function createDecoWorkerEntry(
     // glob win over an exact rule, inverting the precedence.
     // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
     // stays one read, keyed by pathname.
-    const cmsRedirect =
-      matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
-      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname)) ??
-      matchPatternRedirect(url.pathname, _redirectMap!);
-    if (cmsRedirect) {
-      return new Response(null, {
-        status: cmsRedirect.status,
-        headers: { Location: redirectLocation(cmsRedirect, url.search) },
+    const toResponse = (redirect: Redirect) =>
+      new Response(null, {
+        status: redirect.status,
+        headers: { Location: redirectLocation(redirect, url.search) },
       });
+    const exact = matchExactRedirect(url.pathname, _redirectMap!, url.search);
+    if (exact) return toResponse(exact);
+    const pattern = matchPatternRedirect(url.pathname, _redirectMap!);
+    // The KV read (`lookupExactRedirect`) is a cold `DECO_KV.get` for every
+    // long-tail URL the isolate memo has not seen — ~100–200ms p50 on PDPs,
+    // and it used to run before the cache lookup and the render. For GET/HEAD
+    // with no glob rule in play it now overlaps with them: a redirect still
+    // wins whenever the key exists (no response leaves before the lookup
+    // settles), it just stops serialising the ~99.9% of requests that have
+    // none. Other methods keep the serial path — overlapping would run a
+    // side-effecting handler for a URL that redirects. A matching glob also
+    // keeps it, because an exact KV rule must beat the glob.
+    // A warm memo answers within microtasks: overlapping would start a render
+    // only to discard it, on every hit of a hot redirected URL.
+    const overlap =
+      !pattern &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      isExactRedirectLookupCold(env as Record<string, unknown>, url.pathname);
+    const kvRedirect = lookupExactRedirect(env as Record<string, unknown>, url.pathname).catch(
+      () => null,
+    );
+    if (!overlap) {
+      const redirect = (await kvRedirect) ?? pattern;
+      return redirect ? toResponse(redirect) : serveAfterRedirects(request, url, env, ctx);
     }
+    return withExactRedirect(serveAfterRedirects(request, url, env, ctx), kvRedirect, toResponse);
+  }
 
+  /**
+   * Everything after the CMS redirect check. Split out of `handleRequest` so
+   * the KV redirect lookup can run alongside it — see `withExactRedirect`.
+   */
+  async function serveAfterRedirects(
+    request: Request,
+    url: URL,
+    env: Record<string, unknown>,
+    ctx: WorkerExecutionContext,
+  ): Promise<Response> {
     // ?renderJson — structured JSON of the page for the mobile app. Lean shape
     // ({ name, path, sections:[{ component, props }] }), each section projected
     // through its `renderJson` export. Wins over ?asJson when both are present.
