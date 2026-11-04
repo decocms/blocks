@@ -18,6 +18,8 @@ export interface AutocompleteProps {
 export interface AutocompleteResult {
 	searches: Array<{ term: string; count: number; attributes?: any[] }>;
 	products: any[];
+	/** Identifies the product search for the Activity Flow `data-af-search-id` attribute. */
+	searchId?: string;
 }
 
 export async function autocompleteSearch(props: AutocompleteProps): Promise<AutocompleteResult> {
@@ -30,7 +32,7 @@ export async function autocompleteSearch(props: AutocompleteProps): Promise<Auto
 			vtexIS<{
 				searches: Array<{ term: string; count: number; attributes?: any[] }>;
 			}>("/autocomplete_suggestions/", { query }),
-			vtexIS<{ products: any[] }>("/product_search/", {
+			vtexIS<{ products: any[]; searchId?: string }>("/product_search/", {
 				query,
 				count: String(count),
 				showSponsored: props.showSponsored !== false ? "true" : "false",
@@ -43,6 +45,7 @@ export async function autocompleteSearch(props: AutocompleteProps): Promise<Auto
 		const baseUrl = storefrontBaseUrl(config);
 
 		return {
+			searchId: productsData.searchId,
 			searches: suggestionsData.searches ?? [],
 			products: (productsData.products ?? []).slice(0, count).map((p: any) => {
 				const sku = pickSku(p);
