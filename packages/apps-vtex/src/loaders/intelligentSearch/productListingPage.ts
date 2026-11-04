@@ -524,7 +524,11 @@ export default async function vtexProductListingPage(
 
 		return {
 			"@type": "ProductListingPage",
-			searchId: productsResult.searchId,
+			// A redirected search shows no results, and Activity Flow must not track it.
+			additionalProperty:
+				productsResult.searchId && !productsResult.redirect
+					? [{ "@type": "PropertyValue", name: "searchId", value: productsResult.searchId }]
+					: undefined,
 			breadcrumb: {
 				"@type": "BreadcrumbList",
 				itemListElement: breadcrumbItems,

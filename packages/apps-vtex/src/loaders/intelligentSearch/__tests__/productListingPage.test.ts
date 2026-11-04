@@ -197,14 +197,30 @@ describe("vtexProductListingPage — searchId", () => {
 	it("returns the searchId of the product_search response", async () => {
 		mockProductSearch({ ...productSearch, searchId: "search-1" });
 		const result = await vtexProductListingPage({ query: "camisa" });
-		expect(result?.searchId).toBe("search-1");
+		expect(result?.additionalProperty).toEqual([
+			{ "@type": "PropertyValue", name: "searchId", value: "search-1" },
+		]);
 	});
 
-	it("leaves it undefined when the response has none", async () => {
+	it("adds no property when the response has none", async () => {
 		mockProductSearch(productSearch);
 		const result = await vtexProductListingPage({ query: "camisa" });
 		expect(result).not.toBeNull();
-		expect(result?.searchId).toBeUndefined();
+		expect(result?.additionalProperty).toBeUndefined();
+	});
+
+	it("adds no property for a redirected search", async () => {
+		mockProductSearch({ ...productSearch, searchId: "search-1", redirect: "/sale" });
+		const result = await vtexProductListingPage({ query: "camisa" });
+		expect(result).not.toBeNull();
+		expect(result?.additionalProperty).toBeUndefined();
+	});
+
+	it("adds no property for an empty searchId", async () => {
+		mockProductSearch({ ...productSearch, searchId: "" });
+		const result = await vtexProductListingPage({ query: "camisa" });
+		expect(result).not.toBeNull();
+		expect(result?.additionalProperty).toBeUndefined();
 	});
 });
 
