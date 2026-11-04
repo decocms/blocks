@@ -1865,7 +1865,7 @@ describe("content-protocol.mdx", () => {
       /from "[./]*protocol\//.test(fs.readFileSync(path.join(PKG, "src/v8", f), "utf8")),
     );
     expect(offenders).toEqual([]);
-    const SHARED_LEAVES = ["canonical"].map((m) => path.join(PKG, "src/v8", m));
+    const SHARED_LEAVES = ["canonical", "revisionId"].map((m) => path.join(PKG, "src/v8", m));
     for (const leaf of SHARED_LEAVES) {
       expect(fs.readFileSync(`${leaf}.ts`, "utf8"), leaf).not.toMatch(/^import /m);
     }
@@ -1883,9 +1883,9 @@ describe("content-protocol.mdx", () => {
           const target = path
             .resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec)
             .replace(/\.tsx?$/, "");
-          // The canonical hash is the SDK's own dependency-free leaf module
-          // (no imports at all); the protocol re-exports it rather than keep
-          // a second copy.
+          // The canonical hash and the revision id shape are the SDK's own
+          // dependency-free leaf modules (no imports at all); the protocol
+          // re-exports them rather than keep a second copy.
           if (SHARED_LEAVES.includes(target)) continue;
           expect(target, `${f}: ${spec}`).toContain(path.join(PKG, "src/protocol"));
           continue;
@@ -2234,7 +2234,6 @@ describe("studio-implementation.mdx", () => {
   describe("si-08 / si-09 / si-10: the SDK's release pointer (latest.json)", () => {
     const ORIGIN = "https://delivery.decocms.com";
     const LATEST = `${ORIGIN}/sites/acme/latest.json`;
-    const SCHEMA = "5".repeat(64);
     let latest: Json | undefined;
     const assets = new Map<string, unknown>();
     const gates = new Map<string, Promise<void>>();
@@ -2255,15 +2254,17 @@ describe("studio-implementation.mdx", () => {
     });
     afterAll(() => vi.unstubAllGlobals());
 
+    /** A revision id (`<inv>-<uuidv7>`) per hex digit. */
+    const rid = (c: string) => `fe6c5e0d97f${c}-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5${c}`;
     function snap(title: string, revision: string): Snapshot {
       const blocks = { S: { __resolveType: "seo", title, description: "d" } };
-      return { revision, blocks, schemaHash: SCHEMA };
+      return { revision, blocks };
     }
-    /** Studio's publish of commit `s.revision`: the revision object, then latest.json. */
+    /** Studio's publish of revision `s.revision`: its data.json, then latest.json. */
     function publish(s: Snapshot) {
-      const p = `/sites/acme/revisions/${s.revision}.json`;
-      assets.set(p, { revision: s.revision, schemaHash: SCHEMA, blocks: s.blocks });
-      latest = { revision: s.revision, schemaHash: SCHEMA, publishedAt: new Date().toISOString() };
+      const p = `/sites/acme/revisions/${s.revision}/data.json`;
+      assets.set(p, { blocks: s.blocks });
+      latest = { revision: s.revision, previewHosts: [] };
       return p;
     }
 
@@ -2273,35 +2274,32 @@ describe("studio-implementation.mdx", () => {
       expect(src).toMatch(/JITTER = 10_000/);
     });
 
-    it("si-09: the SDK follows the revision latest.json names; a rollback (Make current) is accepted", async () => {
-      const fallback = snap("bundled", "rev-bundled");
-      const loader = remoteLoader(fallback, { site: "acme" }) as Loader;
-      const a = snap("A", "a".repeat(40));
-      const b = snap("B", "b".repeat(40));
+    it("si-09: the SDK follows the revision latest.json names, whichever it is", async () => {
+      const loader = remoteLoader(undefined, { site: "acme" }) as Loader;
+      const a = snap("A", rid("a"));
+      const b = snap("B", rid("b"));
       publish(a);
-      expect(await loader.update!()).toEqual({ updated: true });
+      expect((await loader.load()).revision).toBe(a.revision);
       publish(b);
       expect(await loader.update!()).toEqual({ updated: true });
       expect((await loader.load()).revision).toBe(b.revision);
-      // Make current: latest.json names the older revision again; nothing else changes.
-      latest = { revision: a.revision, schemaHash: SCHEMA, publishedAt: new Date().toISOString() };
+      // latest.json names the older revision again: followed, with no ordering among pointers.
+      latest = { revision: a.revision };
       expect(await loader.update!()).toEqual({ updated: true });
       expect((await loader.load()).revision).toBe(a.revision);
     });
 
     it("si-09: the same revision as the one loaded is not an update", async () => {
-      const fallback = snap("bundled", "rev-bundled");
-      const loader = remoteLoader(fallback, { site: "acme" }) as Loader;
-      const a = snap("A", "a".repeat(40));
+      const loader = remoteLoader(undefined, { site: "acme" }) as Loader;
+      const a = snap("A", rid("a"));
       publish(a);
-      expect(await loader.update!()).toEqual({ updated: true });
-      publish(a); // republished: same commit, new publishedAt
+      await loader.load();
+      publish(a); // latest.json written again, naming the same revision
       expect(await loader.update!()).toEqual({ updated: false });
     });
 
     it("si-10: a draft's changes apply over the latest release, checked before the draft renders; no base matching the draft is fetched", async () => {
-      const fallback = snap("bundled", "rev-bundled");
-      const published = snap("published", "c".repeat(40));
+      const published = snap("published", rid("c"));
       publish(published);
       const drafts = `${ORIGIN}/sites/acme/drafts/b.json`;
       const fetch = globalThis.fetch;
@@ -2312,14 +2310,14 @@ describe("studio-implementation.mdx", () => {
           ? Response.json({ set: { New: { __resolveType: "seo" } }, delete: [] })
           : fetch(input);
       });
-      const cms = createCMS({ blocks: {}, content: fallback, site: "acme" });
+      const cms = createCMS({ blocks: {}, site: "acme" });
       const draft = cms.forDraft("delivery.decocms.com/sites/acme/drafts/b.json@c1");
       const [entry] = await draft.resolve("S", { run: false });
-      expect(entry).toEqual(published.blocks.S); // the latest release, never the bundle it outlived
+      expect(entry).toEqual(published.blocks.S); // the latest release
       expect(urls.filter((url) => url.startsWith(drafts))).toHaveLength(1);
       // Only the release latest.json names: the pointer names no base of its own.
       expect(urls.filter((url) => url.includes("/revisions/"))).toEqual([
-        `${ORIGIN}/sites/acme/revisions/${published.revision}.json`,
+        `${ORIGIN}/sites/acme/revisions/${published.revision}/data.json`,
       ]);
     });
   });

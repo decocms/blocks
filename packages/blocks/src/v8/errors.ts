@@ -19,6 +19,34 @@ export class ResolutionError extends Error implements CMSError {
   }
 }
 
+/** Why the content couldn't be read from the delivery CDN (`ContentUnavailableError.reason`). */
+export type ContentUnavailableReason = "timeout" | "network" | "http" | "format";
+
+/**
+ * The content couldn't be read from the delivery CDN: a fetch ran out of its
+ * 10 s (`"timeout"`), failed (`"network"`), was answered with an HTTP error
+ * (`"http"`, with `status`; a site that has published nothing yet is a 404),
+ * or the body wasn't a release (`"format"`: malformed, or too large). It is
+ * the `cause` of the `LOADER_FAILED` error a client reports (`resolve` and
+ * `list` answer it, `revision()` rejects with it), so a site can tell it
+ * apart and choose what to render: a 503, a fallback, a retry.
+ */
+export class ContentUnavailableError extends Error {
+  readonly reason: ContentUnavailableReason;
+  readonly status?: number;
+
+  constructor(
+    reason: ContentUnavailableReason,
+    message: string,
+    options: { status?: number; cause?: unknown } = {},
+  ) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = "ContentUnavailableError";
+    this.reason = reason;
+    if (options.status !== undefined) this.status = options.status;
+  }
+}
+
 export function isResolutionError(value: unknown): value is ResolutionError {
   return value instanceof ResolutionError;
 }

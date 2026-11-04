@@ -51,9 +51,9 @@ export function peekRelease(source: Snapshot | Loader): Snapshot | undefined {
 }
 
 /**
- * An internal hook `remoteLoader` has: a published release by its commit SHA
- * (`sites/<site>/revisions/<sha>.json`), kept in memory once read. Rejects
- * with `LOADER_FAILED`, never falls back to another release.
+ * An internal hook `remoteLoader` has: a published release by its revision
+ * id (`sites/<site>/revisions/<id>/data.json`), kept in memory once read.
+ * Rejects with `LOADER_FAILED`, never falls back to another release.
  */
 export const READ_REVISION: unique symbol = Symbol.for("decocms.blocks.readRevision");
 
@@ -94,8 +94,6 @@ export function isSnapshot(content: unknown): content is Snapshot {
     typeof content.revision === "string" &&
     isPlainObject(content.blocks) &&
     (content.aliases === undefined || isPlainObject(content.aliases)) &&
-    (content.schemaHash === undefined || typeof content.schemaHash === "string") &&
-    (content.committedAt === undefined || typeof content.committedAt === "string") &&
     (content.previewHosts === undefined || Array.isArray(content.previewHosts))
   );
 }
@@ -134,8 +132,10 @@ export class ContentStore {
 
   /**
    * The current release. A snapshot is the release; a loader with `update()`
-   * is loaded once and reloaded after an update; a loader without `update()`
-   * is asked on every call, since it's always current by construction.
+   * is loaded once (concurrent calls share the one load in flight; a failed
+   * load isn't kept) and reloaded after an update; a loader without
+   * `update()` is asked on every call, since it's always current by
+   * construction.
    */
   release(): Promise<Snapshot> {
     const source = this.#source;
@@ -216,26 +216,26 @@ export class ContentStore {
   }
 
   /**
-   * A published release by its commit SHA: from the source's hosted releases
-   * (`remoteLoader`, which `createCMS` builds with `site`), or the content in
-   * memory when it is that revision. Anything else is `LOADER_FAILED`, never
-   * a silent fallback to the current release.
+   * A published release by its revision id: from the source's hosted
+   * releases (`remoteLoader`, which `createCMS` builds with `site`), or the
+   * content in memory when it is that revision. Anything else is
+   * `LOADER_FAILED`, never a silent fallback to the current release.
    */
-  revision(sha: string): Promise<Snapshot> {
+  revision(id: string): Promise<Snapshot> {
     const source = this.#source;
     const read = isLoader(source)
-      ? (source as { [READ_REVISION]?: (sha: string) => Promise<Snapshot> })[READ_REVISION]
+      ? (source as { [READ_REVISION]?: (id: string) => Promise<Snapshot> })[READ_REVISION]
       : undefined;
     if (typeof read === "function") {
-      return read.call(source, sha).catch((error: unknown) => {
+      return read.call(source, id).catch((error: unknown) => {
         if (isResolutionError(error)) throw error;
-        throw errors.loaderFailed(`the release ${sha} couldn't be read`, error);
+        throw errors.loaderFailed(`the release ${id} couldn't be read`, error);
       });
     }
     return this.release().then((snapshot) => {
-      if (snapshot.revision === sha) return snapshot;
+      if (snapshot.revision === id) return snapshot;
       throw errors.loaderFailed(
-        `the release ${sha} isn't available: published releases are read from hosted releases (createCMS with site)`,
+        `the release ${id} isn't available: published releases are read from hosted releases (createCMS with site)`,
       );
     });
   }
@@ -359,13 +359,12 @@ export class ContentStore {
   /**
    * Swaps the content in place, for a hot reload that hands the same CMS a new
    * content module. Any new object swaps, even with the same `revision`: an
-   * edited JSON file reloads without rerunning `deco content`, so the new
-   * module carries new `blocks` under the old revision.
+   * edited JSON file can carry new `blocks` under the old revision.
    */
   replace(source: Snapshot | Loader): void {
     const previous = this.#source;
     if (source === previous) {
-      // The same loader (a hosted remoteLoader that adopted new fallback content): re-read it.
+      // The same loader (the site's remoteLoader, a later createCMS call): re-read it.
       this.#release = undefined;
       this.#latest = undefined;
       this.#drafts.clear();

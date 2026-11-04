@@ -3,9 +3,10 @@
  * Docs conformance: content-delivery, draft-synchronization,
  * releases-and-deployment, hosted, hosted-publishing, hosted-drafts and
  * hosted-releases-internals (src/content/docs/en/storefront/blocks/next/*.mdx in
- * deco-sites/docs-tanstack), as the hosted contract (2026-10-06) defines them:
- * `sites/<site>/latest.json` and `revisions/<sha>.json` on delivery.decocms.com,
- * drafts on the CDN. Each test names the claim it checks (CD-*, RD-*, H-*, HP-*,
+ * deco-sites/docs-tanstack), as the CMS-on-the-CDN design (2026-11-03) defines
+ * them: runtime-only content, `sites/<site>/latest.json` `{ revision,
+ * previewHosts }` and `revisions/<id>/data.json` `{ blocks }` on
+ * delivery.decocms.com, drafts on the CDN. Each test names the claim it checks (CD-*, RD-*, H-*, HP-*,
  * HD-*, HRI-*, DP-*). A failing test is a claim the code doesn't meet yet.
  */
 import fs from "node:fs";
@@ -31,7 +32,7 @@ import {
   fakeStudio,
   docsSnapshot as unhashedSnapshot,
 } from "../testFixtures";
-import type { Loader, RequestLike, Snapshot } from "../types";
+import type { CMSError, Loader, RequestLike, Snapshot } from "../types";
 
 /** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
 const helpers = () =>
@@ -49,20 +50,17 @@ const ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
 const TOKEN = "site-token";
 const LATEST_URL = `${ORIGIN}/sites/acme/latest.json`;
-/** The schemaHash of the schema the deployed code was built with (`deco content` writes it). */
-const SCHEMA = "5".repeat(64);
 /** A pointer string, for the cookie and parsing claims; drafts that load come from api.draft(). */
 const POINTER = `${DRAFT_HOST}/sites/acme/drafts/summer-sale.json@9f3c1a`;
 /** Where the fake CDN answers drafts. */
 const DRAFTS = `https://${DRAFT_HOST}/sites/acme/drafts/`;
 
-/** The bundled content module: the docs' snapshot, built with the deployed schema. */
-const docsSnapshot = (revision?: string): Snapshot => ({
-  ...unhashedSnapshot(revision),
-  schemaHash: SCHEMA,
-});
+/** Content without a site: the docs' snapshot. */
+const docsSnapshot = (revision?: string): Snapshot => unhashedSnapshot(revision);
+/** The revision the fake CDN serves until a test publishes another: the docs' content. */
+const DOCS_REV = "fe6c5e0d97f0-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a50";
 
-const remote = (fallback: Snapshot | Loader) => remoteLoader(fallback, { site: SITE }) as Loader;
+const remote = () => remoteLoader(undefined, { site: SITE }) as Loader;
 const flush = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(() => resetForTests());
@@ -74,16 +72,15 @@ afterEach(async () => {
   resetForTests();
 });
 
-/** A release as Studio publishes it for a commit: the blocks at that commit, keyed by its SHA. */
+/** A release as Studio publishes it: the blocks, under a revision id (`<inv>-<uuidv7>`) per title. */
 async function hashed(title: string, extra: Record<string, unknown> = {}): Promise<Snapshot> {
   const blocks = { SummerSEO: { __resolveType: "seo", title, description: "d" }, ...extra };
-  return { revision: (await sha256Hex(title)).slice(0, 40), blocks };
+  return { revision: revisionIdOf(await sha256Hex(title)), blocks };
 }
 
-/** A content module whose revision is its real content hash, as `deco content` writes it. */
-async function contentModule(): Promise<Snapshot> {
-  const snapshot = docsSnapshot();
-  return { ...snapshot, revision: await computeContentRevision(snapshot.blocks) };
+/** A valid revision id made from hex digits. */
+function revisionIdOf(h: string): string {
+  return `${h.slice(0, 12)}-${h.slice(12, 20)}-${h.slice(20, 24)}-7${h.slice(25, 28)}-8${h.slice(29, 32)}-${h.slice(32, 44)}`;
 }
 
 interface Deferred {
@@ -103,7 +100,8 @@ const seoEntry = (title: string) => ({ __resolveType: "seo", title, description:
 
 /**
  * A fake delivery CDN: `sites/acme/latest.json`, immutable
- * `sites/acme/revisions/<sha>.json`, and drafts (see testFixtures' fakeStudio).
+ * `sites/acme/revisions/<id>/data.json`, and drafts (see testFixtures'
+ * fakeStudio). It starts with the docs' content published as DOCS_REV.
  */
 function deliveryApi() {
   const drafts = fakeStudio();
@@ -141,32 +139,29 @@ function deliveryApi() {
     return new Response("not found", { status: 404 });
   });
   vi.stubGlobal("fetch", fetch);
-  const latest = (revision: string, schemaHash = SCHEMA) => ({
+  const latest = (revision: string) => ({
     revision,
-    schemaHash,
-    publishedAt: new Date().toISOString(),
     ...(hosts === undefined ? {} : { previewHosts: hosts }),
   });
+  const assetPath = (revision: string) => `/sites/acme/revisions/${revision}/data.json`;
+  objects.set(assetPath(DOCS_REV), { blocks: docsSnapshot().blocks });
+  objects.set("/sites/acme/latest.json", latest(DOCS_REV));
   return {
     fetch,
     requests,
-    assetPath: (revision: string) => `/sites/acme/revisions/${revision}.json`,
-    /** Studio's publish: `revisions/<sha>.json`, then `latest.json` naming it. */
-    publish(snapshot: Snapshot, body?: unknown, schemaHash = SCHEMA) {
-      objects.set(
-        `/sites/acme/revisions/${snapshot.revision}.json`,
-        body ?? {
-          revision: snapshot.revision,
-          schemaHash,
-          blocks: snapshot.blocks,
-          ...(hosts === undefined ? {} : { previewHosts: hosts }),
-        },
-      );
-      objects.set("/sites/acme/latest.json", latest(snapshot.revision, schemaHash));
+    assetPath,
+    /** Studio's publish: `revisions/<id>/data.json`, then `latest.json` naming it. */
+    publish(snapshot: Snapshot, body?: unknown) {
+      objects.set(assetPath(snapshot.revision), body ?? { blocks: snapshot.blocks });
+      objects.set("/sites/acme/latest.json", latest(snapshot.revision));
     },
-    /** Studio's "Make current" (or a pointer to a revision that isn't there): `latest.json` only. */
-    point(revision: string, schemaHash = SCHEMA) {
-      objects.set("/sites/acme/latest.json", latest(revision, schemaHash));
+    /** `latest.json` naming a revision (one already there, or one that isn't). */
+    point(revision: string) {
+      objects.set("/sites/acme/latest.json", latest(revision));
+    },
+    /** A site that has published nothing: no `latest.json` (a 404). */
+    unpublish() {
+      objects.delete("/sites/acme/latest.json");
     },
     /** The preview hosts Studio writes into what it publishes from now on. */
     previewHosts(list: string[] | undefined) {
@@ -196,6 +191,16 @@ function deliveryApi() {
   };
 }
 
+/** The `ContentUnavailableError` reason (and status) behind a client's LOADER_FAILED. */
+const unavailableOf = async (client: ReturnType<ReturnType<typeof createCMS>["forRelease"]>) => {
+  const [value, error] = await client.resolve("SummerSEO");
+  expect(value).toBeNull();
+  expect(error?.code).toBe("LOADER_FAILED");
+  const cause = (error as CMSError).cause as { name: string; reason: string; status?: number };
+  expect(cause.name).toBe("ContentUnavailableError");
+  return { reason: cause.reason, status: cause.status };
+};
+
 const titleOf = async (client: ReturnType<ReturnType<typeof createCMS>["forRelease"]>) => {
   const [entry, error] = await client.resolve<{ title: string }>("SummerSEO", { run: false });
   if (error) throw new Error(`${error.code}: ${error.message}`);
@@ -214,21 +219,21 @@ describe("content-delivery", () => {
     const api = deliveryApi();
     api.publish(await hashed("Published"));
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     await cms.update();
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     const urls = api.requests.map((r) => r.url);
     expect(urls.filter((url) => url.startsWith(DRAFTS))).toHaveLength(1);
-    // The check, the release it names, then the draft read's own check (DP-19).
+    // The first load, the release it names, then the draft read's own check (DP-19).
     expect(urls.filter((url) => url.startsWith(`${ORIGIN}/`) && !url.startsWith(DRAFTS))).toEqual([
       LATEST_URL,
-      expect.stringMatching(/\/sites\/acme\/revisions\/[0-9a-f]{40}\.json$/),
+      expect.stringMatching(/\/sites\/acme\/revisions\/[0-9a-f-]{49}\/data\.json$/),
       LATEST_URL,
     ]);
     expect(urls).toHaveLength(4);
   });
 
-  it("CD-3: the bundled module's revision is the canonical content hash; a release's is its commit SHA", async () => {
+  it("CD-3: a content module's revision is the canonical content hash; a release's is its revision id", async () => {
     const a = { A: { __resolveType: "seo", x: 1, y: 2 }, B: { z: [1, 2] } };
     const b = { B: { z: [1, 2] }, A: { y: 2, __resolveType: "seo", x: 1 } };
     expect(await computeContentRevision(a)).toBe(await computeContentRevision(b));
@@ -241,99 +246,60 @@ describe("content-delivery", () => {
     expect(sdk).not.toMatch(/computeContentRevision|sha256/);
   });
 
-  it("CD-4/CD-5/CD-6: reads /sites/<site>/latest.json and the { revision, schemaHash, blocks } it names", async () => {
+  it("CD-4/CD-5/CD-6: reads /sites/<site>/latest.json and the { blocks } of the revision it names", async () => {
     const api = deliveryApi();
-    const release = await hashed("Commit C");
-    // The docs' examples: latest.json and the revision object Studio writes for commit C.
-    api.setLatest({
-      revision: release.revision,
-      schemaHash: SCHEMA,
-      publishedAt: "2026-10-06T12:00:00.000Z",
-    });
-    api.asset(`/sites/acme/revisions/${release.revision}.json`, {
-      revision: release.revision,
-      schemaHash: SCHEMA,
-      blocks: release.blocks,
-    });
-    const fallback = docsSnapshot();
-    const loader = remote(fallback);
-    expect(await loader.update?.()).toEqual({ updated: true });
+    const release = await hashed("Release C");
+    // The docs' examples: latest.json and the revision's data.json Studio writes.
+    api.setLatest({ revision: release.revision, previewHosts: ["www.example.com"] });
+    api.asset(`/sites/acme/revisions/${release.revision}/data.json`, { blocks: release.blocks });
+    const loader = remote();
+    expect(await loader.load()).toEqual({ revision: release.revision, blocks: release.blocks });
     expect(api.requests.map((r) => r.url)).toEqual([
       LATEST_URL,
-      `${ORIGIN}/sites/acme/revisions/${release.revision}.json`,
+      `${ORIGIN}/sites/acme/revisions/${release.revision}/data.json`,
     ]);
     expect(api.requests.every((r) => r.headers.authorization === undefined)).toBe(true);
-    const loaded = await loader.load();
-    expect(loaded).toEqual({
-      revision: release.revision,
-      schemaHash: SCHEMA,
-      blocks: release.blocks,
-      aliases: fallback.aliases,
-    });
   });
 
-  it("CD-7: refuses a latest.json that isn't { revision: <commit SHA>, schemaHash, publishedAt }", async () => {
+  it("CD-7: refuses a latest.json that doesn't name a revision id (<inv>-<uuidv7>)", async () => {
     const release = await hashed("Evil");
     const bad = [
-      { revision: release.revision, schemaHash: SCHEMA }, // no publishedAt
-      { revision: "../../other/revisions/x", schemaHash: SCHEMA, publishedAt: "x" },
-      { revision: `${release.revision}/../x`, schemaHash: SCHEMA, publishedAt: "x" },
-      { revision: "f".repeat(64), schemaHash: SCHEMA, publishedAt: "x" }, // a content hash
-      { revision: release.revision, schemaHash: "x", publishedAt: "x" },
-      { format: 1, generation: 1, revision: release.revision, snapshot: "/x.json" }, // v0 channels
+      {}, // no revision
+      { revision: "../../other/revisions/x" },
+      { revision: `${release.revision}/../x` },
+      { revision: "f".repeat(64) }, // a content hash
+      { revision: "1".repeat(40), schemaHash: "5".repeat(64), publishedAt: "x" }, // the git-SHA format
+      { format: 1, generation: 1, revision: "1".repeat(40), snapshot: "/x.json" }, // v0 channels
     ];
     for (const value of bad) {
       resetForTests();
       const api = deliveryApi();
-      api.asset(api.assetPath(release.revision), {
-        revision: release.revision,
-        schemaHash: SCHEMA,
-        blocks: release.blocks,
-      });
+      api.asset(api.assetPath(release.revision), { blocks: release.blocks });
       api.setLatest(value);
-      const fallback = docsSnapshot();
-      const loader = remote(fallback);
-      await expect(loader.update?.()).rejects.toThrow();
+      await expect(remote().load()).rejects.toMatchObject({ reason: "format" });
       expect(api.assetFetches()).toBe(0);
-      expect(await loader.load()).toBe(fallback);
     }
   });
 
-  it("CD-8: swaps only when latest.json's schemaHash equals the bundled content's; otherwise keeps what it serves", async () => {
+  it("CD-8/CD-9: no schema gate: whatever revision latest.json names is swapped in, whatever else it holds", async () => {
     const api = deliveryApi();
     const one = await hashed("One");
-    const two = await hashed("Two");
-    const fallback = docsSnapshot();
-    const cms = createCMS({ blocks: docsBlocks(), content: fallback, site: SITE });
-    api.publish(one, undefined, "6".repeat(64));
-    expect(await cms.update()).toEqual({ updated: false });
-    expect(api.assetFetches()).toBe(0);
-    expect(await cms.forRelease().revision()).toBe(fallback.revision);
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
     api.publish(one);
+    api.setLatest({ revision: one.revision, schemaHash: "6".repeat(64), publishedAt: "x" });
     expect(await cms.update()).toEqual({ updated: true });
-    api.publish(two, undefined, "6".repeat(64));
-    expect(await cms.update()).toEqual({ updated: false });
     expect(await titleOf(cms.forRelease())).toBe("One");
+    const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
+    expect(sdk).not.toMatch(/schemaHash|committedAt|publishedAt/);
   });
 
-  it("CD-9: bundled content without a schemaHash (no schema.gen.json at build) never swaps", async () => {
+  it("CD-10: the revision it already holds is never downloaded again", async () => {
     const api = deliveryApi();
-    api.publish(await hashed("Published"));
-    const cms = createCMS({ blocks: docsBlocks(), content: unhashedSnapshot(), site: SITE });
-    expect(await cms.update()).toEqual({ updated: false });
-    expect(api.fetch).not.toHaveBeenCalled();
-  });
-
-  it("CD-10: no comparison with the bundle: the first check downloads the pointer's revision even when it holds the bundled content", async () => {
-    const api = deliveryApi();
-    const bundled = docsSnapshot();
-    const sameContent = { revision: "c".repeat(40), blocks: bundled.blocks };
-    api.publish(sameContent);
-    const cms = createCMS({ blocks: docsBlocks(), content: bundled, site: SITE });
-    expect(await cms.update()).toEqual({ updated: true });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    expect(await cms.forRelease().revision()).toBe(DOCS_REV);
     expect(api.assetFetches()).toBe(1);
-    expect(await cms.forRelease().revision()).toBe(sameContent.revision);
-    expect(await cms.update()).toEqual({ updated: false }); // the revision it already loaded
+    expect(await cms.update()).toEqual({ updated: false });
     expect(api.assetFetches()).toBe(1);
   });
 
@@ -343,7 +309,6 @@ describe("content-delivery", () => {
     api.publish(good);
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     await cms.update();
@@ -360,7 +325,7 @@ describe("content-delivery", () => {
     const api = deliveryApi();
     const a = await hashed("A");
     const b = await hashed("B");
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     api.publish(a);
     await cms.update();
     api.publish(b);
@@ -384,13 +349,10 @@ describe("content-delivery", () => {
         controller.enqueue(CHUNK);
       },
     });
-    const revision = "f".repeat(40);
+    const revision = revisionIdOf("f".repeat(64));
     api.point(revision);
     api.asset(api.assetPath(revision), new Response(body));
-    const fallback = docsSnapshot();
-    const loader = remote(fallback);
-    await expect(loader.update?.()).rejects.toThrow();
-    expect(await loader.load()).toBe(fallback);
+    await expect(remote().load()).rejects.toMatchObject({ reason: "format" });
     // Rejected by a size bound, not after buffering and failing to parse all of it.
     expect(pulled).toBeLessThan(TOTAL_MB);
   }, 60_000);
@@ -417,8 +379,13 @@ function hugeBody(mb: number) {
 }
 
 describe("draft previews", () => {
+  /** A CMS over the docs' content; with `site`, the same content from the fake CDN. */
   const cmsOf = (options: Partial<Parameters<typeof createCMS>[0]> = {}) =>
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), ...options });
+    createCMS({
+      blocks: docsBlocks(),
+      ...(options.site ? {} : { content: docsSnapshot() }),
+      ...options,
+    });
   const failed = async (client: ReturnType<ReturnType<typeof createCMS>["forDraft"]>) => {
     const [value, error] = await client.resolve("SummerSEO");
     const [list, listError] = await client.list("seo");
@@ -682,10 +649,8 @@ describe("draft previews", () => {
     expect(await result).toEqual(FAILED);
   });
 
-  it("DP-11: the shape is checked: exactly { set, delete }, disjoint", async () => {
+  it("DP-11: the shape is checked: { set, delete }, disjoint", async () => {
     const bodies: unknown[] = [
-      { format: 1, set: {}, delete: [] }, // the old git-branch form
-      { set: {}, delete: [], baseRevision: "x" },
       { set: [], delete: [] },
       { set: null, delete: [] },
       { set: {} },
@@ -706,6 +671,26 @@ describe("draft previews", () => {
       );
       expect({ body, ...(await failed(cmsOf().forDraft(pointer))) }).toEqual({ body, ...FAILED });
     }
+  });
+
+  it("DP-11b: other top-level keys (Studio's editors: who changed each block, and when) are ignored", async () => {
+    const api = deliveryApi();
+    const pointer = api.draft({});
+    api.respond("summer-sale", () =>
+      Response.json({
+        set: { SummerSEO: seoEntry("Draft") },
+        delete: ["HelloWorld"],
+        editors: {
+          SummerSEO: { userId: "usr_123", at: 1793800000 },
+          HelloWorld: { userId: "usr_456", at: 1793800100 },
+        },
+        future: { anything: true },
+      }),
+    );
+    const draft = cmsOf().forDraft(pointer);
+    expect(await titleOf(draft)).toBe("Draft");
+    expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
+    expect((await draft.resolve("editors"))[1]?.code).toBe("NOT_FOUND");
   });
 
   it("DP-12: a failed draft is LOADER_FAILED on every call, never published content, and isn't reused", async () => {
@@ -863,7 +848,7 @@ describe("draft previews", () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = cmsOf({ site: SITE });
-    await cms.update(); // nothing published yet: the bundle
+    await cms.update(); // the first load: the docs' release
     const before = api.latestFetches();
     const a = await hashed("Release A", posted("A"));
     api.publish(a);
@@ -1055,87 +1040,36 @@ describe("hosted", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 
-  it("H-4/HRI-1: with site, content is the fallback while delivery is unreachable", async () => {
+  it("H-4/HRI-1: with site, a cold start while delivery is unreachable answers LOADER_FAILED; the site decides", async () => {
     const api = deliveryApi();
     api.fail(true);
-    const content = docsSnapshot();
-    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE });
-    const client = cms.forRelease();
-    const [entries, error] = await client.list("seo");
-    expect(error).toBeNull();
-    expect(entries).toHaveLength(1);
-    expect(await titleOf(client)).toBe("Sunny!");
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    expect(await unavailableOf(cms.forRelease())).toEqual({ reason: "network", status: undefined });
+    const [list, error] = await cms.forRelease().list("seo");
+    expect(list).toBeNull();
+    expect(error?.code).toBe("LOADER_FAILED");
+    await expect(cms.forRelease().revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
     await expect(cms.update()).resolves.toEqual({ updated: false });
-    expect(api.latestFetches()).toBeGreaterThan(0); // remoteLoader wrapped it
-  });
-
-  it("H-5: in development (dev: true), releases stay on local files but ?__draft= still loads", async () => {
-    const api = deliveryApi();
-    api.publish(await hashed("Published"));
-    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      dev: true,
-    });
-    cms.forRelease();
-    await flush();
-    await cms.update();
-    expect(api.latestFetches()).toBe(0);
+    // Delivery answers again: the next request loads.
+    api.fail(false);
     expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
   });
 
-  it("H-5 (default): without dev, NODE_ENV=development keeps local files; drafts still load", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const api = deliveryApi();
-    api.publish(await hashed("Published"));
-    const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
-    await cms.update();
-    expect(api.latestFetches()).toBe(0);
-    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-  });
-
-  it("H-5 (override): an explicit dev: false swaps releases in even when NODE_ENV=development", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const api = deliveryApi();
-    api.publish(await hashed("Published"));
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-      dev: false,
-    });
-    await expect(cms.update()).resolves.toEqual({ updated: true });
-    expect(await titleOf(cms.forRelease())).toBe("Published");
-  });
-
-  it("H-5 (production): NODE_ENV=production, or no NODE_ENV, swaps releases in", async () => {
-    for (const env of ["production", undefined]) {
+  it("H-5: no development rule: NODE_ENV=development serves and follows releases like production", async () => {
+    for (const env of ["development", "production", undefined]) {
       resetForTests();
       vi.stubEnv("NODE_ENV", env);
       const api = deliveryApi();
+      const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
+      const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+      expect(await titleOf(cms.forRelease()), String(env)).toBe("Sunny!");
       api.publish(await hashed("Published"));
-      const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
       await expect(cms.update(), String(env)).resolves.toEqual({ updated: true });
+      expect(await titleOf(cms.forRelease())).toBe("Published");
+      expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     }
-  });
-
-  it("H-5 (no process): where there is no process global (Workers, browsers), dev defaults to false", async () => {
-    const api = deliveryApi();
-    api.publish(await hashed("Published"));
-    const saved = globalThis.process;
-    let cms: ReturnType<typeof createCMS>;
-    try {
-      (globalThis as { process?: unknown }).process = undefined;
-      cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
-    } finally {
-      globalThis.process = saved;
-    }
-    await expect(cms.update()).resolves.toEqual({ updated: true });
+    const sdk = fs.readFileSync(path.join(HERE, "../cms.ts"), "utf8");
+    expect(sdk).not.toMatch(/NODE_ENV|isDevelopment/);
   });
 
   it("H-6: site alone never sends telemetry; site reads no environment variable", async () => {
@@ -1143,7 +1077,7 @@ describe("hosted", () => {
     vi.stubEnv("DECO_SITE_TOKEN", TOKEN);
     const api = deliveryApi();
     api.publish(await hashed("Published"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     await cms.update();
     const client = cms.forRelease();
     await client.resolve("SummerPage");
@@ -1168,15 +1102,13 @@ describe("hosted", () => {
 // ---------------------------------------------------------------------------
 
 describe("hosted-publishing", () => {
-  it("HP-1/HRI-2: requests read memory and never wait for a pending check", async () => {
+  it("HP-1/HRI-2: once a release is held, requests read memory and never wait for a pending check", async () => {
+    const api = deliveryApi();
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
     const hang = new Promise<Response>(() => {});
-    const fetch = vi.fn(() => hang);
-    vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: docsSnapshot(),
-      site: SITE,
-    });
+    api.fetch.mockImplementation(() => hang);
+    const fetch = api.fetch;
     void cms.update(); // a check that never finishes
     const client = cms.forRelease();
     const result = await Promise.race([client.list("seo"), flush(200).then(() => "timeout")]);
@@ -1188,7 +1120,6 @@ describe("hosted-publishing", () => {
     const api = deliveryApi();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     const before = cms.forRelease();
@@ -1219,13 +1150,13 @@ describe("hosted-publishing", () => {
     api.fail(true);
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     await expect(cms.update()).resolves.toEqual({ updated: false });
     api.fail(false);
     api.publish(await hashed("Now"));
-    await expect(cms.update()).resolves.toEqual({ updated: true });
+    // Nothing held yet: the check is the first load, and reports no swap.
+    await expect(cms.update()).resolves.toEqual({ updated: false });
     expect(await titleOf(cms.forRelease())).toBe("Now");
   });
 
@@ -1329,7 +1260,7 @@ describe("hosted-publishing", () => {
   it("HP-9: an unchanged latest.json costs one small request, no revision download", async () => {
     const api = deliveryApi();
     api.publish(await hashed("Once"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     await cms.update();
     const assets = api.assetFetches();
     await cms.update();
@@ -1344,7 +1275,6 @@ describe("hosted-publishing", () => {
     api.publish(good);
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     await cms.update();
@@ -1361,7 +1291,6 @@ describe("hosted-publishing", () => {
     const api = deliveryApi();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     const client = cms.forRelease();
@@ -1372,7 +1301,7 @@ describe("hosted-publishing", () => {
     await cms.update();
     const [second] = await client.list("seo");
     expect(second).toEqual(first);
-    expect(await client.revision()).toBe("rev-1");
+    expect(await client.revision()).toBe(DOCS_REV);
   });
 
   it("HP-13: a type the deployed code lacks fails that block with UNKNOWN_BLOCK", async () => {
@@ -1382,7 +1311,6 @@ describe("hosted-publishing", () => {
     );
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     await cms.update();
@@ -1394,23 +1322,24 @@ describe("hosted-publishing", () => {
     expect(seo).toMatchObject({ title: "x" });
   });
 
-  it("HP-16: remoteLoader(content, { site }) is a loader whose load() reports the served revision", async () => {
+  it("HP-16: remoteLoader(undefined, { site }) is a loader whose load() reports the served revision", async () => {
     deliveryApi();
-    const content = docsSnapshot();
-    const connected = remoteLoader(content, { site: SITE }) as Loader;
-    expect((await connected.load()).revision).toBe(content.revision);
-    // The site reads its own env and passes it; an unset value is a plain loader.
+    const connected = remote();
+    expect((await connected.load()).revision).toBe(DOCS_REV);
+    // The site reads its own env and passes it; an unset value is a plain loader over content.
     const env = { DECO_SITE: undefined } as Record<string, string | undefined>;
+    const content = docsSnapshot();
     const loader = remoteLoader(content, { site: env.DECO_SITE as string });
-    expect(typeof (loader as Loader).load).toBe("function");
+    expect(await (loader as Loader).load()).toBe(content);
     expect((loader as Loader).update).toBeUndefined();
   });
 
-  it("HP-17: a server that hasn't fetched a release reports its fallback's revision", async () => {
+  it("HP-17: a server that hasn't fetched a release has none to report: revision() rejects", async () => {
     deliveryApi().fail(true);
-    const content = await contentModule();
-    const cms = createCMS({ blocks: docsBlocks(), content, site: SITE });
-    expect(await cms.forRelease().revision()).toBe(content.revision);
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    await expect(cms.forRelease().revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
+    const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
+    expect(sdk).not.toMatch(/fallback/i);
   });
 });
 
@@ -1435,7 +1364,7 @@ describe("hosted-drafts", () => {
   it("HD-2: forDraft revalidates the draft on every read; an unchanged one is a 304 served from memory", async () => {
     const api = deliveryApi();
     const pointer = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
     expect(api.draftFetches()).toHaveLength(2);
@@ -1450,7 +1379,6 @@ describe("hosted-drafts", () => {
     });
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     const draft = cms.forDraft(pointer);
@@ -1468,7 +1396,6 @@ describe("hosted-drafts", () => {
     deliveryApi(); // the token in POINTER isn't the one the fake Studio signed: 401
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     const client = cms.forDraft(POINTER);
@@ -1507,7 +1434,6 @@ describe("hosted-drafts", () => {
     const POINTER = api.draft({ set: { SummerSEO: seoEntry("Draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
       preview: { hosts: ["s.example"] },
     });
@@ -1573,7 +1499,6 @@ describe("hosted-drafts", () => {
     const POINTER = api.draft({ set: { SummerSEO: seoEntry("Mobile draft") } });
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     const url = `mystore://preview?__draft=${encodeURIComponent(POINTER)}`;
@@ -1592,7 +1517,6 @@ describe("hosted-drafts", () => {
     const api = deliveryApi();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     const [value, error] = await cms.forDraft("evil.example/x?token=t@1").resolve("SummerSEO");
@@ -1605,7 +1529,6 @@ describe("hosted-drafts", () => {
     const api = deliveryApi();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     for (const pointer of ["garbage", "https://x/y@1", "@1", `${DRAFT_HOST}/x@`]) {
@@ -1626,8 +1549,8 @@ describe("hosted-drafts", () => {
       },
     });
     api.previewHosts(["staging.store.example.com"]);
-    api.point("0".repeat(40)); // Studio's metadata; this process keeps serving the bundle
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    api.point(DOCS_REV); // Studio's metadata, written with the release
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     const pick = async (request: Request) => {
       const pointer = await cms.draftPointer(request);
       const cookie = await cms.draftCookie(request);
@@ -1664,7 +1587,7 @@ describe("preview hosts in the release metadata", () => {
     const api = deliveryApi();
     api.previewHosts(["staging.example.com", "*.deco.site", "localhost"]);
     api.publish(await hashed("Published"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     // A request that asks for no preview reads no metadata.
     expect(await cms.readVersion(new Request("https://www.example.com/"))).toBeNull();
     expect(api.latestFetches()).toBe(0);
@@ -1686,7 +1609,7 @@ describe("preview hosts in the release metadata", () => {
     // The background check keeps them current: Studio changes the site's addresses on the next publish.
     api.previewHosts(["www.example.com"]);
     api.publish(await hashed("Next"));
-    expect(await cms.update()).toEqual({ updated: true });
+    expect(await cms.update()).toEqual({ updated: false }); // the first load: nothing to swap
     expect(await cms.draftPointer(link("www.example.com"))).toBe(POINTER);
     expect(await cms.draftPointer(link("staging.example.com"))).toBeNull();
   });
@@ -1696,9 +1619,12 @@ describe("preview hosts in the release metadata", () => {
     api.previewHosts([]);
     api.publish(await hashed("Published"));
     // The CMS block's preview field, an earlier version's, doesn't count either.
-    const bundled = docsSnapshot();
-    bundled.blocks.CMS = { __resolveType: "cms-settings", preview: { hosts: ["*"] } };
-    const cms = createCMS({ blocks: docsBlocks(), content: bundled, site: SITE });
+    api.publish(
+      await hashed("Published", {
+        CMS: { __resolveType: "cms-settings", preview: { hosts: ["*"] } },
+      }),
+    );
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(await cms.readVersion(link("staging.example.com"))).toBeNull();
     expect(await cms.draftCookie(link("staging.example.com"))).toBeNull();
     expect((await cms.settings()).preview.hosts).toEqual([]);
@@ -1706,17 +1632,17 @@ describe("preview hosts in the release metadata", () => {
     expect(await cms.draftCookie(new Request("https://staging.example.com/?__draft=off"))).toMatch(
       /Max-Age=0/,
     );
-    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    expect(await titleOf(cms.forRelease())).toBe("Published");
   });
 
-  it("PH-3: a release SHA preview, like a draft, is checked against the current release's hosts, not the old release's", async () => {
+  it("PH-3: a release id preview, like a draft, is checked against the current release's hosts, not the old release's", async () => {
     const api = deliveryApi();
     api.previewHosts(["old.example.com"]);
     const old = await hashed("Old");
     api.publish(old);
     api.previewHosts(["new.example.com"]);
     api.publish(await hashed("Current"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(await cms.readVersion(link("old.example.com", old.revision))).toBeNull();
     const read = await cms.readVersion(link("new.example.com", old.revision));
     expect(read).toEqual({ version: old.revision });
@@ -1725,14 +1651,15 @@ describe("preview hosts in the release metadata", () => {
     expect(await cms.readVersion(link("old.example.com", old.revision))).toBeNull();
   });
 
-  it("PH-4: the current release's hosts count whether or not this process swapped it in (a newer bundle still previews where Studio says)", async () => {
+  it("PH-4: the hosts of the last latest.json read count before its revision is downloaded", async () => {
     const api = deliveryApi();
     api.previewHosts(["staging.example.com"]);
-    api.point("1".repeat(40), "6".repeat(64)); // built with another schema: never swapped in
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
-    expect(await cms.update()).toEqual({ updated: false });
+    api.publish(await hashed("Published"));
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(await cms.draftPointer(link("staging.example.com"))).toBe(POINTER);
-    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+    expect(await cms.draftPointer(link("www.example.com"))).toBeNull();
+    expect(api.assetFetches()).toBe(0);
+    expect(await titleOf(cms.forRelease())).toBe("Published");
   });
 
   it("PH-5: with no remote site, previews are allowed on every host, unless createCMS's preview.hosts lists hosts; with a site, that list adds to the release's", async () => {
@@ -1762,7 +1689,6 @@ describe("preview hosts in the release metadata", () => {
     hostedApi.publish(await hashed("Published"));
     const hosted = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
       preview: { hosts: ["localhost"] },
     });
@@ -1771,24 +1697,13 @@ describe("preview hosts in the release metadata", () => {
     expect(await hosted.draftPointer(link("www.example.com"))).toBeNull();
   });
 
-  it("PH-6: dev: true never swaps a release in, but previews still follow the metadata Studio writes", async () => {
-    const api = deliveryApi();
-    api.previewHosts(["localhost"]);
-    api.publish(await hashed("Published"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE, dev: true });
-    expect(await cms.draftPointer(link("localhost:5173"))).toBe(POINTER);
-    expect(await cms.update()).toEqual({ updated: false });
-    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    expect(api.assetFetches()).toBe(0);
-  });
-
   it("PH-7: a site with no latest.json on the CDN (not published yet) previews on every host", async () => {
     for (const code of [undefined, ["localhost"]]) {
       resetForTests();
-      const api = deliveryApi(); // nothing published: latest.json is a 404
+      const api = deliveryApi();
+      api.unpublish(); // nothing published: latest.json is a 404
       const cms = createCMS({
         blocks: docsBlocks(),
-        content: docsSnapshot(),
         site: SITE,
         ...(code ? { preview: { hosts: code } } : {}),
       });
@@ -1802,7 +1717,8 @@ describe("preview hosts in the release metadata", () => {
       expect(await cms.draftCookie(new Request("https://www.example.com/?__draft=off"))).toMatch(
         /Max-Age=0/,
       );
-      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+      // Nothing to serve: the release is LOADER_FAILED (a 404), never an empty one.
+      expect(await unavailableOf(cms.forRelease())).toEqual({ reason: "http", status: 404 });
     }
   });
 
@@ -1810,7 +1726,7 @@ describe("preview hosts in the release metadata", () => {
     const api = deliveryApi();
     api.previewHosts(undefined);
     api.publish(await hashed("Published"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     for (const host of ["staging.example.com", "www.example.com"]) {
       expect(await cms.draftPointer(link(host)), host).toBe(POINTER);
     }
@@ -1818,7 +1734,7 @@ describe("preview hosts in the release metadata", () => {
     // The next publish writes the list: from then on it's enforced.
     api.previewHosts(["staging.example.com"]);
     api.publish(await hashed("Next"));
-    expect(await cms.update()).toEqual({ updated: true });
+    expect(await cms.update()).toEqual({ updated: false }); // the first load: nothing to swap
     expect(await cms.draftPointer(link("staging.example.com"))).toBe(POINTER);
     expect(await cms.draftPointer(link("www.example.com"))).toBeNull();
     expect(await cms.draftCookie(link("www.example.com"))).toBeNull();
@@ -1830,18 +1746,18 @@ describe("preview hosts in the release metadata", () => {
     const failures: [string, (api: ReturnType<typeof deliveryApi>) => void][] = [
       ["network error", (api) => api.fail(true)],
       ["5xx", (api) => api.setLatest(new Response("unavailable", { status: 503 }))],
-      ["malformed", (api) => api.setLatest({ revision: "not a sha" })],
+      ["malformed", (api) => api.setLatest({ revision: "not a revision id" })],
     ];
     for (const [label, fail] of failures) {
       resetForTests();
       const api = deliveryApi();
       fail(api);
-      const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+      const cms = createCMS({ blocks: docsBlocks(), site: SITE });
       expect(await cms.draftPointer(link("staging.example.com")), label).toBeNull();
       expect(await cms.draftCookie(link("staging.example.com")), label).toBeNull();
       expect((await cms.settings()).preview.hosts, label).toEqual([]);
-      // The release still serves, nothing rejects, and ending a preview works.
-      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
+      // The release can't load either (LOADER_FAILED), nothing rejects, and ending a preview works.
+      expect((await cms.forRelease().resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
       expect(
         await cms.draftCookie(new Request("https://staging.example.com/?__draft=off")),
       ).toMatch(/Max-Age=0/);
@@ -1862,7 +1778,7 @@ describe("preview hosts in the release metadata", () => {
     const api = deliveryApi();
     api.previewHosts(["staging.example.com"]);
     api.publish(await hashed("Published"));
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(await cms.draftPointer(link("www.example.com"))).toBeNull();
     // The CDN answers 404 for a published site (a fault): the list read before still applies.
     api.setLatest(new Response("not found", { status: 404 }));
@@ -1879,44 +1795,37 @@ describe("preview hosts in the release metadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("CMS settings from hosted releases", () => {
-  const bundled = (): Snapshot => {
-    const snapshot = docsSnapshot();
-    snapshot.blocks.CMS = {
-      __resolveType: "cms-settings",
-      analytics: { collector: "https://bundled.example/events" },
-    };
-    return snapshot;
-  };
+  const withSettings = (title: string, collector: string) =>
+    hashed(title, { CMS: { __resolveType: "cms-settings", analytics: { collector } } });
 
-  it("S-1: offline, at boot, settings come from the bundled content module, with no fetch", async () => {
+  it("S-1: before the first load, settings are the defaults, with no fetch; offline, previews stay closed", async () => {
     const api = deliveryApi();
     api.fail(true);
-    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     const settings = await cms.settings();
     expect(settings.preview.hosts).toEqual([]);
-    expect(settings.analytics.collector).toBe("https://bundled.example/events");
+    expect(settings.analytics.collector).toBe(HOSTED_ANALYTICS_COLLECTOR);
     expect(api.fetch).not.toHaveBeenCalled();
-    // No preview hosts while the Deco API can't be reached: the release serves, nothing rejects.
+    // No preview hosts while delivery can't be reached: nothing rejects.
     const link = `?__draft=${encodeURIComponent("delivery.decocms.com/x@v")}`;
     expect(await cms.draftPointer(new Request(`https://www.example.com/${link}`))).toBeNull();
-    // A request serves the bundled release; the failed background check changes nothing.
-    expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    await flush(50);
-    expect((await cms.settings()).analytics.collector).toBe("https://bundled.example/events");
+    // Delivery answers: the first load brings the release's settings.
+    api.fail(false);
+    api.publish(await withSettings("Published", "https://published.example/events"));
+    expect(await titleOf(cms.forRelease())).toBe("Published");
+    expect((await cms.settings()).analytics.collector).toBe("https://published.example/events");
   });
 
   it("S-2: a newer release's settings arrive with the background check, never before", async () => {
     const api = deliveryApi();
-    const next = await hashed("Published", {
-      CMS: { __resolveType: "cms-settings", analytics: { collector: "https://next.example/e" } },
-    });
+    api.publish(await withSettings("First", "https://first.example/events"));
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    expect(await titleOf(cms.forRelease())).toBe("First");
+    const next = await withSettings("Published", "https://next.example/e");
     api.previewHosts(["www.example.com"]);
     api.publish(next);
-    const cms = createCMS({ blocks: docsBlocks(), content: bundled(), site: SITE });
     const before = await cms.settings();
-    expect(before.analytics.collector).toBe("https://bundled.example/events");
-    expect(before.preview.hosts).toEqual([]);
-    expect(api.fetch).not.toHaveBeenCalled();
+    expect(before.analytics.collector).toBe("https://first.example/events");
     expect(await cms.update()).toEqual({ updated: true });
     const after = await cms.settings();
     expect(after.analytics.collector).toBe("https://next.example/e");
@@ -1936,7 +1845,6 @@ describe("hosted-releases-internals", () => {
     const api = deliveryApi();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     expect(api.latestFetches()).toBe(0); // nothing at construction
@@ -2011,45 +1919,27 @@ describe("hosted-releases-internals", () => {
     expect(sdk).not.toMatch(/webhook|addEventListener\(|createServer/i);
   });
 
-  it("HRI-6: no ordering among pointers: an older publishedAt is followed like any other (it's compared only with the bundle's committedAt)", async () => {
+  it("HRI-6: no ordering among pointers: whatever latest.json names is followed, an older id included", async () => {
     const api = deliveryApi();
-    const loader = remote(docsSnapshot());
+    const loader = remote();
     const five = await hashed("Five");
     const four = await hashed("Four");
     api.publish(five);
     await loader.update?.();
     api.publish(four);
-    api.setLatest({
-      revision: four.revision,
-      schemaHash: SCHEMA,
-      publishedAt: "1970-01-01T00:00:00Z",
-    });
+    api.setLatest({ revision: four.revision, publishedAt: "1970-01-01T00:00:00Z" });
     expect(await loader.update?.()).toEqual({ updated: true });
     expect((await loader.load()).revision).toBe(four.revision);
     const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
     expect(sdk).not.toMatch(/generation|channels/);
   });
 
-  it("HRI-8: a revision object that isn't the one latest.json names is rejected", async () => {
+  it("HRI-8: a revision's body isn't compared with the pointer: the id lives only in the path", async () => {
     const api = deliveryApi();
     const real = await hashed("Real");
-    const wrong = { revision: "e".repeat(40), schemaHash: SCHEMA, blocks: real.blocks };
-    api.publish(real, wrong);
-    const fallback = docsSnapshot();
-    const loader = remote(fallback);
-    await expect(loader.update?.()).rejects.toThrow(/not the revision latest\.json names/);
-    expect(await loader.load()).toBe(fallback);
-  });
-
-  it("HRI-9: a loader with its own revision scheme is downloaded once", async () => {
-    const api = deliveryApi();
-    const custom: Loader = { load: async () => docsSnapshot("my-own-scheme-1") };
-    const loader = remote(custom);
-    api.publish(await hashed("Hosted"));
-    await loader.update?.();
-    await loader.update?.();
-    await loader.update?.();
-    expect(api.assetFetches()).toBe(1);
+    api.publish(real, { blocks: real.blocks, revision: revisionIdOf("e".repeat(64)) });
+    const loader = remote();
+    expect(await loader.load()).toEqual({ revision: real.revision, blocks: real.blocks });
   });
 
   it("HRI-10/HD-4: a draft that can't be fetched is LOADER_FAILED on every call; published content is never substituted", async () => {
@@ -2057,7 +1947,6 @@ describe("hosted-releases-internals", () => {
     api.publish(await hashed("Release"));
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: SITE,
     });
     await cms.update();
@@ -2069,14 +1958,9 @@ describe("hosted-releases-internals", () => {
   });
 
   it("HRI-11: instances live on globalThis under Symbol.for('decocms.blocks…') keys", () => {
-    const config = {
-      blocks: docsBlocks(),
-      content: { ...docsSnapshot(), root: ".deco" },
-      site: SITE,
-      token: TOKEN,
-    };
+    const config = { blocks: docsBlocks(), site: SITE, token: TOKEN };
     const a = createCMS(config);
-    const b = createCMS({ ...config, content: { ...docsSnapshot(), root: ".deco" } });
+    const b = createCMS({ ...config });
     expect(instanceOf(b)).toBe(instanceOf(a));
     const keys = Object.getOwnPropertySymbols(globalThis)
       .map((s) => Symbol.keyFor(s))
@@ -2086,32 +1970,21 @@ describe("hosted-releases-internals", () => {
     expect(keys.join("\n")).not.toContain(TOKEN);
   });
 
-  it("HRI-12: the key is the site and the content identity, never the revision or the token", async () => {
+  it("HRI-12: with a site the key is the site, never the token; without, the content identity, never the revision", async () => {
     const blocks = docsBlocks();
-    const a = createCMS({
-      blocks,
-      content: { ...docsSnapshot("rev-1"), root: ".deco" },
-      site: SITE,
-    });
-    const reloaded = createCMS({
-      blocks,
-      content: { ...docsSnapshot("rev-2"), root: ".deco" },
-      site: SITE,
-    });
-    expect(reloaded).toBe(a);
+    const a = createCMS({ blocks, site: SITE, token: "t1" });
+    expect(createCMS({ blocks, site: SITE })).toBe(a);
+    expect(createCMS({ blocks, site: "other" })).not.toBe(a);
+    const local = createCMS({ blocks, content: { ...docsSnapshot("rev-1"), root: ".deco" } });
+    expect(local).not.toBe(a);
+    const reloaded = createCMS({ blocks, content: { ...docsSnapshot("rev-2"), root: ".deco" } });
+    expect(reloaded).toBe(local);
     expect(await reloaded.forRelease().revision()).toBe("rev-2");
-    const other = createCMS({
-      blocks,
-      content: { ...docsSnapshot("rev-2"), root: ".deco" },
-      site: "other",
-    });
-    expect(other).not.toBe(a);
     const otherFolder = createCMS({
       blocks,
       content: { ...docsSnapshot("rev-2"), root: "apps/b/.deco" },
-      site: SITE,
     });
-    expect(otherFolder).not.toBe(a);
+    expect(otherFolder).not.toBe(local);
   });
 
   it("HRI-13: a second call with other options keeps the first instance and names the option", () => {
@@ -2124,110 +1997,22 @@ describe("hosted-releases-internals", () => {
   });
 
   it("HRI-14: resetForTests() clears every stored instance", () => {
-    const content = { ...docsSnapshot(), root: ".deco" };
-    const a = createCMS({ blocks: docsBlocks(), content, site: SITE });
-    const loaderA = remoteLoader(content, { site: SITE });
+    const a = createCMS({ blocks: docsBlocks(), site: SITE });
+    const loaderA = remote();
     resetForTests();
-    expect(createCMS({ blocks: docsBlocks(), content, site: SITE })).not.toBe(a);
-    expect(remoteLoader(content, { site: SITE })).not.toBe(loaderA);
+    expect(createCMS({ blocks: docsBlocks(), site: SITE })).not.toBe(a);
+    expect(remote()).not.toBe(loaderA);
     expect(typeof (root as Record<string, unknown>).resetForTests).toBe("function");
   });
 
-  describe("HRI-16..HRI-21: whoever is newer wins (latest.json publishedAt vs the bundle's committedAt)", () => {
-    const at = (hour: number) => `2026-10-07T${String(hour).padStart(2, "0")}:00:00.000Z`;
-    /** The content module `deco content` wrote from a commit made at `committedAt`. */
-    const built = (committedAt?: string): Snapshot =>
-      committedAt === undefined ? docsSnapshot() : { ...docsSnapshot(), committedAt };
-    /** Studio's Publish / Make current / Resync, at `publishedAt`. */
-    async function release(
-      api: ReturnType<typeof deliveryApi>,
-      title: string,
-      publishedAt: string,
-      schemaHash = SCHEMA,
-    ) {
-      const snapshot = await hashed(title);
-      api.publish(snapshot, undefined, schemaHash);
-      api.setLatest({ revision: snapshot.revision, schemaHash, publishedAt });
-      return snapshot;
+  it("HRI-16: the SDK reads no git API and no environment; no bundle is compared with a release", () => {
+    for (const file of ["../remoteLoader.ts", "../cms.ts", "../content.ts"]) {
+      const sdk = fs.readFileSync(path.join(HERE, file), "utf8");
+      expect(sdk, file).not.toMatch(/github|rev-parse|GIT_[A-Z]|committedAt|schemaHash/i);
+      expect(
+        [...sdk.matchAll(/^(?!\s*\*).*process\.env\.([A-Z_]+)/gm)].map((m) => m[1]),
+        file,
+      ).toEqual([]);
     }
-
-    it("HRI-16: publish, then deploy: the bundle wins", async () => {
-      const api = deliveryApi();
-      await release(api, "Published", at(10));
-      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
-      expect(await cms.update()).toEqual({ updated: false });
-      expect(api.assetFetches()).toBe(0);
-      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    });
-
-    it("HRI-17: deploy, then publish: the CDN wins", async () => {
-      const api = deliveryApi();
-      await release(api, "Published", at(12));
-      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
-      expect(await cms.update()).toEqual({ updated: true });
-      expect(await titleOf(cms.forRelease())).toBe("Published");
-    });
-
-    it("HRI-18: rollback after deploy: Make current writes publishedAt = now, so the CDN wins", async () => {
-      const api = deliveryApi();
-      const old = await release(api, "Old", at(9));
-      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
-      expect(await cms.update()).toEqual({ updated: false });
-      api.setLatest({ revision: old.revision, schemaHash: SCHEMA, publishedAt: at(12) });
-      expect(await cms.update()).toEqual({ updated: true });
-      expect(await titleOf(cms.forRelease())).toBe("Old");
-    });
-
-    it("HRI-19: deploy after rollback: the bundle wins", async () => {
-      const api = deliveryApi();
-      const old = await release(api, "Old", at(9));
-      api.setLatest({ revision: old.revision, schemaHash: SCHEMA, publishedAt: at(12) });
-      const cms = createCMS({ blocks: docsBlocks(), content: built(at(13)), site: SITE });
-      expect(await cms.update()).toEqual({ updated: false });
-      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    });
-
-    it("HRI-20: a newer release built for another schema: the bundle wins", async () => {
-      const api = deliveryApi();
-      await release(api, "Published", at(12), "6".repeat(64));
-      const cms = createCMS({ blocks: docsBlocks(), content: built(at(11)), site: SITE });
-      expect(await cms.update()).toEqual({ updated: false });
-      expect(api.assetFetches()).toBe(0);
-      expect(await titleOf(cms.forRelease())).toBe("Sunny!");
-    });
-
-    it("HRI-21: a bundle without committedAt (custom loader, older module, built outside git) is the oldest: the CDN wins", async () => {
-      const api = deliveryApi();
-      await release(api, "Published", "1970-01-01T00:00:00.000Z");
-      const cms = createCMS({ blocks: docsBlocks(), content: built(), site: SITE });
-      expect(await cms.update()).toEqual({ updated: true });
-      expect(await titleOf(cms.forRelease())).toBe("Published");
-      resetForTests();
-      const custom: Loader = { load: async () => built() };
-      const viaLoader = createCMS({ blocks: docsBlocks(), content: remote(custom) });
-      expect(await viaLoader.update()).toEqual({ updated: true });
-    });
-
-    it("HRI-22: a build of an older commit that finishes after a publish loses to the CDN", async () => {
-      const api = deliveryApi();
-      // Commit at 10:00, publish at 11:00, the slow build of that commit finishes at 12:00:
-      // the stamp is the commit time, so the build finishing last doesn't make it newer.
-      await release(api, "Published", at(11));
-      const cms = createCMS({ blocks: docsBlocks(), content: built(at(10)), site: SITE });
-      expect(await cms.update()).toEqual({ updated: true });
-      expect(await titleOf(cms.forRelease())).toBe("Published");
-    });
-
-    it("HRI-16..22: the SDK reads no git API and no environment", () => {
-      const sdk = fs.readFileSync(path.join(HERE, "../remoteLoader.ts"), "utf8");
-      expect(sdk).not.toMatch(/github|rev-parse|GIT_[A-Z]/i);
-      expect([...sdk.matchAll(/^(?!\s*\*).*process\.env\.([A-Z_]+)/gm)].map((m) => m[1])).toEqual(
-        [],
-      );
-      const cli = fs.readFileSync(path.join(HERE, "../cli/content.ts"), "utf8");
-      // The CLI stamps the commit time of git HEAD; it reads no environment.
-      expect(cli).toMatch(/execFileSync\("git", \["log", "-1", "--format=%cI"\]/);
-      expect(cli).not.toMatch(/process\.env/);
-    });
   });
 });

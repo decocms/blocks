@@ -292,19 +292,18 @@ describe("a client's date and the campaigns it is given", () => {
 });
 
 describe("the preview link: the version, the moment and the tests and campaigns it switches", () => {
-  const OLD = "1".repeat(40);
-  const SCHEMA = "a".repeat(64);
+  const OLD = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
   const enc = encodeURIComponent;
 
   /** A fake delivery CDN holding the published revision OLD, with campaigns and a test. */
   function delivery() {
     const fetch = vi.fn(async (input: string | URL | Request) => {
-      if (String(input) !== `https://delivery.decocms.com/sites/acme/revisions/${OLD}.json`) {
+      if (String(input) !== `https://delivery.decocms.com/sites/acme/revisions/${OLD}/data.json`) {
         return new Response("not found", { status: 404 });
       }
       const { blocks } = snapshotWith({ "black-friday": BLACK_FRIDAY });
       blocks.experiments = { __resolveType: "split-traffic", "hero-copy": 0 };
-      return Response.json({ revision: OLD, schemaHash: SCHEMA, blocks });
+      return Response.json({ blocks });
     });
     vi.stubGlobal("fetch", fetch);
     return fetch;
@@ -404,14 +403,10 @@ describe("the preview link: the version, the moment and the tests and campaigns 
     ).not.toHaveProperty("gone");
   });
 
-  it("pv-05: an old release's SHA carries the same parameters: <sha>?__at=…&__test=…", async () => {
+  it("pv-05: an old release's revision id carries the same parameters: <id>?__at=…&__test=…", async () => {
     at(BEFORE);
     delivery();
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { ...snapshotWith(undefined), schemaHash: SCHEMA },
-      site: "acme",
-    });
+    const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const read = parseVersion(
       `${OLD}?__at=${enc("2026-11-28T09:00:00-03:00")}&__test=${enc("hero-copy=on")}`,
     );

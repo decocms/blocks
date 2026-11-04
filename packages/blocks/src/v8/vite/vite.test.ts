@@ -49,17 +49,14 @@ describe("adoptContent", () => {
     expect(await cms.forRelease().resolve("S")).toEqual([{ title: "one" }, null]);
   });
 
-  it("keeps the instance's own options: a hosted CMS keeps its site", async () => {
+  it("leaves a hosted CMS alone: with site, content comes from the CDN, never a module", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.reject(new Error("offline"))),
     );
-    const cms = createCMS({ blocks, content: content("one"), site: "acme", dev: true });
-    expect(adoptContent(content("two"))).toBe(1);
-    expect(await cms.forRelease().resolve("S")).toEqual([{ title: "two" }, null]);
-    expect(instanceOf(createCMS({ blocks, content: content("x"), site: "acme", dev: true }))).toBe(
-      instanceOf(cms),
-    );
+    const cms = createCMS({ blocks, site: "acme" });
+    expect(adoptContent(content("two"))).toBe(0);
+    expect(instanceOf(createCMS({ blocks, site: "acme" }))).toBe(instanceOf(cms));
   });
 
   it("adopts nothing before a CMS exists, or for a module without a root", () => {

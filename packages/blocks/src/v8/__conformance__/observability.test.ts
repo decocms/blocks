@@ -237,7 +237,7 @@ describe("where telemetry goes (telemetry.mdx)", () => {
 
   it("tel-03/htel-02: a top-level token sends to the hosted collector with token auth, and site to deco.site", async () => {
     const { sent } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "site-token" });
+    createCMS({ blocks: docsBlocks(), site: "acme", token: "site-token" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
     expect(sent[0]?.url).toBe(`${HOSTED_TELEMETRY_ENDPOINT}/v1/metrics`);
@@ -249,7 +249,6 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     const { fetch } = collector();
     createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: false,
@@ -267,7 +266,6 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     const { sent } = collector();
     createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: { endpoint: ENDPOINT, headers: { "x-team": "store" } },
@@ -291,7 +289,7 @@ describe("where telemetry goes (telemetry.mdx)", () => {
 
   it("tel-07: a top-level site alone never turns telemetry on", async () => {
     const { attempts } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
+    createCMS({ blocks: docsBlocks(), site: "acme" });
     expect(currentTelemetry()).toBeUndefined();
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
@@ -917,9 +915,22 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
   it("tin-05: every batch carries service.name, service.version, deployment.environment.name, deco.site and deco.release", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
+    const release = withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }, "rev-9");
+    const REV_9 = "fe6c5e0d97f9-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a59";
+    const collectorFetch = globalThis.fetch;
+    // The release, from the delivery CDN; everything else is the collector.
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://delivery.decocms.com/sites/acme/latest.json") {
+        return Response.json({ revision: REV_9 });
+      }
+      if (url === `https://delivery.decocms.com/sites/acme/revisions/${REV_9}/data.json`) {
+        return Response.json({ blocks: release.blocks });
+      }
+      return collectorFetch(input, init);
+    });
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
-      content: withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }, "rev-9"),
       site: "acme",
       token: "tok",
       telemetry: { limits: { errorSampleRate: 1, traceSampleRate: 1 } },
@@ -943,7 +954,7 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
         ]),
       );
       expect(resource["deco.site"]).toBe("acme");
-      expect(resource["deco.release"]).toBe("rev-9");
+      expect(resource["deco.release"]).toBe(REV_9);
     }
   });
 

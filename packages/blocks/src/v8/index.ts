@@ -8,6 +8,7 @@
 export { createCMS, resetForTests } from "./cms.ts";
 export { currentClient } from "./current.ts";
 export { formatDraftPointer, parseDraftPointer, parseVersion } from "./draft.ts";
+export { ContentUnavailableError, type ContentUnavailableReason } from "./errors.ts";
 export { matchRoute } from "./matchRoute.ts";
 export { remoteLoader } from "./remoteLoader.ts";
 export type {

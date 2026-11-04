@@ -116,6 +116,7 @@ function exportedNames(source: string, from: string): string[] {
 // ---------------------------------------------------------------------------
 
 const DOCUMENTED_ROOT_VALUES = [
+  "ContentUnavailableError",
   "createCMS",
   "currentClient",
   "formatDraftPointer",
@@ -126,6 +127,7 @@ const DOCUMENTED_ROOT_VALUES = [
   "resetForTests",
 ].sort();
 const DOCUMENTED_ROOT_TYPES = [
+  "ContentUnavailableReason",
   "Block",
   "BlockFunction",
   "Blocks",
@@ -235,10 +237,11 @@ declare const blocks: Blocks;
 declare const content: Snapshot;
 declare const loader: Loader;
 createCMS({ blocks, content });
-createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, site: "s", token: "t" });
+createCMS({ blocks, content: loader, interval: 60_000, telemetry: false });
+createCMS({ blocks, interval: 60_000, telemetry: false, site: "s", token: "t" });
 // @ts-expect-error secrets live in the deploy platform: createCMS takes no key
 createCMS({ blocks, content, secrets: { key: "k" } });
-createCMS({ blocks, content, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
+createCMS({ blocks, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" }, resource: { "service.version": "abc" } } });
 createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], draftHosts: [".decocms.com"] } });
 // @ts-expect-error draft hosts are preview.draftHosts
@@ -315,13 +318,13 @@ export { r1, r2, r3 };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt?, previewHosts? }", () => {
+  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, previewHosts? }", () => {
     const errors = typecheck({
       "snapshot.ts": `
 import type { Snapshot } from "@decocms/blocks";
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assert = <T extends true>() => {};
-assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string; previewHosts?: string[] }>>();
+assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; previewHosts?: string[] }>>();
 `,
     });
     expect(errors).toEqual([]);
@@ -386,21 +389,24 @@ describe("AR-06 / AR-07 telemetry destination and limits", () => {
 describe("AR-08 site loads hosted releases; token sends telemetry; neither is needed for drafts", () => {
   it("site alone: releases from delivery, no telemetry", async () => {
     const { currentTelemetry } = await import("../telemetry");
-    const fetch = vi.fn(
-      async (_input: string | URL | Request) => new Response("{}", { status: 404 }),
+    const id = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      String(input).endsWith("/latest.json")
+        ? Response.json({ revision: id })
+        : Response.json({ blocks: docsSnapshot().blocks }),
     );
     vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { ...docsSnapshot(), schemaHash: "5".repeat(64) },
-      site: "acme",
-    });
+    const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
     expect(await cms.update()).toEqual({ updated: false });
-    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+    const urls = fetch.mock.calls.map(([url]) => String(url));
+    expect(urls.slice(0, 2)).toEqual([
       "https://delivery.decocms.com/sites/acme/latest.json",
+      `https://delivery.decocms.com/sites/acme/revisions/${id}/data.json`,
     ]);
+    // Then only checks of latest.json: nothing else is fetched, and no collector.
+    expect(urls.slice(2).every((url) => url.endsWith("/sites/acme/latest.json"))).toBe(true);
     expect(currentTelemetry()).toBeUndefined();
   });
 
@@ -660,10 +666,10 @@ describe("AR-18 / AR-19 content: a snapshot or any loader", () => {
 });
 
 describe("AR-22 remoteLoader", () => {
-  it("is exported from the root, and is a loader over the fallback without site", async () => {
+  it("is exported from the root, and is a loader over the content given without site", async () => {
     expect(root.remoteLoader).toBe(remoteLoader);
-    const fallback = docsSnapshot();
-    expect(await remoteLoader(fallback, { site: "" }).load()).toBe(fallback);
+    const content = docsSnapshot();
+    expect(await remoteLoader(content, { site: "" }).load()).toBe(content);
   });
 
   it("createCMS builds it when site is set: update() reads latest.json from delivery.decocms.com", async () => {
@@ -671,11 +677,7 @@ describe("AR-22 remoteLoader", () => {
       async (_input: string | URL | Request) => new Response("nope", { status: 404 }),
     );
     vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { ...docsSnapshot(), schemaHash: "5".repeat(64) },
-      site: "acme",
-    });
+    const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     expect(await cms.update()).toEqual({ updated: false });
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
       "https://delivery.decocms.com/sites/acme/latest.json",
@@ -737,9 +739,9 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
     const content = docsSnapshot();
     const a = createCMS({ blocks: docsBlocks(), content });
     expect(instanceOf(createCMS({ blocks: docsBlocks(), content }))).toBe(instanceOf(a));
-    expect(
-      instanceOf(createCMS({ blocks: docsBlocks(), content, site: "acme", token: "t" })),
-    ).not.toBe(instanceOf(a));
+    expect(instanceOf(createCMS({ blocks: docsBlocks(), site: "acme", token: "t" }))).not.toBe(
+      instanceOf(a),
+    );
   });
 
   it("a hot reload that hands in a new content module (new revision) keeps the instance", () => {

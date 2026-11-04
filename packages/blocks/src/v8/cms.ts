@@ -107,7 +107,7 @@ class CMSInstance {
 
   /**
    * A client for one request: the version it reads (the current release, a
-   * published release by its commit SHA, or a draft pointer), the visitor it
+   * published release by its revision id, or a draft pointer), the visitor it
    * decides tests for and the date it checks campaigns at (default: now),
    * all passed in, with the tests and campaigns it is given on top.
    */
@@ -129,7 +129,7 @@ class CMSInstance {
     if (parsed === null)
       return this.#client(blocks, () => this.#store.draft(version, check), inputs);
     if (parsed.kind === "revision") {
-      return this.#client(blocks, () => this.#store.revision(parsed.sha), inputs);
+      return this.#client(blocks, () => this.#store.revision(parsed.id), inputs);
     }
     const { variants } = parsed.pointer;
     const load = () => this.#store.draft(version, check);
@@ -399,7 +399,7 @@ export function instanceOf(cms: CMS): object | undefined {
 export function createCMS(config: CMSConfig): CMS {
   validate(config);
   // A remoteLoader passed as `content` carries the `interval` it was created with.
-  const own = (config.content as { interval?: unknown }).interval;
+  const own = (config.content as { interval?: unknown } | undefined)?.interval;
   const interval = resolveInterval(config.interval ?? (typeof own === "number" ? own : undefined));
   const key = Symbol.for(INSTANCE_PREFIX + identityOf(config));
   const store = globalThis as unknown as Record<symbol, CMSInstance | undefined>;
@@ -423,7 +423,8 @@ export function createCMS(config: CMSConfig): CMS {
 /**
  * Hands a new content module to every CMS created for its `.deco` folder, as
  * a later `createCMS` call with the same content would, but without the
- * site's config: each instance keeps its own options (`site`, `dev`, …).
+ * site's config: each instance keeps its own options. Only content without
+ * `site` comes from a content module (with `site`, it comes from the CDN).
  * Returns how many instances took it; none when no CMS has been created for
  * that folder yet (the first `createCMS` call then reads the new module) or
  * when the module has no `root` to match on.
@@ -441,7 +442,7 @@ export function adoptContent(content: Snapshot): number {
   let adopted = 0;
   for (const symbol of Object.getOwnPropertySymbols(globalThis)) {
     const key = Symbol.keyFor(symbol);
-    if (key === undefined || (key !== own && !key.startsWith(`${own}|site:`))) continue;
+    if (key !== own) continue;
     const instance = store[symbol] as Partial<CMSInstance> | undefined;
     if (
       !(instance instanceof Object) ||
@@ -476,21 +477,10 @@ export function resetForTests(): void {
   setCurrentTelemetry(undefined);
 }
 
-/** With `site`, the content is the fallback of hosted releases. */
+/** With `site`, hosted releases from the delivery CDN, at runtime only; without, the content given. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
-  if (!config.site) return config.content;
-  return remoteLoader(config.content, { site: config.site, dev: config.dev ?? isDevelopment() });
-}
-
-/**
- * `NODE_ENV=development`: the SDK's one environment read (an explicit `dev`
- * overrides it). Guarded, so a Worker or a browser without `process` reads
- * `false`; spelled `process.env.NODE_ENV` so a bundler's `define` replaces it.
- */
-function isDevelopment(): boolean {
-  return (
-    typeof process !== "undefined" && process.env != null && process.env.NODE_ENV === "development"
-  );
+  if (!config.site) return config.content as Snapshot | Loader;
+  return remoteLoader(undefined, { site: config.site });
 }
 
 function validate(config: CMSConfig): void {
@@ -500,9 +490,16 @@ function validate(config: CMSConfig): void {
   if (config.blocks === null || typeof config.blocks !== "object") {
     throw new TypeError("createCMS: `blocks` must be your block map (an object of functions)");
   }
-  if (!isLoader(config.content) && !isSnapshot(config.content)) {
+  if (config.site) {
+    // Content is never bundled: with site, it comes from the delivery CDN at runtime.
+    if (config.content !== undefined) {
+      throw new TypeError(
+        "createCMS: with site, content comes from the delivery CDN at runtime; remove content",
+      );
+    }
+  } else if (!isLoader(config.content) && !isSnapshot(config.content)) {
     throw new TypeError(
-      "createCMS: `content` must be the content module ({ revision, blocks }) or a loader with load()",
+      "createCMS: `content` must be a snapshot ({ revision, blocks }) or a loader with load(), or pass site",
     );
   }
   // The token is the site's credential: it means nothing without the site it belongs to.
@@ -526,8 +523,8 @@ function resolveInterval(configured: number | undefined): number {
 }
 
 /**
- * The instance key: the content's identity (never its revision, so a hot
- * reload keeps the instance) and, with hosted releases, the site.
+ * The instance key: with hosted releases, the site; otherwise the content's
+ * identity (never its revision, so a hot reload keeps the instance).
  *
  * A content module is identified by the `.deco` folder it was generated from
  * (its `root`). One without a `root` is identified by the object itself, so
@@ -535,8 +532,8 @@ function resolveInterval(configured: number | undefined): number {
  * new instance instead of updating the old.
  */
 function identityOf(config: CMSConfig): string {
-  const content = contentIdentity(config.content);
-  return config.site ? `${content}|site:${config.site}` : content;
+  if (config.site) return `site:${config.site}`;
+  return contentIdentity(config.content as Snapshot | Loader);
 }
 
 function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {

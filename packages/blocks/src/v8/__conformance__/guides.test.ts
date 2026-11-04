@@ -622,9 +622,7 @@ describe("renames and migrations", () => {
     const destination = resolveDestination(undefined, "my-site", "t");
     expect(destination?.endpoint).toBe("https://otel.decocms.com");
     expect(destination?.headers.authorization).toBe("Bearer t");
-    expect(() =>
-      createCMS({ blocks: {}, content: snap({}), site: "my-site", token: "t" }),
-    ).not.toThrow();
+    expect(() => createCMS({ blocks: {}, site: "my-site", token: "t" })).not.toThrow();
   });
 
   it("mig-10/dd-16: the analytics section fills defaults; AnalyticsScript renders nothing when disabled", async () => {
@@ -798,11 +796,11 @@ describe("internals", () => {
       /* @vite-ignore */ `../cms?copy=${Date.now()}`
     )) as typeof import("../cms");
     expect(instanceOf(copy.createCMS({ blocks: {}, content }))).toBe(instanceOf(first));
-    const r1 = remoteLoader(content, { site: "s" });
+    const r1 = remoteLoader(undefined, { site: "s" });
     const copyRemote = (await import(
       /* @vite-ignore */ `../remoteLoader?copy=${Date.now()}`
     )) as typeof import("../remoteLoader");
-    expect(copyRemote.remoteLoader(content, { site: "s" })).toBe(r1);
+    expect(copyRemote.remoteLoader(undefined, { site: "s" })).toBe(r1);
   });
 
   it("in-13: remoteLoader is exported from the root", () => {
@@ -972,21 +970,42 @@ describe("design decisions", () => {
     }
   });
 
-  it("dd-14: remoteLoader keeps serving the content it has when the Deco API is unreachable", async () => {
+  it("dd-14: remoteLoader keeps serving the content it has when the delivery CDN is unreachable", async () => {
+    const id = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
+    let offline = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        if (offline) throw new TypeError("offline");
+        return String(input).endsWith("/latest.json")
+          ? Response.json({ revision: id })
+          : Response.json({ blocks: { X: { __resolveType: "always" } } });
+      }),
+    );
+    const cms = createCMS({ blocks: {}, site: "s" });
+    expect(await cms.forRelease().revision()).toBe(id);
+    offline = true;
+    expect(await cms.update()).toEqual({ updated: false });
+    const client = cms.forRelease();
+    expect(await client.revision()).toBe(id);
+    expect(await client.resolve("X")).toEqual([true, null]);
+  });
+
+  it("dd-14: a cold start with the CDN unreachable answers LOADER_FAILED; the site decides what to render", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
-        throw new Error("offline");
+        throw new TypeError("offline");
       }),
     );
-    const fallback = {
-      ...snap({ X: { __resolveType: "always" } }, "build"),
-      root: ".deco-offline",
-    };
-    const cms = createCMS({ blocks: {}, content: fallback, site: "s" });
-    const client = cms.forRelease();
-    expect(await client.revision()).toBe("build");
-    expect(await client.resolve("X")).toEqual([true, null]);
+    const cms = createCMS({ blocks: {}, site: "s" });
+    const [value, error] = await cms.forRelease().resolve("X");
+    expect(value).toBeNull();
+    expect(error?.code).toBe("LOADER_FAILED");
+    expect((error?.cause as { name?: string; reason?: string }) ?? {}).toMatchObject({
+      name: "ContentUnavailableError",
+      reason: "network",
+    });
   });
 });
 

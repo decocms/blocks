@@ -507,23 +507,19 @@ describe("one instance per process", () => {
   it("with hosted releases, the site ID is part of the key; the token isn't (another one warns)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = docsSnapshot();
-    const a = createCMS({ blocks: {}, content, site: "acme", token: "t1" });
-    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t1" }))).toBe(
-      instanceOf(a),
-    );
-    expect(instanceOf(createCMS({ blocks: {}, content, site: "other", token: "t1" }))).not.toBe(
+    const a = createCMS({ blocks: {}, site: "acme", token: "t1" });
+    expect(instanceOf(createCMS({ blocks: {}, site: "acme", token: "t1" }))).toBe(instanceOf(a));
+    expect(instanceOf(createCMS({ blocks: {}, site: "other", token: "t1" }))).not.toBe(
       instanceOf(a),
     );
     expect(warn).not.toHaveBeenCalled();
-    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t2" }))).toBe(
-      instanceOf(a),
-    );
+    expect(instanceOf(createCMS({ blocks: {}, site: "acme", token: "t2" }))).toBe(instanceOf(a));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("(token)"));
     expect(instanceOf(createCMS({ blocks: {}, content }))).not.toBe(instanceOf(a));
   });
 
   it("never puts the token in the global symbol registry", () => {
-    createCMS({ blocks: {}, content: docsSnapshot(), site: "acme", token: "super-secret-token" });
+    createCMS({ blocks: {}, site: "acme", token: "super-secret-token" });
     const keys = Object.getOwnPropertySymbols(globalThis).map((s) => Symbol.keyFor(s) ?? "");
     expect(keys.some((k) => k.startsWith("decocms.blocks.cms:"))).toBe(true);
     expect(keys.some((k) => k.includes("super-secret-token"))).toBe(false);
@@ -548,9 +544,8 @@ describe("one instance per process", () => {
 
   it("the warning never prints a token", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const content = docsSnapshot();
-    createCMS({ blocks: {}, content, site: "acme", token: "TOKEN-ONE" });
-    createCMS({ blocks: {}, content, site: "acme", token: "TOKEN-TWO" });
+    createCMS({ blocks: {}, site: "acme", token: "TOKEN-ONE" });
+    createCMS({ blocks: {}, site: "acme", token: "TOKEN-TWO" });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("token");
     expect(warn.mock.calls[0]?.[0]).not.toContain("TOKEN-");
@@ -663,12 +658,19 @@ describe("site and token", () => {
     );
   });
 
+  it("with site, content is never bundled: passing content too is a TypeError", () => {
+    expect(() => createCMS({ blocks: {}, content: docsSnapshot(), site: "acme" })).toThrow(
+      new TypeError(
+        "createCMS: with site, content comes from the delivery CDN at runtime; remove content",
+      ),
+    );
+    expect(() => createCMS({ blocks: {} })).toThrow(TypeError);
+  });
+
   it("accepts site with token, site alone, or neither", () => {
-    expect(() =>
-      createCMS({ blocks: {}, content: docsSnapshot(), site: "acme", token: "tok" }),
-    ).not.toThrow();
+    expect(() => createCMS({ blocks: {}, site: "acme", token: "tok" })).not.toThrow();
     resetForTests();
-    expect(() => createCMS({ blocks: {}, content: docsSnapshot(), site: "acme" })).not.toThrow();
+    expect(() => createCMS({ blocks: {}, site: "acme" })).not.toThrow();
     resetForTests();
     expect(() => createCMS({ blocks: {}, content: docsSnapshot() })).not.toThrow();
   });

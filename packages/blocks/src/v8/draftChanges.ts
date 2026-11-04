@@ -15,14 +15,15 @@
  * - Every read revalidates: with a body this process already holds, it sends
  *   `If-None-Match` with that body's ETag, and a `304` reuses the body. Only
  *   a 200 or that 304 is accepted, within 10 s; a 200 is up to 16 MiB, shaped
- *   exactly `{ set: { <name>: <block JSON> }, delete: [<name>…] }` with `set`
- *   and `delete` disjoint.
+ *   `{ set: { <name>: <block JSON> }, delete: [<name>…] }` with `set` and
+ *   `delete` disjoint. Other top-level keys (Studio's `editors`: who changed
+ *   each block, and when) are ignored.
  */
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
 import { isPlainObject } from "./json.ts";
 import type { DraftPointer, Snapshot } from "./types.ts";
 
-/** The version a pointer has when it names no draft: `deco serve`'s working tree. */
+/** The version a pointer has when it names no draft: the release itself, with nothing fetched. */
 export const LOCAL_VERSION = "local";
 
 const TIMEOUT_MS = 10_000;
@@ -166,20 +167,21 @@ export async function fetchDraftChanges(
   return { status: 200, changes, etag };
 }
 
-/** Validates a draft changes response; throws on any unexpected shape. */
+/**
+ * Validates a draft changes response, keeping `set` and `delete`; any other
+ * top-level key (Studio's `editors`) is ignored. Throws on a `set` or
+ * `delete` of an unexpected shape.
+ */
 export function parseDraftChanges(body: unknown): DraftChanges {
   const invalid = (why: string) => new Error(`draft changes: ${why}`);
   if (!isPlainObject(body)) throw invalid("expected an object");
-  if (Object.keys(body).some((key) => key !== "set" && key !== "delete")) {
-    throw invalid("unexpected field");
-  }
   const { set, delete: deleted } = body;
   if (!isPlainObject(set)) throw invalid("set must be an object");
   if (!Array.isArray(deleted) || deleted.some((name) => typeof name !== "string")) {
     throw invalid("delete must be a list of names");
   }
   if (deleted.some((name) => Object.hasOwn(set, name))) throw invalid("set and delete overlap");
-  return body as unknown as DraftChanges;
+  return { set, delete: deleted as string[] };
 }
 
 /**

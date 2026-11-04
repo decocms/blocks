@@ -10,6 +10,8 @@ export {
   type CMS,
   type CMSError,
   type CMSSettings,
+  ContentUnavailableError,
+  type ContentUnavailableReason,
   createCMS,
   currentClient,
   type DraftPointer,

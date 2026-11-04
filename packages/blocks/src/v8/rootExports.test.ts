@@ -15,6 +15,7 @@ describe("@decocms/blocks root", () => {
     expect(root.remoteLoader).toBe(v8.remoteLoader);
     expect(root.parseDraftPointer).toBe(v8.parseDraftPointer);
     expect(root.formatDraftPointer).toBe(v8.formatDraftPointer);
+    expect(root.ContentUnavailableError).toBe(v8.ContentUnavailableError);
   });
 
   it("has no free draft helpers: draftPointer and draftCookie are CMS methods that check the host", () => {
