@@ -114,7 +114,7 @@ export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
 const [props, error] = await cms.forRelease().resolve("Home Hero");
 ```
 
-On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key):
+On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code; a team that wants the guard adds `deco check`, which, with no `.deco/blocks` (a fresh clone), checks production against the code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key):
 
 ```bash
 deco link <org>/<site>            # writes .deco/link.json (commit it)

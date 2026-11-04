@@ -591,6 +591,23 @@ describe("deco check --draft and --revision", () => {
     expect((await deco(["check", "--draft=fix", `--revision=${good}`])).code).toBe(64);
     expect((await deco(["check", "--revision=abc"])).code).toBe(64);
   }, 60_000);
+
+  it("with no flag and no .deco/blocks (CI on a fresh clone), checks production", async () => {
+    fs.rmSync(path.join(fixture.root, ".deco/blocks"), { recursive: true, force: true });
+    studio.release({ home: { __resolveType: "hero", title: 3, size: "md" } });
+    const failed = await deco(["check", "--json"]);
+    expect(failed.code).toBe(1);
+    expect(failed.json).toMatchObject({ ok: false, blocks: 1, error: { code: "check_failed" } });
+    studio.release({ home: hero("Home") });
+    const ok = await deco(["check", "--json"]);
+    expect(ok.code).toBe(0);
+    expect(ok.json).toMatchObject({ ok: true, blocks: 1, errors: 0 });
+    expect(fs.existsSync(path.join(fixture.root, ".deco/blocks"))).toBe(false);
+    // A folder that deco pull wrote is checked as it is, edits included.
+    await deco(["pull"]);
+    fixture.write(".deco/blocks/home.json", { __resolveType: "hero", title: 4, size: "md" });
+    expect((await deco(["check"])).code).toBe(1);
+  }, 60_000);
 });
 
 describe("--json", () => {

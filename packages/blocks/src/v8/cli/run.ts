@@ -90,7 +90,7 @@ Commands:
   publish   make a draft live (prints its changes first)
   drafts    list, create, discard a draft, or print its preview link
   releases  list the published revisions, newest first, 50 a page
-  check     check that the content fits the schema (local .deco/blocks, a draft or a revision)
+  check     check that the content fits the schema (.deco/blocks, else production; a draft or a revision)
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
             (--check: write nothing, fail when the file is out of date; for CI)
             schema push: upload it so Studio can draw forms (CI, on production deploys)
@@ -355,7 +355,15 @@ async function runCommand(
       const revision = stringFlag(flags, "revision");
       if (draft !== null && revision !== null)
         throw usageError("--draft and --revision can't be combined");
-      if (draft === null && revision === null) {
+      // No flag: the local folder when there is one (what deco pull wrote,
+      // with your edits); with none, as in CI on a fresh clone, where
+      // .deco/blocks is git-ignored, production. An absent folder never
+      // passes as an empty site.
+      if (
+        draft === null &&
+        revision === null &&
+        fs.existsSync(decoPaths(findDecoRoot(base)).blocks)
+      ) {
         const paths = decoPaths(findDecoRoot(base));
         const report = reportCheck(
           readSchemaFile(paths.schema),
