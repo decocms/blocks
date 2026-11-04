@@ -2852,8 +2852,8 @@ export function createDecoWorkerEntry(
       );
 
       // Build a synthetic GET cache key from the URL + body hash + segment
-      // Includes device, salesChannel, regionId, flags — so users in
-      // different regions or channels get separate cache entries.
+      // Includes device, salesChannel, regionId, flags and the A/B cohort — so
+      // users in different regions, channels or cohorts get separate entries.
       const cacheKeyUrl = new URL(request.url);
       cacheKeyUrl.searchParams.set("__body", bodyHash);
       const sfnVersion = getBuildHash(env);
@@ -2864,6 +2864,14 @@ export function createDecoWorkerEntry(
         const device = isMobileUA(request.headers.get("user-agent") ?? "") ? "mobile" : "desktop";
         cacheKeyUrl.searchParams.set("__cf_device", device);
       }
+      // A/B cohort split, same token as the document key's `__abf`. A deferred
+      // section with a sticky matcher inside renders a different arm per
+      // cohort; keyed on the body alone, both arms shared one entry and every
+      // visitor got whichever arm rendered first.
+      const sfnFlagToken = segmentCacheToken(
+        parseSegmentCookie(readRequestCookie(request, SEGMENT_COOKIE)),
+      );
+      if (sfnFlagToken) cacheKeyUrl.searchParams.set("__abf", sfnFlagToken);
       // Include CF geo data so location-based content doesn't leak across geos.
       // Uses the same effectiveGeoKey() as the GET path so geoCacheKey config
       // is respected consistently for both HTML and server-fn responses.

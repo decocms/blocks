@@ -333,3 +333,44 @@ describe("buildSegment geo split warning", () => {
     );
   });
 });
+
+describe("POST server fn: A/B cohort splits the cache key", () => {
+  // A deferred section with a sticky matcher renders a different arm per
+  // cohort. Keyed on the body alone, both arms shared one entry.
+  const cohortOrigin = () => ({
+    fetch: vi.fn(async (req: Request) => {
+      const arm = (req.headers.get("cookie") ?? "").includes("ARM_B") ? "variant" : "control";
+      return new Response(`section ${arm}`, {
+        headers: { "content-type": "application/json", "X-Deco-Cacheable": "true" },
+      });
+    }),
+  });
+  const cookie = (active: string[], drawn: string[]) =>
+    `deco_segment=${btoa(
+      JSON.stringify({ active, inactiveDrawn: drawn, pct: { Test: 50 } }),
+    )}${active.length ? "; ARM_B=1" : ""}`;
+  const post = (cookieHeader: string) =>
+    new Request("https://shop.test/_serverFn/abc123", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: cookieHeader },
+      body: JSON.stringify({ data: { component: "SearchResult", pageUrl: "https://shop.test/plp" } }),
+    });
+
+  it("keeps one entry per cohort", async () => {
+    const worker = createDecoWorkerEntry(cohortOrigin(), options);
+    const bindings = env();
+
+    const control = await worker.fetch(post(cookie([], ["Test"])), bindings, ctx);
+    expect(await control.text()).toBe("section control");
+    await flush();
+
+    const variant = await worker.fetch(post(cookie(["Test"], [])), bindings, ctx);
+    expect(variant.headers.get("X-Cache")).toBe("MISS");
+    expect(await variant.text()).toBe("section variant");
+    await flush();
+
+    const variantAgain = await worker.fetch(post(cookie(["Test"], [])), bindings, ctx);
+    expect(variantAgain.headers.get("X-Cache")).toBe("HIT");
+    expect(await variantAgain.text()).toBe("section variant");
+  });
+});
