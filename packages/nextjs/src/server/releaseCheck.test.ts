@@ -7,7 +7,7 @@
  * exactly one `latest.json` fetch. `next/headers` is the request's headers,
  * and React's `cache()` a slot per test, as in server.test.ts.
  */
-import { type Blocks, createCMS, type Snapshot } from "@decocms/blocks";
+import { type Blocks, createCMS, resetForTests } from "@decocms/blocks";
 import { NextRequest } from "next/server.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POINTER } from "../__tests__/fixtures.ts";
@@ -34,56 +34,46 @@ vi.mock("react", async (original) => {
 
 const { bindDraft, contentClient } = await import("./index.ts");
 
-const SCHEMA = "a".repeat(64);
-const RELEASE_B = "b".repeat(40);
+const RELEASE_A = "aaaaaaaaaaaa-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5a";
+const RELEASE_B = "bbbbbbbbbbbb-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5b";
 const LATEST = "https://delivery.decocms.com/sites/acme/latest.json";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-let roots = 0;
-
 /**
- * A hosted CMS whose bundle holds release A while `latest.json` names B (a
+ * A hosted CMS that loaded release A, while `latest.json` now names B (a
  * publish this process hasn't picked up), the drafts' host answering POINTER,
- * and the URLs fetched.
+ * and the URLs fetched after that first load.
  */
-function hosted() {
-  roots += 1;
-  const content = {
-    revision: "a".repeat(40),
-    schemaHash: SCHEMA,
-    committedAt: "2026-01-01T00:00:00Z",
-    blocks: { Title: { __resolveType: "seo", title: "A" } },
-    root: `/next-release-check-${roots}`,
-  } as Snapshot & { root: string };
+async function hosted() {
+  resetForTests();
+  let current = RELEASE_A;
   const urls: string[] = [];
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : String(input);
     urls.push(url);
     if (url === LATEST) {
-      return Response.json({
-        revision: RELEASE_B,
-        schemaHash: SCHEMA,
-        publishedAt: new Date().toISOString(),
-        previewHosts: ["shop.example.com"],
-      });
+      return Response.json({ revision: current, previewHosts: ["shop.example.com"] });
     }
-    if (url.endsWith(`/revisions/${RELEASE_B}.json`)) {
-      return Response.json({
-        revision: RELEASE_B,
-        schemaHash: SCHEMA,
-        blocks: { Title: { __resolveType: "seo", title: "B" } },
-        previewHosts: ["shop.example.com"],
-      });
+    for (const [id, title] of [
+      [RELEASE_A, "A"],
+      [RELEASE_B, "B"],
+    ]) {
+      if (url.endsWith(`/revisions/${id}/data.json`)) {
+        return Response.json({ blocks: { Title: { __resolveType: "seo", title } } });
+      }
     }
     if (url.startsWith("https://studio.decocms.com/")) {
       return Response.json({ set: {}, delete: [] }, { headers: { etag: '"e1"' } });
     }
     return new Response("not found", { status: 404 });
   });
-  const cms = createCMS({ blocks: {} as Blocks, content, site: "acme" });
+  const cms = createCMS({ blocks: {} as Blocks, site: "acme" });
+  expect(await cms.forRelease().revision()).toBe(RELEASE_A);
+  current = RELEASE_B;
+  urls.length = 0;
   return { cms, latestFetches: () => urls.filter((url) => url === LATEST).length };
 }
 
@@ -107,7 +97,7 @@ const link = () =>
 
 describe("one release check per preview request", () => {
   it("a draft link through the proxy: its checks and the page's make one latest.json fetch", async () => {
-    const { cms, latestFetches } = hosted();
+    const { cms, latestFetches } = await hosted();
     const incoming = link();
     const decision = await decideDraft(cms, incoming);
     expect(decision.version?.version).toBe(POINTER);
@@ -124,7 +114,7 @@ describe("one release check per preview request", () => {
   });
 
   it("a page the proxy didn't decide for makes one check of its own, shared by its reads", async () => {
-    const { cms, latestFetches } = hosted();
+    const { cms, latestFetches } = await hosted();
     const headers = new Headers({
       host: "shop.example.com",
       cookie: `__deco_draft=${encodeURIComponent(POINTER)}`,
@@ -136,7 +126,7 @@ describe("one release check per preview request", () => {
   });
 
   it("the proxy drops a release-check id that arrives from outside", async () => {
-    const { cms } = hosted();
+    const { cms } = await hosted();
     const incoming = new NextRequest("https://shop.example.com/shoes", {
       headers: { "x-deco-release-check": "forged:1" },
     });

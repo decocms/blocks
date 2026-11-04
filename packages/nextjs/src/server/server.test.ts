@@ -186,7 +186,7 @@ describe("the visitor the proxy forwarded", () => {
   });
 
   it("an old release by its SHA binds like a draft", async () => {
-    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const sha = "0123456789ab-01234567-89ab-7def-8123-456789abcdef";
     serve({ "x-deco-version": sha });
     expect(await bindDraft(testCMS(snapshot({ previewHosts: ["shop.example.com"] })))).toBe(true);
     expect(activeDraftPointer()).toBe(sha);

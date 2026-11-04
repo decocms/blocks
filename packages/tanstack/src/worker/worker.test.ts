@@ -675,7 +675,7 @@ describe("the visitor", () => {
 });
 
 describe("the version: an old release from a Studio link", () => {
-  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const SHA = "0123456789ab-01234567-89ab-7def-8123-456789abcdef";
   const segmentCookies = (res: Response) =>
     res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
 
