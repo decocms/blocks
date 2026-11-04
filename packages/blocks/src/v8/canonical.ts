@@ -104,3 +104,18 @@ export const CONTENT_HASH_FORMAT = 1;
 export async function computeContentRevision(blocks: Record<string, unknown>): Promise<string> {
   return sha256Hex(canonicalJson(blocks));
 }
+
+/**
+ * A saved block's version: the first 16 bytes of SHA-256 over its canonical
+ * JSON, written as 22 characters of base64url without padding. The one
+ * definition `ifMatch`, conflicts, `blocks.list` versions and the CLI's
+ * `.deco/pull.json` share; `blockVersionFixtures` (in
+ * `@decocms/blocks/protocol/conformance`) pins its output.
+ */
+export async function blockVersion(block: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(canonicalJson(block));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource));
+  let binary = "";
+  for (const byte of digest.subarray(0, 16)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}

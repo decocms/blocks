@@ -1,8 +1,19 @@
 // @vitest-environment node
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { CanonicalJsonError, canonicalJson, computeContentRevision, sha256Hex } from "./canonical";
-import { contentHashFixtures } from "./conformance/contentHashFixtures";
+import {
+  blockVersion,
+  CanonicalJsonError,
+  canonicalJson,
+  computeContentRevision,
+  sha256Hex,
+} from "./canonical";
+import {
+  blockVersionFixtures,
+  contentHashFixtures,
+  revisionIdFixtures,
+} from "./conformance/contentHashFixtures";
+import { isRevisionId, REVISION_ID_RE } from "./index";
 
 describe("canonicalJson", () => {
   it("sorts object keys recursively in code-unit order and keeps array order", () => {
@@ -83,5 +94,60 @@ describe("computeContentRevision: the golden fixtures", () => {
       CanonicalJsonError,
     );
     await expect(computeContentRevision({ x: Number.NaN })).rejects.toThrow(CanonicalJsonError);
+  });
+});
+
+describe("blockVersion", () => {
+  it.each(blockVersionFixtures.map((f) => [f.id, f] as const))("%s", async (_id, fixture) => {
+    expect(canonicalJson(fixture.block)).toBe(fixture.canonical);
+    expect(await blockVersion(fixture.block)).toBe(fixture.version);
+  });
+
+  it("is 22 characters of base64url: the first 16 bytes of SHA-256 over the canonical JSON", async () => {
+    const block = { __resolveType: "seo", title: "Olá" };
+    const expected = createHash("sha256")
+      .update(canonicalJson(block), "utf8")
+      .digest()
+      .subarray(0, 16)
+      .toString("base64url");
+    const version = await blockVersion(block);
+    expect(version).toBe(expected);
+    expect(version).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(await blockVersion({ title: "Olá", __resolveType: "seo" })).toBe(version);
+  });
+
+  it("rejects what canonical JSON rejects", async () => {
+    await expect(blockVersion({ a: undefined })).rejects.toBeInstanceOf(CanonicalJsonError);
+  });
+});
+
+describe("revision ids", () => {
+  it.each(revisionIdFixtures.map((f) => [f.id, f.valid] as const))("%j: %s", (id, valid) => {
+    expect(isRevisionId(id)).toBe(valid);
+    expect(REVISION_ID_RE.test(id)).toBe(valid);
+  });
+
+  it("sorts newest first: the prefix is 2^48 - 1 minus the UUIDv7's timestamp", () => {
+    for (const { id, valid } of revisionIdFixtures) {
+      if (!valid) continue;
+      const inv = Number.parseInt(id.slice(0, 12), 16);
+      const ms = Number.parseInt(id.slice(13, 21) + id.slice(22, 26), 16);
+      expect(inv).toBe(2 ** 48 - 1 - ms);
+    }
+    const ids = revisionIdFixtures.filter((f) => f.valid).map((f) => f.id);
+    // 2026-11-03T12:00:00.001Z lists before 2026-11-03T12:00:00.000Z, both before 2024.
+    expect([...ids].sort()).toEqual([ids[2], ids[1], ids[0]]);
+  });
+
+  it("isRevisionId refuses what isn't a string", () => {
+    for (const value of [
+      undefined,
+      null,
+      1,
+      {},
+      ["fe6c5e0d97ff-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a55"],
+    ]) {
+      expect(isRevisionId(value)).toBe(false);
+    }
   });
 });

@@ -19,7 +19,10 @@
  * leaf module (see ./canonical.ts). Draft previews and the draft lifecycle
  * are outside the protocol (see /next/content-delivery#draft-previews).
  */
+
+export { isRevisionId, REVISION_ID_RE } from "../v8/revisionId.ts";
 export {
+  blockVersion,
   CanonicalJsonError,
   CONTENT_HASH_FORMAT,
   canonicalJson,
