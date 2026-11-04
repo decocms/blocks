@@ -5,12 +5,16 @@
  * remote commands run black-box over the network. It keeps the protocol's
  * rules that the CLI depends on: `ifMatch` against the draft only, the
  * conflict payload from the save's own read, all-or-nothing saves, and
- * publish as latest ⊕ draft. Failures are injected per route.
+ * publish as latest ⊕ draft, and the content handler's caps on one
+ * `blocks.apply` (names per call, bytes per block). Failures are injected
+ * per route.
  */
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { blockVersion } from "../../../protocol/canonical";
+import { serializeBlock } from "../../../protocol/keys";
+import { MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY } from "../../../protocol/server/core";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage";
 
 export const ORG = "acme";
@@ -162,6 +166,16 @@ export async function startFakeStudio(): Promise<FakeStudio> {
     const set = map(params.set);
     const deleted = params.delete ?? [];
     const ifMatch = params.ifMatch ?? {};
+    // The real handler's guards (protocol/server/methods/apply.ts).
+    const ops = Object.keys(set).length + deleted.filter((n) => !Object.hasOwn(set, n)).length;
+    if (ops > MAX_OPS_PER_APPLY) {
+      return { error: { code: -32007, message: `${ops} names in one blocks.apply` } };
+    }
+    for (const [name, block] of Object.entries(set)) {
+      if (Buffer.byteLength(serializeBlock(block)) > MAX_BLOCK_BYTES) {
+        return { error: { code: -32003, message: `"${name}" is over ${MAX_BLOCK_BYTES} bytes` } };
+      }
+    }
     const entries: Record<string, { expected: string | null; actual: string | null }> = {};
     const conflictDraft: Record<string, unknown> = {};
     for (const name of [...Object.keys(set), ...deleted]) {

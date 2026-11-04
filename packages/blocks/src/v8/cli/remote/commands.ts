@@ -8,7 +8,12 @@
 import fs from "node:fs";
 import { blockVersion } from "../../../protocol/canonical.ts";
 import { ErrorCode } from "../../../protocol/errors.ts";
-import { MAX_REQUEST_BYTES } from "../../../protocol/server/core.ts";
+import { serializeBlock } from "../../../protocol/keys.ts";
+import {
+  MAX_BLOCK_BYTES,
+  MAX_OPS_PER_APPLY,
+  MAX_REQUEST_BYTES,
+} from "../../../protocol/server/core.ts";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage.ts";
 import { isRevisionId } from "../../revisionId.ts";
 import { paint } from "../color.ts";
@@ -293,10 +298,18 @@ function itemBytes(item: Item): { set: number; delete: number; ifMatch: number }
 
 /**
  * Packs items, in order, into batches whose serialized `blocks.apply`
- * request stays at most `limit` bytes. Exact: the size of a JSON object is
- * its entries plus one comma between each two.
+ * request stays at most `limit` bytes and that hold at most `maxNames`
+ * names (set plus delete): the two caps the content handler puts on one
+ * call. The byte count is exact: the size of a JSON object is its entries
+ * plus one comma between each two. A block whose stored form is over the
+ * handler's per-entry cap (`MAX_BLOCK_BYTES`) can never be saved, so it
+ * fails here, before anything is sent.
  */
-export function packBatches(items: Item[], limit = MAX_REQUEST_BYTES): Item[][] {
+export function packBatches(
+  items: Item[],
+  limit = MAX_REQUEST_BYTES,
+  maxNames = MAX_OPS_PER_APPLY,
+): Item[][] {
   const batches: Item[][] = [];
   let current: Item[] = [];
   let size = ENVELOPE_BYTES;
@@ -307,6 +320,15 @@ export function packBatches(items: Item[], limit = MAX_REQUEST_BYTES): Item[][] 
     bytes.ifMatch +
     (c.ifMatch > 0 ? 1 : 0);
   for (const item of items) {
+    if (
+      item.block !== undefined &&
+      Buffer.byteLength(serializeBlock(item.block)) > MAX_BLOCK_BYTES
+    ) {
+      throw new CliError(
+        `block "${item.name}" is larger than a save can carry (${MAX_BLOCK_BYTES} bytes a block)`,
+        { code: "too_large", details: { name: item.name } },
+      );
+    }
     const bytes = itemBytes(item);
     if (ENVELOPE_BYTES + added(bytes, { set: 0, delete: 0, ifMatch: 0 }) > limit) {
       throw new CliError(
@@ -314,7 +336,7 @@ export function packBatches(items: Item[], limit = MAX_REQUEST_BYTES): Item[][] 
         { code: "too_large", details: { name: item.name } },
       );
     }
-    if (current.length > 0 && size + added(bytes, counts) > limit) {
+    if (current.length >= maxNames || (current.length > 0 && size + added(bytes, counts) > limit)) {
       batches.push(current);
       current = [];
       size = ENVELOPE_BYTES;

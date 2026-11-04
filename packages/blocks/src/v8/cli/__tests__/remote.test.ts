@@ -337,15 +337,17 @@ describe("deco push", () => {
   });
 
   it("splits a large push into saves under 8 MiB, and a rerun after a failed save resumes", async () => {
+    // Each block just under the handler's 1 MiB a block: eight fit in a save.
     const big = (n: number) => ({
       __resolveType: "hero",
       title: String(n),
-      size: "x".repeat(3 * 1024 * 1024),
+      size: "x".repeat(1_000_000),
     });
+    const name = (i: number) => `b${String(i).padStart(2, "0")}`;
     studio.release({});
     await deco(["pull"]);
-    for (let i = 0; i < 5; i++) fixture.write(`.deco/blocks/b${i}.json`, big(i));
-    // Two blocks per save: the first save lands, the second is answered busy.
+    for (let i = 0; i < 20; i++) fixture.write(`.deco/blocks/${name(i)}.json`, big(i));
+    // Eight blocks per save: the first save lands, the second is answered busy.
     studio.inject.set("POST /drafts/pdp/rpc", [
       {
         status: 200,
@@ -355,22 +357,51 @@ describe("deco push", () => {
     ]);
     const failed = await deco(["push", "--draft=pdp", "--json"]);
     expect(failed.code).toBe(5);
-    expect(failed.json).toMatchObject({ pushed: 2, batch: 2, batches: 3 });
-    expect(Object.keys(studio.drafts.get("pdp")!.body.set).sort()).toEqual(["b0", "b1"]);
+    expect(failed.json).toMatchObject({ pushed: 8, batch: 2, batches: 3 });
+    const names = (from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => name(from + i));
+    expect(Object.keys(studio.drafts.get("pdp")!.body.set).sort()).toEqual(names(0, 8));
     const before = rpcCalls().length;
     expect(before).toBe(2);
     expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
     const resent = rpcCalls().slice(before);
-    expect(resent.map((p) => Object.keys(p.set).sort())).toEqual([["b2", "b3"], ["b4"]]);
+    expect(resent.map((p) => Object.keys(p.set).sort())).toEqual([names(8, 16), names(16, 20)]);
     for (const r of studio.requests.filter((q) => q.path.endsWith("/rpc")))
       expect(Buffer.byteLength(r.body)).toBeLessThanOrEqual(8 * 1024 * 1024);
-    expect(Object.keys(studio.drafts.get("pdp")!.body.set).sort()).toEqual([
-      "b0",
-      "b1",
-      "b2",
-      "b3",
-      "b4",
-    ]);
+    expect(Object.keys(studio.drafts.get("pdp")!.body.set).sort()).toEqual(names(0, 20));
+  }, 60_000);
+
+  it("a push of more than 500 blocks lands, at most 500 names a save", async () => {
+    studio.release({ old: hero("Old") });
+    await deco(["pull"]);
+    for (let i = 0; i < 600; i++) fixture.write(`.deco/blocks/t${i}.json`, hero(`T${i}`));
+    fs.rmSync(path.join(fixture.root, ".deco/blocks/old.json"));
+    const r = await deco(["push", "--draft=pdp"]);
+    expect(r.code).toBe(0);
+    const calls = rpcCalls();
+    expect(calls.length).toBe(2);
+    for (const p of calls)
+      expect(Object.keys(p.set).length + p.delete.length).toBeLessThanOrEqual(500);
+    const draft = studio.drafts.get("pdp")!;
+    expect(Object.keys(draft.body.set)).toHaveLength(600);
+    expect(draft.body.delete).toEqual(["old"]);
+    // Nothing left to send.
+    expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
+    expect(rpcCalls()).toHaveLength(2);
+  }, 60_000);
+
+  it("a block over 1 MiB fails before anything is sent (exit 1)", async () => {
+    studio.release({});
+    await deco(["pull"]);
+    fixture.write(".deco/blocks/ok.json", hero("ok"));
+    fixture.write(".deco/blocks/huge.json", {
+      __resolveType: "hero",
+      t: "x".repeat(2 * 1024 * 1024),
+    });
+    const r = await deco(["push", "--draft=pdp", "--json"]);
+    expect(r.code).toBe(1);
+    expect(r.json).toMatchObject({ ok: false, error: { code: "too_large" } });
+    expect(rpcCalls()).toHaveLength(0);
   }, 60_000);
 });
 
@@ -402,6 +433,25 @@ describe("push batching", () => {
       }
     }
     expect(() => packBatches(items as never, 100)).toThrow(/alone is larger/);
+  });
+
+  it("starts a new batch at 500 names, the handler's cap on one blocks.apply", () => {
+    const items = Array.from({ length: 1201 }, (_, i) => ({
+      name: `n${i}`,
+      block: i % 4 === 0 ? undefined : { v: i },
+      hash: "h",
+      ifMatch: null,
+    }));
+    const batches = packBatches(items as never);
+    expect(batches.map((b) => b.length)).toEqual([500, 500, 201]);
+    expect(batches.flat().map((i) => i.name)).toEqual(items.map((i) => i.name));
+  });
+
+  it("refuses a block over 1 MiB a block, however large the request cap", () => {
+    const items = [
+      { name: "big", block: { t: "x".repeat(1024 * 1024) }, hash: "h", ifMatch: null },
+    ];
+    expect(() => packBatches(items as never)).toThrow(/larger than a save can carry/);
   });
 });
 
