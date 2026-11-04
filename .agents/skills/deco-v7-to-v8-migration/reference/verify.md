@@ -3,7 +3,7 @@
 The full checklist behind `SKILL.md` ("Verify").
 
 ```bash
-bunx deco schema && bunx deco content && bunx deco check   # 0 errors
+bunx deco schema && bunx deco check   # 0 errors
 bun run typecheck && bun run build
 ```
 

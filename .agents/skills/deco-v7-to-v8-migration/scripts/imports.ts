@@ -443,7 +443,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/blocks-cli(\/|$)/,
-    "codegen is the deco CLI in @decocms/blocks: deco schema, deco content, deco check (/next/cli)",
+    "codegen is the deco CLI in @decocms/blocks: deco schema, deco check (/next/cli)",
   ],
   [
     /^@decocms\/blocks\/(setup|cms)(\/|$)/,
@@ -517,7 +517,10 @@ const HINTS: [RegExp, string][] = [
     /^@decocms\/tanstack\/sdk\/deferredSectionLoader$/,
     "the next major has no async rendering (the script unwrapped the Lazy and Deferred sections)",
   ],
-  [/^@decocms\/tanstack\/daemon$/, "local editing is deco serve (/next/cli)"],
+  [
+    /^@decocms\/tanstack\/daemon$/,
+    "local editing is deco pull and deco push --draft=<name> (/next/cli)",
+  ],
   [
     /^@decocms\/nextjs\/routeHandlers$/,
     "v7's /deco/* route handlers: delete them; the site editor uses the content protocol (/next/studio-compatibility)",

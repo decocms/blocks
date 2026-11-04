@@ -410,10 +410,8 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
       ].join("\n"),
     );
     report = await migrate({ root });
-    // What the site's own tooling generates before a type-check: the content module (deco content)
-    // and the route tree (the router plugin).
-    const { content } = await import("@decocms/blocks/cli");
-    await content({ root, reporter: { info() {}, warn() {}, error() {} } as never });
+    // What the site's own tooling generates before a type-check: the route tree (the router
+    // plugin). Content isn't bundled, so there is no content module.
     write(
       "src/routeTree.gen.ts",
       [
@@ -503,6 +501,12 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
 
   it("writes the page setup: the CMS, a page server function on the page's URL, the catch-all route", () => {
     expect(read("src/cms.ts")).toContain("contentClient(cms, request)");
+    // Runtime-only content: the Worker's DECO_SITE names the Studio site; nothing bundled.
+    expect(read("src/cms.ts")).toContain('import { env } from "cloudflare:workers";');
+    expect(read("src/cms.ts")).toContain(
+      "createCMS({ blocks, site: (env as unknown as Record<string, string>).DECO_SITE! })",
+    );
+    expect(read("src/cms.ts")).not.toContain("blocks.gen");
     const open = read("src/open-page.server.ts");
     expect(open).toContain("const url = new URL(href, request.url);");
     expect(open).toContain("matchPage(url, request);");
@@ -690,6 +694,8 @@ describe("a v7 Next.js site on the v8 binding", () => {
     );
     expect(read("src/clients/vtex.ts")).toContain("process.env[name]");
     expect(read("src/cms.ts")).toContain("contentClient(cms)");
+    expect(read("src/cms.ts")).toContain("createCMS({ blocks, site: process.env.DECO_SITE! })");
+    expect(read("src/cms.ts")).not.toContain("blocks.gen");
     const page = read("src/app/[[...slug]]/page.tsx");
     expect(page).toContain("await bindDraft(cms, { searchParams: query });");
     expect(page).not.toContain("SegmentCookie");

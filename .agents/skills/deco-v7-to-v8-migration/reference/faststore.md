@@ -5,7 +5,7 @@ Learned on a VTEX FastStore storefront (`@faststore/cli` 4.x, Next.js 16 Pages R
 ## The seam
 
 - **Vendored runtime.** FastStore won't compile `@decocms/blocks` or `.deco/index.ts` from the store, so bundle them (esbuild, CommonJS) into a file under a folder FastStore copies (e.g. `src/server/vendor/deco-cms.cjs`), exporting `createCMS`, `parseDraftPointer` and the block map. Build it in `dev`, `test` and `build`, commit it, and build the committed copy from the **published** package: a bundle built from a linked checkout ships unpublished code. Say in the PR which version it was built from.
-- **Content module.** Bundle what `deco content` writes (the blocks, revision and alias table) as JSON next to the runtime, and import it statically so the server build traces it. Don't read `.deco/` from disk at runtime: FastStore's deploy doesn't ship it.
+- **Content at runtime.** Create the CMS in the vendored runtime with `createCMS({ blocks, site })`, so content comes from the CDN at runtime; nothing is bundled. Don't read `.deco/` from disk at runtime: FastStore's deploy doesn't ship it.
 - **Content client patch.** Patch the VTEX Content Platform client FastStore's content service calls (`@vtex/client-cp`) so it answers from `cms.forRelease()` / `cms.forDraft(pointer)`, in FastStore's `{ $componentKey, data, name }` section shape. Section blocks return a descriptor (`{ component, props }`) and FastStore renders the component.
 - **Schema-derived defaults by block map, not by name.** A rule that reads a section's schema (a `default` that forces server rendering, say) must map `deco schema`'s `base64(<block name>)@Props` keys to sections through the block map's registrations. Parsing a v7 alias (`site/sections/X.tsx`) works only until the aliases go, and then every section silently changes behavior.
 
@@ -33,7 +33,7 @@ FastStore's CMS pages are SSG and its CLI forbids `middleware`/`proxy` and `/api
 
 ## Saved-block names that differ only by letter case
 
-A case-insensitive disk (macOS) checks out one of the two files, so v7 silently bundled one of them on macOS while Linux had both. Before migrating, find which one content references (grep every saved block for both names), compare the two, and keep the referenced one; record the decision in its own commit. Make the build fail on such a pair, reading the git index too (the disk can't show it). v8's write path refuses a new name that differs from an existing one only by case, but `deco content` and `deco check` don't flag a pair that is already there.
+A case-insensitive disk (macOS) checks out one of the two files, so v7 silently bundled one of them on macOS while Linux had both. Before migrating, find which one content references (grep every saved block for both names), compare the two, and keep the referenced one; record the decision in its own commit. Make the build fail on such a pair, reading the git index too (the disk can't show it). v8's write path refuses a new name that differs from an existing one only by case, but `deco check` doesn't flag a pair that is already there.
 
 ## Global sections with per-URL matchers
 

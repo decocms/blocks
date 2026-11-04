@@ -4,8 +4,9 @@
  * (`@decocms/blocks/protocol/keys`). A v7 site that has them there keeps
  * them as they are; one that only has a decofile (the `/.decofile` dump, or
  * the generated `.deco/blocks.gen.json`) gets it split into files. The v7
- * generated files in `.deco/` go: `deco schema` and `deco content` write
- * their replacements.
+ * generated files in `.deco/` go: `deco schema` writes the schema, and the
+ * site reads content at runtime once it is published to Studio
+ * (`deco push`, `deco publish`).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -98,7 +99,7 @@ export function moveContent(root: string, report: Report, options: MoveContentOp
   }
 
   // Names the file-name rule rejects (v7 saved editor previews like
-  // "Preview site/sections/Hero.tsx"): deco content stops on them.
+  // "Preview site/sections/Hero.tsx"): deco check and deco push stop on them.
   for (const d of readContent(root).diagnostics) {
     if (d.severity !== "error") continue;
     report.manual.push({
@@ -115,7 +116,8 @@ export function moveContent(root: string, report: Report, options: MoveContentOp
     report.done.push({
       step: "content",
       subject: `.deco/${file}`,
-      message: "removed (v7 generated; deco schema and deco content write the next major's files)",
+      message:
+        "removed (v7 generated; deco schema writes the next major's schema, and content is read at runtime)",
     });
   }
 }

@@ -24,7 +24,7 @@ export function forEachBlock(
   for (const child of Object.values(value)) forEachBlock(child, visit);
 }
 
-/** The site's saved blocks, read by the same rule `deco content` uses. */
+/** The site's saved blocks, read by the same rule `deco check` uses. */
 export function readContent(root: string): SavedBlocks {
   return readSavedBlocks(path.join(root, ".deco", "blocks"));
 }

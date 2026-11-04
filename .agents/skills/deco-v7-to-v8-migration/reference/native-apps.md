@@ -16,13 +16,13 @@ v8 has no binding for them, and needs none. The app keeps reading its JSON. Only
    - Keep the old v7 script names as aliases when other tooling, such as a content importer, calls them.
 4. **Generated files.**
    - Commit `.deco/schema.gen.json`, which Studio reads for the editor forms, and delete `meta.gen.json`, `blocks.gen.json` and `generate.digests.json`.
-   - Skip `deco content` when the app imports the JSON directly, and gitignore `.deco/blocks.gen.ts`.
+   - There is no `deco content` any more; an app that imports the JSON directly keeps doing so.
 5. **The block map isn't auto-discovered.** v7 listed every file under `sections/` as a section. In v8, a section that isn't in `.deco/index.ts` has no editor form. Say so in the app's AGENTS.md or contributor docs: a new section goes in the block map **and** in the app's component table.
    - Remove files that only hold shared types (`types.ts`) from the block map. They were never sections.
 6. **Studio.**
-   - `deco serve` serves the editor, from Studio at any origin (local or hosted).
-   - Expect an empty preview pane: there's no web renderer. Ignore the dev-server URL that `deco serve` prints, which is a default.
-   - A save rewrites the whole block file as formatted JSON, so compact inline objects become multi-line. Before the first editor session, commit a one-time reformat (`deco serve`'s formatting) so later diffs show only the edited fields.
+   - `deco serve` is gone: content is edited in Studio's hosted CMS, or locally with `deco pull` and `deco push --draft=<name>` (`/next/cli`).
+   - Expect an empty preview pane: there's no web renderer.
+   - `deco pull` writes each block as formatted JSON, so compact inline objects become multi-line.
 
 ## Parity
 

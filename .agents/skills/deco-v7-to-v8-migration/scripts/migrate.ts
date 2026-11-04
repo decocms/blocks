@@ -25,8 +25,9 @@
  *    `createDecoWorkerEntry` configured (the script writes no worker entry);
  * 6. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
- * 7. scripts: `deco schema && deco content` before dev and build, and
- *    `deco schema --check` in the site's CI after the install step.
+ * 7. scripts: `deco schema` before dev and build, and
+ *    `deco schema --check` in the site's CI after the install step; content
+ *    arrives at runtime, so publishing it to Studio is left to do.
  *
  * Before the block map, v7's app blocks (`deco-vtex`, …) become the client
  * code that configures each platform's client (`src/clients/<app>.ts`).
@@ -72,8 +73,8 @@ interface MigrateOptions {
 
 /** The scripts /next/cli#run-it-before-dev-and-build asks for. */
 const SCRIPTS: Record<string, string> = {
-  predev: "deco schema && deco content",
-  prebuild: "deco schema && deco content && deco check",
+  predev: "deco schema",
+  prebuild: "deco schema",
 };
 
 function addScripts(root: string, report: Report): void {
@@ -102,6 +103,12 @@ function addScripts(root: string, report: Report): void {
       message: `added ${added.join(" and ")}`,
     });
   }
+  report.manual.push({
+    step: "scripts",
+    subject: "content",
+    message:
+      "content is fetched from the CDN at runtime, never bundled: declare DECO_SITE (the Studio site) on the deploy platform, run deco link <org>/<site> and commit .deco/link.json, publish the migrated .deco/blocks with deco push --draft=<name> and deco publish --draft=<name>, then delete .deco/blocks and git-ignore it; on production deploys run deco schema && deco schema push, with a Studio API key as DECO_TOKEN (/next/cli)",
+  });
   const framework = siteFramework(root);
   const packages = [`@decocms/blocks ${V8_RANGE}`];
   if (framework) {

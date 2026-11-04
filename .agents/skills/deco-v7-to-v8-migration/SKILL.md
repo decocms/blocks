@@ -74,7 +74,7 @@ The full text of each step: [`reference/manual-steps.md`](reference/manual-steps
 ## Verify
 
 ```bash
-bunx deco schema && bunx deco content && bunx deco check   # 0 errors
+bunx deco schema && bunx deco check   # 0 errors
 bun run typecheck && bun run build
 ```
 
@@ -114,7 +114,7 @@ What the site migrations taught, one subject per file. Commit hashes refer to `d
 | [`caching-and-privacy.md`](reference/caching-and-privacy.md) | Per-visitor data, QueryClient scope, draft bypass, hydration waits |
 | [`nextjs.md`](reference/nextjs.md) | Next.js App Router: `@decocms/nextjs` drafts and proxy, `list('page')`, head order, Jest |
 | [`hosted-releases.md`](reference/hosted-releases.md) | Hosted CMS instead of fast deploy, bundled content, v7 leftovers to delete |
-| [`content.md`](reference/content.md) | `deco check` as a deploy gate, content it rejects, editing locally with `deco serve` |
+| [`content.md`](reference/content.md) | `deco check` as a deploy gate, content it rejects, publishing the migrated content and editing it with `deco pull` / `deco push` |
 | [`telemetry.md`](reference/telemetry.md) | Telemetry params, resource attributes, dropped v7 bindings, analytics |
 
 `scripts/` is the migration (`main.ts`), tested by the repo's `bun run test`.
