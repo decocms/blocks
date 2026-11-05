@@ -1,6 +1,6 @@
 import type { BlockFunction } from "../types.ts";
 import { CALENDAR_TYPE, calendar, campaign } from "./campaigns.ts";
-import { cmsSettings, page, redirect, SETTINGS_TYPE } from "./data.ts";
+import { cmsSettings, page, REDIRECTS_TYPE, redirect, redirects, SETTINGS_TYPE } from "./data.ts";
 import { experiment, SPLIT_TRAFFIC_TYPE, splitTraffic } from "./experiments.ts";
 import { lazy } from "./lazy.ts";
 import { always, never } from "./matchers.ts";
@@ -16,6 +16,7 @@ export const builtIns: Readonly<Record<string, BlockFunction>> = Object.freeze({
   campaign,
   page,
   redirect,
+  [REDIRECTS_TYPE]: redirects,
   [SETTINGS_TYPE]: cmsSettings,
   [SPLIT_TRAFFIC_TYPE]: splitTraffic,
   [CALENDAR_TYPE]: calendar,

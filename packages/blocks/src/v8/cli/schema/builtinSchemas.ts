@@ -1,5 +1,5 @@
 /**
- * The forms of the twelve built-in blocks (spec: built-in-blocks, and the types
+ * The forms of the thirteen built-in blocks (spec: built-in-blocks, and the types
  * in api-reference › Types). They're always in the schema, unless the block
  * map declares the same key, which replaces the built-in.
  */
@@ -16,6 +16,7 @@ export const BUILT_IN_GROUPS: Record<string, ManifestGroup> = {
   campaign: "matchers",
   page: "pages",
   redirect: "redirects",
+  redirects: "redirects",
   "cms-settings": "content",
   "split-traffic": "content",
   calendar: "content",
@@ -42,6 +43,10 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
   },
   page: { title: "Page", description: "A page at a URL" },
   redirect: { title: "Redirect", description: "Sends one URL to another" },
+  redirects: {
+    title: "Redirects",
+    description: "The site's redirects: every rule in one block (the saved block Redirects)",
+  },
   "cms-settings": {
     title: "CMS settings",
     description: "Telemetry and analytics: the saved block named CMS",
@@ -58,6 +63,23 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
     description:
       "Campaigns: each name with its start and end; resolves to whether each is running now. The type of the saved block campaigns",
     icon: "calendar-event",
+  },
+};
+
+/** One redirect rule: the props of `redirect`, and each item of `redirects`. */
+const REDIRECT_RULE = {
+  type: "object",
+  required: ["from", "to", "permanent"],
+  properties: {
+    from: { type: "string", title: "From" },
+    to: { type: "string", title: "To" },
+    permanent: {
+      type: "boolean",
+      title: "Permanent",
+      description: "301 when true, 302 otherwise",
+    },
+    status: { type: "number", enum: [301, 302, 307, 308], title: "Status" },
+    discardQueryParameters: { type: "boolean", title: "Discard query parameters" },
   },
 };
 
@@ -213,19 +235,16 @@ function builtInProps(name: string, ctx: BuiltInContext): any {
         },
       };
     case "redirect":
+      return REDIRECT_RULE;
+    case "redirects":
       return {
         type: "object",
-        required: ["from", "to", "permanent"],
         properties: {
-          from: { type: "string", title: "From" },
-          to: { type: "string", title: "To" },
-          permanent: {
-            type: "boolean",
-            title: "Permanent",
-            description: "301 when true, 302 otherwise",
+          redirects: {
+            type: "array",
+            title: "Redirects",
+            items: { ...REDIRECT_RULE, title: "Redirect" },
           },
-          status: { type: "number", enum: [301, 302, 307, 308], title: "Status" },
-          discardQueryParameters: { type: "boolean", title: "Discard query parameters" },
         },
       };
     case "cms-settings":

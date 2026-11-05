@@ -1,4 +1,4 @@
-import type { Analytics, CMSSettings, Redirect, Telemetry } from "../types.ts";
+import type { Analytics, CMSSettings, LegacyRedirect, Redirect, Telemetry } from "../types.ts";
 
 /** The hosted Deco CMS collector: where page views go when `collector` is left out. */
 export const HOSTED_ANALYTICS_COLLECTOR = "https://d.lilstts.com/events";
@@ -15,8 +15,33 @@ export const DECO_ANALYTICS_SCRIPT = "/_dq/a.js";
  */
 export const page = <P>(props: P): P => props;
 
-/** `redirect`: returns its arguments as saved. */
+/**
+ * `redirect`: returns its arguments as saved. Still a built-in, so a v7 rule
+ * block resolves, but no longer routed: `client.redirects()` reads only the
+ * redirects block (`deco check` warns on every `redirect` block).
+ */
 export const redirect = (props: Redirect): Redirect => props;
+
+/** The type of the site's one redirects block, and its canonical saved name. */
+export const REDIRECTS_TYPE = "redirects";
+export const REDIRECTS_BLOCK = "Redirects";
+
+/**
+ * `redirects`: the site's whole list of rules, one block (routing needs every
+ * rule, so it is one cached fetch). Each rule has either shape `matchRoute`
+ * reads: the flat `{ from, to, permanent?, status?, discardQueryParameters? }`
+ * or v7's nested `{ redirect: { from, to, type? } }`; anything that isn't an
+ * object is left out.
+ */
+export const redirects = (props: {
+  redirects?: Array<Redirect | LegacyRedirect>;
+}): Array<Redirect | LegacyRedirect> =>
+  Array.isArray(props?.redirects)
+    ? props.redirects.filter(
+        (rule): rule is Redirect | LegacyRedirect =>
+          typeof rule === "object" && rule !== null && !Array.isArray(rule),
+      )
+    : [];
 
 /** The `telemetry` section's defaults (sample rates before code's caps). */
 export const TELEMETRY_DEFAULTS: Readonly<Required<Telemetry>> = Object.freeze({
