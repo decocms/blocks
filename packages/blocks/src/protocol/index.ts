@@ -14,12 +14,22 @@
  * - `@decocms/blocks/protocol/storage/fs` — the filesystem storage (Node only)
  * - `@decocms/blocks/protocol/conformance` — a black-box test suite over HTTP
  *
+ * `blockMeta`/`indexEntry` compute a hosted revision index's entries (the
+ * SDK's own browser-safe module, shared with Studio and the CLI).
+ *
  * The SDK's runtime never imports the protocol, so it never reaches an app
  * bundle. The canonical hash it re-exports is the SDK's own dependency-free
  * leaf module (see ./canonical.ts). Draft previews and the draft lifecycle
  * are outside the protocol (see /next/content-delivery#draft-previews).
  */
 
+export {
+  type BlockIndex,
+  type BlockMeta,
+  blockMeta,
+  type IndexEntry,
+  indexEntry,
+} from "../v8/blockMeta.ts";
 export { isRevisionId, REVISION_ID_RE } from "../v8/revisionId.ts";
 export {
   blockVersion,
