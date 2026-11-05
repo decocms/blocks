@@ -25,7 +25,7 @@ import { toBase64 } from "../cli/schema/typeToSchema";
 import { createCMS, instanceOf, resetForTests } from "../cms";
 import { createInstrumentedFetch } from "../fetch";
 import { currentTelemetry } from "../telemetry";
-import { docsBlocks, docsSnapshot } from "../testFixtures";
+import { docsBlocks, docsSnapshot, fakeDelivery } from "../testFixtures";
 import type { Snapshot } from "../types";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -914,19 +914,15 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
     const release = withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }, "rev-9");
-    const REV_9 = "fe6c5e0d97f9-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a59";
+    const cdn = fakeDelivery();
+    const { revision: REV_9 } = await cdn.publish(release.blocks);
     const collectorFetch = globalThis.fetch;
     // The release, from the delivery CDN; everything else is the collector.
-    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "https://delivery.decocms.com/sites/acme/latest.json") {
-        return Response.json({ revision: REV_9 });
-      }
-      if (url === `https://delivery.decocms.com/sites/acme/revisions/${REV_9}/data.json`) {
-        return Response.json({ blocks: release.blocks });
-      }
-      return collectorFetch(input, init);
-    });
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) =>
+      String(input).startsWith("https://delivery.decocms.com/")
+        ? cdn.fetch(input, init)
+        : collectorFetch(input, init),
+    );
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       site: "acme",

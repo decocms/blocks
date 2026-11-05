@@ -420,11 +420,11 @@ async function request(
     throw unavailable(label, error, "network");
   }
   if (response.status === 304 && etag) {
-    await response.body?.cancel().catch(() => {});
+    void response.body?.cancel().catch(() => {});
     return response;
   }
   if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
+    void response.body?.cancel().catch(() => {});
     onStatus?.(response.status);
     throw new ContentUnavailableError("http", `${label}: HTTP ${response.status}`, {
       status: response.status,

@@ -39,6 +39,7 @@ const BUILT_INS = [
   "campaign",
   "page",
   "redirect",
+  "redirects",
   "cms-settings",
   "split-traffic",
   "calendar",
@@ -248,7 +249,7 @@ describe("blocks", () => {
     expect(error?.code).toBe("UNKNOWN_BLOCK");
   });
 
-  it("blocks-13/builtin-01: exactly eleven built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
+  it("blocks-13/builtin-01: exactly the documented built-ins, always in the registry, no UNKNOWN_BLOCK with an empty map", async () => {
     expect(Object.keys(builtIns).sort()).toEqual([...BUILT_INS].sort());
     const client = clientWith({});
     for (const name of BUILT_INS) {

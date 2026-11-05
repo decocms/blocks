@@ -6,6 +6,7 @@
  * `cms.readVersion`, and `currentClient()`. One test per claim.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { indexEntry } from "../blockMeta";
 import { createCMS, resetForTests } from "../cms";
 import { currentClient } from "../current";
 import { newVisitor } from "../experiments";
@@ -30,22 +31,36 @@ function bundled(): Snapshot {
   return docsSnapshot(LIVE);
 }
 
-/** A fake delivery CDN: latest.json naming LIVE (the docs' content), and published revisions. */
-function delivery(revisions: Record<string, { title: string }>) {
+/**
+ * A fake delivery CDN: latest.json holding LIVE's index (the docs' content),
+ * the published revisions' `revisions/<id>/index.json`, and every body by hash.
+ */
+async function delivery(revisions: Record<string, { title: string }>) {
+  const objects = new Map<string, unknown>();
+  const indexOf = async (revision: string, sequence: number, blocks: Record<string, unknown>) => {
+    const names = Object.keys(blocks);
+    const index: Record<string, unknown> = {};
+    for (const name of names) {
+      const entry = await indexEntry(name, blocks[name], names);
+      index[name] = entry;
+      objects.set(`/sites/acme/blocks/${entry.version}.json`, blocks[name]);
+    }
+    return { revision, sequence, blocks: index };
+  };
+  let sequence = 0;
+  for (const [id, { title }] of Object.entries(revisions)) {
+    const blocks = { SummerSEO: { __resolveType: "seo", title, description: "d" } };
+    objects.set(`/sites/acme/revisions/${id}/index.json`, await indexOf(id, ++sequence, blocks));
+  }
+  const live = await indexOf(LIVE, ++sequence, docsSnapshot().blocks);
+  objects.set(`/sites/acme/revisions/${LIVE}/index.json`, live);
+  objects.set("/sites/acme/latest.json", { ...live, previewHosts: [] });
   const fetch = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url === `${ORIGIN}/sites/acme/latest.json`) return Response.json({ revision: LIVE });
-    if (url === `${ORIGIN}/sites/acme/revisions/${LIVE}/data.json`) {
-      return Response.json({ blocks: docsSnapshot().blocks });
-    }
-    for (const [id, { title }] of Object.entries(revisions)) {
-      if (url === `${ORIGIN}/sites/acme/revisions/${id}/data.json`) {
-        return Response.json({
-          blocks: { SummerSEO: { __resolveType: "seo", title, description: "d" } },
-        });
-      }
-    }
-    return new Response("not found", { status: 404 });
+    const p = url.startsWith(ORIGIN) ? url.slice(ORIGIN.length) : url;
+    return objects.has(p)
+      ? Response.json(objects.get(p))
+      : new Response("not found", { status: 404 });
   });
   vi.stubGlobal("fetch", fetch);
   return fetch;
@@ -107,29 +122,32 @@ describe("cms.client", () => {
     expect(await seoTitle(cms.client())).toBe("Sunny!");
   });
 
-  it("cl-05: a revision id reads that published release from sites/<site>/revisions/<id>/data.json", async () => {
-    const fetch = delivery({ [OLD]: { title: "Last week" } });
+  it("cl-05: a revision id reads that published release's index from sites/<site>/revisions/<id>/index.json", async () => {
+    const fetch = await delivery({ [OLD]: { title: "Last week" } });
     const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const client = cms.client({ version: OLD });
     expect(await seoTitle(client)).toBe("Last week");
     expect(await client.revision()).toBe(OLD);
     expect(fetch.mock.calls.map(([url]) => String(url))).toContain(
-      `${ORIGIN}/sites/acme/revisions/${OLD}/data.json`,
+      `${ORIGIN}/sites/acme/revisions/${OLD}/index.json`,
     );
     expect(await seoTitle(cms.client())).toBe("Sunny!"); // the live site is untouched
   });
 
   it("cl-06: an old release is fetched once and kept in memory (a revision never changes)", async () => {
-    const fetch = delivery({ [OLD]: { title: "Last week" } });
+    const fetch = await delivery({ [OLD]: { title: "Last week" } });
     const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     for (let i = 0; i < 5; i++)
       expect(await seoTitle(cms.client({ version: OLD }))).toBe("Last week");
-    const reads = fetch.mock.calls.filter(([url]) => String(url).endsWith(`${OLD}/data.json`));
+    const reads = fetch.mock.calls.filter(([url]) => String(url).endsWith(`${OLD}/index.json`));
     expect(reads).toHaveLength(1);
+    // Its body is fetched by hash once too: the same block store as the live site's.
+    const bodies = fetch.mock.calls.filter(([url]) => String(url).includes("/blocks/"));
+    expect(bodies).toHaveLength(1);
   });
 
   it("cl-07: an old release is read whatever schema it was published with: no schema check", async () => {
-    delivery({ [OTHER]: { title: "Old shape" } });
+    await delivery({ [OTHER]: { title: "Old shape" } });
     const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const [value, error] = await cms
       .client({ version: OTHER })
@@ -139,7 +157,7 @@ describe("cms.client", () => {
   });
 
   it("cl-08: a release that can't be read is LOADER_FAILED, never the current release", async () => {
-    delivery({});
+    await delivery({});
     const hosted = createCMS({ blocks: docsBlocks(), site: "acme" });
     expect((await hosted.client({ version: OTHER }).resolve("SummerSEO"))[1]?.code).toBe(
       "LOADER_FAILED",

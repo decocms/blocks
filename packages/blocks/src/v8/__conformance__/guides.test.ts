@@ -27,6 +27,7 @@ import { createInstrumentedFetch } from "@decocms/blocks/fetch";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { instanceOf } from "../cms";
 import { resolveDestination } from "../telemetry";
+import { fakeDelivery } from "../testFixtures";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -144,12 +145,13 @@ describe("quickstart", () => {
     expect(spy.mock.calls[0][0]).toEqual({ title: "hi" });
   });
 
-  it("qs-17/hiw-06/dd-03: exactly twelve built-ins, all resolvable", async () => {
+  it("qs-17/hiw-06/dd-03: exactly the documented built-ins, all resolvable", async () => {
     const { builtIns } = await import("../builtins/index");
     expect(Object.keys(builtIns).sort()).toEqual(
       [
         "page",
         "redirect",
+        "redirects",
         "cms-settings",
         "split-traffic",
         "calendar",
@@ -168,6 +170,7 @@ describe("quickstart", () => {
       ["campaign", {}],
       ["page", { name: "x", path: "/", sections: [] }],
       ["redirect", { from: "/a", to: "/b", permanent: false }],
+      ["redirects", { redirects: [{ from: "/a", to: "/b", permanent: false }] }],
       ["cms-settings", {}],
       ["split-traffic", {}],
       ["calendar", {}],
@@ -971,24 +974,23 @@ describe("design decisions", () => {
   });
 
   it("dd-14: remoteLoader keeps serving the content it has when the delivery CDN is unreachable", async () => {
-    const id = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
+    const cdn = fakeDelivery("s");
+    const { revision } = await cdn.publish({ X: { __resolveType: "always" } });
     let offline = false;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) => {
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         if (offline) throw new TypeError("offline");
-        return String(input).endsWith("/latest.json")
-          ? Response.json({ revision: id })
-          : Response.json({ blocks: { X: { __resolveType: "always" } } });
+        return cdn.fetch(input, init);
       }),
     );
     const cms = createCMS({ blocks: {}, site: "s" });
-    expect(await cms.forRelease().revision()).toBe(id);
+    expect(await cms.forRelease().resolve("X")).toEqual([true, null]);
     offline = true;
     expect(await cms.update()).toEqual({ updated: false });
     const client = cms.forRelease();
-    expect(await client.revision()).toBe(id);
-    expect(await client.resolve("X")).toEqual([true, null]);
+    expect(await client.revision()).toBe(revision);
+    expect(await client.resolve("X")).toEqual([true, null]); // its body, held by hash
   });
 
   it("dd-14: a cold start with the CDN unreachable answers LOADER_FAILED; the site decides what to render", async () => {

@@ -147,9 +147,10 @@ export function fakeStudio() {
       files.set(name, body);
       drafts.set(slug, files);
     },
-    /** Answers every read of a draft's folder with this response instead. */
-    respond(slug: string, response: () => Response) {
-      overrides.set(slug, response);
+    /** Answers every read of a draft's folder with this response instead (`null` stops). */
+    respond(slug: string, response: (() => Response) | null) {
+      if (response === null) overrides.delete(slug);
+      else overrides.set(slug, response);
     },
   };
 }

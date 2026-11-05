@@ -35,8 +35,8 @@ import { content as writeContentModule } from "../cli/content";
 import { runCli } from "../cli/run";
 import { createCMS, resetForTests } from "../cms";
 import { matchRoute } from "../matchRoute";
-import { remoteLoader } from "../remoteLoader";
-import type { Blocks, Loader, Snapshot } from "../types";
+import { fakeDelivery, fakeStudio } from "../testFixtures";
+import type { Blocks } from "../types";
 import { type LocalServerOptions, type RunningServer, startLocalServer } from "./localServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1715,6 +1715,13 @@ describe("content-protocol.mdx", () => {
     for (const leaf of SHARED_LEAVES) {
       expect(fs.readFileSync(`${leaf}.ts`, "utf8"), leaf).not.toMatch(/^import /m);
     }
+    // The index entry (blockMeta) is shared too; it imports only the leaves.
+    const SHARED = [...SHARED_LEAVES, path.join(PKG, "src/v8", "blockMeta")];
+    const blockMetaSrc = fs.readFileSync(path.join(PKG, "src/v8/blockMeta.ts"), "utf8");
+    for (const m of blockMetaSrc.matchAll(/^import [^"]*"([^"]+)"/gm)) {
+      const target = path.resolve(path.join(PKG, "src/v8"), m[1]!).replace(/\.tsx?$/, "");
+      expect(SHARED_LEAVES, `blockMeta imports ${m[1]}`).toContain(target);
+    }
     const protocolFiles = fs
       .readdirSync(path.join(PKG, "src/protocol"), { recursive: true, encoding: "utf8" })
       .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("__tests__"));
@@ -1732,7 +1739,7 @@ describe("content-protocol.mdx", () => {
           // The canonical hash and the revision id shape are the SDK's own
           // dependency-free leaf modules (no imports at all); the protocol
           // re-exports them rather than keep a second copy.
-          if (SHARED_LEAVES.includes(target)) continue;
+          if (SHARED.includes(target)) continue;
           expect(target, `${f}: ${spec}`).toContain(path.join(PKG, "src/protocol"));
           continue;
         }
@@ -1983,6 +1990,7 @@ export default { page, multivariate } satisfies Blocks;
       "website/matchers/always.ts": "always",
       "website/matchers/never.ts": "never",
       "website/loaders/redirect.ts": "redirect",
+      "website/loaders/redirects.ts": "redirects",
     };
     expect(meta.aliases).toEqual(documented);
     const keys = Object.values(groups()).flatMap((g: any) => Object.keys(g));
@@ -2078,41 +2086,20 @@ describe("studio-implementation.mdx", () => {
     expect((await call(s, "describe")).result.pollIntervalMs).toBe(2000);
   });
   describe("si-08 / si-09 / si-10: the SDK's release pointer (latest.json)", () => {
-    const ORIGIN = "https://delivery.decocms.com";
-    const LATEST = `${ORIGIN}/sites/acme/latest.json`;
-    let latest: Json | undefined;
-    const assets = new Map<string, unknown>();
-    const gates = new Map<string, Promise<void>>();
+    let cdn: ReturnType<typeof fakeDelivery>;
 
     beforeEach(() => {
       resetForTests();
-      latest = undefined;
-      assets.clear();
-      gates.clear();
-      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-        const url = String(input);
-        if (url === LATEST)
-          return latest ? Response.json(latest) : new Response("", { status: 404 });
-        const p = url.slice(ORIGIN.length).split("?")[0];
-        await gates.get(p);
-        return assets.has(p) ? Response.json(assets.get(p)) : new Response("", { status: 404 });
-      });
+      cdn = fakeDelivery();
+      vi.stubGlobal("fetch", cdn.fetch);
     });
     afterAll(() => vi.unstubAllGlobals());
 
-    /** A revision id (`<inv>-<uuidv7>`) per hex digit. */
-    const rid = (c: string) => `fe6c5e0d97f${c}-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5${c}`;
-    function snap(title: string, revision: string): Snapshot {
-      const blocks = { S: { __resolveType: "seo", title, description: "d" } };
-      return { revision, blocks };
-    }
-    /** Studio's publish of revision `s.revision`: its data.json, then latest.json. */
-    function publish(s: Snapshot) {
-      const p = `/sites/acme/revisions/${s.revision}/data.json`;
-      assets.set(p, { blocks: s.blocks });
-      latest = { revision: s.revision, previewHosts: [] };
-      return p;
-    }
+    const blocksOf = (title: string) => ({ S: { __resolveType: "seo", title, description: "d" } });
+    const title = async (cms: ReturnType<typeof createCMS>) => {
+      const [entry] = await cms.forRelease().resolve<{ title: string }>("S", { run: false });
+      return entry?.title;
+    };
 
     it("si-08: 60 s poll with up to 10 s jitter", () => {
       const src = fs.readFileSync(path.join(PKG, "src/v8/cms.ts"), "utf8");
@@ -2120,51 +2107,56 @@ describe("studio-implementation.mdx", () => {
       expect(src).toMatch(/JITTER = 10_000/);
     });
 
-    it("si-09: the SDK follows the revision latest.json names, whichever it is", async () => {
-      const loader = remoteLoader(undefined, { site: "acme" }) as Loader;
-      const a = snap("A", rid("a"));
-      const b = snap("B", rid("b"));
-      publish(a);
-      expect((await loader.load()).revision).toBe(a.revision);
-      publish(b);
-      expect(await loader.update!()).toEqual({ updated: true });
-      expect((await loader.load()).revision).toBe(b.revision);
-      // latest.json names the older revision again: followed, with no ordering among pointers.
-      latest = { revision: a.revision };
-      expect(await loader.update!()).toEqual({ updated: true });
-      expect((await loader.load()).revision).toBe(a.revision);
+    it("si-09: the SDK follows the index latest.json holds while its sequence grows, never back", async () => {
+      const cms = createCMS({ blocks: {}, site: "acme" });
+      const a = await cdn.publish(blocksOf("A"));
+      expect(await cms.forRelease().revision()).toBe(a.revision);
+      const b = await cdn.publish(blocksOf("B"));
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await cms.forRelease().revision()).toBe(b.revision);
+      // A rollback to A is a new revision with the next sequence: followed.
+      const rollback = await cdn.publish(blocksOf("A"));
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await cms.forRelease().revision()).toBe(rollback.revision);
+      expect(await title(cms)).toBe("A");
+      // A stale copy with a lower sequence: never.
+      await cdn.publish(blocksOf("B"), { sequence: b.sequence });
+      expect(await cms.update()).toEqual({ updated: false });
+      expect(await cms.forRelease().revision()).toBe(rollback.revision);
     });
 
-    it("si-09: the same revision as the one loaded is not an update", async () => {
-      const loader = remoteLoader(undefined, { site: "acme" }) as Loader;
-      const a = snap("A", rid("a"));
-      publish(a);
-      await loader.load();
-      publish(a); // latest.json written again, naming the same revision
-      expect(await loader.update!()).toEqual({ updated: false });
+    it("si-09: the same index as the one held is not an update (a 304)", async () => {
+      const cms = createCMS({ blocks: {}, site: "acme" });
+      await cdn.publish(blocksOf("A"));
+      await cms.forRelease().revision();
+      expect(await cms.update()).toEqual({ updated: false });
+      const last = cdn.requests.at(-1)!;
+      expect(last.key).toBe("latest.json");
+      expect(last.headers["if-none-match"]).toBeDefined();
     });
 
-    it("si-10: a draft's changes apply over the latest release, checked before the draft renders; no base matching the draft is fetched", async () => {
-      const published = snap("published", rid("c"));
-      publish(published);
-      const drafts = `${ORIGIN}/sites/acme/drafts/b.json`;
-      const fetch = globalThis.fetch;
+    it("si-10: a draft's changes apply over the latest index, checked before the draft renders; no base matching the draft is fetched", async () => {
+      const published = await cdn.publish(blocksOf("published"));
+      const studio = fakeStudio();
+      const pointer = studio.draft({ set: { New: { __resolveType: "seo" } } }, { slug: "b" });
       const urls: string[] = [];
-      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-        urls.push(String(input));
-        return String(input).startsWith(drafts)
-          ? Response.json({ set: { New: { __resolveType: "seo" } }, delete: [] })
-          : fetch(input);
+      vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        urls.push(url);
+        return url.includes("/drafts/") ? studio.fetch(input, init) : cdn.fetch(input, init);
       });
       const cms = createCMS({ blocks: {}, site: "acme" });
-      const draft = cms.forDraft("delivery.decocms.com/sites/acme/drafts/b.json@c1");
+      const draft = cms.forDraft(pointer);
       const [entry] = await draft.resolve("S", { run: false });
-      expect(entry).toEqual(published.blocks.S); // the latest release
-      expect(urls.filter((url) => url.startsWith(drafts))).toHaveLength(1);
-      // Only the release latest.json names: the pointer names no base of its own.
-      expect(urls.filter((url) => url.includes("/revisions/"))).toEqual([
-        `${ORIGIN}/sites/acme/revisions/${published.revision}/data.json`,
+      expect(entry).toEqual(blocksOf("published").S); // the latest release
+      expect(urls.filter((url) => url.includes("/drafts/b/"))).toHaveLength(2); // index + New
+      // The index latest.json holds, and the bodies it names: the pointer names no base.
+      expect(urls.filter((url) => !url.includes("/drafts/"))).toEqual([
+        "https://delivery.decocms.com/sites/acme/latest.json",
+        `https://delivery.decocms.com/sites/acme/blocks/${cdn.hashOf("S")}.json`,
       ]);
+      expect(await draft.revision()).toContain(published.revision);
+      expect(urls.some((url) => url.includes("/revisions/"))).toBe(false);
     });
   });
 });

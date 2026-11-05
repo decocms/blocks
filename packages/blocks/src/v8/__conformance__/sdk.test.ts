@@ -26,7 +26,7 @@ import {
   resetForTests,
 } from "../index";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
-import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures";
+import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio, hero, seo } from "../testFixtures";
 import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
@@ -284,7 +284,13 @@ assert<Equal<
 >>();
 assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
-assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "date">>();
+assert<Equal<
+  keyof Client,
+  "resolve" | "list" | "revision" | "routes" | "redirects" | "prefetch" | "visitor" | "version" | "date"
+>>();
+assert<Equal<Client["routes"], () => Promise<Result<Route[]>>>>();
+assert<Equal<Client["redirects"], () => Promise<Result<Redirect[]>>>>();
+assert<Equal<Client["prefetch"], (name: string) => void>>();
 assert<Equal<Client["visitor"], Visitor | null>>();
 assert<Equal<Client["version"], string | undefined>>();
 assert<Equal<Client["date"], Date>>();
@@ -389,12 +395,9 @@ describe("AR-06 / AR-07 telemetry destination and limits", () => {
 describe("AR-08 site loads hosted releases; token sends telemetry; neither is needed for drafts", () => {
   it("site alone: releases from delivery, no telemetry", async () => {
     const { currentTelemetry } = await import("../telemetry");
-    const id = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
-    const fetch = vi.fn(async (input: string | URL | Request) =>
-      String(input).endsWith("/latest.json")
-        ? Response.json({ revision: id })
-        : Response.json({ blocks: docsSnapshot().blocks }),
-    );
+    const cdn = fakeDelivery();
+    await cdn.publish(docsSnapshot().blocks);
+    const fetch = vi.fn(cdn.fetch);
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const [seo] = await cms.forRelease().resolve("SummerSEO");
@@ -403,7 +406,7 @@ describe("AR-08 site loads hosted releases; token sends telemetry; neither is ne
     const urls = fetch.mock.calls.map(([url]) => String(url));
     expect(urls.slice(0, 2)).toEqual([
       "https://delivery.decocms.com/sites/acme/latest.json",
-      `https://delivery.decocms.com/sites/acme/revisions/${id}/data.json`,
+      `https://delivery.decocms.com/sites/acme/blocks/${cdn.hashOf("SummerSEO")}.json`,
     ]);
     // Then only checks of latest.json: nothing else is fetched, and no collector.
     expect(urls.slice(2).every((url) => url.endsWith("/sites/acme/latest.json"))).toBe(true);
@@ -452,7 +455,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     const draft = cms.forDraft(pointer);
     expect((await draft.resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("Draft!");
     expect((await draft.resolve("HomePage"))[1]).toBeNull();
-    expect(await draft.revision()).toBe('rev-1~"etag-1"');
+    expect(await draft.revision()).toBe("rev-1~9f3c1a");
   });
 
   it("a draft whose changes can't be fetched makes every call return LOADER_FAILED with the cause", async () => {
@@ -556,7 +559,7 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect([value, error]).toEqual(["spring", null]);
   });
 
-  it("a draft is fetched without them, one body for every variant of one draft (later reads revalidate it)", async () => {
+  it("a draft is fetched without them: every variant of one draft reads the same files, afresh", async () => {
     const { fetch, pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: content() });
     const draft = (index: number) =>
@@ -566,10 +569,14 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
       });
     expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
     expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(String(fetch.mock.calls[0]![0])).toBe(String(fetch.mock.calls[1]![0]));
-    expect(String(fetch.mock.calls[0]![0])).not.toContain("__variant");
-    expect((await fetch.mock.results[1]!.value).status).toBe(304);
+    // Each read: the draft's index, then its one file (SummerSEO).
+    const urls = fetch.mock.calls.map(([url]) => String(url));
+    expect(urls).toHaveLength(4);
+    expect(urls.slice(2)).toEqual(urls.slice(0, 2));
+    expect(urls.some((url) => url.includes("__variant"))).toBe(false);
+    for (const [, init] of fetch.mock.calls) {
+      expect(new Headers(init?.headers).has("if-none-match")).toBe(false);
+    }
   });
 });
 
