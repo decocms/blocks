@@ -323,10 +323,7 @@ class RemoteLoader implements Loader, HostedSource {
   }
 }
 
-/**
- * An entry's `meta`, kept to the keys the SDK reads (`rules` is for Studio and
- * isn't held); `undefined` when none.
- */
+/** An entry's `meta`, kept to its known keys and shapes; `undefined` when none. */
 function metaOf(raw: unknown): BlockMeta | undefined {
   if (!isPlainObject(raw)) return undefined;
   const meta: BlockMeta = {};

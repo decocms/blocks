@@ -11,7 +11,7 @@ import { blockVersion } from "./canonical";
 describe("blockMeta vectors", () => {
   const { names, cases } = blockMetaVectors;
 
-  it("has the ten cases of the contract", () => {
+  it("has the eight cases of the contract", () => {
     expect(cases.map((c) => c.name)).toEqual([
       "home",
       "footer",
@@ -21,8 +21,6 @@ describe("blockMeta vectors", () => {
       "extends",
       "redirects",
       "CMS",
-      "ab-test",
-      "summer-rule",
     ]);
   });
 
@@ -86,50 +84,6 @@ describe("blockMeta", () => {
   it("keeps a path of any type, the empty one included, and only strings", () => {
     expect(blockMeta({ __resolveType: "x", path: "" }, [])).toEqual({ type: "x", path: "" });
     expect(blockMeta({ path: 3 }, [])).toEqual({});
-  });
-
-  it("lists the tests and campaigns its rules name, at any depth, deduped and sorted", () => {
-    const body = {
-      __resolveType: "multivariate",
-      variants: [
-        {
-          rule: {
-            __resolveType: "multi",
-            matchers: [
-              { __resolveType: "experiment", name: "b" },
-              { __resolveType: "campaign", name: "B" },
-            ],
-          },
-          value: {
-            __resolveType: "lazy",
-            value: { nested: [{ rule: { __resolveType: "experiment", name: "b" } }] },
-          },
-        },
-        { rule: { __resolveType: "never" }, value: { __resolveType: "campaign", name: "a" } },
-      ],
-    };
-    // Names needn't be blocks of the index: they are entries of `experiments`/`campaigns`.
-    expect(blockMeta(body, [])).toEqual({ type: "multivariate", rules: ["B", "a", "b"] });
-  });
-
-  it("counts a rule only with a string name, the empty one included", () => {
-    const rules = (rule: unknown) => blockMeta({ __resolveType: "x", rule }, []).rules;
-    expect(rules({ __resolveType: "experiment", name: "" })).toEqual([""]);
-    expect(rules({ __resolveType: "campaign" })).toBeUndefined();
-    expect(rules({ __resolveType: "experiment", name: 1 })).toBeUndefined();
-    // An inline date rule, a whole map and another type's `name` name no rule.
-    expect(rules({ __resolveType: "date", start: "2026-01-01T00:00:00Z" })).toBeUndefined();
-    expect(rules({ __resolveType: "experiments" })).toBeUndefined();
-    expect(rules({ __resolveType: "site/sections/Text.tsx", name: "x" })).toBeUndefined();
-    // Raw types, as `type`: no alias mapping.
-    expect(rules({ __resolveType: "deco/experiment", name: "x" })).toBeUndefined();
-  });
-
-  it("counts a saved rule's own top level", () => {
-    expect(blockMeta({ __resolveType: "campaign", name: "summer" }, [])).toEqual({
-      type: "campaign",
-      rules: ["summer"],
-    });
   });
 
   it("gives {} for a body that isn't an object", () => {

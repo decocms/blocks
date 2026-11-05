@@ -1262,3 +1262,46 @@ describe("the redirects block (one block holds every rule)", () => {
     );
   });
 });
+
+describe("references a delete leaves behind", () => {
+  // Studio deletes a block, test or campaign without rewriting its uses: deco check reports them.
+  const experiments = { __resolveType: "split-traffic", "buy-button": 50 };
+  const campaigns = { __resolveType: "calendar", "black-friday": {} };
+  const lazy = (value: unknown) => ({ __resolveType: "lazy", value });
+  const home = page([
+    { __resolveType: "GoneSection" },
+    {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "experiment", name: "gone-test" }, value: lazy(hero) },
+        {
+          rule: { __resolveType: "campaign", name: "gone-campaign" },
+          value: lazy({ __resolveType: "GoneBanner" }),
+        },
+        { rule: { __resolveType: "GoneRule" }, value: lazy(hero) },
+      ],
+    },
+  ]);
+
+  it("reports each at its path: a missing block fails, a missing test or campaign warns", () => {
+    expect(lines(run({ experiments, campaigns, HomePage: home }))).toEqual([
+      'HomePage.json sections[0]: unknown block type "GoneSection"',
+      'HomePage.json warning sections[1].variants[0].rule.name: no test "gone-test" in the saved block "experiments": this rule is always false',
+      'HomePage.json warning sections[1].variants[1].rule.name: no campaign "gone-campaign" in the saved block "campaigns": this rule is always false',
+      'HomePage.json sections[1].variants[1].value.value: unknown block type "GoneBanner"',
+      'HomePage.json sections[1].variants[2].rule: unknown block type "GoneRule"',
+    ]);
+  });
+
+  it("passes the same page once they are back", () => {
+    const back = {
+      experiments: { ...experiments, "gone-test": 50 },
+      campaigns: { ...campaigns, "gone-campaign": {} },
+      GoneSection: hero,
+      GoneBanner: hero,
+      GoneRule: { __resolveType: "always" },
+      HomePage: home,
+    };
+    expect(lines(run(back))).toEqual([]);
+  });
+});
