@@ -682,12 +682,6 @@ export async function releases(
       continue;
     }
     const meta = row.meta ?? {};
-    const status =
-      row.status === "current"
-        ? c.green("live")
-        : row.status === "was-live"
-          ? "was live"
-          : c.dim("never live");
     const what =
       typeof meta.reapplyOf === "string"
         ? `rollback to ${meta.reapplyOf}`
@@ -695,7 +689,7 @@ export async function releases(
           ? `draft ${meta.draft}`
           : "";
     ctx.reporter.info(
-      `${row.id}  ${status}  ${meta.publishedAt ?? ""}  ${meta.author ?? ""} via ${meta.via ?? "?"}` +
+      `${row.id}  ${row.status === "current" ? `${c.green("current")}  ` : ""}${meta.publishedAt ?? ""}  ${meta.author ?? ""} via ${meta.via ?? "?"}` +
         `${what ? `  ${what}` : ""}${meta.message ? `  ${JSON.stringify(meta.message)}` : ""}`,
     );
   }

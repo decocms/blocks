@@ -608,9 +608,35 @@ describe("deco drafts and releases", () => {
     expect(r.code).toBe(0);
     const line = r.text.split("\n").find((l: string) => l.startsWith(broken));
     expect(line).toBe(`${broken}  unreadable  (its meta.json couldn't be read)`);
-    expect(r.text).toMatch(new RegExp(`^${live}  live  `, "m"));
+    expect(r.text).toMatch(new RegExp(`^${live}  current  `, "m"));
     const json = await deco(["releases", "--json"]);
     expect(json.json.revisions).toEqual(revisions);
+  });
+
+  it("releases marks only the current row; every other one is a plain row", async () => {
+    const first = studio.release({ a: hero("1") }, { message: "first" });
+    const live = studio.release({ a: hero("2") });
+    const r = await deco(["releases"]);
+    expect(r.code).toBe(0);
+    expect(r.text).toMatch(new RegExp(`^${live}  current  \\S`, "m"));
+    const line = r.text.split("\n").find((l: string) => l.startsWith(first))!;
+    expect(line).toMatch(new RegExp(`^${first}  \\d{4}-`));
+    expect(r.text).not.toMatch(/never live|was live/);
+    const json = await deco(["releases", "--json"]);
+    const statuses = Object.fromEntries(
+      json.json.revisions.map((row: { id: string; status: string }) => [row.id, row.status]),
+    );
+    expect(statuses).toEqual({ [live]: "current", [first]: "listed" });
+  });
+
+  it("releases exits 5 when Studio answers 503 unavailable", async () => {
+    studio.inject.set("GET /releases", [
+      {
+        status: 503,
+        json: { error: "The CMS storage is unavailable; try again", code: "unavailable" },
+      },
+    ]);
+    expect((await deco(["releases"])).code).toBe(5);
   });
 });
 

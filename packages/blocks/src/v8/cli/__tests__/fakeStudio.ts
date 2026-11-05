@@ -423,18 +423,11 @@ export async function startFakeStudio(): Promise<FakeStudio> {
         const ids = [...state.revisions.keys()].sort();
         const start = Number(url.searchParams.get("cursor") ?? "0");
         const page = ids.slice(start, start + 2);
-        const live = new Set<string>();
-        for (
-          let id = state.latest;
-          id;
-          id = state.revisions.get(id)?.meta.previous as string | null
-        )
-          live.add(id);
         return send(200, {
           live: state.latest,
           revisions: page.map((id) => ({
             id,
-            status: id === state.latest ? "current" : live.has(id) ? "was-live" : "never-live",
+            status: id === state.latest ? "current" : "listed",
             meta: state.revisions.get(id)!.meta,
           })),
           nextCursor: start + 2 < ids.length ? String(start + 2) : null,

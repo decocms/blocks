@@ -54,7 +54,8 @@ export interface DraftRow {
 /** A Releases row (contract §4.10); an `unreadable` one has no `meta`. */
 export interface ReleaseRow {
   id: string;
-  status: "current" | "was-live" | "never-live" | "unreadable";
+  /** `current`: the one latest.json names; `listed`: any other. */
+  status: "current" | "listed" | "unreadable";
   meta?: Record<string, unknown>;
 }
 
