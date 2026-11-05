@@ -17,6 +17,6 @@ From the site migrations; the sites and what the commit hashes refer to are list
 
 Content isn't bundled and `deco serve` is gone: the site's `createCMS({ blocks, site })` fetches the latest release from the CDN at runtime.
 
-- **Publish the migrated content once.** `deco link <org>/<site>` (commit `.deco/link.json`), then `deco push --draft=<name>` sends `.deco/blocks` to a draft, and `deco publish --draft=<name>` makes it live. Then delete `.deco/blocks` and git-ignore it; `deco pull` fills it again when you need it.
+- **Publish the migrated content once.** The CLI finds the site from `DECO_SITE` (the environment, else `.env`, `.dev.vars`, then `vars.DECO_SITE` in `wrangler.jsonc` / `wrangler.json` / `wrangler.toml`); then `deco push --draft=<name>` sends `.deco/blocks` to a draft, and `deco publish --draft=<name>` makes it live. Then delete `.deco/blocks` and git-ignore it; `deco pull` fills it again when you need it.
 - **Edit in Studio, or locally with the CLI.** `deco pull [--draft=<name>]`, edit `.deco/blocks/*.json`, `deco check && deco diff`, `deco push --draft=<name>`. A push never publishes; only `deco publish` goes live.
-- **Schema.** On production deploys run `deco schema && deco schema push` (a Studio API key as `DECO_TOKEN`) so Studio's forms follow the deployed code. Add `deco check` there for the guard: with no `.deco/blocks` it checks production.
+- **Schema.** On production deploys run `deco schema && deco schema push` (a Studio API key as `DECO_TOKEN`) so Studio's forms follow the deployed code. Add `deco check` there for the guard: it checks production (the live release, from the CDN) against the code.

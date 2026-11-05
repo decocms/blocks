@@ -107,7 +107,7 @@ function addScripts(root: string, report: Report): void {
     step: "scripts",
     subject: "content",
     message:
-      "content is fetched from the CDN at runtime, never bundled: declare DECO_SITE (the Studio site) on the deploy platform, run deco link <org>/<site> and commit .deco/link.json, publish the migrated .deco/blocks with deco push --draft=<name> and deco publish --draft=<name>, then delete .deco/blocks and git-ignore it; on production deploys run deco schema && deco schema push, with a Studio API key as DECO_TOKEN (/next/cli)",
+      "content is fetched from the CDN at runtime, never bundled: declare DECO_SITE (the Studio site) on the deploy platform and in the repo's config (wrangler vars or .env), where the deco CLI reads it, publish the migrated .deco/blocks with deco push --draft=<name> and deco publish --draft=<name>, then delete .deco/blocks and git-ignore it; on production deploys run deco schema && deco schema push, with a Studio API key as DECO_TOKEN (/next/cli)",
   });
   const framework = siteFramework(root);
   const packages = [`@decocms/blocks ${V8_RANGE}`];

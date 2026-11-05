@@ -45,7 +45,8 @@
         "@opentelemetry/api"
       ],
       "entry": [
-        "src/v8/cli/main.ts"
+        "src/v8/cli/main.ts",
+        "src/v8/cli/__tests__/folderCdn.ts"
       ]
     },
     "packages/compat-v7": {

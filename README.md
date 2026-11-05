@@ -114,10 +114,9 @@ export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
 const [props, error] = await cms.forRelease().resolve("Home Hero");
 ```
 
-On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code; a team that wants the guard adds `deco check`, which, with no `.deco/blocks` (a fresh clone), checks production against the code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key):
+On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code; a team that wants the guard adds `deco check`, which checks production (the live release, from the CDN) against the code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key). It talks to the site named by `DECO_SITE`: the environment's, else the first of `.env`, `.dev.vars`, then `vars.DECO_SITE` in `wrangler.jsonc`, `wrangler.json` or `wrangler.toml`, in the folder that contains `.deco/`; Studio knows the site's organization.
 
 ```bash
-deco link <org>/<site>            # writes .deco/link.json (commit it)
 deco pull                         # production into .deco/blocks (git-ignored); or --draft=<name>
 deco check && deco diff
 deco push --draft=pdp-copy        # exit 2 on a conflict; --ours / --theirs
@@ -128,7 +127,7 @@ deco publish --draft=pdp-copy     # makes the draft live
 
 ### TanStack Start
 
-Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. In `vite.config.ts`, add `decoContent()` from `@decocms/blocks/vite` so a block saved in the site editor shows in open pages during `vite dev`. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps. A site on Cloudflare Workers deployed the Deco way uses [`@decocms/tanstack`](./packages/tanstack): `createDecoWorker` (drafts, Studio framing, the hook for the site's own page cache, with a complete recipe), `DecoDocument`, the router, `Image`/`Picture` and `decoTanstack()` (which includes `decoContent()`); [`examples/tanstack-worker-smoke`](./examples/tanstack-worker-smoke) is the same app on it.
+Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS({ blocks, site })`, so content arrives from the CDN at runtime, `matchRoute` in a catch-all route, one promise per block. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps; they have no Studio site, so they pass `content`, a module written by `content()` from `@decocms/blocks/cli`, and add `decoContent()` from `@decocms/blocks/vite` in `vite.config.ts` so an edit of that module shows in open pages during `vite dev`. A site on Cloudflare Workers deployed the Deco way uses [`@decocms/tanstack`](./packages/tanstack): `createDecoWorker` (drafts, Studio framing, the hook for the site's own page cache, with a complete recipe), `DecoDocument`, the router, `Image`/`Picture` and `decoTanstack()` (which includes `decoContent()`); [`examples/tanstack-worker-smoke`](./examples/tanstack-worker-smoke) is the same app on it.
 
 ### Next.js App Router
 

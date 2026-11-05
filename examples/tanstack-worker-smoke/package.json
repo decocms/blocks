@@ -5,7 +5,7 @@
   "scripts": {
     "predev": "deco schema && node ../content-module.mjs",
     "dev": "vite dev",
-    "prebuild": "deco schema && node ../content-module.mjs && deco check",
+    "prebuild": "deco schema && node ../content-module.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "smoke": "node smoke.mjs"

@@ -153,7 +153,8 @@ describe("protocol versions", () => {
       .catch((e) => e);
     expect(error).toBeInstanceOf(ContentProtocolError);
     expect(error.code).toBe(ErrorCode.Unsupported);
-    expect(error.message).toMatch(/update @decocms\/blocks.*8\.2\.0.*deco serve/);
+    expect(error.message).toMatch(/update @decocms\/blocks.*8\.2\.0/);
+    expect(error.message).not.toContain("deco serve");
     expect(error.data).toEqual({
       reason: "outdated",
       required: { major: 1, minor: 1 },
