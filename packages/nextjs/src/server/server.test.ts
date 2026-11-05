@@ -153,7 +153,7 @@ describe("the visitor the proxy forwarded", () => {
     const at = encodeURIComponent("2026-11-28T10:00:00Z");
     const link = POINTER.replace(
       "@",
-      `&__at=${at}&__test=${encodeURIComponent("a=on")}&__campaign=${encodeURIComponent("c=off")}@`,
+      `?__at=${at}&__test=${encodeURIComponent("a=on")}&__campaign=${encodeURIComponent("c=off")}@`,
     );
     serve({});
     expect(await bindDraft(testCMS(), { searchParams: { __draft: link } })).toBe(true);

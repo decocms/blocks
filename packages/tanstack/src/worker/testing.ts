@@ -73,7 +73,7 @@ export class TestContext implements ExecutionContextLike {
 }
 
 /**
- * A release with a page, a redirect, a block that varies on the `buy-button`
+ * A release with a page, the redirects block (one rule), a block that varies on the `buy-button`
  * test and, when given, the preview hosts Studio writes into its metadata and the saved
  * `experiments` and `campaigns` blocks.
  */
@@ -87,7 +87,10 @@ export function snapshot(
 ): Snapshot {
   const blocks: Record<string, unknown> = {
     Home: { __resolveType: "page", path: "/", sections: [] },
-    "Old shoes": { __resolveType: "redirect", from: "/old-shoes", to: "/shoes", permanent: true },
+    Redirects: {
+      __resolveType: "redirects",
+      redirects: [{ from: "/old-shoes", to: "/shoes", permanent: true }],
+    },
     BuyButton: {
       __resolveType: "multivariate",
       variants: [
@@ -149,27 +152,37 @@ export function recordingEntry(respond?: (request: Request) => Response | Promis
   };
 }
 
-export const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+/** A draft pointer: Studio's draft folder on its host, at a version. */
+export const POINTER = "studio.decocms.com/sites/acme/drafts/main/index.json@9f3c1a";
 /** A pointer to a draft Studio no longer has (its host answers 404). */
-export const GONE_POINTER = "studio.decocms.com/api/acme/decofile/store/gone/changes?token=abc@1";
+export const GONE_POINTER = "studio.decocms.com/sites/acme/drafts/gone/index.json@1";
 
 /**
- * Stands in for the drafts' host: {@link POINTER}'s changes (empty unless
- * given), a 404 for any other draft. Returns the URLs it was asked for.
+ * Stands in for the drafts' host: {@link POINTER}'s folder (its index and one
+ * file per name, empty unless given), a 404 for any other draft. Returns the
+ * URLs it was asked for.
  */
 export function serveDrafts(
   changes: { set?: Record<string, unknown>; delete?: string[] } = {},
 ): string[] {
   const urls: string[] = [];
-  const path = new URL(`https://${POINTER.slice(0, POINTER.indexOf("?"))}`).pathname;
+  const folder = new URL(`https://${POINTER.slice(0, POINTER.lastIndexOf("@"))}`).pathname.replace(
+    /index\.json$/,
+    "",
+  );
+  const files = new Map<string, unknown>();
+  for (const [name, data] of Object.entries(changes.set ?? {})) {
+    files.set(name, { operation: "set", data });
+  }
+  for (const name of changes.delete ?? []) files.set(name, { operation: "delete" });
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     urls.push(url.href);
-    if (url.host === "studio.decocms.com" && url.pathname === path) {
-      return Response.json(
-        { set: changes.set ?? {}, delete: changes.delete ?? [] },
-        { headers: { etag: '"etag-1"' } },
-      );
+    if (url.host === "studio.decocms.com" && url.pathname.startsWith(folder)) {
+      const file = decodeURIComponent(url.pathname.slice(folder.length));
+      if (file === "index.json") return Response.json({ names: [...files.keys()].sort() });
+      const name = decodeURIComponent(file.slice(0, -".json".length));
+      if (files.has(name)) return Response.json(files.get(name));
     }
     return new Response("not found", { status: 404 });
   });

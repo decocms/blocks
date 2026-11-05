@@ -648,7 +648,7 @@ describe("the visitor", () => {
   it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ set: {}, delete: [] })),
+      vi.fn(async () => Response.json({ names: [] })),
     );
     const { get, entry } = setup();
     const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, { firstVisit: true });
@@ -1028,76 +1028,69 @@ describe("http.server.request.duration", () => {
     ]);
   });
 
-  it("reads the release's pages once per revision", async () => {
-    recordMetrics();
+  /** The CMS with its release clients' `routes()` and `list()` observed. */
+  function observed(onRoutes: () => void, onList: (type: string) => void = () => {}) {
     const cms = storeCMS();
     const forRelease = cms.forRelease.bind(cms);
-    let pageLists = 0;
     cms.forRelease = () => {
       const client = forRelease();
       return {
-        ...client,
         revision: () => client.revision(),
         resolve: client.resolve.bind(client),
+        redirects: client.redirects.bind(client),
+        prefetch: client.prefetch.bind(client),
+        routes: () => {
+          onRoutes();
+          return client.routes();
+        },
         list: (type: string, options?: object) => {
-          if (type === "page") pageLists++;
+          onList(type);
           return client.list(type, options);
         },
-      } as ReturnType<typeof forRelease>;
+      } as unknown as ReturnType<typeof forRelease>;
     };
+    return cms;
+  }
+
+  it("reads the route templates from the release's index, never by listing pages", async () => {
+    recordMetrics();
+    let routeReads = 0;
+    const listed: string[] = [];
+    const cms = observed(
+      () => routeReads++,
+      (type) => listed.push(type),
+    );
     const { get } = setup({ cms });
     await get("/blue-shoes/p");
     await get("/red-shoes/p");
     await get("/");
-    expect(pageLists).toBe(1);
+    expect(routeReads).toBe(3);
+    expect(listed).toEqual([]);
   });
 
-  it("a failed page read is tried again on the next request", async () => {
+  it("a failed routes read is tried again on the next request", async () => {
     const points = recordMetrics();
-    const cms = storeCMS();
-    const forRelease = cms.forRelease.bind(cms);
     let fail = true;
-    cms.forRelease = () => {
-      const client = forRelease();
-      return {
-        ...client,
-        revision: () => client.revision(),
-        resolve: client.resolve.bind(client),
-        list: (type: string, options?: object) => {
-          if (type === "page" && fail) {
-            fail = false;
-            return Promise.reject(new Error("store down"));
-          }
-          return client.list(type, options);
-        },
-      } as ReturnType<typeof forRelease>;
-    };
+    const cms = observed(() => {
+      if (fail) {
+        fail = false;
+        throw new Error("store down");
+      }
+    });
     const { get } = setup({ cms });
     await get("/blue-shoes/p");
     await get("/blue-shoes/p");
     expect(points.map((p) => p.labels["http.route"])).toEqual(["unmatched", "/:slug/p"]);
   });
 
-  it("costs nothing with telemetry off: no point, and the pages are never listed", async () => {
+  it("costs nothing with telemetry off: no point, and the routes are never read", async () => {
     for (const off of [() => removeMetrics(), () => recordMetrics({ measuring: false })]) {
       off();
-      const cms = storeCMS();
-      const forRelease = cms.forRelease.bind(cms);
-      const listed: string[] = [];
-      cms.forRelease = () => {
-        const client = forRelease();
-        return {
-          revision: () => client.revision(),
-          resolve: client.resolve.bind(client),
-          list: (type: string, options?: object) => {
-            listed.push(type);
-            return client.list(type, options);
-          },
-        } as ReturnType<typeof forRelease>;
-      };
+      let routeReads = 0;
+      const cms = observed(() => routeReads++);
       const { get } = setup({ cms });
       expect((await get("/blue-shoes/p")).status).toBe(200);
-      expect(listed).not.toContain("page");
+      expect(routeReads).toBe(0);
     }
   });
 

@@ -8,6 +8,7 @@
  * and React's `cache()` a slot per test, as in server.test.ts.
  */
 import { type Blocks, createCMS, resetForTests } from "@decocms/blocks";
+import { indexEntry } from "@decocms/blocks/protocol";
 import { NextRequest } from "next/server.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POINTER } from "../__tests__/fixtures.ts";
@@ -49,24 +50,33 @@ afterEach(() => {
  */
 async function hosted() {
   resetForTests();
+  // The hosted layout: latest.json is the current index; bodies by hash; drafts are folders.
+  const bodies = new Map<string, unknown>();
+  const indexes = new Map<string, unknown>();
+  for (const [sequence, id, title] of [
+    [1, RELEASE_A, "A"],
+    [2, RELEASE_B, "B"],
+  ] as const) {
+    const body = { __resolveType: "seo", title };
+    const entry = await indexEntry("Title", body, ["Title"]);
+    bodies.set(`/sites/acme/blocks/${entry.version}.json`, body);
+    indexes.set(id, { revision: id, sequence, blocks: { Title: entry } });
+  }
   let current = RELEASE_A;
   const urls: string[] = [];
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : String(input);
     urls.push(url);
     if (url === LATEST) {
-      return Response.json({ revision: current, previewHosts: ["shop.example.com"] });
+      return Response.json({
+        ...(indexes.get(current) as object),
+        previewHosts: ["shop.example.com"],
+      });
     }
-    for (const [id, title] of [
-      [RELEASE_A, "A"],
-      [RELEASE_B, "B"],
-    ]) {
-      if (url.endsWith(`/revisions/${id}/data.json`)) {
-        return Response.json({ blocks: { Title: { __resolveType: "seo", title } } });
-      }
-    }
-    if (url.startsWith("https://studio.decocms.com/")) {
-      return Response.json({ set: {}, delete: [] }, { headers: { etag: '"e1"' } });
+    const path = new URL(url).pathname;
+    if (bodies.has(path)) return Response.json(bodies.get(path));
+    if (url.startsWith("https://studio.decocms.com/") && path.endsWith("/index.json")) {
+      return Response.json({ names: [] });
     }
     return new Response("not found", { status: 404 });
   });

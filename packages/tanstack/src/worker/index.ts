@@ -44,7 +44,7 @@
  *   `pageCache` answered with) and the device; nothing when the CMS has no
  *   telemetry.
  */
-import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
+import { type CMS, matchRoute, type Redirect } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
@@ -237,52 +237,22 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     ...(options.preload?.fonts ?? []).map((href) => `<${href}>; rel=preload; as=font; crossorigin`),
   ];
 
-  // The release's redirects, read once per revision (a draft's are read each time).
-  let releaseRedirects: { revision: string; list: Promise<Redirect[]> } | undefined;
-
+  // The redirects block, read through the client (its body is held by hash once fetched).
   async function redirectsFor(
     pointer: string | null,
     releaseCheck: string | undefined,
   ): Promise<Redirect[]> {
-    const read = async (client: ReturnType<CMS["forRelease"]>) => {
-      const [list] = await client.list<Redirect>("redirect");
-      return list ?? [];
-    };
-    if (pointer) return read(cms.client({ version: pointer, releaseCheck }));
-    const client = cms.client();
-    const revision = await client.revision();
-    if (releaseRedirects?.revision !== revision) {
-      releaseRedirects = { revision, list: read(client) };
-    }
-    return releaseRedirects.list;
+    const client = pointer ? cms.client({ version: pointer, releaseCheck }) : cms.client();
+    const [list] = await client.redirects();
+    return list ?? [];
   }
 
-  // The release's page templates, for `http.route`: read once per revision,
-  // and only while telemetry is measuring (`recordServerRequest` calls the
-  // route function only then).
-  let metricRoutes: { revision: string; pages: Promise<Route[]> } | undefined;
-
+  // The release's page templates, for `http.route`: the index's routes, read
+  // only while telemetry is measuring (`recordServerRequest` calls the route
+  // function only then). The same array per revision, so its trie is built once.
   async function routeTemplate(url: URL): Promise<string | undefined> {
-    const client = cms.forRelease();
-    const revision = await client.revision();
-    let routes = metricRoutes;
-    if (routes?.revision !== revision) {
-      const pages = client
-        .list<{ path?: unknown }>("page")
-        .then(([list]) =>
-          (list ?? []).flatMap((p) =>
-            typeof p?.path === "string" ? [{ name: p.path, path: p.path }] : [],
-          ),
-        );
-      const entry = { revision, pages };
-      metricRoutes = entry;
-      routes = entry;
-      // A failed read is tried again on the next request, not kept for the revision.
-      pages.catch(() => {
-        if (metricRoutes === entry) metricRoutes = undefined;
-      });
-    }
-    const match = matchRoute(url, { routes: await routes.pages });
+    const [routes] = await cms.forRelease().routes();
+    const match = matchRoute(url, { routes: routes ?? [] });
     return match.kind === "match" ? match.entry.path : undefined;
   }
 
