@@ -139,6 +139,39 @@ it("data stores key by dataScope and survive a deploy; build stores do not", asy
   expect(await run(storage, "site:build-B", () => data2.read(data2.key("item")))).toBeUndefined();
 });
 
+it("cachedLoader with dataVersion survives a deploy/publish; without it, it does not", async () => {
+  const storage = createKVCacheStorage(fakeKV());
+  const bind = <T,>(build: string, fn: () => T): T =>
+    RequestContext.run(new Request("https://site.test/"), () => {
+      bindCacheStorage({
+        storage,
+        scope: `site:${build}`,
+        dataScope: "site:data:1",
+        waitUntil: (work) => pending.push(work),
+      });
+      return fn();
+    });
+  const opts = { policy: "stale-while-revalidate", maxAge: 60_000 } as const;
+  const fn = vi.fn(async (p: { q: string }) => ({ q: p.q }));
+  const data = createCachedLoader("plp", fn, { ...opts, dataVersion: "1" });
+  const build = createCachedLoader("plp-build", fn, opts);
+  await bind("build-A", async () => {
+    await data({ q: "a" });
+    await build({ q: "a" });
+    await flush();
+  });
+  expect(fn).toHaveBeenCalledTimes(2);
+  clearLoaderCache();
+  await bind("build-B", () => data({ q: "a" }));
+  expect(fn).toHaveBeenCalledTimes(2); // preserved across the new build
+  await bind("build-B", () => build({ q: "a" }));
+  expect(fn).toHaveBeenCalledTimes(3); // per-build entry is gone
+  // Bumping dataVersion (shape change) or new props miss.
+  await bind("build-B", () => createCachedLoader("plp", fn, { ...opts, dataVersion: "2" })({ q: "a" }));
+  await bind("build-B", () => data({ q: "b" }));
+  expect(fn).toHaveBeenCalledTimes(5);
+});
+
 it("does not switch bindings between concurrent requests", async () => {
   const a = createMemoryCacheStorage();
   const b = createMemoryCacheStorage();
