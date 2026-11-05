@@ -13,7 +13,7 @@ import { blockFileName, serializeBlock } from "../../../protocol/keys";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage";
 import { packBatches } from "../remote/commands";
 import { commandFor } from "../remote/env";
-import { applyRequestBody, layer } from "../remote/http";
+import { applyRequestBody, exitCodeForStatus, layer } from "../remote/http";
 import { resolveSite, stripJsonc, wranglerTomlVar } from "../remote/local";
 import { decoPaths } from "../root";
 import { runCli } from "../run";
@@ -558,6 +558,14 @@ describe("deco publish", () => {
     expect((await deco(["publish", "--draft=pdp"])).code).toBe(5);
     expect((await deco(["publish", "--draft=nope"])).code).toBe(1);
     expect((await deco(["publish"])).code).toBe(64);
+  });
+});
+
+describe("exit codes of a Studio answer (contract §7.4)", () => {
+  it("only 409 production_moved is busy (5); 409 not_published (§4.11) is a failure (1)", () => {
+    expect(exitCodeForStatus(409, "production_moved")).toBe(5);
+    expect(exitCodeForStatus(409, "not_published")).toBe(1);
+    expect(exitCodeForStatus(409, undefined)).toBe(1);
   });
 });
 
