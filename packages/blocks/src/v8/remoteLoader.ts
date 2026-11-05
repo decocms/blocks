@@ -36,6 +36,7 @@
  * Instances are process-wide singletons, like `createCMS`'s.
  */
 
+import { keepAlive } from "./background.ts";
 import type { BlockIndex, BlockMeta, IndexEntry } from "./blockMeta.ts";
 import { BlockStore, type FetchedBody } from "./blockStore.ts";
 import { readBoundedJson, readBoundedJsonSized, timeoutSignal } from "./boundedJson.ts";
@@ -175,6 +176,8 @@ class RemoteLoader implements Loader, HostedSource {
       return content;
     });
     this.#revisions.set(id, pending);
+    // Shared with later clients: kept alive past the request that started it.
+    keepAlive(pending);
     // A failed read isn't kept, so the next client tries again.
     pending.catch(() => {
       if (this.#revisions.get(id) === pending) this.#revisions.delete(id);
@@ -221,6 +224,8 @@ class RemoteLoader implements Loader, HostedSource {
         if (this.#reading === pending) this.#reading = undefined;
       };
       pending.then(settle, settle);
+      // Shared with later requests: kept alive past the request that started it.
+      keepAlive(pending);
     }
     return this.#reading;
   }

@@ -9,6 +9,7 @@
  * `prefetch(name)` → `redirects()` → `matchRoute` → `resolve(name)`. The
  * page's subtree and the redirects block go out in one parallel wave.
  */
+import { keepAlive } from "./background.ts";
 import {
   canonicalType,
   namesOfType,
@@ -114,12 +115,13 @@ export class CMSClient implements Client {
 
   prefetch(name: string): void {
     if (typeof name !== "string") return;
-    this.#pin(name).then(
-      (pinned) => {
+    // Kept alive: a request may end (a redirect, a cached page) before its
+    // prefetch settles, and later requests share the fetches it started.
+    keepAlive(
+      this.#pin(name).then((pinned) => {
         if ("error" in pinned) return;
         return pinned.pin.wave(walk(pinned.pin.content, rootsOf(pinned.pin.content, name)));
-      },
-      () => {},
+      }),
     );
   }
 

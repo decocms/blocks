@@ -95,6 +95,48 @@ export function runInBackground(task: Task): void {
   });
 }
 
+/**
+ * Keeps the request that started `promise` alive until it settles, where the
+ * runtime ends a request's work with its response: a host's hook, or on
+ * Cloudflare Workers the platform's `waitUntil`. Unlike
+ * {@link runInBackground}, the work has already started: nothing is
+ * deferred. Elsewhere a pending promise needs nothing to settle, so this does
+ * nothing. Never throws.
+ *
+ * Shared work goes through here: a fetch a later request may await (a block
+ * body by hash, `latest.json`, a revision's index) must not die with the
+ * request that happened to start it.
+ */
+export function keepAlive(promise: Promise<unknown>): void {
+  const settled = promise.then(
+    () => {},
+    () => {},
+  );
+  const g = globalThis as BackgroundGlobals;
+  const hook = g[BACKGROUND_HOOK];
+  try {
+    if (typeof hook === "function") {
+      hook(() => settled);
+      return;
+    }
+    if (onWorkers()) {
+      void workersWaitUntil().then((waitUntil) => {
+        if (waitUntil === undefined) return;
+        if (typeof g[BACKGROUND_HOOK] !== "function") {
+          g[BACKGROUND_HOOK] = (next) => waitUntil(next());
+        }
+        try {
+          g[BACKGROUND_HOOK]?.(() => settled);
+        } catch {
+          // As below.
+        }
+      });
+    }
+  } catch {
+    // Outside a request there is no request to keep: the work just runs.
+  }
+}
+
 /** `setTimeout` that never keeps a Node process alive. */
 export function later(ms: number, callback: () => void): void {
   const timer = setTimeout(callback, ms) as unknown as { unref?: () => void };
