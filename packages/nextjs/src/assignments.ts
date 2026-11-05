@@ -55,22 +55,14 @@ function record(): Assignments {
 }
 
 /**
- * Whether the content saves a block of `type`: listing never fails on a
- * missing block, so a site without tests or campaigns reports no error.
+ * The saved `block` resolved, each name `true` or `false`; `null` when the
+ * content saves none. Whether it exists comes from the index (`NOT_FOUND`,
+ * which is no error to report), with no body listed.
  */
-async function saves(client: Reader, type: string): Promise<boolean> {
-  const [list] = await client.list(type);
-  return (list?.length ?? 0) > 0;
-}
-
-/** The saved `block` resolved, each name `true` or `false`; `null` when the content saves none. */
-async function decided(
-  client: Reader,
-  spec: { block: string; type: string },
-): Promise<Assignments | null> {
+async function decided(client: Reader, spec: { block: string }): Promise<Assignments | null> {
   try {
-    if (!(await saves(client, spec.type))) return null;
-    const [value] = await client.resolve<unknown>(spec.block);
+    const [value, error] = await client.resolve<unknown>(spec.block);
+    if (error?.code === "NOT_FOUND") return null;
     const out = record();
     if (!isRecord(value)) return out;
     for (const name of Object.keys(value).sort(byCodeUnit)) out[name] = value[name] === true;

@@ -237,12 +237,20 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     ...(options.preload?.fonts ?? []).map((href) => `<${href}>; rel=preload; as=font; crossorigin`),
   ];
 
-  // The redirects block, read through the client (its body is held by hash once fetched).
+  // The redirects block, read through the client (its body is held by hash
+  // once fetched). The page the URL routes to is prefetched first, so its
+  // subtree goes out in the same wave as the redirects block (the app's
+  // later reads find the bodies by hash) and this client pins the index the
+  // page's client pins.
   async function redirectsFor(
+    url: URL,
     pointer: string | null,
     releaseCheck: string | undefined,
   ): Promise<Redirect[]> {
     const client = pointer ? cms.client({ version: pointer, releaseCheck }) : cms.client();
+    const [routes] = await client.routes();
+    const match = matchRoute(url, { routes: routes ?? [] });
+    if (match.kind === "match") client.prefetch(match.entry.name);
     const [list] = await client.redirects();
     return list ?? [];
   }
@@ -298,7 +306,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     releaseCheck: string | undefined,
   ): Promise<Response | null> {
     try {
-      const redirects = await redirectsFor(pointer, releaseCheck);
+      const redirects = await redirectsFor(url, pointer, releaseCheck);
       if (!redirects.length) return null;
       const match = matchRoute(url, { routes: [], redirects });
       if (match.kind !== "redirect") return null;

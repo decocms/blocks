@@ -4,9 +4,10 @@
  * version every key carries, and the version (draft or old release) a request
  * renders. The worker caches nothing itself.
  */
-import type { CMS } from "@decocms/blocks";
+import { type CMS, matchRoute } from "@decocms/blocks";
 import { VERSION_HEADER } from "../draft.ts";
 import { hasDraftSignal } from "./drafts.ts";
+import { serverFnPagePath } from "./serverFn.ts";
 
 /**
  * Whether a request may be served from or stored in a shared cache at all:
@@ -35,14 +36,30 @@ export function isCacheable(
  * `<build>.<content revision>`, for every cache key: a new build or a
  * published release gets new entries at once. The build alone when the
  * revision can't be read.
+ *
+ * With `url` (the request's, `page.url`), the revision is the one the page
+ * renders. Right after a publish, a page whose new blocks aren't cached yet is
+ * served on the previous index while they load (the previous-index rule):
+ * this pins the same way, on the page the URL routes to (for a server
+ * function, the page its payload loads), so a page rendered on the previous
+ * index is never stored under the new revision. Without `url`, the revision a
+ * request that reads no page pins.
  */
 export async function cacheVersion(
   cms: Pick<CMS, "forRelease">,
   buildHash: string,
+  url?: URL,
 ): Promise<string> {
   let revision = "";
   try {
-    revision = await cms.forRelease().revision();
+    const client = cms.forRelease();
+    if (url !== undefined) {
+      const [routes] = await client.routes();
+      const match = matchRoute(serverFnPagePath(url) ?? url, { routes: routes ?? [] });
+      // Pins on the page, as the page's own client does.
+      if (match.kind === "match") client.prefetch(match.entry.name);
+    }
+    revision = await client.revision();
   } catch {
     // The content didn't load: key on the build only.
   }

@@ -266,7 +266,8 @@ async function pageCache(page: PageRequest<Env>): Promise<Response> {
     });
   }
 
-  const version = await cacheVersion(cms, __BUILD_HASH__);
+  // The revision the page renders: on the previous index while a publish's new blocks load.
+  const version = await cacheVersion(cms, __BUILD_HASH__, url);
   // What the worker decided and the page renders: two visitors on the same side of every test share an entry.
   const assigned = assignmentsKey(page.assignments);
   const key = cacheKey(url, {
