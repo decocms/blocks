@@ -321,7 +321,33 @@ export interface ListOptions<T> {
  */
 export interface Client {
   resolve<T = unknown>(target: unknown, options?: ResolveOptions): Promise<Result<T>>;
+  /**
+   * Every saved block of a type, read whole. For tools and type lists; routing
+   * reads `routes()` and `redirects()`, which need no body (a `page` or
+   * `redirect` list warns outside production).
+   */
   list<T = Block>(type: string, options?: ListOptions<T>): Promise<Result<T[]>>;
+  /**
+   * `{ name, path }` of every page (a saved block whose type is `page`, or an
+   * alias of it, with a `path`), from the index alone, in code-unit order of
+   * name so the same page wins a path conflict everywhere. The same array for
+   * the same revision, so `matchRoute` builds its trie once per revision.
+   * `name` is the saved block's name: `resolve(name)` reads the page.
+   */
+  routes(): Promise<Result<Route[]>>;
+  /**
+   * The rules of the site's redirects block (the saved block of type
+   * `redirects`; the first in code-unit order of name when there are
+   * several), `[]` when there is none.
+   */
+  redirects(): Promise<Result<Redirect[]>>;
+  /**
+   * Starts fetching the saved block `name` and everything it references,
+   * with the redirects block, in one parallel wave, so `redirects()` and
+   * `resolve(name)` find them in memory. Never throws; a block that can't be
+   * fetched fails where it is read.
+   */
+  prefetch(name: string): void;
   /**
    * The revision this client reads (loads it on first use). Unlike `resolve`
    * and `list`, it rejects with the `LOADER_FAILED` error when the content

@@ -18,6 +18,24 @@ export async function readBoundedJson(
   label: string,
   maxBytes: number,
 ): Promise<unknown> {
+  return (await readBoundedJsonSized(response, label, maxBytes)).value;
+}
+
+/** `readBoundedJson`, plus the length of the JSON text (what a byte-bounded cache counts). */
+export async function readBoundedJsonSized(
+  response: Response,
+  label: string,
+  maxBytes: number,
+): Promise<{ value: unknown; bytes: number }> {
+  const text = await readBoundedText(response, label, maxBytes);
+  return { value: JSON.parse(text), bytes: text.length };
+}
+
+async function readBoundedText(
+  response: Response,
+  label: string,
+  maxBytes: number,
+): Promise<string> {
   const tooLarge = () => new Error(`${label}: larger than ${maxBytes} bytes`);
   if (Number(response.headers.get("content-length")) > maxBytes) {
     await response.body?.cancel();
@@ -26,7 +44,7 @@ export async function readBoundedJson(
   if (response.body === null) {
     const text = await response.text();
     if (text.length > maxBytes) throw tooLarge();
-    return JSON.parse(text);
+    return text;
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -43,5 +61,5 @@ export async function readBoundedJson(
     parts.push(decoder.decode(value, { stream: true }));
   }
   parts.push(decoder.decode());
-  return JSON.parse(parts.join(""));
+  return parts.join("");
 }

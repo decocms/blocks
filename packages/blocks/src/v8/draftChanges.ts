@@ -1,44 +1,50 @@
 /**
- * Draft changes (see /next/content-delivery#draft-previews): what a draft
- * pointer's address answers, and how the CMS layers it over production.
+ * Draft previews (see /next/content-delivery#draft-previews): what a draft
+ * pointer names, how the SDK reads it and how a draft is laid over production.
  *
  * - The pointer's host must fall under one of the draft hosts (the same rule
  *   as v7's preview API domains): by default `*.decocms.com` (Studio, the
  *   delivery CDN, `local.studio.decocms.com`) and the loopback hosts;
  *   `createCMS({ preview: { draftHosts } })` replaces the list. Any other host
  *   is refused before anything is fetched.
- * - `GET <scheme>://<host><path>?v=<version>`: the scheme comes from the
- *   domain that admitted the host, never from the pointer: plain `http` only
- *   for loopback hosts. The pointer's `__variant` parameters are already gone (the parser
- *   lifts them out), no cookies or credentials are sent, and redirects aren't
- *   followed (a response that was redirected anyway is refused).
- * - Every read revalidates: with a body this process already holds, it sends
- *   `If-None-Match` with that body's ETag, and a `304` reuses the body. Only
- *   a 200 or that 304 is accepted, within 10 s; a 200 is up to 16 MiB, shaped
- *   `{ set: { <name>: <block JSON> }, delete: [<name>…] }` with `set` and
- *   `delete` disjoint. Other top-level keys (Studio's `editors`: who changed
- *   each block, and when) are ignored.
+ * - The pointer's path is a draft folder's index,
+ *   `/sites/<site>/drafts/<slug>/index.json` (`{ names: [...] }`, the names
+ *   the draft holds); a path that doesn't end in `/index.json` fails. Its
+ *   version is opaque (it changes with every save, so the preview reloads).
+ * - A draft read is one wave: the draft index, then every file it names
+ *   (`<folder><file>`, the file being the name's `encodeURIComponent` plus
+ *   `.json`, `index` written `%69ndex.json`), in parallel, plain GETs with no
+ *   `If-None-Match` (nothing read from `drafts/` is kept across requests; the
+ *   CDN revalidates every read with storage). The scheme comes from the domain
+ *   that admitted the host, never from the pointer: plain `http` only for
+ *   loopback hosts. No cookies or credentials are sent, and redirects aren't
+ *   followed (a response that was redirected anyway is refused). Each read has
+ *   10 s and up to 16 MiB.
+ * - A file is `{ operation: "set", data }` (the block), `{ operation:
+ *   "delete" }` or `{ operation: "published" }` (a marker publish leaves). A
+ *   missing file (404) or a `published` marker means the name isn't in the
+ *   draft: the file is the truth, never the draft index. A file that doesn't
+ *   parse fails the read.
+ * - The overlay replaces a published entry with each `set` (its `meta` from
+ *   `blockMeta`, its body held by the request) and removes each `delete`.
  */
+
+import { type BlockIndex, blockMeta, type IndexEntry } from "./blockMeta.ts";
 import { readBoundedJson, timeoutSignal } from "./boundedJson.ts";
-import { isPlainObject } from "./json.ts";
-import type { DraftPointer, Snapshot } from "./types.ts";
+import type { HeldBodies, IndexedContent } from "./contentIndex.ts";
+import { isPlainObject, type JsonObject } from "./json.ts";
+import type { DraftPointer } from "./types.ts";
 
 /** The version a pointer has when it names no draft: the release itself, with nothing fetched. */
 export const LOCAL_VERSION = "local";
 
 const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 16 * 1024 * 1024;
+/** The draft index's file in a draft folder. */
+const DRAFT_INDEX = "index.json";
 
-/** What a draft changed compared with production: whole blocks, and deletions. */
-export interface DraftChanges {
-  set: Record<string, unknown>;
-  delete: string[];
-}
-
-/** A draft read: new changes (and their ETag), or `304`, the held body is current. */
-export type DraftRead =
-  | { status: 200; changes: DraftChanges; etag: string | null }
-  | { status: 304 };
+/** What a draft holds for one name: the whole block, or its deletion. */
+export type DraftState = { operation: "set"; data: JsonObject } | { operation: "delete" };
 
 /**
  * The domains a draft pointer's host may fall under, the defaults v7 shipped.
@@ -107,41 +113,93 @@ function isLoopbackDomain(domain: string): boolean {
   );
 }
 
+/** The file a block's draft lives in, inside the draft folder; `index` can't be the draft index. */
+export function draftFileName(name: string): string {
+  return name === "index" ? "%69ndex.json" : `${encodeURIComponent(name)}.json`;
+}
+
 /**
- * The URL the SDK fetches for a pointer: the origin its host is admitted
- * under, the version as `v`. `null` when no draft host admits the host.
+ * The draft folder's URL for a pointer (ending in `/`), from the origin its
+ * host is admitted under. `null` when no draft host admits the host; throws
+ * when the path isn't a draft folder's index.
  */
-export function draftChangesUrl(
+export function draftFolderUrl(
   pointer: DraftPointer,
   domains: readonly string[] = DEFAULT_DRAFT_HOSTS,
 ): string | null {
   const origin = previewApiOrigin(pointer.host, domains);
   if (origin === null) return null;
-  const separator = pointer.path.includes("?") ? "&" : "?";
-  return `${origin}${pointer.path}${separator}v=${encodeURIComponent(pointer.version)}`;
+  const q = pointer.path.indexOf("?");
+  const path = q === -1 ? pointer.path : pointer.path.slice(0, q);
+  if (!path.endsWith(`/${DRAFT_INDEX}`)) {
+    throw new Error("draft pointer: not a draft folder (the path must end in /index.json)");
+  }
+  return `${origin}${path.slice(0, -DRAFT_INDEX.length)}`;
 }
 
 /**
- * Reads a draft's changes, revalidating `etag` (the ETag of the body the
- * caller holds) when given. Rejects on a host no draft host admits
- * (without fetching), on a `304` to a request that sent no ETag, and on any
- * other failure.
+ * Reads a draft: its index, then every file it names, in one parallel wave.
+ * Resolves with the names the draft sets or deletes. Rejects on a host no
+ * draft host admits (without fetching), a path that isn't a draft folder, and
+ * any failure but a missing file.
  */
-export async function fetchDraftChanges(
+export async function fetchDraft(
   pointer: DraftPointer,
-  options: { domains?: readonly string[]; etag?: string | null } = {},
-): Promise<DraftRead> {
-  const url = draftChangesUrl(pointer, options.domains);
-  if (url === null) {
+  options: { domains?: readonly string[] } = {},
+): Promise<Map<string, DraftState>> {
+  const folder = draftFolderUrl(pointer, options.domains);
+  if (folder === null) {
     throw new Error(
       `draft pointer names "${pointer.host}", which isn't under a draft host ` +
         "(createCMS({ preview: { draftHosts } })); nothing was fetched",
     );
   }
-  const headers: Record<string, string> = { accept: "application/json" };
-  if (options.etag) headers["if-none-match"] = options.etag;
+  const index = await getJson(`${folder}${DRAFT_INDEX}`, "draft index");
+  if (index === undefined) throw new Error("draft index: HTTP 404");
+  const names = draftIndexNames(index);
+  const files = await Promise.all(
+    names.map((name) =>
+      getJson(`${folder}${encodeURIComponent(draftFileName(name))}`, `draft file "${name}"`),
+    ),
+  );
+  const states = new Map<string, DraftState>();
+  names.forEach((name, i) => {
+    const state = parseDraftFile(files[i], name);
+    if (state !== null) states.set(name, state);
+  });
+  return states;
+}
+
+/** `{ names: [...] }`: the strings, deduped, in their order. */
+function draftIndexNames(body: unknown): string[] {
+  if (!isPlainObject(body) || !Array.isArray(body.names)) {
+    throw new Error("draft index: expected { names: [...] }");
+  }
+  return [...new Set(body.names.filter((name): name is string => typeof name === "string"))];
+}
+
+/** A draft file: what it holds, or `null` for a missing file or a `published` marker. */
+export function parseDraftFile(body: unknown, name: string): DraftState | null {
+  if (body === undefined) return null;
+  const invalid = () => new Error(`draft file "${name}": unexpected format`);
+  if (!isPlainObject(body)) throw invalid();
+  switch (body.operation) {
+    case "set":
+      if (!isPlainObject(body.data)) throw invalid();
+      return { operation: "set", data: body.data };
+    case "delete":
+      return { operation: "delete" };
+    case "published":
+      return null;
+    default:
+      throw invalid();
+  }
+}
+
+/** GETs a draft object: its JSON, or `undefined` for a 404. */
+async function getJson(url: string, label: string): Promise<unknown> {
   const response = await fetch(url, {
-    headers,
+    headers: { accept: "application/json" },
     redirect: "manual",
     signal: timeoutSignal(TIMEOUT_MS),
   });
@@ -152,59 +210,65 @@ export async function fetchDraftChanges(
     (response.url && new URL(response.url).origin !== new URL(url).origin)
   ) {
     await response.body?.cancel();
-    throw new Error("draft changes: the pointer's address redirected; nothing was read");
+    throw new Error(`${label}: the pointer's address redirected; nothing was read`);
   }
-  if (response.status === 304 && options.etag) {
+  if (response.status === 404) {
     await response.body?.cancel();
-    return { status: 304 };
+    return undefined;
   }
   if (response.status !== 200) {
     await response.body?.cancel();
-    throw new Error(`draft changes: HTTP ${response.status}`);
+    throw new Error(`${label}: HTTP ${response.status}`);
   }
-  const etag = response.headers.get("etag");
-  const changes = parseDraftChanges(await readBoundedJson(response, "draft changes", MAX_BYTES));
-  return { status: 200, changes, etag };
+  return readBoundedJson(response, label, MAX_BYTES);
 }
 
 /**
- * Validates a draft changes response, keeping `set` and `delete`; any other
- * top-level key (Studio's `editors`) is ignored. Throws on a `set` or
- * `delete` of an unexpected shape.
+ * The draft over `base`: each `set` replaces (or adds) the entry, with its
+ * `meta` from `blockMeta` over the overlaid names and its body held by this
+ * content only; each `delete` removes the entry. Production is never mutated.
+ * Its revision, `<base revision>~<view>`, is an opaque identity of the pair,
+ * never a release's.
  */
-export function parseDraftChanges(body: unknown): DraftChanges {
-  const invalid = (why: string) => new Error(`draft changes: ${why}`);
-  if (!isPlainObject(body)) throw invalid("expected an object");
-  const { set, delete: deleted } = body;
-  if (!isPlainObject(set)) throw invalid("set must be an object");
-  if (!Array.isArray(deleted) || deleted.some((name) => typeof name !== "string")) {
-    throw invalid("delete must be a list of names");
+export function overlayDraft(
+  base: IndexedContent,
+  states: ReadonlyMap<string, DraftState>,
+  view: string,
+): IndexedContent {
+  const names = new Set(Object.keys(base.blocks));
+  const bodies = new Map<string, unknown>();
+  for (const [name, state] of states) {
+    if (state.operation === "delete") names.delete(name);
+    else {
+      names.add(name);
+      bodies.set(name, state.data);
+    }
   }
-  if (deleted.some((name) => Object.hasOwn(set, name))) throw invalid("set and delete overlap");
-  return { set, delete: deleted as string[] };
-}
-
-/**
- * The draft as a snapshot: production's entries, with the changed ones
- * replaced whole and the deleted ones gone. A shallow copy: every unchanged
- * entry is production's own object, and production is never mutated. Its
- * revision, `<base revision>~<view>`, is an opaque identity of the pair,
- * never a release's; `view` names the draft body (its ETag), so each save
- * re-keys what's cached by revision.
- */
-export function layerDraft(base: Snapshot, changes: DraftChanges, view: string): Snapshot {
-  const blocks: Record<string, unknown> = { ...base.blocks };
-  for (const name of changes.delete) delete blocks[name];
-  for (const [name, entry] of Object.entries(changes.set)) {
-    // defineProperty, so an entry named "__proto__" stays an entry.
-    Object.defineProperty(blocks, name, {
-      value: entry,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+  const blocks = Object.create(null) as BlockIndex;
+  for (const name of names) {
+    if (bodies.has(name)) {
+      const meta = blockMeta(bodies.get(name), names);
+      const entry: IndexEntry = { version: "" };
+      if (Object.keys(meta).length > 0) entry.meta = meta;
+      blocks[name] = entry;
+    } else {
+      blocks[name] = base.blocks[name] as IndexEntry;
+    }
   }
-  const layered: Snapshot = { revision: `${base.revision}~${view}`, blocks };
-  if (base.aliases !== undefined) layered.aliases = base.aliases;
-  return layered;
+  const baseHeld = base.held;
+  const held: HeldBodies = {
+    has: (name) => bodies.has(name) || (!states.has(name) && baseHeld?.has(name) === true),
+    get: (name) =>
+      bodies.has(name) ? bodies.get(name) : states.has(name) ? undefined : baseHeld?.get(name),
+  };
+  const content: IndexedContent = {
+    revision: `${base.revision}~${view}`,
+    sequence: base.sequence,
+    blocks,
+    held,
+    draft: true,
+  };
+  if (base.aliases !== undefined) (content as { aliases?: unknown }).aliases = base.aliases;
+  if (base.source !== undefined) (content as { source?: unknown }).source = base.source;
+  return content;
 }

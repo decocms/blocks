@@ -9,14 +9,16 @@
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
 import { builtIns } from "./builtins/index.ts";
-import { CMSClient } from "./client.ts";
+import { CMSClient, resetListWarnings } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
+import type { IndexedContent } from "./contentIndex.ts";
 import type { Overrides } from "./current.ts";
 import { draftCookieFor, endsPreview, parseClientVersion, readVersion } from "./draft.ts";
 import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
+import type { Selection } from "./pin.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
 import {
   deepFreeze,
@@ -47,7 +49,6 @@ import type {
   RequestVersion,
   Snapshot,
 } from "./types.ts";
-import { forceVariants } from "./variants.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
 const MIN_INTERVAL = 60_000;
@@ -77,12 +78,12 @@ class CMSInstance {
   readonly #warned = new Set<string>();
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
-  /** Settings of a `CMS` block with nothing to run, per release snapshot. */
-  #staticSettings = new WeakMap<Snapshot, SavedSettings>();
+  /** Settings of a `CMS` block with nothing to run, per release index. */
+  #staticSettings = new WeakMap<IndexedContent, SavedSettings>();
   /** Code's `preview.hosts`, parsed: added to the release's own preview hosts, or the only list without a site. */
   readonly #codeHosts: readonly HostPattern[] | undefined;
   /** The release and time telemetry last read its section. */
-  #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
+  #telemetryRead: { content: IndexedContent; at: number } | undefined;
   /** One handle per block map, so the same config returns the same object. */
   readonly #handles = new WeakMap<Blocks, CMS>();
   /**
@@ -131,21 +132,18 @@ class CMSInstance {
     if (parsed.kind === "revision") {
       return this.#client(blocks, () => this.#store.revision(parsed.id), inputs);
     }
-    const { variants } = parsed.pointer;
-    const load = () => this.#store.draft(version, check);
-    if (variants === undefined) return this.#client(blocks, load, inputs);
-    return this.#client(blocks, () => load().then((s) => forceVariants(s, variants)), inputs);
+    return this.#client(blocks, () => this.#store.draft(version, check), inputs);
   }
 
   /** Loads the current release, keeping telemetry on the release's settings. */
-  #release(blocks: Blocks): () => Promise<Snapshot> {
+  #release(blocks: Blocks): () => Promise<Selection> {
     const telemetry = this.#telemetry;
     if (telemetry === undefined) return () => this.#store.release();
     return () =>
-      this.#store.release().then(async (snapshot) => {
-        telemetry.useRelease(snapshot);
-        await this.#followTelemetrySettings(blocks, telemetry, snapshot);
-        return snapshot;
+      this.#store.release().then(async (selection) => {
+        telemetry.useRelease(selection.current);
+        await this.#followTelemetrySettings(blocks, telemetry, selection.current);
+        return selection;
       });
   }
 
@@ -215,15 +213,20 @@ class CMSInstance {
     this.#telemetryRead = undefined;
   }
 
-  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<SavedSettings> {
-    if (snapshot === undefined) return defaultSettings(this.#caps);
-    const cached = this.#staticSettings.get(snapshot);
+  /**
+   * The settings of a release index: the `CMS` body comes from memory (held
+   * by local content, inline in a hosted index as `data`), never a fetch.
+   */
+  async #settingsOf(blocks: Blocks, content: IndexedContent | undefined): Promise<SavedSettings> {
+    if (content === undefined) return defaultSettings(this.#caps);
+    const cached = this.#staticSettings.get(content);
     if (cached !== undefined) return cached;
+    const entry = settingsBody(content);
     const settings = await readSettings(
-      snapshot,
+      entry,
       () =>
         new CMSClient({
-          load: () => Promise.resolve(snapshot),
+          load: () => Promise.resolve({ current: content }),
           blocks,
           builtIns,
           date: Date.now(),
@@ -232,10 +235,9 @@ class CMSInstance {
       this.#caps,
     );
     // A block map's own cms-settings function may answer differently per call.
-    const entry = snapshot.blocks[SETTINGS_BLOCK];
     const fixed = !isPlainObject(entry) || isStatic(entry);
     if (fixed && !Object.hasOwn(blocks, SETTINGS_TYPE)) {
-      this.#staticSettings.set(snapshot, settings);
+      this.#staticSettings.set(content, settings);
     }
     return settings;
   }
@@ -262,23 +264,23 @@ class CMSInstance {
   async #followTelemetrySettings(
     blocks: Blocks,
     telemetry: TelemetryPipeline,
-    snapshot: Snapshot,
+    content: IndexedContent,
   ): Promise<void> {
     const last = this.#telemetryRead;
     const now = Date.now();
-    if (last?.snapshot === snapshot && now - last.at < TELEMETRY_SETTINGS_MS) return;
-    this.#telemetryRead = { snapshot, at: now };
-    const read = this.#settingsOf(blocks, snapshot).then((settings) => {
-      if (this.#telemetryRead?.snapshot === snapshot) telemetry.apply(settings.telemetry);
+    if (last?.content === content && now - last.at < TELEMETRY_SETTINGS_MS) return;
+    this.#telemetryRead = { content, at: now };
+    const read = this.#settingsOf(blocks, content).then((settings) => {
+      if (this.#telemetryRead?.content === content) telemetry.apply(settings.telemetry);
     });
     // A new release waits for its rates; a periodic re-read doesn't hold up the request.
-    if (last?.snapshot !== snapshot) await read;
+    if (last?.content !== content) await read;
   }
 
   /** A client with its inputs (each client copies its visitor, so none is shared). */
   #client(
     blocks: Blocks,
-    load: () => Promise<Snapshot>,
+    load: () => Promise<Selection>,
     inputs: {
       version: string | undefined;
       visitor: ClientOptions["visitor"];
@@ -321,6 +323,15 @@ class CMSInstance {
         "the function wins. Rename the saved block (deco check reports this).",
     );
   }
+}
+
+/** The `CMS` block's body from memory: held (local content) or inline (`data`, hosted). */
+function settingsBody(content: IndexedContent): unknown {
+  if (content.held?.has(SETTINGS_BLOCK)) return content.held.get(SETTINGS_BLOCK);
+  const entry = Object.hasOwn(content.blocks, SETTINGS_BLOCK)
+    ? content.blocks[SETTINGS_BLOCK]
+    : undefined;
+  return entry?.data;
 }
 
 /** `Symbol.for`, so a second copy of this module still reads it. */
@@ -474,6 +485,7 @@ function overridesOf(given: unknown): Overrides | undefined {
 export function resetForTests(): void {
   clearGlobals(INSTANCE_PREFIX);
   resetRemoteLoaders();
+  resetListWarnings();
   setCurrentTelemetry(undefined);
 }
 

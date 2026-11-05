@@ -1,27 +1,22 @@
 // @vitest-environment node
 /**
- * remoteLoader (hosted-releases-internals.mdx, hosted-publishing.mdx,
- * content-delivery.mdx): runtime-only content. The first use loads
- * `sites/<site>/latest.json` and the `revisions/<id>/data.json` it names,
- * once however many ask; the background check follows `latest.json`. Drafts
- * aren't the loader's (see draftChanges.test.ts).
+ * remoteLoader (hosted-releases-internals.mdx, content-delivery.mdx; contract
+ * §3.1–§3.3, §3.5): runtime-only content on the content-addressed layout. The
+ * first use loads `sites/<site>/latest.json`, the index; bodies are fetched by
+ * hash when a request needs them; polls revalidate the index with
+ * `If-None-Match` and adopt only a higher `sequence`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BlockStore } from "./blockStore";
 import { createCMS, resetForTests } from "./cms";
-import { READ_REVISION } from "./content";
 import { ContentUnavailableError } from "./errors";
+import type { HostedSource } from "./hostedSource";
 import { remoteLoader } from "./remoteLoader";
-import { docsBlocks, docsSnapshot } from "./testFixtures";
-import type { CMSError, Loader, Snapshot } from "./types";
+import { currentTelemetry } from "./telemetry";
+import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio, revisionId } from "./testFixtures";
+import type { CMSError } from "./types";
 
-const ORIGIN = "https://delivery.decocms.com";
 const SITE = "acme";
-const LATEST_URL = `${ORIGIN}/sites/acme/latest.json`;
-/** A revision id (`<inv>-<uuidv7>`), distinct per digit. */
-const rid = (n: number) => `fe6c5e0d97f${n}-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5${n}`;
-const REV_1 = rid(1);
-const REV_2 = rid(2);
-const dataUrl = (id: string) => `${ORIGIN}/sites/acme/revisions/${id}/data.json`;
 
 beforeEach(() => resetForTests());
 afterEach(() => {
@@ -31,74 +26,27 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** What Studio writes for a publish: the blocks of that revision. */
-function blocksAt(title: string): Record<string, unknown> {
-  return { SummerSEO: { __resolveType: "seo", title, description: "d" } };
-}
-
-/** A fake delivery CDN: `latest.json` and immutable `revisions/<id>/data.json`. */
-function delivery() {
-  const objects = new Map<string, unknown>();
-  const gates = new Map<string, Promise<void>>();
-  const requests: { url: string; headers: Record<string, string>; init?: RequestInit }[] = [];
-  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    requests.push({ url, headers: Object.fromEntries(new Headers(init?.headers).entries()), init });
-    const key = url.slice(ORIGIN.length);
-    const gate = gates.get(key);
-    if (gate) {
-      // A fetch that waits ends when its signal does, as a real one.
-      const signal = init?.signal;
-      await Promise.race([
-        gate,
-        new Promise((_, reject) => {
-          if (signal?.aborted) reject(signal.reason);
-          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
-        }),
-      ]);
-    }
-    if (!objects.has(key)) return new Response("not found", { status: 404 });
-    const body = objects.get(key);
-    return body instanceof Response ? body : Response.json(body);
-  });
+/** The fake CDN, as the global fetch. */
+function cdn() {
+  const api = fakeDelivery();
+  const fetch = vi.fn(api.fetch);
   vi.stubGlobal("fetch", fetch);
-  return {
-    fetch,
-    requests,
-    urls: () => requests.map((r) => r.url),
-    /** Studio's publish: the revision, then the pointer. */
-    publish(id: string, title: string) {
-      objects.set(`/sites/acme/revisions/${id}/data.json`, { blocks: blocksAt(title) });
-      objects.set("/sites/acme/latest.json", { revision: id, previewHosts: ["*.example.com"] });
-    },
-    /** Studio's rollback writes a new revision; this rewrites the pointer only (any revision). */
-    point(value: unknown) {
-      objects.set("/sites/acme/latest.json", value);
-    },
-    put(key: string, value: unknown) {
-      objects.set(key, value);
-    },
-    remove(key: string) {
-      objects.delete(key);
-    },
-    /** Holds every fetch of `key` until released (or its signal aborts). */
-    hold(key: string) {
-      let release!: () => void;
-      gates.set(
-        key,
-        new Promise<void>((r) => {
-          release = r;
-        }),
-      );
-      return () => {
-        gates.delete(key);
-        release();
-      };
-    },
-  };
+  return { ...api, fetch };
 }
 
-/** The `ContentUnavailableError` a load rejected with, directly or as a `LOADER_FAILED` cause. */
+/** The docs' content with one title changed. */
+function content(title = "Sunny!"): Record<string, unknown> {
+  const blocks = { ...docsSnapshot().blocks };
+  blocks.SummerSEO = { __resolveType: "seo", title, description: "d" };
+  return blocks;
+}
+
+const hosted = () => remoteLoader(undefined, { site: SITE }) as unknown as HostedSource;
+
+/** Lets background work (polls, warming fetches) run. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+/** The `ContentUnavailableError` a promise rejected with, directly or as a `LOADER_FAILED` cause. */
 async function unavailable(promise: Promise<unknown>): Promise<ContentUnavailableError> {
   const error = await promise.then(
     () => {
@@ -111,359 +59,371 @@ async function unavailable(promise: Promise<unknown>): Promise<ContentUnavailabl
   return cause as ContentUnavailableError;
 }
 
-/** Makes the next `AbortSignal.timeout(ms)` fire at once, as 10 s with no answer would. */
-function timeOutFetches() {
-  const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
-    const controller = new AbortController();
-    queueMicrotask(() =>
-      controller.abort(new DOMException(`timed out after ${ms} ms`, "TimeoutError")),
-    );
-    return controller.signal;
-  });
-  return spy;
-}
-
-describe("remoteLoader: the first load", () => {
-  it("reads latest.json, then revisions/<id>/data.json, with no credentials and a 10 s signal", async () => {
-    const api = delivery();
-    api.publish(REV_1, "Published");
+describe("the index", () => {
+  it("a cold load reads latest.json only, with no credentials and a 10 s signal", async () => {
+    const api = cdn();
+    await api.publish(content());
     const timeout = vi.spyOn(AbortSignal, "timeout");
-    const loader = remoteLoader(undefined, { site: SITE });
-
-    expect(await loader.load()).toEqual({ revision: REV_1, blocks: blocksAt("Published") });
-    expect(api.urls()).toEqual([LATEST_URL, dataUrl(REV_1)]);
-    expect(api.requests.every((r) => r.headers.authorization === undefined)).toBe(true);
-    expect(api.requests.every((r) => r.init?.credentials === undefined)).toBe(true);
-    expect(timeout.mock.calls).toEqual([[10_000], [10_000]]);
-    expect(api.requests.every((r) => r.init?.signal instanceof AbortSignal)).toBe(true);
-    // Held: the next load touches nothing.
-    await loader.load();
-    expect(api.fetch).toHaveBeenCalledTimes(2);
+    const source = hosted();
+    const index = await source.current();
+    expect(index.revision).toBe(revisionId(1));
+    expect(index.sequence).toBe(1);
+    expect(api.keys()).toEqual(["latest.json"]);
+    expect(api.requests[0]?.headers.authorization).toBeUndefined();
+    expect(api.requests[0]?.headers["if-none-match"]).toBeUndefined();
+    expect(api.requests[0]?.init?.credentials).toBeUndefined();
+    expect(timeout.mock.calls).toEqual([[10_000]]);
+    // Held: the next use touches nothing.
+    expect(await source.current()).toBe(index);
+    expect(api.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("30 concurrent loads of a cold loader share one fetch of each object", async () => {
-    const api = delivery();
-    api.publish(REV_1, "Published");
-    const release = api.hold("/sites/acme/latest.json");
-    const loader = remoteLoader(undefined, { site: SITE });
-    const loads = Array.from({ length: 30 }, () => loader.load());
-    release();
-    const snapshots = await Promise.all(loads);
-    expect(new Set(snapshots).size).toBe(1);
-    expect(api.urls()).toEqual([LATEST_URL, dataUrl(REV_1)]);
-  });
-
-  it("30 concurrent resolves on a cold CMS make one fetch of each, the background check included", async () => {
-    const api = delivery();
-    api.publish(REV_1, "Published");
-    // The CDN answers after the background check has started, as a real one does.
-    const release = api.hold("/sites/acme/latest.json");
+  it("30 concurrent resolves on a cold CMS: one latest.json and one fetch per hash", async () => {
+    const api = cdn();
+    await api.publish(content());
+    const release = api.hold("latest.json");
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(api.fetch).not.toHaveBeenCalled(); // nothing at construction
     const pending = Promise.all(
-      Array.from({ length: 30 }, () =>
-        cms.forRelease().resolve<{ title: string }>("SummerSEO", { run: false }),
-      ),
+      Array.from({ length: 30 }, () => cms.forRelease().resolve<{ name: string }>("HomePage")),
     );
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await settle();
     release();
     const results = await pending;
-    expect(results.every(([entry]) => entry?.title === "Published")).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(api.urls()).toEqual([LATEST_URL, dataUrl(REV_1)]);
+    expect(results.every(([page]) => page?.name === "Home")).toBe(true);
+    await settle();
+    // HomePage → SummerCard → CurrentProduct: three bodies, each fetched once.
+    expect(api.keys().filter((k) => k === "latest.json")).toHaveLength(1);
+    expect(
+      api
+        .keys()
+        .filter((k) => k.startsWith("blocks/"))
+        .sort(),
+    ).toEqual(
+      ["HomePage", "SummerCard", "CurrentProduct"]
+        .map((n) => `blocks/${api.hashOf(n)}.json`)
+        .sort(),
+    );
   });
 
-  it("a timeout aborts and rejects with ContentUnavailableError { reason: 'timeout' }", async () => {
-    const api = delivery();
-    api.publish(REV_1, "Published");
-    api.hold("/sites/acme/latest.json");
-    timeOutFetches();
-    const loader = remoteLoader(undefined, { site: SITE });
-    const error = await unavailable(loader.load());
-    expect(error.reason).toBe("timeout");
-    expect(error.name).toBe("ContentUnavailableError");
-    const signal = api.requests[0]?.init?.signal;
-    expect(signal?.aborted).toBe(true);
-  });
-
-  it("a timeout while the body downloads is a timeout too", async () => {
-    const api = delivery();
-    vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(new DOMException("timed out", "TimeoutError")), 20);
-      return controller.signal;
-    });
-    // latest.json answers; data.json sends headers, then a body that stalls until the signal fires.
-    api.fetch.mockImplementationOnce(async () => Response.json({ revision: REV_1 }));
-    api.fetch.mockImplementationOnce(async (_input, init) => {
-      const body = new ReadableStream<Uint8Array>({
-        start(controller) {
-          init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
-        },
-      });
-      return new Response(body);
-    });
-    const error = await unavailable(remoteLoader(undefined, { site: SITE }).load());
-    expect(error.reason).toBe("timeout");
-  });
-
-  it("a refused connection is 'network'; an HTTP error is 'http' with its status", async () => {
-    const api = delivery();
-    const loader = remoteLoader(undefined, { site: SITE });
+  it("a timeout, a refused connection and an HTTP error each have their reason", async () => {
+    const api = cdn();
+    await api.publish(content());
+    const source = hosted();
+    api.fetch.mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"));
+    expect((await unavailable(source.current())).reason).toBe("timeout");
     api.fetch.mockRejectedValueOnce(new TypeError("fetch failed"));
-    expect((await unavailable(loader.load())).reason).toBe("network");
-
+    expect((await unavailable(source.current())).reason).toBe("network");
     api.fetch.mockResolvedValueOnce(new Response("down", { status: 503 }));
-    const http = await unavailable(loader.load());
+    const http = await unavailable(source.current());
     expect([http.reason, http.status]).toEqual(["http", 503]);
   });
 
-  it("a site with nothing published (latest.json 404) is the same error, never an empty release", async () => {
-    delivery();
+  it("a cold 404 (nothing published) is ContentUnavailableError, never an empty site", async () => {
+    cdn();
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
-    const [entry, error] = await cms.forRelease().resolve("SummerSEO");
-    expect(entry).toBeNull();
+    const [page, error] = await cms.forRelease().resolve("HomePage");
+    expect(page).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
     const cause = error?.cause as ContentUnavailableError;
     expect(cause).toBeInstanceOf(ContentUnavailableError);
     expect([cause.reason, cause.status]).toEqual(["http", 404]);
-    // revision() rejects with that LOADER_FAILED error.
-    const rejected = await unavailable(cms.forRelease().revision());
-    expect(rejected.status).toBe(404);
-  });
-
-  it("a revision latest.json names that isn't there is 'http' 404", async () => {
-    const api = delivery();
-    api.point({ revision: REV_1 });
-    const error = await unavailable(remoteLoader(undefined, { site: SITE }).load());
-    expect([error.reason, error.status]).toEqual(["http", 404]);
-    expect(api.urls()).toEqual([LATEST_URL, dataUrl(REV_1)]);
+    expect((await unavailable(cms.forRelease().revision())).status).toBe(404);
+    const [routes, routesError] = await cms.forRelease().routes();
+    expect(routes).toBeNull();
+    expect(routesError?.code).toBe("LOADER_FAILED");
   });
 
   it("a failed load isn't kept: the next call tries again", async () => {
-    const api = delivery();
-    const loader = remoteLoader(undefined, { site: SITE });
-    await unavailable(loader.load());
-    api.publish(REV_1, "Published");
-    expect((await loader.load()).revision).toBe(REV_1);
+    const api = cdn();
+    const source = hosted();
+    await unavailable(source.current());
+    await api.publish(content());
+    expect((await source.current()).revision).toBe(revisionId(1));
   });
 
-  it("refuses a latest.json that doesn't name a revision id: 'format', nothing else downloaded", async () => {
-    const api = delivery();
-    const loader = remoteLoader(undefined, { site: SITE });
-    for (const pointer of [
+  it("refuses an index that isn't one: 'format'", async () => {
+    const api = cdn();
+    const source = hosted();
+    const rev = revisionId(1);
+    const hash = "A".repeat(22);
+    for (const body of [
       null,
       [],
-      {},
-      { revision: "1".repeat(40) }, // a git commit SHA: the old format
-      { revision: "f".repeat(64) },
-      { revision: "../../other/revisions/x" },
-      { revision: `${REV_1}/../x` },
-      { revision: REV_1.toUpperCase() },
-      { revision: 1 },
+      { revision: rev, blocks: {} }, // no sequence
+      { revision: rev, sequence: 0, blocks: {} },
+      { revision: rev, sequence: 1.5, blocks: {} },
+      { revision: "1".repeat(40), sequence: 1, blocks: {} },
+      { revision: rev, sequence: 1 },
+      { revision: rev, sequence: 1, blocks: { Home: {} } },
+      { revision: rev, sequence: 1, blocks: { Home: { version: "short" } } },
+      { revision: rev, sequence: 1, blocks: { Home: { version: `${hash}/x` } } },
     ]) {
-      api.point(pointer);
-      expect((await unavailable(loader.load())).reason).toBe("format");
+      api.put("latest.json", body);
+      expect((await unavailable(source.current())).reason, JSON.stringify(body)).toBe("format");
     }
-    api.put("/sites/acme/latest.json", new Response("{not json", { status: 200 }));
-    expect((await unavailable(loader.load())).reason).toBe("format");
-    expect(api.urls().every((url) => url === LATEST_URL)).toBe(true);
+    api.put("latest.json", new Response("{not json"));
+    expect((await unavailable(source.current())).reason).toBe("format");
   });
 
-  it("refuses a data.json that isn't { blocks }: 'format'", async () => {
-    const api = delivery();
-    api.point({ revision: REV_1 });
-    const loader = remoteLoader(undefined, { site: SITE });
-    for (const body of [null, [], {}, { blocks: [] }, { blocks: "x" }]) {
-      api.put(`/sites/acme/revisions/${REV_1}/data.json`, body);
-      expect((await unavailable(loader.load())).reason).toBe("format");
-    }
-  });
-
-  it("ignores unknown keys in latest.json and data.json: no schemaHash, date or body check", async () => {
-    const api = delivery();
-    api.point({
-      revision: REV_1,
-      schemaHash: "a".repeat(64),
-      publishedAt: "not a date",
-      previewHosts: [],
+  it("ignores unknown keys, and keeps data only on the CMS entry", async () => {
+    const api = cdn();
+    const hash = "A".repeat(22);
+    api.put("latest.json", {
+      revision: revisionId(1),
+      sequence: 1,
       future: true,
+      blocks: {
+        CMS: { version: hash, data: { __resolveType: "cms-settings" }, extra: 1 },
+        Home: { version: hash, data: { leak: true }, meta: { type: "page", path: "/", odd: 1 } },
+      },
     });
-    api.put(`/sites/acme/revisions/${REV_1}/data.json`, {
-      blocks: blocksAt("Published"),
-      revision: REV_2, // never compared with the id in the path
-      schemaHash: "b".repeat(64),
-    });
-    const loader = remoteLoader(undefined, { site: SITE });
-    expect(await loader.load()).toEqual({ revision: REV_1, blocks: blocksAt("Published") });
-  });
-
-  it("refuses a revision larger than 64 MiB while it downloads", async () => {
-    const api = delivery();
-    api.point({ revision: REV_1 });
-    api.put(
-      `/sites/acme/revisions/${REV_1}/data.json`,
-      new Response("{}", { headers: { "content-length": String(64 * 1024 * 1024 + 1) } }),
-    );
-    const error = await unavailable(remoteLoader(undefined, { site: SITE }).load());
-    expect(error.reason).toBe("format");
-    expect(error.message).toMatch(/larger than/);
-  });
-
-  it("reads no environment: NODE_ENV=development loads and swaps like production", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const api = delivery();
-    api.publish(REV_1, "One");
-    const loader = remoteLoader(undefined, { site: SITE });
-    expect((await loader.load()).revision).toBe(REV_1);
-    api.publish(REV_2, "Two");
-    expect(await loader.update?.()).toEqual({ updated: true });
+    const index = await hosted().current();
+    expect(index.blocks.CMS).toEqual({ version: hash, data: { __resolveType: "cms-settings" } });
+    expect(index.blocks.Home).toEqual({ version: hash, meta: { type: "page", path: "/" } });
   });
 });
 
-describe("remoteLoader: update()", () => {
-  it("before the first load, the check is that load (shared), and reports no swap", async () => {
-    const api = delivery();
-    api.publish(REV_1, "Published");
-    const loader = remoteLoader(undefined, { site: SITE });
-    const [check, load] = await Promise.all([loader.update?.(), loader.load()]);
-    expect(check).toEqual({ updated: false });
-    expect(load.revision).toBe(REV_1);
-    expect(api.urls()).toEqual([LATEST_URL, dataUrl(REV_1)]);
+describe("polls", () => {
+  it("send If-None-Match on the held ETag; a 304 parses nothing and keeps the index", async () => {
+    const api = cdn();
+    await api.publish(content());
+    const source = hosted();
+    const index = await source.current();
+    const json = vi.spyOn(JSON, "parse");
+    expect(await source.poll()).toEqual({ updated: false });
+    const poll = api.requests[1];
+    expect(poll?.key).toBe("latest.json");
+    const etag = (await api.fetch.mock.results[0]?.value)?.headers.get("etag");
+    expect(etag).toBeTruthy();
+    expect(poll?.headers["if-none-match"]).toBe(etag);
+    expect((await api.fetch.mock.results[1]?.value)?.status).toBe(304);
+    expect(json).not.toHaveBeenCalled();
+    expect(source.peek()).toBe(index);
   });
 
-  it("swaps when latest.json names another revision, after it is downloaded and parsed", async () => {
-    const api = delivery();
-    api.publish(REV_1, "One");
-    const loader = remoteLoader(undefined, { site: SITE });
-    await loader.load();
-    api.publish(REV_2, "Two");
-    const release = api.hold(`/sites/acme/revisions/${REV_2}/data.json`);
-    const check = loader.update?.();
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    // The old release keeps serving while the new one downloads.
-    expect((await loader.load()).revision).toBe(REV_1);
-    release();
-    expect(await check).toEqual({ updated: true });
-    expect(await loader.load()).toEqual({ revision: REV_2, blocks: blocksAt("Two") });
+  it("adopts a higher sequence; the index that was current becomes the previous one", async () => {
+    const api = cdn();
+    await api.publish(content("One"));
+    const source = hosted();
+    const first = await source.current();
+    await api.publish(content("Two"));
+    expect(await source.poll()).toEqual({ updated: true });
+    expect(source.peek()?.sequence).toBe(2);
+    expect(source.previous()).toBe(first);
+    // No block was fetched to adopt it: only the index.
+    expect(api.blockFetches()).toBe(0);
   });
 
-  it("the same revision downloads nothing", async () => {
-    const api = delivery();
-    api.publish(REV_1, "Published");
-    const loader = remoteLoader(undefined, { site: SITE });
-    await loader.load();
-    expect(await loader.update?.()).toEqual({ updated: false });
-    expect(api.urls()).toEqual([LATEST_URL, dataUrl(REV_1), LATEST_URL]);
+  it("never adopts a lower or equal sequence (a stale CDN answer never moves it back)", async () => {
+    const api = cdn();
+    await api.publish(content("One"), { sequence: 5 });
+    const source = hosted();
+    const held = await source.current();
+    await api.publish(content("Older"), { sequence: 4 });
+    expect(await source.poll()).toEqual({ updated: false });
+    await api.publish(content("Same"), { sequence: 5 });
+    expect(await source.poll()).toEqual({ updated: false });
+    expect(source.peek()).toBe(held);
+    expect(source.previous()).toBeUndefined();
   });
 
-  it("follows whatever latest.json names, an older revision included, with no ordering", async () => {
-    const api = delivery();
-    api.publish(REV_1, "One");
-    api.publish(REV_2, "Two");
-    const loader = remoteLoader(undefined, { site: SITE });
-    expect((await loader.load()).revision).toBe(REV_2);
-    api.point({ revision: REV_1 });
-    expect(await loader.update?.()).toEqual({ updated: true });
-    expect(await loader.load()).toEqual({ revision: REV_1, blocks: blocksAt("One") });
-  });
-
-  it("404, 5xx, network errors, timeouts and bad bodies keep memory; the next check retries", async () => {
-    const api = delivery();
-    api.publish(REV_1, "One");
-    const loader = remoteLoader(undefined, { site: SITE });
-    const held = await loader.load();
-
+  it("a failed poll keeps the held index, and the next poll retries", async () => {
+    const api = cdn();
+    await api.publish(content("One"));
+    const source = hosted();
+    const held = await source.current();
     api.fetch.mockResolvedValueOnce(new Response("down", { status: 500 }));
-    expect((await unavailable(loader.update?.() as Promise<unknown>)).status).toBe(500);
+    await expect(source.poll()).rejects.toBeInstanceOf(ContentUnavailableError);
     api.fetch.mockRejectedValueOnce(new TypeError("fetch failed"));
-    expect((await unavailable(loader.update?.() as Promise<unknown>)).reason).toBe("network");
-    api.remove("/sites/acme/latest.json");
-    expect((await unavailable(loader.update?.() as Promise<unknown>)).status).toBe(404);
-    api.point({ revision: REV_2 }); // names a revision that isn't there
-    expect((await unavailable(loader.update?.() as Promise<unknown>)).status).toBe(404);
-    api.put(`/sites/acme/revisions/${REV_2}/data.json`, { blocks: [] });
-    expect((await unavailable(loader.update?.() as Promise<unknown>)).reason).toBe("format");
-    expect(await loader.load()).toBe(held);
-
-    api.publish(REV_2, "Two");
-    expect(await loader.update?.()).toEqual({ updated: true });
-    expect((await loader.load()).revision).toBe(REV_2);
+    await expect(source.poll()).rejects.toBeInstanceOf(ContentUnavailableError);
+    api.remove("latest.json");
+    await expect(source.poll()).rejects.toBeInstanceOf(ContentUnavailableError);
+    expect(source.peek()).toBe(held);
+    await api.publish(content("Two"));
+    expect(await source.poll()).toEqual({ updated: true });
   });
 
-  it("with createCMS: a check swaps the release in for the next client; a client keeps its own", async () => {
-    const api = delivery();
-    api.publish(REV_1, "One");
+  it("through createCMS: cms.update() never throws, and a CMS keeps serving while the CDN is down", async () => {
+    const api = cdn();
+    await api.publish(content("One"));
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
-    const before = cms.forRelease();
-    expect(await before.revision()).toBe(REV_1);
-    api.publish(REV_2, "Two");
-    expect(await cms.update()).toEqual({ updated: true });
-    expect(await before.revision()).toBe(REV_1);
-    const client = cms.forRelease();
-    expect(await client.revision()).toBe(REV_2);
-    const [seo] = await client.resolve<{ title: string }>("SummerSEO");
-    expect(seo?.title).toBe("Two");
-  });
-
-  it("a CMS that loaded keeps serving its release while the CDN is down", async () => {
-    const api = delivery();
-    api.publish(REV_1, "One");
-    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
-    expect(await cms.forRelease().revision()).toBe(REV_1);
+    expect((await cms.forRelease().resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("One");
     api.fetch.mockRejectedValue(new TypeError("fetch failed"));
     expect(await cms.update()).toEqual({ updated: false });
-    const [seo, error] = await cms.forRelease().resolve<{ title: string }>("SummerSEO");
-    expect(error).toBeNull();
-    expect(seo?.title).toBe("One");
+    expect((await cms.forRelease().resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("One");
+  });
+
+  it("a draft request's release check is a poll: it adopts a higher sequence for production", async () => {
+    const api = cdn();
+    const studio = fakeStudio();
+    vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) =>
+      String(input).includes("/drafts/") ? studio.fetch(input, init) : api.fetch(input, init),
+    );
+    await api.publish(content("One"));
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    expect(await cms.forRelease().revision()).toBe(revisionId(1));
+    await api.publish(content("Two"));
+    const pointer = studio.draft({ set: {} });
+    expect(await cms.forDraft(pointer).revision()).toBe(`${revisionId(2)}~9f3c1a`);
+    expect(await cms.forRelease().revision()).toBe(revisionId(2));
+  });
+
+  it("createCMS paces a remoteLoader by its own interval when it has none", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
+    cdn();
+    const loader = remoteLoader(undefined, { site: SITE, interval: 300_000 });
+    const poll = vi.spyOn(loader as unknown as HostedSource, "poll");
+    const cms = createCMS({ blocks: docsBlocks(), content: loader });
+    cms.forRelease();
+    await settle();
+    vi.setSystemTime(new Date("2026-10-03T00:04:00Z"));
+    cms.forRelease();
+    await settle();
+    expect(poll).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("remoteLoader: a release by its revision id", () => {
-  const read = (loader: Loader, id: string) =>
-    (loader as unknown as { [READ_REVISION]: (id: string) => Promise<Snapshot> })[READ_REVISION](
-      id,
-    );
-
-  it("reads revisions/<id>/data.json once and keeps the last 3 read", async () => {
-    const api = delivery();
-    for (const n of [1, 2, 3, 4]) {
-      api.put(`/sites/acme/revisions/${rid(n)}/data.json`, { blocks: blocksAt(`R${n}`) });
-    }
-    const loader = remoteLoader(undefined, { site: SITE });
-    expect(await read(loader, rid(1))).toEqual({ revision: rid(1), blocks: blocksAt("R1") });
-    await read(loader, rid(1));
-    expect(api.urls()).toEqual([dataUrl(rid(1))]); // no latest.json, no second read
-    for (const n of [2, 3, 4]) await read(loader, rid(n));
-    await read(loader, rid(1)); // dropped: the least recently used
-    expect(api.urls().filter((url) => url === dataUrl(rid(1)))).toHaveLength(2);
+describe("the block store", () => {
+  it("evicts by bytes, least recently used first", async () => {
+    const sizes: Record<string, number> = { a: 40, b: 40, c: 40 };
+    const fetched: string[] = [];
+    const store = new BlockStore(async (hash) => {
+      fetched.push(hash);
+      return { body: { hash }, bytes: sizes[hash]! };
+    }, 100);
+    await store.get("a", "A");
+    await store.get("b", "B");
+    expect(store.peek("a")).toEqual({ hash: "a" }); // a is now the most recent
+    await store.get("c", "C"); // 120 bytes > 100: b goes
+    expect(store.peek("b")).toBeUndefined();
+    expect(store.peek("a")).toBeDefined();
+    expect(store.peek("c")).toBeDefined();
+    await store.get("b", "B");
+    expect(fetched).toEqual(["a", "b", "c", "b"]);
   });
 
-  it("cms.client({ version: <id> }) reads it, with no schema check", async () => {
-    const api = delivery();
-    api.publish(REV_2, "Latest");
-    api.put(`/sites/acme/revisions/${REV_1}/data.json`, { blocks: blocksAt("Older") });
+  it("concurrent requests share one fetch per hash", async () => {
+    const api = cdn();
+    await api.publish(content());
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
-    const client = cms.client({ version: REV_1 });
-    const [seo] = await client.resolve<{ title: string }>("SummerSEO");
-    expect(seo?.title).toBe("Older");
-    expect(client.version).toBe(REV_1);
+    await cms.forRelease().revision();
+    await Promise.all(
+      Array.from({ length: 20 }, () => cms.forRelease().resolve("SummerSEO", { run: false })),
+    );
+    expect(api.keys().filter((k) => k === `blocks/${api.hashOf("SummerSEO")}.json`)).toHaveLength(
+      1,
+    );
+  });
+
+  it("a failed fetch (a 404 too) isn't cached: the next request fetches again", async () => {
+    const api = cdn();
+    await api.publish(content());
+    const key = `blocks/${api.hashOf("SummerSEO")}.json`;
+    api.respond(key, () => new Response("not found", { status: 404 }));
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    const [, error] = await cms.forRelease().resolve("SummerSEO");
+    expect(error?.code).toBe("LOADER_FAILED");
+    expect(error?.cause).toBeInstanceOf(ContentUnavailableError);
+    expect((error?.cause as ContentUnavailableError | undefined)?.status).toBe(404);
+    expect(error?.message).toContain(api.hashOf("SummerSEO"));
+    api.respond(key, null);
+    const [seo] = await cms.forRelease().resolve<{ title: string }>("SummerSEO");
+    expect(seo?.title).toBe("Sunny!");
+    expect(api.keys().filter((k) => k === key)).toHaveLength(2);
+  });
+});
+
+describe("settings", () => {
+  it("cms.settings() reads the inline CMS body: no fetch", async () => {
+    const api = cdn();
+    await api.publish({
+      ...content(),
+      CMS: { __resolveType: "cms-settings", analytics: { enabled: false } },
+    });
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    await cms.forRelease().revision();
+    const before = api.fetch.mock.calls.length;
+    const settings = await cms.settings();
+    expect(settings.analytics.enabled).toBe(false);
+    expect(api.fetch.mock.calls.length).toBe(before);
+    expect(api.blockFetches()).toBe(0);
+  });
+
+  it("telemetry follows a new index's settings, with no fetch for them", async () => {
+    const api = cdn();
+    const otlp = vi.fn(async () => new Response(null));
+    vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) =>
+      String(input).startsWith("https://otel.example") ? otlp() : api.fetch(input, init),
+    );
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const settingsWith = (rate: number) => ({
+      ...content(),
+      CMS: { __resolveType: "cms-settings", telemetry: { traceSampleRate: rate } },
+    });
+    await api.publish(settingsWith(0));
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      site: SITE,
+      telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
+    });
+    await cms.forRelease().revision();
+    expect(currentTelemetry()?.sampleTrace()).toBe(false);
+    await api.publish(settingsWith(1));
+    expect(await cms.update()).toEqual({ updated: true });
+    await cms.forRelease().revision();
+    expect(currentTelemetry()?.sampleTrace()).toBe(true);
+    expect(api.blockFetches()).toBe(0);
+  });
+});
+
+describe("a release by its revision id", () => {
+  it("reads revisions/<id>/index.json once, keeps the last 3, bodies by hash", async () => {
+    const api = cdn();
+    for (const n of [1, 2, 3, 4, 5]) await api.publish(content(`R${n}`));
+    const cms = createCMS({ blocks: docsBlocks(), site: SITE });
+    const read = async (n: number) =>
+      (await cms.client({ version: revisionId(n) }).resolve<{ title: string }>("SummerSEO"))[0]
+        ?.title;
+    expect(await read(1)).toBe("R1");
+    expect(await read(1)).toBe("R1");
+    const indexOf = (n: number) => `revisions/${revisionId(n)}/index.json`;
+    expect(api.keys().filter((k) => k === indexOf(1))).toHaveLength(1);
+    for (const n of [2, 3, 4]) await read(n);
+    expect(await read(1)).toBe("R1"); // dropped: the least recently used
+    expect(api.keys().filter((k) => k === indexOf(1))).toHaveLength(2);
+    expect(api.keys()).not.toContain("latest.json"); // an explicit version never reads it
+  });
+
+  it("cms.client({ version: <id> }) keeps the id as its version", async () => {
+    const api = cdn();
+    await api.publish(content("Older"));
+    await api.publish(content("Latest"));
+    const client = createCMS({ blocks: docsBlocks(), site: SITE }).client({
+      version: revisionId(1),
+    });
+    expect((await client.resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("Older");
+    expect(client.version).toBe(revisionId(1));
+    expect(await client.revision()).toBe(revisionId(1));
   });
 
   it("a revision that can't be read is LOADER_FAILED with the cause; a malformed id is refused", async () => {
-    delivery();
+    cdn();
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
-    const [, error] = await cms.client({ version: REV_1 }).resolve("SummerSEO");
+    const [, error] = await cms.client({ version: revisionId(1) }).resolve("SummerSEO");
     expect(error?.code).toBe("LOADER_FAILED");
     expect((error as CMSError).cause).toMatchObject({ reason: "http", status: 404 });
-    const loader = remoteLoader(undefined, { site: SITE });
-    await expect(read(loader, "1".repeat(40))).rejects.toMatchObject({ code: "LOADER_FAILED" });
+    await expect(hosted().revision("1".repeat(40))).rejects.toMatchObject({
+      code: "LOADER_FAILED",
+    });
   });
 });
 
-describe("remoteLoader: configuration", () => {
+describe("configuration", () => {
   it("with site, content is never bundled: passing content is a TypeError", () => {
-    const api = delivery();
+    const api = cdn();
     expect(() => remoteLoader(docsSnapshot(), { site: SITE })).toThrow(TypeError);
     expect(() => createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: SITE })).toThrow(
       "createCMS: with site, content comes from the delivery CDN at runtime; remove content",
@@ -476,12 +436,10 @@ describe("remoteLoader: configuration", () => {
     expect(() => createCMS({ blocks: docsBlocks() })).toThrow(TypeError);
   });
 
-  it("a token without site is a configuration error, before anything is fetched", async () => {
-    const api = delivery();
-    expect(() =>
-      createCMS({ blocks: docsBlocks(), content: docsSnapshot(), token: "t", telemetry: false }),
-    ).toThrow("token needs site: pass both, or site alone");
-    expect(api.fetch).not.toHaveBeenCalled();
+  it("a hosted loader has no whole snapshot to load", async () => {
+    await expect(remoteLoader(undefined, { site: SITE }).load()).rejects.toMatchObject({
+      code: "LOADER_FAILED",
+    });
   });
 
   it("is one instance per process and site; another interval warns", () => {
@@ -493,26 +451,10 @@ describe("remoteLoader: configuration", () => {
     expect(remoteLoader(undefined, { site: "other" })).not.toBe(first);
   });
 
-  it("createCMS paces a remoteLoader by its own interval when it has none", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
-    vi.setSystemTime(new Date("2026-10-03T00:00:00Z"));
-    delivery();
-    const loader = remoteLoader(undefined, { site: SITE, interval: 300_000 });
-    const update = vi.spyOn(loader, "update" as never);
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    cms.forRelease();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    vi.setSystemTime(new Date("2026-10-03T00:04:00Z"));
-    cms.forRelease();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(update).toHaveBeenCalledTimes(1);
-  });
-
   it("is a loader over the content alone when site is unset or empty", async () => {
-    const content = docsSnapshot();
-    for (const loader of [remoteLoader(content, { site: "" }), remoteLoader(content, {})]) {
-      expect(await loader.load()).toBe(content);
+    const snapshot = docsSnapshot();
+    for (const loader of [remoteLoader(snapshot, { site: "" }), remoteLoader(snapshot, {})]) {
+      expect(await loader.load()).toBe(snapshot);
       expect(loader.update).toBeUndefined();
     }
   });

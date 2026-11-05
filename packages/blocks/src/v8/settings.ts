@@ -4,8 +4,10 @@
  * type `cms-settings`, read from the release, with the defaults filled in and
  * code's caps applied.
  *
- * - The caller hands in the release snapshot already in memory; nothing here
- *   loads content, so reading settings never fetches.
+ * - The caller hands in the `CMS` body already in memory (local content
+ *   holds it; a hosted index carries it inline); nothing here loads content,
+ *   so reading settings never fetches (a section referencing another saved
+ *   block resolves it as any read would).
  * - A missing block, a block of another type, or a section that fails to
  *   resolve gives that section's defaults, still capped. Nothing rejects.
  * - Telemetry rates are the lower of content's and `telemetry.limits`.
@@ -22,10 +24,10 @@ import {
   SETTINGS_TYPE,
   telemetrySection,
 } from "./builtins/data.ts";
-import type { ReleasePreviewHosts } from "./content.ts";
+import type { ReleasePreviewHosts } from "./hostedSource.ts";
 import { EVERY_HOST, formatHostPattern, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { isPlainObject } from "./json.ts";
-import type { Client, CMSConfig, EffectiveSettings, Snapshot } from "./types.ts";
+import type { Client, CMSConfig, EffectiveSettings } from "./types.ts";
 
 /** What code allows: the caps every section's content is held to. */
 export interface SettingsCaps {
@@ -76,17 +78,16 @@ export function defaultSettings(caps: SettingsCaps): SavedSettings {
 }
 
 /**
- * The settings a release holds. `client` reads that same release; it resolves
- * the `CMS` block whole and, if that fails, each section on its own, so one
- * failing section falls back to its defaults alone.
+ * The settings a release holds, from its `CMS` body. `client` reads that same
+ * release; it resolves the `CMS` block whole and, if that fails, each section
+ * on its own, so one failing section falls back to its defaults alone.
  */
 export async function readSettings(
-  snapshot: Snapshot | undefined,
+  entry: unknown,
   client: () => Client,
   caps: SettingsCaps,
 ): Promise<SavedSettings> {
   try {
-    const entry = snapshot?.blocks[SETTINGS_BLOCK];
     if (!isPlainObject(entry) || entry.__resolveType !== SETTINGS_TYPE) {
       return defaultSettings(caps);
     }

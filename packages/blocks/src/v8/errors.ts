@@ -77,6 +77,15 @@ export const errors = {
   blockFailed: (type: string, path: (string | number)[], cause: unknown) =>
     new ResolutionError("BLOCK_FAILED", `block "${type}" failed: ${describe(cause)}`, path, cause),
 
+  /** A saved block whose body couldn't be fetched: its section fails, not the page. */
+  blockUnavailable: (name: string, path: (string | number)[], cause: unknown) =>
+    new ResolutionError(
+      "LOADER_FAILED",
+      `the saved block "${name}" couldn't be fetched: ${describe(cause)}`,
+      path,
+      cause,
+    ),
+
   loaderFailed: (message: string, cause?: unknown) =>
     new ResolutionError(
       "LOADER_FAILED",

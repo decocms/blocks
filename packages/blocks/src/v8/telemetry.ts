@@ -20,7 +20,7 @@
 import { hasBackgroundHook, later, runInBackground } from "./background.ts";
 import { rate, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
 import { isResolutionError } from "./errors.ts";
-import type { CMSError, Snapshot, Telemetry, TelemetryConfig } from "./types.ts";
+import type { CMSError, Telemetry, TelemetryConfig } from "./types.ts";
 
 /** The hosted Deco CMS collector, for `createCMS({ token })`. */
 const HOSTED_TELEMETRY_ENDPOINT = "https://otel.decocms.com";
@@ -137,8 +137,8 @@ export class TelemetryPipeline {
   }
 
   /** The release being served: its revision labels batches. */
-  useRelease(snapshot: Snapshot): void {
-    this.#release = snapshot.revision;
+  useRelease(release: { revision: string }): void {
+    this.#release = release.revision;
   }
 
   /**
