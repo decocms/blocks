@@ -109,7 +109,7 @@ describe("props match the block type's schema", () => {
 });
 
 describe("__resolveType", () => {
-  it("reports an unknown block type once, at the top or nested", () => {
+  it("reports a name that is no block type and no saved block once, at the top or nested", () => {
     expect(
       lines(
         run({
@@ -118,8 +118,8 @@ describe("__resolveType", () => {
         }),
       ),
     ).toEqual([
-      'HomePage.json sections[0]: unknown block type "nope"',
-      'Promo.json unknown block type "promo-banner"',
+      'HomePage.json sections[0]: no saved block or block type "nope"',
+      'Promo.json no saved block or block type "promo-banner"',
     ]);
   });
 
@@ -461,7 +461,7 @@ describe("lists of lazy values", () => {
 });
 
 describe("names that are also Object.prototype keys", () => {
-  it("reports a __resolveType of constructor or toString as an unknown block type", () => {
+  it("reports a __resolveType of constructor or toString as a missing name", () => {
     expect(
       lines(
         run({
@@ -471,9 +471,9 @@ describe("names that are also Object.prototype keys", () => {
         }),
       ),
     ).toEqual([
-      'A.json unknown block type "constructor"',
-      'B.json product: unknown block type "toString"',
-      'C.json sections[0]: unknown block type "hasOwnProperty"',
+      'A.json no saved block or block type "constructor"',
+      'B.json product: no saved block or block type "toString"',
+      'C.json sections[0]: no saved block or block type "hasOwnProperty"',
     ]);
   });
 
@@ -612,7 +612,7 @@ describe("deco check", () => {
           ".deco/blocks/HomePage.json",
           "  sections[0].title: required",
           ".deco/blocks/Promo.json",
-          '  unknown block type "promo-banner"',
+          '  no saved block or block type "promo-banner"',
           "3 saved blocks checked: 2 errors, 0 warnings",
         ].join("\n"),
       );
@@ -777,7 +777,7 @@ describe("deco check --color", () => {
         [
           CHECKING,
           bold(".deco/blocks/Promo.json"),
-          `  ${red('unknown block type "promo-banner"')}`,
+          `  ${red('no saved block or block type "promo-banner"')}`,
           `${red("✗")} 2 saved blocks checked: ${red("1 error")}, 0 warnings`,
         ].join("\n"),
       );
@@ -909,13 +909,13 @@ describe("the saved block experiments and the experiment rule", () => {
     ]);
   });
 
-  it("warns about a rule naming a test the experiments block doesn't have", () => {
+  it("fails a rule naming a test the experiments block doesn't have", () => {
     expect(lines(run({ experiments, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
+      'Rule.json name: no test "gone" in the saved block "experiments": this rule is always false',
     ]);
-    // With no experiments block at all, every experiment rule is always false.
+    // With no experiments block at all, every experiment rule names a missing test.
     expect(lines(run({ Rule: rule("buy-button") }))).toEqual([
-      'Rule.json warning name: no test "buy-button" in the saved block "experiments": this rule is always false',
+      'Rule.json name: no test "buy-button" in the saved block "experiments": this rule is always false',
     ]);
     // A saved rule is reported once, where it is saved.
     expect(
@@ -932,7 +932,7 @@ describe("the saved block experiments and the experiment rule", () => {
         }),
       ),
     ).toEqual([
-      'GoneRule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
+      'GoneRule.json name: no test "gone" in the saved block "experiments": this rule is always false',
     ]);
   });
 
@@ -1042,12 +1042,12 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     ]);
   });
 
-  it("warns about a rule naming a campaign the campaigns block doesn't have", () => {
+  it("fails a rule naming a campaign the campaigns block doesn't have", () => {
     expect(lines(run({ campaigns, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning name: no campaign "gone" in the saved block "campaigns": this rule is always false',
+      'Rule.json name: no campaign "gone" in the saved block "campaigns": this rule is always false',
     ]);
     expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
-      'Rule.json warning name: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
+      'Rule.json name: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
     ]);
   });
 
@@ -1283,14 +1283,38 @@ describe("references a delete leaves behind", () => {
     },
   ]);
 
-  it("reports each at its path: a missing block fails, a missing test or campaign warns", () => {
+  it("fails each at its path: a missing block, saved rule, test or campaign", () => {
     expect(lines(run({ experiments, campaigns, HomePage: home }))).toEqual([
-      'HomePage.json sections[0]: unknown block type "GoneSection"',
-      'HomePage.json warning sections[1].variants[0].rule.name: no test "gone-test" in the saved block "experiments": this rule is always false',
-      'HomePage.json warning sections[1].variants[1].rule.name: no campaign "gone-campaign" in the saved block "campaigns": this rule is always false',
-      'HomePage.json sections[1].variants[1].value.value: unknown block type "GoneBanner"',
-      'HomePage.json sections[1].variants[2].rule: unknown block type "GoneRule"',
+      'HomePage.json sections[0]: no saved block or block type "GoneSection"',
+      'HomePage.json sections[1].variants[0].rule.name: no test "gone-test" in the saved block "experiments": this rule is always false',
+      'HomePage.json sections[1].variants[1].rule.name: no campaign "gone-campaign" in the saved block "campaigns": this rule is always false',
+      'HomePage.json sections[1].variants[1].value.value: no saved block or block type "GoneBanner"',
+      'HomePage.json sections[1].variants[2].rule: no saved block or block type "GoneRule"',
     ]);
+  });
+
+  it("exits 1 for a missing test or campaign alone", () => {
+    for (const rule of [
+      { __resolveType: "experiment", name: "gone-test" },
+      { __resolveType: "campaign", name: "gone-campaign" },
+    ]) {
+      const fixture = createFixture({
+        ".deco/schema.gen.json": meta,
+        ".deco/blocks/experiments.json": experiments,
+        ".deco/blocks/campaigns.json": campaigns,
+        ".deco/blocks/Banner.json": {
+          ...hero,
+          title: { __resolveType: "multivariate", variants: [{ rule, value: lazy("x") }] },
+        },
+      });
+      try {
+        const out = recorder();
+        expect(check({ cwd: fixture.root, reporter: out }), rule.__resolveType).toBe(1);
+        expect(out.lines.at(-1)?.message).toBe("3 saved blocks checked: 1 error, 0 warnings");
+      } finally {
+        fixture.remove();
+      }
+    }
   });
 
   it("passes the same page once they are back", () => {

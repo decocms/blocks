@@ -1007,7 +1007,7 @@ describe("checking.mdx", () => {
   it("chk-02: unknown __resolveType; aliases and saved blocks pass", async () => {
     const r = await check({ Promo: { __resolveType: "promo-banner", title: "x" } });
     expect(r.code).toBe(1);
-    expect(r.out).toContain('unknown block type "promo-banner"');
+    expect(r.out).toContain('no saved block or block type "promo-banner"');
     const ok = await check({
       Home: { __resolveType: "website/pages/Page.tsx", name: "Home", path: "/", sections: [] },
       SummerHero: hero,
@@ -1107,7 +1107,7 @@ describe("checking.mdx", () => {
         ".deco/blocks/HomePage.json",
         "  sections[2].title: required",
         ".deco/blocks/Promo.json",
-        '  unknown block type "promo-banner"',
+        '  no saved block or block type "promo-banner"',
       ].join("\n"),
     );
   });

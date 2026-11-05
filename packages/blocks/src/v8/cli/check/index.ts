@@ -92,6 +92,16 @@ const FOLDED_BUILT_INS: Record<string, string> = {
   "website/loaders/secret.ts": SECRETS_MOVED,
 };
 
+/**
+ * A `__resolveType` that names no block type, built-in, alias or saved block:
+ * what a delete leaves behind (a section, banner or saved rule), or a block
+ * type the site doesn't export. Block types are bare keys too, so the check
+ * can't tell which and names both.
+ */
+function missingName(name: string): string {
+  return `no saved block or block type "${name}"`;
+}
+
 /** A `CMS` block saved with preview hosts, which Studio keeps now (in the release it publishes). */
 const PREVIEW_FIELD_GONE =
   "the site editor now keeps the addresses this site can be previewed on, so this field isn't read any more: you can delete it";
@@ -659,7 +669,7 @@ class Checker {
             ? oldDateRuleProblem(block)
             : Object.hasOwn(FOLDED_BUILT_INS, name)
               ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
-              : `unknown block type "${name}"`,
+              : missingName(name),
         );
         return;
       }
@@ -728,7 +738,6 @@ class Checker {
             ctx,
             joinPath(path, "/name"),
             `no test "${name}" in the saved block "${EXPERIMENTS_BLOCK}": this rule is always false`,
-            "warning",
           );
         }
         return;
@@ -753,7 +762,6 @@ class Checker {
             ctx,
             joinPath(path, "/name"),
             `no campaign "${campaign}" in the saved block "${CAMPAIGNS_BLOCK}": this rule is always false`,
-            "warning",
           );
         }
         return;

@@ -662,7 +662,7 @@ export default {
   );
 
   it(
-    'in-07: an unknown block type is one error, `unknown block type "promo-banner"`',
+    'in-07: an unknown block type is one error, `no saved block or block type "promo-banner"`',
     () => {
       const p = project({
         "tsconfig.json": TSCONFIG,
@@ -679,7 +679,7 @@ export default {
       expect(r.code).not.toBe(0);
       const lines = r.out.split("\n").filter((l) => /^\s+\S/.test(l));
       expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain('unknown block type "promo-banner"');
+      expect(lines[0]).toContain('no saved block or block type "promo-banner"');
     },
     T,
   );
