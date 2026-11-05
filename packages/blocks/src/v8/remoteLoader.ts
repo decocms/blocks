@@ -26,8 +26,9 @@
  *   three at a time, since a revision never changes. Bodies by hash as usual.
  * - Each fetch has 10 s (headers and body), sends no credential, and refuses
  *   a body over 16 MiB while it downloads. Unknown keys are ignored.
- * - `previewHosts`: as before, from the last `latest.json` read (a 304 keeps
- *   the list it had). A site with no `latest.json` yet (a 404), or one without
+ * - `previewHosts`: as before, from the last `latest.json` read whose index
+ *   was adopted (a 304, or a stale answer with a lower or equal `sequence`,
+ *   keeps the list it had). A site with no `latest.json` yet (a 404), or one without
  *   `previewHosts`, previews on every host; until a read succeeds, previews
  *   stay closed, and a later failure keeps the last answer.
  * - Without `site` it's a plain loader over the content it's given.
@@ -103,9 +104,10 @@ class RemoteLoader implements Loader, HostedSource {
   #reading: Promise<boolean> | undefined;
   readonly #revisions = new BoundedMap<string, Promise<IndexedContent>>(CACHED_REVISIONS);
   /**
-   * The preview hosts the last read of `latest.json` found (its list, or
-   * `"every"`: a 404, or no `previewHosts` in it), and when. A failed read
-   * leaves it as it was.
+   * The preview hosts of the held release, from the last read of
+   * `latest.json` that was adopted (its list, or `"every"`: a 404, or no
+   * `previewHosts` in it), and when it was last confirmed. A failed read, or
+   * a stale one, leaves the list as it was.
    */
   #hosts: { list: readonly string[] | "every"; at: number } | undefined;
   #hostsRead: Promise<void> | undefined;
@@ -228,8 +230,18 @@ class RemoteLoader implements Loader, HostedSource {
     const read = await this.#readLatest(held?.etag ?? null);
     if (read === null) return false;
     const current = this.#current;
-    // The newest index wins, by sequence: a stale CDN answer never moves the isolate back.
-    if (current !== undefined && read.content.sequence <= current.content.sequence) return false;
+    const at = Date.now();
+    // The newest index wins, by sequence: a stale CDN answer never moves the
+    // isolate back, its preview hosts included (the held list counts as read now).
+    if (current !== undefined && read.content.sequence <= current.content.sequence) {
+      this.#hosts =
+        this.#hosts === undefined
+          ? { list: read.previewHosts ?? "every", at }
+          : { list: this.#hosts.list, at };
+      return false;
+    }
+    // The adopted release's metadata. No `previewHosts` (none written): every host, as with no latest.json.
+    this.#hosts = { list: read.previewHosts ?? "every", at };
     if (current !== undefined) this.#previous = current.content;
     this.#current = { content: read.content, etag: read.etag };
     return current !== undefined;
@@ -258,9 +270,7 @@ class RemoteLoader implements Loader, HostedSource {
     const body = await readBody(response, label, MAX_INDEX_BYTES);
     const content = this.#parseIndex(body, label);
     const previewHosts = previewHostsOf((body as Record<string, unknown>).previewHosts);
-    // The current release's metadata, whether or not its index is adopted.
-    // No `previewHosts` (none written): every host, as with no latest.json.
-    this.#hosts = { list: previewHosts ?? "every", at: Date.now() };
+    // Its preview hosts are taken only with its index (`#readAndAdopt`).
     return { content, etag: response.headers.get("etag"), previewHosts };
   }
 

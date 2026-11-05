@@ -5,12 +5,19 @@
  * that a request pins (see ./pin.ts).
  *
  * A draft is the current index with a draft's files laid over it (see
- * ./draftChanges.ts), read for each draft request and never kept: nothing
- * read by name from `drafts/` outlives the request.
+ * ./draftChanges.ts), read for each draft request and never kept: the
+ * draft reads of one request share one read of its files, and nothing read
+ * by name from `drafts/` serves a later request.
  */
 import { type IndexedContent, localIndex } from "./contentIndex.ts";
 import { parseDraftPointer } from "./draft.ts";
-import { DEFAULT_DRAFT_HOSTS, fetchDraft, LOCAL_VERSION, overlayDraft } from "./draftChanges.ts";
+import {
+  DEFAULT_DRAFT_HOSTS,
+  type DraftState,
+  fetchDraft,
+  LOCAL_VERSION,
+  overlayDraft,
+} from "./draftChanges.ts";
 import { errors, isResolutionError } from "./errors.ts";
 import {
   type HostedSource,
@@ -20,7 +27,7 @@ import {
 } from "./hostedSource.ts";
 import { isPlainObject } from "./json.ts";
 import type { Selection } from "./pin.ts";
-import type { Loader, Snapshot } from "./types.ts";
+import type { DraftPointer, Loader, Snapshot } from "./types.ts";
 
 export { BoundedMap } from "./boundedMap.ts";
 export { previewHostsOf, type ReleasePreviewHosts } from "./hostedSource.ts";
@@ -72,6 +79,8 @@ export class ContentStore {
    */
   #checksDone = 0;
   #checkPrefix: string | undefined;
+  /** Draft reads shared under one release check, by the check's number, then the pointer (`#draftFiles`). */
+  readonly #draftReads = new Map<number, Map<string, Promise<Map<string, DraftState>>>>();
   readonly #draftHosts: readonly string[];
   /** The snapshot this store last loaded, for a loader that can't peek. */
   #latest: Snapshot | undefined;
@@ -131,8 +140,9 @@ export class ContentStore {
    * the current index. A pointer that doesn't parse, or any failure, is
    * `LOADER_FAILED`, never a silent fallback to the release. A pointer whose
    * version is `local` names no draft: the release, with nothing fetched.
-   * Every draft request reads the draft again (nothing from `drafts/` is kept),
-   * and never the previous index.
+   * Every draft request reads the draft again (nothing from `drafts/` is kept
+   * for a later request; the reads of one request, under its `releaseCheck`,
+   * share one), and never the previous index.
    *
    * Before overlaying, a draft read checks the source for a newer release and
    * waits for that check (see `checkRelease`), so a draft always shows over
@@ -153,9 +163,7 @@ export class ContentStore {
     if (parsed.version === LOCAL_VERSION) {
       return this.release().then(({ current }) => withVariants({ current }));
     }
-    const files = fetchDraft(parsed, { domains: this.#draftHosts }).catch((error: unknown) => {
-      throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
-    });
+    const files = this.#draftFiles(parsed, releaseCheck);
     const release = this.waitForCheck(releaseCheck).then(() => this.release());
     return Promise.all([release, files]).then(([base, states]) =>
       withVariants({ current: overlayDraft(base.current, states, parsed.version) }),
@@ -280,7 +288,54 @@ export class ContentStore {
   }
 
   #startCheck(): Promise<string> {
-    return this.update().then(() => this.#checkId(++this.#checksDone));
+    return this.update().then(() => {
+      const n = ++this.#checksDone;
+      // Reads under checks older than the one before this are dropped: their requests are over or nearly.
+      for (const check of this.#draftReads.keys()) {
+        if (check < n - 1) this.#draftReads.delete(check);
+      }
+      return this.#checkId(n);
+    });
+  }
+
+  /**
+   * A draft's files (its index, then every file it lists). Reads under one
+   * release check share one read: the check's id is handed to every draft
+   * read of the request that made it (the host check, the redirects, the
+   * assignments and the page), so a preview request reads the draft folder
+   * once and every part of it sees the same save. A read under a check starts
+   * only after the check ended, so it is never older than any request that
+   * shares it. A failed read isn't shared, and reads under old checks are
+   * dropped once newer checks end (`#startCheck`): nothing from `drafts/`
+   * serves a later request. Without a check id this store made (or for a
+   * source that can't change, whose checks are all one), every read is its
+   * own.
+   */
+  #draftFiles(
+    pointer: DraftPointer,
+    releaseCheck: string | null | undefined,
+  ): Promise<Map<string, DraftState>> {
+    const read = () =>
+      fetchDraft(pointer, { domains: this.#draftHosts }).catch((error: unknown) => {
+        throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
+      });
+    const check = this.updatable ? this.#checkNumber(releaseCheck) : undefined;
+    if (check === undefined) return read();
+    const key = `${pointer.host}${pointer.path}@${pointer.version}`;
+    let reads = this.#draftReads.get(check);
+    if (reads === undefined) {
+      reads = new Map();
+      this.#draftReads.set(check, reads);
+    }
+    const shared = reads.get(key);
+    if (shared !== undefined) return shared;
+    const pending = read();
+    reads.set(key, pending);
+    pending.catch(() => {
+      if (this.#draftReads.get(check)?.get(key) === pending)
+        this.#draftReads.get(check)?.delete(key);
+    });
+    return pending;
   }
 
   #checkId(n: number): string {
@@ -290,10 +345,17 @@ export class ContentStore {
 
   /** Whether `id` names a check this store made (and so one that ended). */
   #madeCheck(id: string): boolean {
+    return this.#checkNumber(id) !== undefined;
+  }
+
+  /** The number of the check `id` names, when this store made it; otherwise `undefined`. */
+  #checkNumber(id: string | null | undefined): number | undefined {
     const prefix = this.#checkPrefix;
-    if (prefix === undefined || !id.startsWith(prefix)) return false;
+    if (typeof id !== "string" || prefix === undefined || !id.startsWith(prefix)) return undefined;
     const digits = id.slice(prefix.length);
-    return /^\d{1,15}$/.test(digits) && Number(digits) <= this.#checksDone;
+    if (!/^\d{1,15}$/.test(digits)) return undefined;
+    const n = Number(digits);
+    return n <= this.#checksDone ? n : undefined;
   }
 
   /**
@@ -303,6 +365,7 @@ export class ContentStore {
    */
   replace(source: Snapshot | Loader): void {
     this.#source = source;
+    this.#draftReads.clear();
     this.#release = undefined;
     this.#latest = undefined;
   }

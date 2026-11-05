@@ -282,8 +282,21 @@ function hugeBody(mb: number) {
  * there) while the new bodies are fetched in the background (A-19).
  */
 const currentTitle = async (cms: ReturnType<typeof createCMS>) => {
-  await titleOf(cms.forRelease());
-  await flush();
+  // The first read's background work (that warm) runs through the host hook,
+  // so it is awaited itself: a timer-based flush can return before a loaded
+  // machine runs it.
+  const hook = Symbol.for("decocms.blocks.background");
+  const g = globalThis as { [hook]?: (task: () => Promise<void>) => void };
+  const installed = g[hook];
+  const background: Promise<void>[] = [];
+  g[hook] = (task) => void background.push(task());
+  try {
+    await titleOf(cms.forRelease());
+  } finally {
+    if (installed === undefined) delete g[hook];
+    else g[hook] = installed;
+  }
+  await Promise.all(background);
   return titleOf(cms.forRelease());
 };
 

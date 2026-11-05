@@ -228,6 +228,20 @@ describe("polls", () => {
     expect(source.previous()).toBeUndefined();
   });
 
+  it("a stale answer never moves the preview hosts back either: they follow the adopted index", async () => {
+    const api = cdn();
+    await api.publish(content("One"), { sequence: 5, previewHosts: ["new.example.com"] });
+    const source = hosted();
+    await source.current();
+    expect(await source.previewHosts(false)).toEqual(["new.example.com"]);
+    await api.publish(content("Older"), { sequence: 4, previewHosts: ["old.example.com"] });
+    expect(await source.poll()).toEqual({ updated: false });
+    expect(await source.previewHosts(true)).toEqual(["new.example.com"]);
+    await api.publish(content("Two"), { sequence: 6, previewHosts: ["next.example.com"] });
+    expect(await source.poll()).toEqual({ updated: true });
+    expect(await source.previewHosts(true)).toEqual(["next.example.com"]);
+  });
+
   it("a failed poll keeps the held index, and the next poll retries", async () => {
     const api = cdn();
     await api.publish(content("One"));
