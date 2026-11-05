@@ -433,7 +433,8 @@ export interface DecoWorkerEntryOptions {
    *     A raw response doesn't depend on the code or the decofile; the new
    *     code re-transforms it, so a deploy can't serve an old shape.
    *
-   * `cachedLoader` results, HTML responses and sections stay per-build in both
+   * HTML responses, sections and `cachedLoader` results (unless the loader sets
+   * `dataVersion`) stay per-build in both
    * modes: they hold code output. Segment/device and geo stay in every key.
    * Any other value falls back to `"invalidate"`.
    *

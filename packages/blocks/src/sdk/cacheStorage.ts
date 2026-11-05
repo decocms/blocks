@@ -232,9 +232,10 @@ export function createCacheStore<T>(
     return entry.value;
   }
   return {
-    key(raw: string): string {
+    /** `keyKind` overrides the store's `kind` for this key (same memory tier and budget). */
+    key(raw: string, keyKind: "build" | "data" = kind): string {
       const context = getCacheStorageContext();
-      const scope = (kind === "data" ? context?.dataScope : undefined) ?? context?.scope;
+      const scope = (keyKind === "data" ? context?.dataScope : undefined) ?? context?.scope;
       return JSON.stringify([scope ?? "local", namespace, raw]);
     },
     get,
