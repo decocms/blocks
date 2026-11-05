@@ -3,7 +3,7 @@
  * after 12 hex digits of `2^48 - 1 -` its millisecond timestamp, so ids sort
  * newest first. Only Studio mints them; the SDK and the CLI only check the
  * shape (the prefix isn't recomputed). `latest.json` names one, and it is
- * the folder of `sites/<site>/revisions/<id>/data.json`.
+ * the folder of `sites/<site>/revisions/<id>/index.json`.
  */
 export const REVISION_ID_RE =
   /^[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

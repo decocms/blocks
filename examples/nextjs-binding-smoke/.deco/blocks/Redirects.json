@@ -1,0 +1,10 @@
+{
+  "__resolveType": "redirects",
+  "redirects": [
+    {
+      "from": "/old-products/:slug",
+      "to": "/:slug/p",
+      "permanent": true
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 // The header matrix against the built app on `next start`: run `bun run build && bun run smoke`.
-// A local draft server answers the draft pointer (a loopback host, which the CMS accepts by
+// A local draft server answers the draft pointer's folder (a loopback host, which the CMS accepts by
 // default), so the draft route renders real draft content. A local OTLP sink receives the CMS's
 // telemetry, where src/instrumentation.ts records http.server.request.duration from Next's request
 // spans. Exits non-zero on any difference.
@@ -16,7 +16,7 @@ const PORT = Number(process.env.SMOKE_PORT ?? 8821);
 const DRAFT_PORT = PORT + 1;
 const OTLP_PORT = PORT + 2;
 const BASE = `http://127.0.0.1:${PORT}`;
-const POINTER = `127.0.0.1:${DRAFT_PORT}/draft@v1`;
+const POINTER = `127.0.0.1:${DRAFT_PORT}/drafts/main/index.json@v1`;
 const DECO_HOST = { "x-forwarded-host": "binding-smoke.deco.site" };
 const COOKIE = { cookie: `__deco_draft=${encodeURIComponent(POINTER)}` };
 
@@ -24,9 +24,15 @@ const shirt = JSON.parse(readFileSync(new URL("./.deco/blocks/ShirtPage.json", i
 shirt.sections[1].name = "Draft shirt";
 const draftServer = createServer((req, res) => {
   // Any other draft is gone (Studio deleted it).
-  if (!req.url?.startsWith("/draft")) return void res.writeHead(404).end("not found");
-  res.writeHead(200, { "content-type": "application/json", etag: '"v1"' });
-  res.end(JSON.stringify({ set: { ShirtPage: shirt }, delete: [] }));
+  // The draft folder: its index and the one file it names.
+  const files = {
+    "/drafts/main/index.json": { names: ["ShirtPage"] },
+    "/drafts/main/ShirtPage.json": { operation: "set", data: shirt },
+  };
+  const body = files[req.url ?? ""];
+  if (body === undefined) return void res.writeHead(404).end("not found");
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
 });
 await new Promise((resolve) => draftServer.listen(DRAFT_PORT, "127.0.0.1", resolve));
 
@@ -148,7 +154,7 @@ try {
     off.res.headers.get("cache-control"),
   );
 
-  const gone = await get(`/summer-shirt/p?__draft=${encodeURIComponent(`127.0.0.1:${DRAFT_PORT}/gone@v1`)}`, DECO_HOST);
+  const gone = await get(`/summer-shirt/p?__draft=${encodeURIComponent(`127.0.0.1:${DRAFT_PORT}/drafts/gone/index.json@v1`)}`, DECO_HOST);
   check(
     "a link to a deleted draft renders the published page with the notice, never a 500",
     gone.res.status === 200 &&

@@ -338,7 +338,7 @@ async function runCommand(
       const revision = stringFlag(flags, "revision");
       if (draft !== null && revision !== null)
         throw usageError("--draft and --revision can't be combined");
-      // No flag: production (latest.json, then its data.json, from the
+      // No flag: production (latest.json, then each block by hash, from the
       // CDN), always, even when .deco/blocks exists. No .deco/ at all stays
       // exit 1 for check, as before.
       findDecoRoot(base);

@@ -1,6 +1,6 @@
 // The header matrix against the built app on workerd (`vite preview` runs the
 // Worker in Miniflare): run `bun run build && bun run smoke`. A local draft
-// server answers the draft pointer (a loopback host, which the CMS accepts by
+// server answers the draft pointer's folder (a loopback host, which the CMS accepts by
 // default); any other draft there is gone (404). Exits non-zero on the first
 // difference.
 import { spawn } from "node:child_process";
@@ -12,13 +12,14 @@ import { toJSONAsync } from "seroval";
 const PORT = Number(process.env.SMOKE_PORT ?? 8811);
 const DRAFT_PORT = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
-const POINTER = `127.0.0.1:${DRAFT_PORT}/draft@v1`;
-const GONE_POINTER = `127.0.0.1:${DRAFT_PORT}/gone@v1`;
+const POINTER = `127.0.0.1:${DRAFT_PORT}/drafts/main/index.json@v1`;
+const GONE_POINTER = `127.0.0.1:${DRAFT_PORT}/drafts/gone/index.json@v1`;
 
 const draftServer = createServer((req, res) => {
-  if (!req.url?.startsWith("/draft")) return void res.writeHead(404).end("not found");
-  res.writeHead(200, { "content-type": "application/json", etag: '"v1"' });
-  res.end(JSON.stringify({ set: {}, delete: [] }));
+  // The draft folder's index (an empty draft); any other draft is gone.
+  if (req.url !== "/drafts/main/index.json") return void res.writeHead(404).end("not found");
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ names: [] }));
 });
 await new Promise((resolve) => draftServer.listen(DRAFT_PORT, "127.0.0.1", resolve));
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
