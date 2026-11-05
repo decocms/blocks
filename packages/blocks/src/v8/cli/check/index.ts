@@ -26,7 +26,7 @@ import {
   CAMPAIGNS_BLOCK,
   campaignTime,
 } from "../../builtins/campaigns.ts";
-import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
+import { REDIRECTS_TYPE, SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
   EXPERIMENT_RULE,
   EXPERIMENTS_BLOCK,
@@ -54,6 +54,8 @@ export interface Problem {
 
 type Json = any;
 const DOC_ID = "deco";
+/** The per-rule redirect type: it resolves, but routing reads only the redirects block. */
+const REDIRECT_TYPE = "redirect";
 
 /** JSON-parsed objects only, so any non-array object is a plain one. */
 function isObject(value: unknown): value is Record<string, Json> {
@@ -917,6 +919,44 @@ class Checker {
     }
     problems.push(...this.builtInOverrides());
     problems.push(...this.routeProblems());
+    problems.push(...this.redirectBlockProblems());
+    return problems;
+  }
+
+  /**
+   * Routing reads its redirects from one block: the first `redirects`-typed
+   * one in code-unit name order (see /next/routing). A per-rule `redirect`
+   * block still resolves but is never routed, and a second `redirects`
+   * block is ignored: both are warnings.
+   */
+  private redirectBlockProblems(): Problem[] {
+    const problems: Problem[] = [];
+    let routed: string | null = null;
+    const names = Object.keys(this.saved.blocks).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    for (const name of names) {
+      const entry = this.saved.blocks[name];
+      if (!isBlock(entry)) continue;
+      const { type } = this.underlyingType(entry.__resolveType);
+      if (type !== REDIRECT_TYPE && type !== REDIRECTS_TYPE) continue;
+      const file = `.deco/blocks/${this.saved.files[name]}`;
+      if (type === REDIRECT_TYPE) {
+        problems.push({
+          file,
+          path: "",
+          severity: "warning",
+          message: "not routed; move it into the redirects block",
+        });
+      } else if (routed === null) {
+        routed = name;
+      } else {
+        problems.push({
+          file,
+          path: "",
+          severity: "warning",
+          message: `another redirects block, "${routed}", is the one routed; this one is ignored. Move its rules there`,
+        });
+      }
+    }
     return problems;
   }
 

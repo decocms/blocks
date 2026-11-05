@@ -411,7 +411,11 @@ describe("routes", () => {
           C: page([], { path: "/old" }),
         }),
       ),
-    ).toEqual(['B.json from: "/old" is also the from of "A"']);
+    ).toEqual([
+      'B.json from: "/old" is also the from of "A"',
+      "A.json warning not routed; move it into the redirects block",
+      "B.json warning not routed; move it into the redirects block",
+    ]);
   });
 });
 
@@ -1187,9 +1191,9 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
       group![name] = { ...group![name], namespace: "site" };
       replaced.push(name);
     }
-    expect(replaced).toHaveLength(11);
+    expect(replaced).toHaveLength(12);
     const warnings = lines(checkContent(own, saved({})));
-    expect(warnings).toHaveLength(11);
+    expect(warnings).toHaveLength(12);
     for (const name of BUILT_IN_BLOCKS) {
       expect(BUILT_IN_USES[name], name).toBeTruthy();
       expect(warnings).toContain(
@@ -1198,5 +1202,63 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     }
     // A built-in left alone is never named.
     expect(lines(checkContent(meta, saved({})))).toEqual([]);
+  });
+});
+
+describe("the redirects block (one block holds every rule)", () => {
+  const rule = { from: "/old", to: "/new", permanent: true };
+
+  it("passes one redirects block, in either rule shape, and its legacy alias", () => {
+    expect(
+      lines(
+        run({
+          Redirects: {
+            __resolveType: "redirects",
+            redirects: [rule, { from: "/a", to: "/b", permanent: false, status: 307 }],
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      lines(
+        run({ Redirects: { __resolveType: "website/loaders/redirects.ts", redirects: [rule] } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("warns about every redirect block: it resolves, but isn't routed", () => {
+    expect(
+      lines(
+        run({
+          Old: { __resolveType: "redirect", ...rule },
+          Legacy: {
+            __resolveType: "website/loaders/redirect.ts",
+            redirect: { from: "/legacy", to: "/new", type: "permanent" },
+          },
+        }),
+      ),
+    ).toEqual([
+      "Legacy.json warning not routed; move it into the redirects block",
+      "Old.json warning not routed; move it into the redirects block",
+    ]);
+  });
+
+  it("warns about a second redirects block: only the first, in code-unit name order, is routed", () => {
+    expect(
+      lines(
+        run({
+          b: { __resolveType: "redirects", redirects: [] },
+          Redirects: { __resolveType: "redirects", redirects: [rule] },
+        }),
+      ),
+    ).toEqual([
+      'b.json warning another redirects block, "Redirects", is the one routed; this one is ignored. Move its rules there',
+    ]);
+  });
+
+  it("redirects is a reserved name: the redirects block is named Redirects", () => {
+    expect(lines(run({ redirects: { __resolveType: "redirects", redirects: [] } }))).toContain(
+      'redirects.json saved block "redirects" has the name of a built-in block',
+    );
   });
 });
