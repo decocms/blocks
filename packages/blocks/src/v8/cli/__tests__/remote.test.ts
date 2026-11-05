@@ -433,6 +433,67 @@ describe("deco push", () => {
     expect((await deco(["diff", "--json"])).json.changes).toEqual([]);
   });
 
+  it("--theirs for a name the draft no longer holds takes production's body, reading that name only", async () => {
+    studio.release({ home: hero("Home"), footer: hero("F"), header: hero("H") });
+    await deco(["pull"]);
+    fixture.write(".deco/blocks/home.json", hero("Mine"));
+    fixture.write(".deco/blocks/footer.json", hero("My footer"));
+    // Studio says home conflicts and the draft holds none of it: production's home is theirs.
+    studio.inject.set("POST /drafts/pdp/rpc", [
+      {
+        status: 200,
+        json: {
+          jsonrpc: "2.0",
+          id: 1,
+          error: {
+            code: -32002,
+            message: "conflict",
+            data: { entries: { home: { expected: "x", actual: null } }, draft: {} },
+          },
+        },
+      },
+    ]);
+    const before = studio.requests.length;
+    const r = await deco(["push", "--draft=pdp", "--theirs"]);
+    expect(r.code).toBe(0);
+    expect(block("home")).toEqual(hero("Home"));
+    expect(studio.drafts.get("pdp")!.body.set).toEqual({ footer: hero("My footer") });
+    // Production is read for home alone, never every body (header is never fetched).
+    const fetched = studio.requests.slice(before).filter((q) => q.path.includes("/blocks/"));
+    const header = await blockVersion(hero("H"));
+    expect(fetched.some((q) => q.path.includes(header))).toBe(false);
+  });
+
+  it("--ours still applies to a conflict on the re-send after a save stopped part way", async () => {
+    studio.release({ home: hero("Home") });
+    await studio.save("pdp", { home: hero("First") });
+    await deco(["pull", "--draft=pdp"]);
+    fixture.write(".deco/blocks/home.json", hero("Mine"));
+    fixture.write(".deco/blocks/promo.json", hero("P"));
+    const promo = await blockVersion(hero("P"));
+    // The first save stops with promo landed; a save of home lands before the re-send.
+    studio.inject.set("POST /drafts/pdp/rpc", [
+      {
+        status: 200,
+        json: {
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32008, message: "busy", data: { retryAfterMs: 250, landed: { promo } } },
+        },
+      },
+    ]);
+    studio.beforeApply = () => studio.save("pdp", { home: hero("Theirs") });
+    const r = await deco(["push", "--draft=pdp", "--ours"]);
+    expect(r.code).toBe(0);
+    expect(studio.drafts.get("pdp")!.body.set.home).toEqual(hero("Mine"));
+    expect(rpcCalls().map((p) => Object.keys(p.set).sort())).toEqual([
+      ["home", "promo"],
+      ["home"],
+      ["home"],
+    ]);
+    expect(rpcCalls()[2]!.ifMatch.home).toBe(await blockVersion(hero("Theirs")));
+  });
+
   it("--ours with --theirs, or no --draft, is a usage error", async () => {
     expect((await deco(["push"])).code).toBe(64);
     expect((await deco(["push", "--draft=x", "--ours", "--theirs"])).code).toBe(64);

@@ -515,10 +515,10 @@ export async function push(
     );
   }
 
-  let production: Promise<Record<string, unknown>> | undefined;
-  const productionBlocks = () => {
-    production ??= delivery.production().then((p) => p.blocks);
-    return production;
+  // Production's bodies of `names` only, from the latest index now: push reads the names it pushes.
+  const productionBodies = async (names: readonly string[]): Promise<Record<string, unknown>> => {
+    const index = await delivery.latestIndex();
+    return index === null ? Object.create(null) : delivery.bodies(index, names);
   };
   const record = (batch: Item[], versions: Record<string, string | null>) => {
     for (const item of batch) {
@@ -535,7 +535,9 @@ export async function push(
   let resent = false;
   for (const [index, original] of batches.entries()) {
     let batch = original;
-    for (let attempt = 0; ; attempt++) {
+    // --ours or --theirs is applied to one conflict; a re-send after files landed is no conflict retry.
+    let conflictRetried = false;
+    for (;;) {
       try {
         const result = await studio.apply(options.draft, applyRequestBody(applyParams(batch)));
         record(batch, result.versions ?? {});
@@ -570,7 +572,7 @@ export async function push(
           );
         }
         const conflicts = readConflicts(error.data);
-        if (options.side === null || attempt > 0) {
+        if (options.side === null || conflictRetried) {
           reportConflicts(ctx.reporter, conflicts, saved);
           throw new CliError(
             `${plural(Object.keys(conflicts).length, "block")} changed in draft ${options.draft} while you pushed; nothing of this save was written. ` +
@@ -582,6 +584,7 @@ export async function push(
             },
           );
         }
+        conflictRetried = true;
         if (options.side === "ours") {
           batch = batch.map((item) =>
             Object.hasOwn(conflicts, item.name)
@@ -591,9 +594,10 @@ export async function push(
           continue;
         }
         // --theirs: take each conflicting block into .deco/blocks as the draft holds it.
-        const prod = Object.values(conflicts).some((c) => c.theirs === null && c.actual === null)
-          ? await productionBlocks()
-          : null;
+        const fromProduction = Object.entries(conflicts)
+          .filter(([, c]) => c.theirs === null && c.actual === null)
+          .map(([name]) => name);
+        const prod = fromProduction.length > 0 ? await productionBodies(fromProduction) : null;
         for (const [name, conflict] of Object.entries(conflicts)) {
           let value: unknown;
           let hash: string | null = null;
