@@ -147,14 +147,16 @@ try {
   check("a draft is always revalidated", draft.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate");
   check("a draft link stores its cookie", (draft.headers.get("set-cookie") ?? "").startsWith("__deco_draft="));
   check("a preview never sends the visitor's cookie", visitorCookies(draft).length === 0, draft.headers.getSetCookie().join(" | "));
-  const oldRelease = await get(`/summer-shirt/p?__draft=${"0".repeat(40)}`);
+  // An old release is named by its revision id (`<inv>-<uuidv7>`, isRevisionId), not a git SHA.
+  const OLD_RELEASE = "fe6a4b87d3ff-019a52c0-1e2f-7a3b-8c4d-5e6f7a8b9c0d";
+  const oldRelease = await get(`/summer-shirt/p?__draft=${OLD_RELEASE}`);
   await oldRelease.text();
   check(
-    // This app has no hosted releases, so the SHA can't be read: the render fails, and a failed
-    // render never stores the link's cookie.
-    "an old release's SHA from a Studio link is a preview: always revalidated, its cookie only with a render below 500, no visitor cookie",
+    // This app has no hosted releases, so the revision can't be read: the render fails, and a
+    // failed render never stores the link's cookie.
+    "an old release's revision id from a Studio link is a preview: always revalidated, its cookie only with a render below 500, no visitor cookie",
     oldRelease.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate" &&
-      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${"0".repeat(40)};`) ===
+      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${OLD_RELEASE};`) ===
         oldRelease.status < 500 &&
       visitorCookies(oldRelease).length === 0,
     `${oldRelease.status} ${oldRelease.headers.get("cache-control")} ${oldRelease.headers.getSetCookie().join(" | ")}`,
