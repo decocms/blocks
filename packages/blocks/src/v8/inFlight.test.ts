@@ -12,7 +12,7 @@ import { BlockStore } from "./blockStore";
 import { createCMS, resetForTests } from "./cms";
 import { ContentUnavailableError } from "./errors";
 import { matchRoute } from "./matchRoute";
-import { docsBlocks, fakeDelivery } from "./testFixtures";
+import { docsBlocks, fakeDelivery, fakeStudio } from "./testFixtures";
 import type { Blocks } from "./types";
 
 const SITE = "acme";
@@ -42,7 +42,10 @@ class RequestContext {
 }
 
 /** A fake workerd: requests in their own contexts, `fetch` bound to the caller's, `waitUntil` as the background hook. */
-function fakeRuntime(api: ReturnType<typeof fakeDelivery>, options: { waitUntil: boolean }) {
+function fakeRuntime(
+  api: { fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response> },
+  options: { waitUntil: boolean },
+) {
   const contexts = new AsyncLocalStorage<RequestContext>();
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const ctx = contexts.getStore();
@@ -174,6 +177,53 @@ describe("a prefetch whose request ended first", () => {
     vi.useRealTimers();
     expect(await within(runtime.serve(() => page(cms, "/nope")))).toBe("catch-all");
     expect(api.keys().filter((k) => k === key)).toHaveLength(2);
+  });
+});
+
+describe("a draft read whose request ended first", () => {
+  it("another request sharing its release check gets the draft", async () => {
+    const api = fakeDelivery();
+    await api.publish(site());
+    const studio = fakeStudio();
+    const pointer = studio.draft({
+      set: { Note: { __resolveType: "site/sections/Text.tsx", text: "draft" } },
+    });
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const runtime = fakeRuntime(
+      {
+        async fetch(input, init) {
+          if (new URL(String(input)).pathname.includes("/drafts/")) {
+            await held;
+            return studio.fetch(input, init);
+          }
+          return api.fetch(input, init);
+        },
+      },
+      { waitUntil: true },
+    );
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    await runtime.serve(() => page(cms, "/"));
+    const releaseCheck = await cms.checkRelease();
+    // The first request starts the draft read and answers before it settles
+    // (another part of it failed, its client went away).
+    await runtime.serve(async () => {
+      void cms
+        .forDraft(pointer, { releaseCheck })
+        .revision()
+        .catch(() => {});
+    });
+    release();
+    // The next request under the same check shares that read.
+    const second = runtime.serve(async () => {
+      const [note] = await cms
+        .forDraft(pointer, { releaseCheck })
+        .resolve<{ text: string }>("Note", { run: false });
+      return note?.text;
+    });
+    expect(await within(second)).toBe("draft");
   });
 });
 

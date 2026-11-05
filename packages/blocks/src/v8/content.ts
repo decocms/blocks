@@ -9,6 +9,7 @@
  * draft reads of one request share one read of its files, and nothing read
  * by name from `drafts/` serves a later request.
  */
+import { keepAlive } from "./background.ts";
 import { type IndexedContent, localIndex } from "./contentIndex.ts";
 import { parseDraftPointer } from "./draft.ts";
 import {
@@ -331,6 +332,9 @@ export class ContentStore {
     if (shared !== undefined) return shared;
     const pending = read();
     reads.set(key, pending);
+    // Requests under one check share it: kept alive past the request that
+    // started it (see ./blockStore.ts), so none of them awaits it forever.
+    keepAlive(pending);
     pending.catch(() => {
       if (this.#draftReads.get(check)?.get(key) === pending)
         this.#draftReads.get(check)?.delete(key);
