@@ -137,6 +137,25 @@ async function readSource(
   return { draft, revision: production.revision, blocks: layer(production.blocks, body), body };
 }
 
+/**
+ * Latest ⊕ a draft for a few names only: the live index and the draft's
+ * folder, then the production bodies of `names` (plus every name the draft
+ * touches when `names` is omitted). Push and publish never read the rest.
+ */
+async function readOverlay(
+  delivery: Delivery,
+  resolved: { slug: string; etag: string | null },
+  names?: readonly string[],
+): Promise<{ revision: string | null; before: Record<string, unknown>; body: DraftBody }> {
+  const [index, body] = await Promise.all([
+    delivery.latestIndex(),
+    delivery.draft(resolved.slug, resolved.etag),
+  ]);
+  const wanted = names ?? [...Object.keys(body.set), ...body.delete];
+  const before = index === null ? Object.create(null) : await delivery.bodies(index, wanted);
+  return { revision: index?.revision ?? null, before, body };
+}
+
 function describeSource(source: { draft: string | null; revision: string | null }): string {
   const revision = source.revision ? `revision ${source.revision}` : "no release yet";
   return source.draft === null
@@ -414,9 +433,21 @@ function readConflicts(data: unknown): Record<string, ConflictEntry> {
   return out;
 }
 
+/** The versions that landed before a save stopped (`-32008` with `data.landed`), or `null`. */
+function landedOf(error: RpcError): Record<string, string | null> | null {
+  if (error.code !== ErrorCode.Unavailable) return null;
+  const landed = (error.data as { landed?: unknown } | null)?.landed;
+  if (typeof landed !== "object" || landed === null || Array.isArray(landed)) return null;
+  const out: Record<string, string | null> = Object.create(null);
+  for (const [name, version] of Object.entries(landed)) {
+    if (typeof version === "string") out[name] = version;
+  }
+  return out;
+}
+
 export async function push(
   ctx: RemoteContext,
-  options: { draft: string; side: "ours" | "theirs" | null },
+  options: { draft: string; side: "ours" | "theirs" | null; prune?: boolean },
 ): Promise<Outcome> {
   const { studio, delivery } = services(ctx);
   let saved = readLocal(ctx.paths);
@@ -438,16 +469,51 @@ export async function push(
     };
     if (pulled) writePull(ctx.paths, state);
   }
-  const changes = await localChanges(saved, state);
-  const items: Item[] = changes.map((change) => ({
-    name: change.name,
-    block: change.block,
-    hash: change.hash ?? null,
-    ifMatch: Object.hasOwn(state.blocks, change.name) ? state.blocks[change.name]!.ifMatch : null,
-  }));
-  const batches = packBatches(items);
+  // (a) The names changed locally since the pull; deletes only with --prune.
+  const changes = (await localChanges(saved, state)).filter(
+    (change) => change.block !== undefined || options.prune,
+  );
   const ensured = await studio.ensureDraft(options.draft);
   if (ensured.created) ctx.reporter.info(`created draft ${options.draft}`);
+  // (b) Of those, the ones that differ from latest ⊕ the draft now, with the
+  // draft's versions read now as their preconditions.
+  const now = await readOverlay(
+    delivery,
+    ensured,
+    changes.map((change) => change.name),
+  );
+  const current = layer(now.before, now.body);
+  const items: Item[] = [];
+  for (const change of changes) {
+    const there = Object.hasOwn(current, change.name) ? current[change.name] : undefined;
+    const same =
+      change.block === undefined
+        ? there === undefined
+        : there !== undefined && (await blockVersion(there)) === change.hash;
+    if (same) {
+      // Already what the draft shows: in sync, nothing to send.
+      state.blocks[change.name] = {
+        hash: change.block === undefined ? null : (change.hash ?? null),
+        ifMatch: await draftVersion(now.body, change.name),
+      };
+      continue;
+    }
+    items.push({
+      name: change.name,
+      block: change.block,
+      hash: change.hash ?? null,
+      ifMatch: await draftVersion(now.body, change.name),
+    });
+  }
+  // One change, one save: a push that doesn't fit one blocks.apply fails.
+  if (items.length < changes.length) writePull(ctx.paths, state);
+  const batches = packBatches(items);
+  if (batches.length > 1) {
+    throw new CliError(
+      `the ${plural(items.length, "changed block")} don't fit one save (${MAX_REQUEST_BYTES} bytes, ${MAX_OPS_PER_APPLY} names); push fewer at a time`,
+      { code: "too_large", details: { names: items.map((item) => item.name) } },
+    );
+  }
 
   let production: Promise<Record<string, unknown>> | undefined;
   const productionBlocks = () => {
@@ -466,6 +532,7 @@ export async function push(
 
   let pushed = 0;
   let taken = 0;
+  let resent = false;
   for (const [index, original] of batches.entries()) {
     let batch = original;
     for (let attempt = 0; ; attempt++) {
@@ -476,11 +543,24 @@ export async function push(
         break;
       } catch (error) {
         if (!(error instanceof RpcError)) throw error;
+        const landed = landedOf(error);
+        if (landed !== null) {
+          // Some files landed before the save stopped: keep them, send the rest once more.
+          const done = batch.filter((item) => Object.hasOwn(landed, item.name));
+          record(done, landed);
+          pushed += done.length;
+          batch = batch.filter((item) => !Object.hasOwn(landed, item.name));
+          if (batch.length === 0) break;
+          if (!resent) {
+            resent = true;
+            continue;
+          }
+        }
         if (error.code !== ErrorCode.Conflict) {
           const busy = error.code === ErrorCode.Unavailable;
           throw new CliError(
             busy
-              ? `Studio is busy (${error.message}); nothing of this batch was saved, run deco push again`
+              ? `Studio is busy (${error.message}); ${pushed > 0 ? `${plural(pushed, "block")} saved, the rest not` : "nothing was saved"}, run deco push again`
               : `Studio refused the save: ${error.message}`,
             {
               exitCode: exitCodeForRpc(error.code),
@@ -493,7 +573,7 @@ export async function push(
         if (options.side === null || attempt > 0) {
           reportConflicts(ctx.reporter, conflicts, saved);
           throw new CliError(
-            `${plural(Object.keys(conflicts).length, "block")} changed in draft ${options.draft} since you pulled; nothing of this batch was saved. ` +
+            `${plural(Object.keys(conflicts).length, "block")} changed in draft ${options.draft} while you pushed; nothing of this save was written. ` +
               "Pull again, or push with --ours (keep yours) or --theirs (take theirs)",
             {
               exitCode: EXIT.conflict,
@@ -536,7 +616,6 @@ export async function push(
   const link = resolved.previewUrl ?? resolved.pointer;
   ctx.reporter.info(
     `pushed ${plural(pushed, "block")} to draft ${options.draft}` +
-      (batches.length > 1 ? ` in ${batches.length} saves` : "") +
       (taken > 0 ? `; took theirs for ${plural(taken, "block")}` : ""),
   );
   if (link) ctx.reporter.info(`preview: ${link}`);
@@ -585,17 +664,15 @@ export async function publish(
 ): Promise<Outcome> {
   const { studio, delivery } = services(ctx);
   const resolved = await studio.resolveDraft(options.draft);
-  const [production, body] = await Promise.all([
-    delivery.production(),
-    delivery.draft(resolved.slug, resolved.etag),
-  ]);
-  const rows = await compare(production.blocks, layer(production.blocks, body));
-  const after = layer(production.blocks, body);
+  // The draft's files against those names' production bodies: nothing else is read.
+  const { revision, before, body } = await readOverlay(delivery, resolved);
+  const after = layer(before, body);
+  const rows = await compare(before, after);
   for (const row of rows) {
-    printChange(ctx.reporter, row.name, row.status, production.blocks[row.name], after[row.name]);
+    printChange(ctx.reporter, row.name, row.status, before[row.name], after[row.name]);
   }
   ctx.reporter.info(
-    `draft ${options.draft} changes ${plural(rows.length, "block")} of ${describeSource({ draft: null, revision: production.revision })}`,
+    `draft ${options.draft} changes ${plural(rows.length, "block")} of ${describeSource({ draft: null, revision })}`,
   );
   const result = await studio.publish(options.draft, options.message);
   if (result.result === "published") {

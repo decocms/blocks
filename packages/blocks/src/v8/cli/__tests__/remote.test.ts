@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
  * The remote content commands (spec: cli › The deco CLI; contract §7)
- * against a fake Studio API and CDN over real HTTP: pull, diff, push (with
- * batches, conflicts, --ours and --theirs), publish, drafts, releases, check
+ * against a fake Studio API and CDN over real HTTP: pull, diff, push (one
+ * save, --prune, landed, conflicts, --ours and --theirs), publish, drafts, releases, check
  * of a draft or a revision, schema push, the token, exit codes and --json.
  */
 import fs from "node:fs";
@@ -13,7 +13,7 @@ import { blockFileName, serializeBlock } from "../../../protocol/keys";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage";
 import { packBatches } from "../remote/commands";
 import { commandFor } from "../remote/env";
-import { applyRequestBody, exitCodeForStatus, layer } from "../remote/http";
+import { applyRequestBody, Delivery, exitCodeForStatus, layer } from "../remote/http";
 import { resolveSite, stripJsonc, wranglerTomlVar } from "../remote/local";
 import { decoPaths } from "../root";
 import { runCli } from "../run";
@@ -169,6 +169,43 @@ describe("deco pull", () => {
     // Production pulls read only the CDN, never with a token.
     expect(studio.requests.every((q) => q.path.startsWith("/cdn/"))).toBe(true);
     expect(studio.requests.every((q) => q.headers.authorization === undefined)).toBe(true);
+    // The index once, then each body once, by hash: no revision is read whole.
+    const paths = studio.requests.map((q) => q.path.replace(`/cdn/sites/${SITE}/`, ""));
+    expect(paths[0]).toBe("latest.json");
+    expect(paths.slice(1).sort()).toEqual(
+      [
+        `blocks/${await blockVersion(hero("Home"))}.json`,
+        `blocks/${await blockVersion(hero("A"))}.json`,
+      ].sort(),
+    );
+  });
+
+  it("fetches at most 16 bodies at a time", async () => {
+    const blocks = Object.fromEntries(
+      Array.from({ length: 40 }, (_, i) => [`b${i}`, hero(`B${i}`)]),
+    );
+    const names = Object.keys(blocks);
+    const entries: Record<string, unknown> = {};
+    for (const name of names) entries[name] = { version: await blockVersion(blocks[name]) };
+    const revision = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
+    let inFlight = 0;
+    let most = 0;
+    const delivery = new Delivery("https://cdn.test", SITE, async (input) => {
+      const url = String(input);
+      if (url.endsWith("/latest.json")) {
+        return Response.json({ revision, sequence: 1, blocks: entries });
+      }
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      const hash = /blocks\/(.+)\.json$/.exec(url)![1];
+      const name = names.find((n) => (entries[n] as { version: string }).version === hash)!;
+      return Response.json(blocks[name]);
+    });
+    const production = await delivery.production();
+    expect(Object.keys(production.blocks)).toEqual(names); // in the index's order
+    expect(most).toBe(16);
   });
 
   it("a draft pull layers the draft over production; ifMatch is draft-relative", async () => {
@@ -267,13 +304,30 @@ describe("deco diff", () => {
 });
 
 describe("deco push", () => {
-  it("sends only the changed, new and deleted blocks, each with its pulled ifMatch", async () => {
-    studio.release({ home: hero("Home"), footer: hero("F"), keep: hero("K") });
+  it("deletes are sent only with --prune", async () => {
+    studio.release({ home: hero("Home"), footer: hero("F") });
     await deco(["pull"]);
+    fixture.write(".deco/blocks/home.json", hero("New home"));
+    fs.rmSync(path.join(fixture.root, ".deco/blocks/footer.json"));
+    expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
+    expect(rpcCalls()).toEqual([
+      { set: { home: hero("New home") }, delete: [], ifMatch: { home: null } },
+    ]);
+    expect(studio.drafts.get("pdp")!.body.delete).toEqual([]);
+  });
+
+  it("sends only the names changed locally that differ from latest ⊕ the draft now, as one save", async () => {
+    studio.release({ home: hero("Home"), footer: hero("F"), keep: hero("K"), same: hero("S") });
+    await deco(["pull"]);
+    // Someone saves into the draft the change this folder makes too: nothing to send for it.
+    await studio.save("pdp", { same: hero("S2") });
+    fixture.write(".deco/blocks/same.json", hero("S2"));
+    // A remote edit to a block this folder never touched is never reverted.
+    await studio.save("pdp", { keep: hero("K2") });
     fixture.write(".deco/blocks/home.json", hero("New home"));
     fixture.write(".deco/blocks/promo.json", hero("P"));
     fs.rmSync(path.join(fixture.root, ".deco/blocks/footer.json"));
-    const r = await deco(["push", "--draft=pdp"]);
+    const r = await deco(["push", "--draft=pdp", "--prune"]);
     expect(r.code).toBe(0);
     expect(rpcCalls()).toEqual([
       {
@@ -283,7 +337,12 @@ describe("deco push", () => {
       },
     ]);
     const draft = studio.drafts.get("pdp")!;
-    expect(draft.body.set).toEqual({ home: hero("New home"), promo: hero("P") });
+    expect(draft.body.set).toEqual({
+      same: hero("S2"),
+      keep: hero("K2"),
+      home: hero("New home"),
+      promo: hero("P"),
+    });
     expect(draft.body.delete).toEqual(["footer"]);
     expect(r.text).toContain("preview: https://www.store.test/?__draft=");
     // pull.json now records the draft's versions: pushing again sends nothing.
@@ -291,9 +350,9 @@ describe("deco push", () => {
     expect(state.draft).toBe("pdp");
     expect(state.blocks.home.ifMatch).toBe(await blockVersion(hero("New home")));
     expect(state.blocks.footer).toEqual({ hash: null, ifMatch: TOMBSTONE_VERSION });
-    expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
+    expect((await deco(["push", "--draft=pdp", "--prune"])).code).toBe(0);
     expect(rpcCalls()).toHaveLength(1);
-    // A second edit is guarded by the version the first push recorded.
+    // A second edit is guarded by the draft's version, read at push time.
     fixture.write(".deco/blocks/home.json", hero("Newer"));
     expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
     expect(rpcCalls()[1]!.ifMatch).toEqual({ home: await blockVersion(hero("New home")) });
@@ -310,12 +369,13 @@ describe("deco push", () => {
     expect(pullJson().draft).toBe("b");
   });
 
-  it("a conflict applies nothing, names who and when, and exits 2", async () => {
+  it("a conflict (a save racing the push) applies nothing, names who and when, and exits 2", async () => {
     studio.release({ home: hero("Home") });
     await studio.save("pdp", { home: hero("First") });
     await deco(["pull", "--draft=pdp"]);
-    await studio.save("pdp", { home: hero("Theirs") }, [], "usr_456");
     fixture.write(".deco/blocks/home.json", hero("Mine"));
+    // A save lands between the push's read of the draft and its blocks.apply.
+    studio.beforeApply = () => studio.save("pdp", { home: hero("Theirs") }, [], "usr_456");
     const r = await deco(["push", "--draft=pdp", "--json"]);
     expect(r.code).toBe(2);
     expect(r.json).toMatchObject({
@@ -341,8 +401,8 @@ describe("deco push", () => {
     studio.release({ home: hero("Home") });
     await studio.save("pdp", { home: hero("First") });
     await deco(["pull", "--draft=pdp"]);
-    await studio.save("pdp", { home: hero("Theirs") });
     fixture.write(".deco/blocks/home.json", hero("Mine"));
+    studio.beforeApply = () => studio.save("pdp", { home: hero("Theirs") });
     const r = await deco(["push", "--draft=pdp", "--ours"]);
     expect(r.code).toBe(0);
     expect(studio.drafts.get("pdp")!.body.set.home).toEqual(hero("Mine"));
@@ -353,9 +413,9 @@ describe("deco push", () => {
     studio.release({ home: hero("Home"), footer: hero("F") });
     await studio.save("pdp", { home: hero("First") });
     await deco(["pull", "--draft=pdp"]);
-    await studio.save("pdp", { home: hero("Theirs") });
     fixture.write(".deco/blocks/home.json", hero("Mine"));
     fixture.write(".deco/blocks/footer.json", hero("My footer"));
+    studio.beforeApply = () => studio.save("pdp", { home: hero("Theirs") });
     const r = await deco(["push", "--draft=pdp", "--theirs"]);
     expect(r.code).toBe(0);
     expect(block("home")).toEqual(hero("Theirs"));
@@ -406,59 +466,60 @@ describe("deco push", () => {
     expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
   });
 
-  it("splits a large push into saves under 8 MiB, and a rerun after a failed save resumes", async () => {
-    // Each block just under the handler's 1 MiB a block: eight fit in a save.
+  it("a push that doesn't fit one save (8 MiB, 500 names) fails before anything is sent (exit 1)", async () => {
     const big = (n: number) => ({
       __resolveType: "hero",
       title: String(n),
       size: "x".repeat(1_000_000),
     });
-    const name = (i: number) => `b${String(i).padStart(2, "0")}`;
     studio.release({});
     await deco(["pull"]);
-    for (let i = 0; i < 20; i++) fixture.write(`.deco/blocks/${name(i)}.json`, big(i));
-    // Eight blocks per save: the first save lands, the second is answered busy.
-    studio.inject.set("POST /drafts/pdp/rpc", [
-      {
-        status: 200,
-        after: 1,
-        json: { jsonrpc: "2.0", id: 1, error: { code: -32008, message: "busy" } },
-      },
-    ]);
-    const failed = await deco(["push", "--draft=pdp", "--json"]);
-    expect(failed.code).toBe(5);
-    expect(failed.json).toMatchObject({ pushed: 8, batch: 2, batches: 3 });
-    const names = (from: number, to: number) =>
-      Array.from({ length: to - from }, (_, i) => name(from + i));
-    expect(Object.keys(studio.drafts.get("pdp")!.body.set).sort()).toEqual(names(0, 8));
-    const before = rpcCalls().length;
-    expect(before).toBe(2);
-    expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
-    const resent = rpcCalls().slice(before);
-    expect(resent.map((p) => Object.keys(p.set).sort())).toEqual([names(8, 16), names(16, 20)]);
-    for (const r of studio.requests.filter((q) => q.path.endsWith("/rpc")))
-      expect(Buffer.byteLength(r.body)).toBeLessThanOrEqual(8 * 1024 * 1024);
-    expect(Object.keys(studio.drafts.get("pdp")!.body.set).sort()).toEqual(names(0, 20));
+    for (let i = 0; i < 9; i++) fixture.write(`.deco/blocks/b${i}.json`, big(i));
+    const bytes = await deco(["push", "--draft=pdp", "--json"]);
+    expect(bytes.code).toBe(1);
+    expect(bytes.json).toMatchObject({ ok: false, error: { code: "too_large" } });
+    for (let i = 0; i < 9; i++) fs.rmSync(path.join(fixture.root, `.deco/blocks/b${i}.json`));
+    for (let i = 0; i < 501; i++) fixture.write(`.deco/blocks/t${i}.json`, hero(`T${i}`));
+    const names = await deco(["push", "--draft=pdp", "--json"]);
+    expect(names.code).toBe(1);
+    expect(names.json).toMatchObject({ ok: false, error: { code: "too_large" } });
+    expect(rpcCalls()).toHaveLength(0);
   }, 60_000);
 
-  it("a push of more than 500 blocks lands, at most 500 names a save", async () => {
-    studio.release({ old: hero("Old") });
+  it("a save that stopped part way (-32008 with landed) keeps what landed and sends the rest once", async () => {
+    studio.release({ home: hero("Home") });
     await deco(["pull"]);
-    for (let i = 0; i < 600; i++) fixture.write(`.deco/blocks/t${i}.json`, hero(`T${i}`));
-    fs.rmSync(path.join(fixture.root, ".deco/blocks/old.json"));
+    fixture.write(".deco/blocks/home.json", hero("New home"));
+    fixture.write(".deco/blocks/promo.json", hero("P"));
+    const promo = await blockVersion(hero("P"));
+    const stopped = {
+      status: 200,
+      json: {
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32008, message: "busy", data: { retryAfterMs: 250, landed: { promo } } },
+      },
+    };
+    // The injected answer stands for Studio having written promo before it stopped.
+    studio.inject.set("POST /drafts/pdp/rpc", [stopped]);
     const r = await deco(["push", "--draft=pdp"]);
     expect(r.code).toBe(0);
-    const calls = rpcCalls();
-    expect(calls.length).toBe(2);
-    for (const p of calls)
-      expect(Object.keys(p.set).length + p.delete.length).toBeLessThanOrEqual(500);
-    const draft = studio.drafts.get("pdp")!;
-    expect(Object.keys(draft.body.set)).toHaveLength(600);
-    expect(draft.body.delete).toEqual(["old"]);
-    // Nothing left to send.
-    expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
-    expect(rpcCalls()).toHaveLength(2);
-  }, 60_000);
+    expect(rpcCalls().map((p) => Object.keys(p.set).sort())).toEqual([["home", "promo"], ["home"]]);
+    expect(pullJson().blocks.promo.ifMatch).toBe(promo);
+    // Stopped again on the re-send: exit 5, what landed recorded.
+    fixture.write(".deco/blocks/home.json", hero("Newer"));
+    fixture.write(".deco/blocks/a.json", hero("A"));
+    const a = await blockVersion(hero("A"));
+    const stop = (landed: Record<string, string>) => ({
+      ...stopped,
+      json: { ...stopped.json, error: { ...stopped.json.error, data: { landed } } },
+    });
+    studio.inject.set("POST /drafts/pdp/rpc", [stop({ a }), stop({})]);
+    const busy = await deco(["push", "--draft=pdp", "--json"]);
+    expect(busy.code).toBe(5);
+    expect(busy.json.error.code).toBe("unavailable");
+    expect(pullJson().blocks.a.ifMatch).toBe(a);
+  });
 
   it("a block over 1 MiB fails before anything is sent (exit 1)", async () => {
     studio.release({});
@@ -527,7 +588,7 @@ describe("push batching", () => {
 
 describe("deco publish", () => {
   it("prints the draft's changes, then makes it live", async () => {
-    const before = studio.release({ home: hero("Home") });
+    const before = studio.release({ home: hero("Home"), footer: hero("F") });
     await studio.save("pdp", { home: hero("New") });
     const r = await deco(["publish", "--draft=pdp", "--message=Black Friday", "--json"]);
     expect(r.code).toBe(0);
@@ -538,6 +599,11 @@ describe("deco publish", () => {
       draftEmptied: true,
     });
     expect(r.text).toContain('+   "title": "New",');
+    // The diff reads the draft's names only: footer's body is never fetched.
+    const bodies = studio.requests.filter((q) => q.path.includes("/blocks/"));
+    expect(bodies.map((q) => q.path)).toEqual([
+      `/cdn/sites/${SITE}/blocks/${await blockVersion(hero("Home"))}.json`,
+    ]);
     expect(studio.revisions.get(studio.latest!)!.meta).toMatchObject({
       draft: "pdp",
       message: "Black Friday",

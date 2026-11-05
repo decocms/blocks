@@ -1,12 +1,14 @@
 /**
  * The two services the remote commands talk to: the Studio content API (the
  * only writer, site-keyed at `/api/cms/<site>`) and the public CDN
- * (`latest.json`, revisions and drafts, read with no credential). Every
+ * (`latest.json`, the revision index; `blocks/<hash>.json`; `revisions/<id>/index.json`;
+ * draft folders; read with no credential). Every
  * answer is mapped to an exit code here (spec: cli › Exit codes); the CLI
  * never retries.
  */
 import { ErrorCode } from "../../../protocol/errors.ts";
 import { spellingKey } from "../../../protocol/keys.ts";
+import { draftFileName } from "../../draftChanges.ts";
 import { isRevisionId } from "../../revisionId.ts";
 import { CliError, EXIT, packageVersion } from "../root.ts";
 
@@ -252,6 +254,18 @@ export function applyRequestBody(params: ApplyParams): string {
 // The CDN
 // ---------------------------------------------------------------------------
 
+/** A revision index as the CDN serves it: name → the body's hash (and the inline `CMS` body). */
+export interface RemoteIndex {
+  revision: string;
+  sequence: number;
+  blocks: Record<string, { version: string; data?: Record<string, unknown> }>;
+}
+
+/** A block's hash: `blockVersion`, 22 base64url characters. */
+const HASH = /^[A-Za-z0-9_-]{22}$/;
+/** CDN reads in flight at once, for a pull of every block (contract A-31). */
+const PARALLELISM = 16;
+
 export interface DraftBody {
   set: Record<string, unknown>;
   delete: string[];
@@ -310,59 +324,138 @@ export class Delivery {
     }
   }
 
+  /** A revision index (`latest.json` or `revisions/<id>/index.json`); `null` on 404. */
+  async #index(key: string, what: string): Promise<RemoteIndex | null> {
+    const body = await this.#getJson(this.#url(key), what);
+    if (body === null) return null;
+    const bad = (why: string) => new CliError(`the CDN's ${what} ${why}`, { code: "bad_answer" });
+    if (!isObject(body) || !isRevisionId(body.revision)) throw bad("names no valid revision");
+    const sequence = body.sequence;
+    if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) {
+      throw bad("has no valid sequence");
+    }
+    if (!isObject(body.blocks)) throw bad("has no blocks");
+    const blocks: RemoteIndex["blocks"] = Object.create(null);
+    for (const [name, entry] of Object.entries(body.blocks)) {
+      if (!isObject(entry) || typeof entry.version !== "string" || !HASH.test(entry.version)) {
+        throw bad(`has no valid version for "${name}"`);
+      }
+      blocks[name] = isObject(entry.data)
+        ? { version: entry.version, data: entry.data }
+        : { version: entry.version };
+    }
+    return { revision: body.revision, sequence, blocks };
+  }
+
+  /** The live index (`latest.json`), or `null` before the site's first publish. */
+  latestIndex(): Promise<RemoteIndex | null> {
+    return this.#index("latest.json", "latest.json");
+  }
+
   /** The live revision id, or `null` before the site's first publish. */
   async latest(): Promise<string | null> {
-    const body = await this.#getJson(this.#url("latest.json"), "latest.json");
-    if (body === null) return null;
-    if (!isObject(body) || !isRevisionId(body.revision)) {
-      throw new CliError("the CDN's latest.json names no valid revision", { code: "bad_answer" });
-    }
-    return body.revision;
+    return (await this.latestIndex())?.revision ?? null;
+  }
+
+  /**
+   * The bodies of `names` (every name by default) in an index: inline ones
+   * from the index, the others by hash, at most 16 fetches at a time.
+   */
+  async bodies(index: RemoteIndex, names?: readonly string[]): Promise<Record<string, unknown>> {
+    const wanted = (names ?? Object.keys(index.blocks)).filter((name) =>
+      Object.hasOwn(index.blocks, name),
+    );
+    const blocks: Record<string, unknown> = Object.create(null);
+    await inParallel(wanted, PARALLELISM, async (name) => {
+      const entry = index.blocks[name]!;
+      if (entry.data !== undefined) {
+        blocks[name] = entry.data;
+        return;
+      }
+      const what = `block "${name}" (${entry.version})`;
+      const body = await this.#getJson(this.#url(`blocks/${entry.version}.json`), what);
+      if (body === null) {
+        throw new CliError(`the CDN doesn't have ${what}, which revision ${index.revision} names`, {
+          code: "block_not_found",
+        });
+      }
+      blocks[name] = body;
+    });
+    // In the index's order, not the order the fetches finished in.
+    const ordered: Record<string, unknown> = Object.create(null);
+    for (const name of wanted) ordered[name] = blocks[name];
+    return ordered;
   }
 
   /** A revision's blocks; `null` when there's no such revision. */
   async revision(id: string): Promise<Record<string, unknown> | null> {
-    const body = await this.#getJson(this.#url(`revisions/${id}/data.json`), `revision ${id}`);
-    if (body === null) return null;
-    if (!isObject(body) || !isObject(body.blocks)) {
-      throw new CliError(`the CDN's revision ${id} has no blocks`, { code: "bad_answer" });
-    }
-    return toMap(body.blocks);
+    const index = await this.#index(`revisions/${id}/index.json`, `revision ${id}`);
+    return index === null ? null : this.bodies(index);
   }
 
   /** Production now: the live revision and its blocks (empty before a first publish). */
   async production(): Promise<{ revision: string | null; blocks: Record<string, unknown> }> {
-    const revision = await this.latest();
-    if (revision === null) return { revision, blocks: Object.create(null) };
-    const blocks = await this.revision(revision);
-    if (blocks === null) {
-      throw new CliError(`latest.json names revision ${revision}, which the CDN doesn't have`, {
-        code: "revision_not_found",
-      });
-    }
-    return { revision, blocks };
+    const index = await this.latestIndex();
+    if (index === null) return { revision: null, blocks: Object.create(null) };
+    return { revision: index.revision, blocks: await this.bodies(index) };
   }
 
-  /** A draft object, by slug and ETag (the empty draft when it doesn't exist). */
+  /**
+   * A draft, by slug (the empty draft when Studio has none, `etag` null): its
+   * folder's `index.json`, then every file it names. A missing file or a
+   * `published` marker is no change; a `set` file's body replaces the name,
+   * a `delete` file deletes it.
+   */
   async draft(slug: string, etag: string | null): Promise<DraftBody> {
-    if (etag === null) return { set: Object.create(null), delete: [], editors: {} };
-    const query = `?v=${encodeURIComponent(etag)}`;
-    const body = await this.#getJson(this.#url(`drafts/${slug}.json${query}`), "the draft");
-    if (body === null) return { set: Object.create(null), delete: [], editors: {} };
-    if (
-      !isObject(body) ||
-      !isObject(body.set) ||
-      !Array.isArray(body.delete) ||
-      body.delete.some((n) => typeof n !== "string")
-    ) {
-      throw new CliError("the CDN's draft isn't {set, delete}", { code: "bad_answer" });
+    const empty = (): DraftBody => ({ set: Object.create(null), delete: [], editors: {} });
+    if (etag === null) return empty();
+    const folder = `drafts/${slug}/`;
+    const index = await this.#getJson(this.#url(`${folder}index.json`), "the draft's index");
+    if (index === null) return empty();
+    if (!isObject(index) || !Array.isArray(index.names)) {
+      throw new CliError("the CDN's draft index isn't {names}", { code: "bad_answer" });
     }
-    return {
-      set: toMap(body.set),
-      delete: body.delete as string[],
-      editors: isObject(body.editors) ? (body.editors as DraftBody["editors"]) : {},
-    };
+    const names = [...new Set(index.names.filter((n): n is string => typeof n === "string"))];
+    const files: Record<string, unknown> = Object.create(null);
+    await inParallel(names, PARALLELISM, async (name) => {
+      const url = this.#url(`${folder}${encodeURIComponent(draftFileName(name))}`);
+      files[name] = await this.#getJson(url, `the draft's file for "${name}"`);
+    });
+    const draft = empty();
+    for (const name of names) {
+      const file = files[name];
+      if (file === null || file === undefined) continue;
+      const bad = () =>
+        new CliError(`the CDN's draft file for "${name}" isn't a set, delete or published`, {
+          code: "bad_answer",
+        });
+      if (!isObject(file)) throw bad();
+      if (file.operation === "published") continue;
+      if (file.operation === "set") {
+        if (!isObject(file.data)) throw bad();
+        draft.set[name] = file.data;
+      } else if (file.operation === "delete") {
+        draft.delete.push(name);
+      } else throw bad();
+      if (typeof file.user === "string" && typeof file.at === "number") {
+        draft.editors[name] = { userId: file.user, at: file.at };
+      }
+    }
+    return draft;
   }
+}
+
+/** Runs `task` over `items`, at most `limit` at a time; rejects with the first failure. */
+async function inParallel<T>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await task(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 /** A copy with no prototype, so a block named `__proto__` is just a name. */

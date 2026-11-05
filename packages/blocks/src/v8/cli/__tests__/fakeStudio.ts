@@ -1,7 +1,8 @@
 /**
  * Test-only: an in-process fake of the Studio content API
  * (`/api/cms/<site>/…`, contract §4) and of the public CDN
- * (`/cdn/sites/<site>/…`, contract §2) on one real HTTP server, so the CLI's
+ * (`/cdn/sites/<site>/…` in the content-addressed layout: `latest.json` as
+ * the revision index, `blocks/<hash>.json`, draft folders) on one real HTTP server, so the CLI's
  * remote commands run black-box over the network. It keeps the protocol's
  * rules that the CLI depends on: `ifMatch` against the draft only, the
  * conflict payload from the save's own read, all-or-nothing saves, and
@@ -16,6 +17,7 @@ import { blockVersion } from "../../../protocol/canonical";
 import { serializeBlock } from "../../../protocol/keys";
 import { MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY } from "../../../protocol/server/core";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage";
+import { indexEntry } from "../../blockMeta";
 
 export const SITE = "store";
 export const TOKEN = "tok_test";
@@ -94,7 +96,7 @@ export interface FakeStudio {
   /** The env a CLI run needs: both URLs and the token. */
   env: Record<string, string>;
   requests: Recorded[];
-  revisions: Map<string, { blocks: Blocks; meta: Record<string, unknown> }>;
+  revisions: Map<string, { blocks: Blocks; meta: Record<string, unknown>; sequence: number }>;
   latest: string | null;
   drafts: Map<string, FakeDraft>;
   schema: string | null;
@@ -102,6 +104,8 @@ export interface FakeStudio {
   inject: Map<string, Injected[]>;
   /** Sets production to a new revision with these blocks; returns its id. */
   release(blocks: Blocks, meta?: Record<string, unknown>): string;
+  /** Runs once before the next `blocks.apply` is handled: another save racing a push. */
+  beforeApply: (() => Promise<void>) | null;
   /** Saves into a draft as another person would, creating it if needed. */
   save(name: string, set: Blocks, deleted?: string[], userId?: string): Promise<void>;
   close(): Promise<void>;
@@ -110,7 +114,10 @@ export interface FakeStudio {
 export async function startFakeStudio(): Promise<FakeStudio> {
   const state = {
     requests: [] as Recorded[],
-    revisions: new Map<string, { blocks: Blocks; meta: Record<string, unknown> }>(),
+    revisions: new Map<
+      string,
+      { blocks: Blocks; meta: Record<string, unknown>; sequence: number }
+    >(),
     latest: null as string | null,
     drafts: new Map<string, FakeDraft>(),
     schema: null as string | null,
@@ -135,9 +142,18 @@ export async function startFakeStudio(): Promise<FakeStudio> {
     return { draft, created: true };
   };
 
+  /** A revision's index, as Studio writes `revisions/<id>/index.json` and `latest.json`. */
+  const indexOf = async (id: string) => {
+    const r = state.revisions.get(id)!;
+    const names = Object.keys(r.blocks);
+    const blocks: Record<string, unknown> = {};
+    for (const name of names) blocks[name] = await indexEntry(name, r.blocks[name], names);
+    return { revision: id, sequence: r.sequence, blocks };
+  };
+
   const draftAnswer = (draft: FakeDraft) => {
     const pointer = draft.etag
-      ? `delivery.test/sites/${SITE}/drafts/${draft.slug}.json@${draft.etag}`
+      ? `delivery.test/sites/${SITE}/drafts/${draft.slug}/index.json@${draft.etag}`
       : null;
     return {
       name: draft.name,
@@ -220,6 +236,7 @@ export async function startFakeStudio(): Promise<FakeStudio> {
   };
 
   const fake: FakeStudio = {
+    beforeApply: null,
     studioUrl: "",
     deliveryUrl: "",
     env: {},
@@ -250,6 +267,7 @@ export async function startFakeStudio(): Promise<FakeStudio> {
     release(blocks, meta = {}) {
       const id = newRevisionId();
       state.revisions.set(id, {
+        sequence: state.revisions.size + 1,
         blocks: map(blocks),
         meta: {
           previous: state.latest,
@@ -315,17 +333,42 @@ export async function startFakeStudio(): Promise<FakeStudio> {
         const key = url.pathname.slice(cdn.length);
         if (key === "latest.json") {
           if (state.latest === null) return send(404, { error: "not found" });
-          return send(200, { revision: state.latest, previewHosts: ["www.store.test"] });
+          const index = await indexOf(state.latest);
+          return send(200, { ...index, previewHosts: ["www.store.test"] });
         }
-        const revision = /^revisions\/([^/]+)\/data\.json$/.exec(key);
+        const revision = /^revisions\/([^/]+)\/index\.json$/.exec(key);
         if (revision) {
-          const r = state.revisions.get(revision[1]!);
-          return r ? send(200, { blocks: r.blocks }) : send(404, { error: "not found" });
+          return state.revisions.has(revision[1]!)
+            ? send(200, await indexOf(revision[1]!))
+            : send(404, { error: "not found" });
         }
-        const draft = /^drafts\/([^/]+)\.json$/.exec(key);
+        const hash = /^blocks\/([A-Za-z0-9_-]{22})\.json$/.exec(key)?.[1];
+        if (hash !== undefined) {
+          for (const r of state.revisions.values()) {
+            for (const block of Object.values(r.blocks)) {
+              if ((await blockVersion(block)) === hash) return send(200, block);
+            }
+          }
+          return send(404, { error: "not found" });
+        }
+        // A draft folder: its index, then one file per name (contract §2.6, §2.7).
+        const draft = /^drafts\/([^/]+)\/([^/]+)$/.exec(key);
         if (draft) {
           const found = [...state.drafts.values()].find((d) => d.slug === draft[1]);
-          return found?.etag ? send(200, found.body) : send(404, { error: "not found" });
+          if (!found?.etag) return send(404, { error: "not found" });
+          const { set, delete: deleted, editors } = found.body;
+          if (draft[2] === "index.json") {
+            const names = [...new Set([...Object.keys(set), ...deleted])].sort();
+            return send(200, { names });
+          }
+          const file = decodeURIComponent(draft[2]!);
+          const name = file === "%69ndex.json" ? "index" : decodeURIComponent(file.slice(0, -5));
+          const editor = editors[name];
+          const who = editor ? { user: editor.userId, via: "cli", at: editor.at } : {};
+          if (Object.hasOwn(set, name))
+            return send(200, { operation: "set", data: set[name], ...who });
+          if (deleted.includes(name)) return send(200, { operation: "delete", ...who });
+          return send(404, { error: "not found" });
         }
         return send(404, { error: "not found" });
       }
@@ -379,6 +422,9 @@ export async function startFakeStudio(): Promise<FakeStudio> {
               error: { code: -32601, message: "unknown" },
             });
           }
+          const race = fake.beforeApply;
+          fake.beforeApply = null;
+          await race?.();
           const answer = await applyTo(draft, rpc.params, USER);
           return send(200, { jsonrpc: "2.0", id: rpc.id, ...answer });
         }

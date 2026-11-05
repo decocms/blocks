@@ -47,8 +47,8 @@ const COMMANDS: Record<string, CommandSpec> = {
   },
   diff: { usage: "deco diff     [--draft=<name>]", flags: { ...DRAFT } },
   push: {
-    usage: "deco push     --draft=<name> [--ours | --theirs]",
-    flags: { ...DRAFT, ours: "boolean", theirs: "boolean" },
+    usage: "deco push     --draft=<name> [--ours | --theirs] [--prune]",
+    flags: { ...DRAFT, ours: "boolean", theirs: "boolean", prune: "boolean" },
   },
   publish: {
     usage: "deco publish  --draft=<name> [--message=<text>]",
@@ -80,7 +80,8 @@ Commands:
   login     print how to log in (the session is Studio CLI's: npx decocms auth login)
   pull      write production, or a draft, into .deco/blocks
   diff      show what .deco/blocks changes against what was pulled, or against a draft
-  push      save the blocks changed since the pull into a draft; prints its preview link
+  push      save the blocks changed since the pull into a draft as one change (deletes with
+            --prune); prints its preview link
   publish   make a draft live (prints its changes first)
   drafts    list, create, discard a draft, or print its preview link
   releases  list the published revisions, newest first, 50 a page
@@ -315,6 +316,7 @@ async function runCommand(
       return push(remote(), {
         draft,
         side: flags.ours ? "ours" : flags.theirs ? "theirs" : null,
+        prune: flags.prune === true,
       });
     }
     case "publish":

@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { blockNameFromFile, checkBlockName, isBlockFileName } from "../../../protocol/keys";
+import { indexEntry } from "../../blockMeta";
 import { readSavedBlocks } from "../content";
 import type { Reporter } from "../log";
 import { findDecoRoot } from "../root";
@@ -224,16 +225,22 @@ function folderBlocks(dir: string): Record<string, unknown> {
 
 /**
  * The CDN's answer when production is the `.deco/blocks` of `root()`:
- * `latest.json` names `FOLDER_REVISION`, whose `data.json` holds the blocks.
+ * `latest.json` is `FOLDER_REVISION`'s index, and each block is served by hash.
  */
-export function folderAnswer(url: string, root: string): { status: number; body: unknown } {
-  if (url.endsWith("/latest.json")) return { status: 200, body: { revision: FOLDER_REVISION } };
-  if (url.endsWith(`/revisions/${FOLDER_REVISION}/data.json`)) {
-    return {
-      status: 200,
-      body: { blocks: folderBlocks(path.join(root, ".deco/blocks")) },
-    };
-  }
+export async function folderAnswer(
+  url: string,
+  root: string,
+): Promise<{ status: number; body: unknown }> {
+  const blocks = folderBlocks(path.join(root, ".deco/blocks"));
+  const names = Object.keys(blocks);
+  const entries: Record<string, { version: string; data?: unknown }> = {};
+  for (const name of names) entries[name] = await indexEntry(name, blocks[name], names);
+  const index = { revision: FOLDER_REVISION, sequence: 1, blocks: entries };
+  if (url.endsWith("/latest.json")) return { status: 200, body: { ...index, previewHosts: [] } };
+  if (url.endsWith(`/revisions/${FOLDER_REVISION}/index.json`)) return { status: 200, body: index };
+  const hash = /\/blocks\/([A-Za-z0-9_-]{22})\.json$/.exec(url)?.[1];
+  const name = names.find((n) => entries[n]!.version === hash);
+  if (name !== undefined) return { status: 200, body: blocks[name] };
   return { status: 404, body: { error: "not found" } };
 }
 
@@ -246,7 +253,10 @@ export function folderAsProduction(root: () => string) {
   return {
     env: { DECO_SITE: "fixture", DECO_DELIVERY_URL: "https://cdn.test" } as Record<string, string>,
     fetch: async (input: string | URL | Request) => {
-      const answer = folderAnswer(String(input instanceof Request ? input.url : input), root());
+      const answer = await folderAnswer(
+        String(input instanceof Request ? input.url : input),
+        root(),
+      );
       return Response.json(answer.body, { status: answer.status });
     },
   };
