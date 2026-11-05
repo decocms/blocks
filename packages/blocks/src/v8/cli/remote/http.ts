@@ -51,10 +51,11 @@ export interface DraftRow {
   createdAt: string;
 }
 
+/** A Releases row (contract §4.10); an `unreadable` one has no `meta`. */
 export interface ReleaseRow {
   id: string;
-  status: "current" | "was-live" | "never-live";
-  meta: Record<string, unknown>;
+  status: "current" | "was-live" | "never-live" | "unreadable";
+  meta?: Record<string, unknown>;
 }
 
 export interface ReleasesPage {

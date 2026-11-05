@@ -676,6 +676,11 @@ export async function releases(
   const c = paint(ctx.reporter.color);
   if (page.revisions.length === 0) ctx.reporter.info("no releases yet");
   for (const row of page.revisions) {
+    // Its meta.json couldn't be read: the id is all there is.
+    if (row.status === "unreadable") {
+      ctx.reporter.info(`${row.id}  ${c.yellow("unreadable")}  (its meta.json couldn't be read)`);
+      continue;
+    }
     const meta = row.meta ?? {};
     const status =
       row.status === "current"

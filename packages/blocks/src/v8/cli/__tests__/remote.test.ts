@@ -594,6 +594,24 @@ describe("deco drafts and releases", () => {
     expect(next.json.revisions).toHaveLength(1);
     expect(next.json.nextCursor).toBeNull();
   });
+
+  it("releases prints an unreadable row as unreadable, with its id only", async () => {
+    const live = studio.release({ a: hero("2") });
+    const broken = "fe6c5e0d97ff-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a55";
+    const revisions = [
+      { id: live, status: "current", meta: studio.revisions.get(live)!.meta },
+      { id: broken, status: "unreadable" },
+    ];
+    const page = { live, revisions, nextCursor: null };
+    studio.inject.set("GET /releases", [{ status: 200, json: page, times: 2 }]);
+    const r = await deco(["releases"]);
+    expect(r.code).toBe(0);
+    const line = r.text.split("\n").find((l: string) => l.startsWith(broken));
+    expect(line).toBe(`${broken}  unreadable  (its meta.json couldn't be read)`);
+    expect(r.text).toMatch(new RegExp(`^${live}  live  `, "m"));
+    const json = await deco(["releases", "--json"]);
+    expect(json.json.revisions).toEqual(revisions);
+  });
 });
 
 describe("deco schema push and the token", () => {
