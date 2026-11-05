@@ -1,11 +1,12 @@
 /**
  * The two services the remote commands talk to: the Studio content API (the
- * only writer, site-keyed at `/api/<org>/cms/<site>`) and the public CDN
+ * only writer, site-keyed at `/api/cms/<site>`) and the public CDN
  * (`latest.json`, revisions and drafts, read with no credential). Every
  * answer is mapped to an exit code here (spec: cli › Exit codes); the CLI
  * never retries.
  */
 import { ErrorCode } from "../../../protocol/errors.ts";
+import { spellingKey } from "../../../protocol/keys.ts";
 import { isRevisionId } from "../../revisionId.ts";
 import { CliError, EXIT, packageVersion } from "../root.ts";
 
@@ -79,7 +80,6 @@ export class RpcError extends Error {
 
 export interface StudioOptions {
   base: string;
-  org: string;
   site: string;
   token: () => Promise<string>;
   fetch?: Fetch;
@@ -123,10 +123,10 @@ export class Studio {
     this.#fetch = options.fetch ?? fetch;
   }
 
-  /** The site's API root, `<studio>/api/<org>/cms/<site>`. */
+  /** The site's API root, `<studio>/api/cms/<site>` (Studio finds the site's org). */
   get root(): string {
-    const { base, org, site } = this.#options;
-    return `${base}/api/${encodeURIComponent(org)}/cms/${encodeURIComponent(site)}`;
+    const { base, site } = this.#options;
+    return `${base}/api/cms/${encodeURIComponent(site)}`;
   }
 
   async #request(
@@ -370,13 +370,20 @@ export function toMap(record: Record<string, unknown>): Record<string, unknown> 
   return map;
 }
 
-/** Production with a draft applied: its blocks replaced whole, its deletions gone. */
+/**
+ * Production with a draft applied, as Studio applies it (`applyDraftToBlocks`):
+ * a name the draft sets replaces every spelling of it, a name it deletes hides
+ * every spelling (`spellingKey`), and its blocks are taken whole.
+ */
 export function layer(
   production: Record<string, unknown>,
   draft: { set: Record<string, unknown>; delete: string[] },
 ): Record<string, unknown> {
-  const blocks = toMap(production);
-  for (const name of draft.delete) delete blocks[name];
+  const touched = new Set([...Object.keys(draft.set), ...draft.delete].map(spellingKey));
+  const blocks: Record<string, unknown> = Object.create(null);
+  for (const [name, block] of Object.entries(production)) {
+    if (!touched.has(spellingKey(name))) blocks[name] = block;
+  }
   for (const [name, block] of Object.entries(draft.set)) blocks[name] = block;
   return blocks;
 }

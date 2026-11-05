@@ -4,16 +4,20 @@
  * TypeScript sources and the workspace's `node_modules` linked in, so
  * `deco schema` resolves `react` types like it would in an app.
  */
+
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { blockNameFromFile, checkBlockName, isBlockFileName } from "../../../protocol/keys";
+import { readSavedBlocks } from "../content";
 import type { Reporter } from "../log";
+import { findDecoRoot } from "../root";
 
-const WORKSPACE_NODE_MODULES = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../../../node_modules",
-);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WORKSPACE_NODE_MODULES = path.resolve(HERE, "../../../../../../node_modules");
+const TSX = path.join(WORKSPACE_NODE_MODULES, ".bin/tsx");
 
 /** The types an app imports from `@decocms/blocks` (spec: api-reference › Types). */
 export const DECO_TYPES = `
@@ -197,3 +201,97 @@ export default {
 } satisfies Blocks;
 `,
 };
+
+/** The revision `folderAsProduction` serves the folder as. */
+export const FOLDER_REVISION = "fe5e5eb831ff-01a1a147-ce00-7000-8000-000000000000";
+
+/**
+ * The folder as a published revision would hold it: what `readSavedBlocks`
+ * reads, plus the files whose name the file-name rule rejects, under their
+ * names, so a check of it still reports them.
+ */
+function folderBlocks(dir: string): Record<string, unknown> {
+  const blocks: Record<string, unknown> = { ...readSavedBlocks(dir).blocks };
+  for (const file of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    const name = blockNameFromFile(file);
+    if (!isBlockFileName(file) || checkBlockName(name).length === 0) continue;
+    try {
+      blocks[name] = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+    } catch {}
+  }
+  return blocks;
+}
+
+/**
+ * The CDN's answer when production is the `.deco/blocks` of `root()`:
+ * `latest.json` names `FOLDER_REVISION`, whose `data.json` holds the blocks.
+ */
+export function folderAnswer(url: string, root: string): { status: number; body: unknown } {
+  if (url.endsWith("/latest.json")) return { status: 200, body: { revision: FOLDER_REVISION } };
+  if (url.endsWith(`/revisions/${FOLDER_REVISION}/data.json`)) {
+    return {
+      status: 200,
+      body: { blocks: folderBlocks(path.join(root, ".deco/blocks")) },
+    };
+  }
+  return { status: 404, body: { error: "not found" } };
+}
+
+/**
+ * `deco check` with no flag checks production, from the CDN (contract §7.3).
+ * For tests about checking itself, this serves a fixture's own
+ * `.deco/blocks` as production, in process: pass `env` and `fetch` to `runCli`.
+ */
+export function folderAsProduction(root: () => string) {
+  return {
+    env: { DECO_SITE: "fixture", DECO_DELIVERY_URL: "https://cdn.test" } as Record<string, string>,
+    fetch: async (input: string | URL | Request) => {
+      const answer = folderAnswer(String(input instanceof Request ? input.url : input), root());
+      return Response.json(answer.body, { status: answer.status });
+    },
+  };
+}
+
+/**
+ * `folderAsProduction` for one `deco` invocation run in process: production
+ * from the `.deco/` root the command would use (`--root`, else walking up
+ * from `cwd`), for a `deco check` with no `--draft` or `--revision`; nothing
+ * for any other command.
+ */
+export function checkProductionFromFolder(argv: string[], cwd: string) {
+  if (argv[0] !== "check" || argv.some((a) => /^--(draft|revision)\b/.test(a))) return {};
+  const at = argv.findIndex((a) => a === "--root" || a.startsWith("--root="));
+  const root = at === -1 ? undefined : argv[at]!.includes("=") ? argv[at]!.slice(7) : argv[at + 1];
+  const production = folderAsProduction(() => findDecoRoot({ root, cwd }));
+  return { ...production, env: { ...process.env, ...production.env } };
+}
+
+/**
+ * The same over real HTTP, for a spawned `deco` (even one run with
+ * `spawnSync`): a server in its own process (`folderCdn.ts`, under tsx) that
+ * serves any folder; `envFor(root)` points a `deco` at that folder's blocks.
+ */
+export async function startFolderCdn() {
+  const child = spawn(TSX, [path.join(HERE, "folderCdn.ts")], {
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const port = await new Promise<string>((resolve, reject) => {
+    let out = "";
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+      if (out.includes("\n")) resolve(out.trim());
+    });
+    child.once("exit", (code) => reject(new Error(`folderCdn exited with ${code}`)));
+  });
+  return {
+    envFor: (root: string) => ({
+      DECO_SITE: "fixture",
+      DECO_DELIVERY_URL: `http://127.0.0.1:${port}/${Buffer.from(root).toString("base64url")}`,
+    }),
+    close: () =>
+      new Promise<void>((resolve) => {
+        child.once("exit", () => resolve());
+        child.kill();
+      }),
+  };
+}

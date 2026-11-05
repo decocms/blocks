@@ -87,8 +87,6 @@ export function decoPaths(root: string) {
     legacySchema: path.join(deco, "meta.gen.json"),
     /** The content module, `.deco/blocks.gen.ts`, for content without a site. */
     content: path.join(deco, "blocks.gen.ts"),
-    /** `{org, site}`, committed: the site the remote commands talk to. */
-    link: path.join(deco, "link.json"),
     /** What `deco pull` wrote, git-ignored: the base of `deco diff` and `deco push`. */
     pull: path.join(deco, "pull.json"),
     blockMapCandidates: [path.join(deco, "index.ts"), path.join(deco, "index.tsx")],

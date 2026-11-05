@@ -119,8 +119,9 @@ export function readSavedBlocks(blocksDir: string): SavedBlocks {
 
 /**
  * Blocks fetched from a draft or a revision, as if read from `.deco/blocks`
- * (`deco check --draft`/`--revision`): each at its file name; a value that
- * isn't a JSON object is a diagnostic, as on disk.
+ * (`deco check`, `--draft`, `--revision`): each at its file name; a name the
+ * file-name rule rejects, or a value that isn't a JSON object, is a
+ * diagnostic, as on disk.
  */
 export function savedBlocksFromMap(map: Record<string, unknown>): SavedBlocks {
   const blocks: Record<string, Record<string, unknown>> = Object.create(null);
@@ -129,6 +130,15 @@ export function savedBlocksFromMap(map: Record<string, unknown>): SavedBlocks {
   for (const name of Object.keys(map).sort()) {
     const file = blockFileName(name);
     const entry = map[name];
+    const [invalid] = checkBlockName(name);
+    if (invalid) {
+      diagnostics.push({
+        file,
+        severity: "error",
+        message: `not a valid entry name (${invalid.message})`,
+      });
+      continue;
+    }
     if (!isPlainObject(entry)) {
       diagnostics.push({ file, severity: "error", message: "a saved block must be a JSON object" });
       continue;

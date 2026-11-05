@@ -11,8 +11,15 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../cli/__tests__/fixture";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  checkProductionFromFolder,
+  createFixture,
+  type Fixture,
+  recorder,
+  STORE_FILES,
+  startFolderCdn,
+} from "../cli/__tests__/fixture";
 import { checkContent } from "../cli/check/index";
 import { type readSavedBlocks, writeContent } from "../cli/content";
 import { decoPaths } from "../cli/root";
@@ -41,7 +48,15 @@ afterEach(() => {
   fixture = undefined;
 });
 
-const run = (args: string[], cwd: string) => runCli(args, { cwd, reporter: recorder() });
+// deco check reads production from the CDN: here, the fixture's own blocks.
+const run = (args: string[], cwd: string) =>
+  runCli(args, { cwd, reporter: recorder(), ...checkProductionFromFolder(args, cwd) });
+
+let cdn: Awaited<ReturnType<typeof startFolderCdn>>;
+beforeAll(async () => {
+  cdn = await startFolderCdn();
+});
+afterAll(() => cdn.close());
 
 describe("releases-and-deployment", () => {
   it("RD-1: deco schema && deco check pass on fitting content; unfit content fails the build", async () => {
@@ -67,12 +82,14 @@ describe("releases-and-deployment", () => {
     const fits = spawnSync(process.execPath, [BIN, "check"], {
       cwd: fixture.root,
       encoding: "utf8",
+      env: { ...process.env, ...cdn.envFor(fixture.root) },
     });
     expect(fits.status, fits.stderr).toBe(0);
     fixture.write(".deco/blocks/Bad.json", { __resolveType: "no-such-type" });
     const check = spawnSync(process.execPath, [BIN, "check"], {
       cwd: fixture.root,
       encoding: "utf8",
+      env: { ...process.env, ...cdn.envFor(fixture.root) },
     });
     expect(check.status).not.toBe(0);
   }, 60_000);
@@ -164,7 +181,11 @@ describe("draft-synchronization", () => {
     });
     fixture.write(".deco/schema.gen.json", meta);
     const out = recorder();
-    const code = await runCli(["check"], { cwd: fixture.root, reporter: out });
+    const code = await runCli(["check"], {
+      cwd: fixture.root,
+      reporter: out,
+      ...checkProductionFromFolder(["check"], fixture.root),
+    });
     expect(code).not.toBe(0);
     expect(out.text()).toContain("B.json");
     expect(out.text()).toContain("Missing");

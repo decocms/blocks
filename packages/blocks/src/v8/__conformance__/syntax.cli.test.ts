@@ -11,7 +11,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createFixture, type Fixture, recorder } from "../cli/__tests__/fixture";
+import {
+  checkProductionFromFolder,
+  createFixture,
+  type Fixture,
+  recorder,
+} from "../cli/__tests__/fixture";
 import { content } from "../cli/content";
 import { runCli } from "../cli/run";
 import { toBase64 } from "../cli/schema/typeToSchema";
@@ -123,7 +128,8 @@ const def = (name: string) => meta.schema.definitions[toBase64(name)];
 
 async function deco(args: string[], cwd: string) {
   const out = recorder();
-  const code = await runCli(args, { cwd, reporter: out });
+  // deco check reads production from the CDN: here, the fixture's own blocks.
+  const code = await runCli(args, { cwd, reporter: out, ...checkProductionFromFolder(args, cwd) });
   return { code, out: out.text(), lines: out.lines };
 }
 

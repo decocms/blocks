@@ -1,7 +1,14 @@
 // @vitest-environment node
 import Ajv from "ajv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
+import {
+  createFixture,
+  type Fixture,
+  FOLDER_REVISION,
+  folderAsProduction,
+  recorder,
+  STORE_FILES,
+} from "../__tests__/fixture";
 import { BUILT_IN_BLOCKS, BUILT_IN_USES } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
@@ -9,6 +16,10 @@ import { runCli } from "../run";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { writeSchema } from "../schema/index";
 import { check, checkContent, formatProblems, type Problem } from "./index";
+
+/** deco check reads production from the CDN; here, the fixture's own blocks. */
+const production = (fixture: Fixture) => folderAsProduction(() => fixture.root);
+const CHECKING = `checking production (revision ${FOLDER_REVISION})`;
 
 let store: Fixture;
 let meta: DecoMeta;
@@ -717,16 +728,26 @@ describe("deco check --color", () => {
     });
     try {
       const out = recorder();
-      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(0);
+      expect(
+        await runCli(["check", "--color"], {
+          cwd: fixture.root,
+          reporter: out,
+          ...production(fixture),
+        }),
+      ).toBe(0);
       expect(out.text()).toBe(
-        `${green("✓")} 2 saved blocks checked: ${green("0 errors, 0 warnings")}`,
+        `${CHECKING}\n${green("✓")} 2 saved blocks checked: ${green("0 errors, 0 warnings")}`,
       );
       // Plain unless asked, and --no-color wins when it comes last.
       const plain = recorder();
       expect(
-        await runCli(["check", "--color", "--no-color"], { cwd: fixture.root, reporter: plain }),
+        await runCli(["check", "--color", "--no-color"], {
+          cwd: fixture.root,
+          reporter: plain,
+          ...production(fixture),
+        }),
       ).toBe(0);
-      expect(plain.text()).toBe("2 saved blocks checked: 0 errors, 0 warnings");
+      expect(plain.text()).toBe(`${CHECKING}\n2 saved blocks checked: 0 errors, 0 warnings`);
     } finally {
       fixture.remove();
     }
@@ -740,10 +761,17 @@ describe("deco check --color", () => {
     });
     try {
       const out = recorder();
-      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(1);
-      expect(out.lines.map((l) => l.level)).toEqual(["error", "error"]);
+      expect(
+        await runCli(["check", "--color"], {
+          cwd: fixture.root,
+          reporter: out,
+          ...production(fixture),
+        }),
+      ).toBe(1);
+      expect(out.lines.map((l) => l.level)).toEqual(["info", "error", "error"]);
       expect(out.text()).toBe(
         [
+          CHECKING,
           bold(".deco/blocks/Promo.json"),
           `  ${red('unknown block type "promo-banner"')}`,
           `${red("✗")} 2 saved blocks checked: ${red("1 error")}, 0 warnings`,
@@ -752,9 +780,16 @@ describe("deco check --color", () => {
 
       fixture.write(".deco/blocks/Promo.json", warned);
       const ok = recorder();
-      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: ok })).toBe(0);
+      expect(
+        await runCli(["check", "--color"], {
+          cwd: fixture.root,
+          reporter: ok,
+          ...production(fixture),
+        }),
+      ).toBe(0);
       expect(ok.text()).toBe(
         [
+          CHECKING,
           bold(".deco/blocks/Promo.json"),
           `  ${yellow("warning")}: ${dim("title.variants[1]")}: can never be picked: variants[0] has an always rule`,
           `${yellow("⚠")} 2 saved blocks checked: 0 errors, ${yellow("1 warning")}`,

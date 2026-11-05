@@ -23,7 +23,14 @@ import { ensureGitWorkTree, gitInit } from "../../protocol/__tests__/git";
 import { ErrorCode } from "../../protocol/errors";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
 import { BLOCKS_MAJOR } from "../../protocol/types";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../cli/__tests__/fixture";
+import {
+  checkProductionFromFolder,
+  createFixture,
+  type Fixture,
+  recorder,
+  STORE_FILES,
+  startFolderCdn,
+} from "../cli/__tests__/fixture";
 import { content as writeContentModule } from "../cli/content";
 import { runCli } from "../cli/run";
 import { createCMS, resetForTests } from "../cms";
@@ -42,7 +49,8 @@ type Json = Record<string, any>;
 
 async function deco(argv: string[], cwd: string) {
   const out = recorder();
-  const code = await runCli(argv, { cwd, reporter: out });
+  // deco check reads production from the CDN: here, the fixture's own blocks.
+  const code = await runCli(argv, { cwd, reporter: out, ...checkProductionFromFolder(argv, cwd) });
   return { code, out: out.text(), lines: out.lines };
 }
 
@@ -396,8 +404,6 @@ describe("cli.mdx", () => {
     const commands = [...help.out.matchAll(/^ {2}(\w+) {2,}\S/gm)].map((m) => m[1]);
     expect(commands).toEqual([
       "login",
-      "init",
-      "link",
       "pull",
       "diff",
       "push",
@@ -505,15 +511,16 @@ describe("cli.mdx", () => {
     });
   });
 
-  it("cli-07 / cli-22: the predev/prebuild scripts run, and the example apps use them", () => {
+  it("cli-07 / cli-22: the predev/prebuild scripts run, and the example apps use them", async () => {
     // The examples have no site: they write the content module with content()
-    // from @decocms/blocks/cli (examples/content-module.mjs).
+    // from @decocms/blocks/cli (examples/content-module.mjs). deco check reads
+    // a site's production from the CDN, so they don't run it.
     for (const example of ["tanstack-smoke", "nextjs-smoke"]) {
       const pkg = JSON.parse(
         fs.readFileSync(path.join(REPO, "examples", example, "package.json"), "utf8"),
       );
       expect(pkg.scripts.predev).toBe("deco schema && node ../content-module.mjs");
-      expect(pkg.scripts.prebuild).toBe("deco schema && node ../content-module.mjs && deco check");
+      expect(pkg.scripts.prebuild).toBe("deco schema && node ../content-module.mjs");
     }
 
     const app = fixture({
@@ -531,11 +538,21 @@ describe("cli.mdx", () => {
         sections: [{ __resolveType: "hero", title: "Hi", size: "md" }],
       },
     });
-    for (const script of ["predev", "prebuild"]) {
-      fs.rmSync(path.join(app.root, ".deco/schema.gen.json"), { force: true });
-      const r = spawnSync("npm", ["run", script], { cwd: app.root, encoding: "utf8" });
-      expect(r.status, r.stdout + r.stderr).toBe(0);
-      expect(app.exists(".deco/schema.gen.json")).toBe(true);
+    // prebuild's deco check reads production from the CDN: here, the app's own blocks.
+    const cdn = await startFolderCdn();
+    try {
+      for (const script of ["predev", "prebuild"]) {
+        fs.rmSync(path.join(app.root, ".deco/schema.gen.json"), { force: true });
+        const r = spawnSync("npm", ["run", script], {
+          cwd: app.root,
+          encoding: "utf8",
+          env: { ...process.env, ...cdn.envFor(app.root) },
+        });
+        expect(r.status, r.stdout + r.stderr).toBe(0);
+        expect(app.exists(".deco/schema.gen.json")).toBe(true);
+      }
+    } finally {
+      await cdn.close();
     }
   }, 120_000);
 
@@ -553,8 +570,8 @@ describe("cli.mdx", () => {
 
   it("cli-09: no .deco up the tree gives the documented error", async () => {
     const dir = tmpDir();
-    // Local commands exit 1; remote ones have no .deco/link.json either, a
-    // usage error (64, contract §7.4). The message is the same.
+    // Local commands exit 1; remote ones have no folder to work in or read
+    // DECO_SITE from, a usage error (64, contract §7.4). The message is the same.
     for (const [cmd, code] of [
       ["schema", 1],
       ["check", 1],
@@ -1060,17 +1077,23 @@ describe("checking.mdx", () => {
     expect(r.out).toMatch(/can never be picked/);
   });
 
-  it("chk-09: `npx @decocms/blocks schema && npx @decocms/blocks check`", () => {
+  it("chk-09: `npx @decocms/blocks schema && npx @decocms/blocks check`", async () => {
     const f = fixture({
       ...STORE_FILES,
       ".deco/blocks/Home.json": page([hero]),
     });
-    const r = spawnSync(
-      "sh",
-      ["-c", "npx --no-install @decocms/blocks schema && npx --no-install @decocms/blocks check"],
-      { cwd: f.root, encoding: "utf8" },
-    );
-    expect(r.status, r.stdout + r.stderr).toBe(0);
+    // check reads production from the CDN: here, the fixture's own blocks.
+    const cdn = await startFolderCdn();
+    try {
+      const r = spawnSync(
+        "sh",
+        ["-c", "npx --no-install @decocms/blocks schema && npx --no-install @decocms/blocks check"],
+        { cwd: f.root, encoding: "utf8", env: { ...process.env, ...cdn.envFor(f.root) } },
+      );
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+    } finally {
+      await cdn.close();
+    }
   }, 120_000);
 
   it("chk-10: failure output is grouped per file, as in the docs", async () => {

@@ -15,7 +15,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { startFolderCdn } from "../cli/__tests__/fixture";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE = path.resolve(HERE, "../../..");
@@ -35,10 +36,15 @@ interface Project {
   deco(...args: string[]): { code: number; out: string };
   /** Writes `.deco/blocks.gen.ts` with `content()`, from this folder or `root`. */
   module(root?: string): { code: number; out: string };
-  run(cmd: string, args: string[]): { code: number; out: string };
+  run(cmd: string, args: string[], env?: Record<string, string>): { code: number; out: string };
 }
 
 const projects: Project[] = [];
+let cdn: Awaited<ReturnType<typeof startFolderCdn>>;
+beforeAll(async () => {
+  cdn = await startFolderCdn();
+});
+afterAll(() => cdn.close());
 afterEach(() => {
   for (const p of projects.splice(0)) fs.rmSync(p.root, { recursive: true, force: true });
 });
@@ -58,18 +64,20 @@ function project(files: Record<string, string | object> = {}, withDeco = true): 
     },
     read: (file) => fs.readFileSync(path.join(root, file), "utf8"),
     exists: (file) => fs.existsSync(path.join(root, file)),
-    deco: (...args) => p.run(process.execPath, [BIN, ...args]),
+    // deco check reads production from the CDN: here, this project's own blocks.
+    deco: (...args) =>
+      p.run(process.execPath, [BIN, ...args], args[0] === "check" ? cdn.envFor(root) : {}),
     module: (contentRoot) =>
       p.run(process.execPath, [
         "--input-type=module",
         "-e",
         `const { content } = await import(${JSON.stringify(CLI)}); process.exitCode = await content(${contentRoot ? JSON.stringify({ root: contentRoot }) : ""});`,
       ]),
-    run(cmd, args) {
+    run(cmd, args, env = {}) {
       const r = spawnSync(cmd, args, {
         cwd: root,
         encoding: "utf8",
-        env: { ...process.env, NO_COLOR: "1" },
+        env: { ...process.env, NO_COLOR: "1", ...env },
       });
       return { code: r.status ?? 1, out: `${r.stdout}${r.stderr}` };
     },
@@ -761,19 +769,7 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
     const help = p.deco("--help").out;
     const commands = [...help.matchAll(/^ {2}(\w+) {2,}/gm)].map((m) => m[1]);
     expect(commands.sort()).toEqual(
-      [
-        "check",
-        "diff",
-        "drafts",
-        "init",
-        "link",
-        "login",
-        "publish",
-        "pull",
-        "push",
-        "releases",
-        "schema",
-      ].sort(),
+      ["check", "diff", "drafts", "login", "publish", "pull", "push", "releases", "schema"].sort(),
     );
     expect(help).toMatch(/deco schema\s+\[--watch \| --check\]/);
     expect(help).toMatch(/deco schema push/);

@@ -45,13 +45,39 @@ export type CommandRunner = (file: string, args: string[]) => Promise<string>;
 
 export const runCommand: CommandRunner = (file, args) =>
   new Promise((resolve, reject) => {
+    const command = commandFor(file, args);
     execFile(
-      file,
-      args,
-      { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024, windowsHide: true },
+      command.file,
+      command.args,
+      {
+        encoding: "utf8",
+        timeout: 120_000,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+        shell: command.shell,
+      },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
   });
+
+/**
+ * How to start `file` on this platform. On Windows `npx` is `npx.cmd`, a
+ * batch file, which only runs through a shell: there each argument is quoted
+ * (MSVC rules), so a `--target` URL reaches it whole.
+ */
+export function commandFor(
+  file: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { file: string; args: string[]; shell: boolean } {
+  if (platform !== "win32") return { file, args, shell: false };
+  return { file: file === "npx" ? "npx.cmd" : file, args: args.map(quoteWindowsArg), shell: true };
+}
+
+function quoteWindowsArg(arg: string): string {
+  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1");
+  return `"${escaped}"`;
+}
 
 /**
  * The bearer token: `DECO_TOKEN` when set, else the trimmed stdout of

@@ -1,6 +1,6 @@
 /**
  * Test-only: an in-process fake of the Studio content API
- * (`/api/<org>/cms/<site>/…`, contract §4) and of the public CDN
+ * (`/api/cms/<site>/…`, contract §4) and of the public CDN
  * (`/cdn/sites/<site>/…`, contract §2) on one real HTTP server, so the CLI's
  * remote commands run black-box over the network. It keeps the protocol's
  * rules that the CLI depends on: `ifMatch` against the draft only, the
@@ -17,7 +17,6 @@ import { serializeBlock } from "../../../protocol/keys";
 import { MAX_BLOCK_BYTES, MAX_OPS_PER_APPLY } from "../../../protocol/server/core";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage";
 
-export const ORG = "acme";
 export const SITE = "store";
 export const TOKEN = "tok_test";
 export const USER = "usr_me";
@@ -332,13 +331,15 @@ export async function startFakeStudio(): Promise<FakeStudio> {
       }
 
       // The Studio API.
-      const prefix = `/api/${ORG}/cms/${SITE}`;
-      if (!url.pathname.startsWith(prefix))
-        return send(404, { error: "Site not found", code: "site_not_found" });
-      const rest = url.pathname.slice(prefix.length);
-      const key = `${req.method} ${rest}`;
+      // Studio's gate order (contract §4.1): 401, then the site (its org is Studio's).
+      const route = /^\/api\/cms\/([^/]+)(\/.*)?$/.exec(url.pathname);
+      if (!route) return send(404, { error: "no route", code: "not_found" });
       if (req.headers.authorization !== `Bearer ${TOKEN}`)
         return send(401, { error: "Unauthorized" });
+      if (decodeURIComponent(route[1]!) !== SITE)
+        return send(404, { error: "Site not found", code: "site_not_found" });
+      const rest = route[2] ?? "";
+      const key = `${req.method} ${rest}`;
       if (answerInjected(key)) return;
       const segments = rest.split("/").filter(Boolean).map(decodeURIComponent);
 

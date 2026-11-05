@@ -1,7 +1,8 @@
 /**
  * The local files of the remote commands (spec: cli › Local files):
  *
- * - `.deco/link.json` `{org, site}`, committed: which site the folder is.
+ * - The site is `DECO_SITE` (the environment, else the folder's own config;
+ *   see `resolveSite`), not a file of its own.
  * - `.deco/blocks/`, git-ignored: one file per block, filled by `deco pull`.
  * - `.deco/pull.json`, git-ignored: what was pulled, per block its content
  *   hash (for `deco diff` and the dirty check) and the draft-relative
@@ -15,47 +16,147 @@ import { TOMBSTONE_VERSION } from "../../../protocol/storage.ts";
 import { readSavedBlocks, type SavedBlocks, writeIfChanged } from "../content.ts";
 import { CliError, type DecoPaths, usageError } from "../root.ts";
 
-export interface Link {
-  org: string;
-  site: string;
-}
+/**
+ * Where the remote commands look for `DECO_SITE` after the process
+ * environment, in this order, each in the folder that contains `.deco/`:
+ * the first one that sets it wins.
+ */
+export const SITE_SOURCES = [
+  ".env",
+  ".dev.vars",
+  "wrangler.jsonc",
+  "wrangler.json",
+  "wrangler.toml",
+] as const;
 
-/** `<org>/<site>`, as `deco link` takes it. */
-export function parseLinkTarget(value: string | undefined): Link {
-  const parts = value?.split("/") ?? [];
-  const valid = (s: string | undefined) => !!s && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s);
-  if (parts.length !== 2 || !valid(parts[0]) || !valid(parts[1])) {
-    throw usageError(`expected <org>/<site>, such as acme/storefront; got ${value ?? "nothing"}`);
+const SITE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The value a dotenv-style file (`.env`, `.dev.vars`) gives `key`, the last one winning. */
+export function dotenvValue(text: string, key: string): string | undefined {
+  let value: string | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!match || match[1] !== key) continue;
+    const raw = match[2]!;
+    const quoted = /^(["'])(.*?)\1/.exec(raw);
+    value = quoted ? quoted[2]! : raw.replace(/\s+#.*$/, "").trim();
   }
-  return { org: parts[0]!, site: parts[1]! };
+  return value;
 }
 
-export function writeLink(paths: DecoPaths, link: Link): boolean {
-  return writeIfChanged(
-    paths.link,
-    `${JSON.stringify({ org: link.org, site: link.site }, null, 2)}\n`,
-  );
-}
-
-/** The folder's site; no `.deco/link.json` is a usage error (run `deco link`). */
-export function readLink(paths: DecoPaths): Link {
-  let text: string;
-  try {
-    text = fs.readFileSync(paths.link, "utf8");
-  } catch {
-    throw usageError("no .deco/link.json: run deco link <org>/<site> first");
+/**
+ * JSONC (`wrangler.jsonc`) as JSON: `//` and `/* *\/` comments and trailing
+ * commas removed, string contents untouched.
+ */
+export function stripJsonc(text: string): string {
+  // Copies a string literal from text[i] (its opening quote) and returns the index after it.
+  const literal = (src: string, i: number, into: string[]): number => {
+    let j = i + 1;
+    while (j < src.length && src[j] !== '"') j += src[j] === "\\" ? 2 : 1;
+    into.push(src.slice(i, j + 1));
+    return j + 1;
+  };
+  const noComments: string[] = [];
+  for (let i = 0; i < text.length; ) {
+    if (text[i] === '"') i = literal(text, i, noComments);
+    else if (text.startsWith("//", i)) {
+      while (i < text.length && text[i] !== "\n") i++;
+    } else if (text.startsWith("/*", i)) {
+      const close = text.indexOf("*/", i + 2);
+      i = close === -1 ? text.length : close + 2;
+      noComments.push(" ");
+    } else noComments.push(text[i++]!);
   }
+  const plain = noComments.join("");
+  const out: string[] = [];
+  for (let i = 0; i < plain.length; ) {
+    if (plain[i] === '"') i = literal(plain, i, out);
+    else if (plain[i] === ",") {
+      let j = i + 1;
+      while (j < plain.length && /\s/.test(plain[j]!)) j++;
+      if (plain[j] !== "}" && plain[j] !== "]") out.push(",");
+      i++;
+    } else out.push(plain[i++]!);
+  }
+  return out.join("");
+}
+
+/** `vars.DECO_SITE` of a `wrangler.toml`: in its `[vars]` table or a top-level inline `vars = {…}`. */
+export function wranglerTomlVar(text: string, key: string): string | undefined {
+  const string = `(?:"((?:[^"\\\\]|\\\\.)*)"|'([^']*)')`;
+  let table: string | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const header = /^\s*\[\s*([^\]]+?)\s*\]\s*(?:#.*)?$/.exec(line);
+    if (header) {
+      table = header[1]!;
+      continue;
+    }
+    if (table === "vars") {
+      const match = new RegExp(`^\\s*${key}\\s*=\\s*${string}`).exec(line);
+      if (match) return match[1] ?? match[2];
+    } else if (table === null) {
+      const inline = /^\s*vars\s*=\s*\{(.*)\}/.exec(line);
+      const match = inline && new RegExp(`(?:^|,)\\s*${key}\\s*=\\s*${string}`).exec(inline[1]!);
+      if (match) return match[1] ?? match[2];
+    }
+  }
+  return undefined;
+}
+
+function siteFrom(file: string, text: string): string | undefined {
+  if (file === ".env" || file === ".dev.vars") return dotenvValue(text, "DECO_SITE");
+  if (file === "wrangler.toml") return wranglerTomlVar(text, "DECO_SITE");
   let body: unknown;
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(file === "wrangler.jsonc" ? stripJsonc(text) : text);
   } catch (error) {
-    throw new CliError(`.deco/link.json: invalid JSON: ${(error as Error).message}`);
+    throw new CliError(`${file}: invalid JSON: ${(error as Error).message}`, {
+      code: "invalid_config",
+    });
   }
-  const { org, site } = (body ?? {}) as Record<string, unknown>;
-  if (typeof org !== "string" || typeof site !== "string") {
-    throw new CliError('.deco/link.json must be {"org": "...", "site": "..."}');
+  const vars = (body as { vars?: unknown } | null)?.vars;
+  const value =
+    typeof vars === "object" && vars !== null
+      ? (vars as Record<string, unknown>).DECO_SITE
+      : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * The Studio site the remote commands talk to: `DECO_SITE` from the process
+ * environment, else from the folder's own config (`SITE_SOURCES`, in order).
+ * Studio finds the site's organization; the CLI never names one. No
+ * `DECO_SITE` anywhere is a usage error (64).
+ */
+export function resolveSite(
+  paths: DecoPaths,
+  env: Record<string, string | undefined>,
+): { site: string; from: string } {
+  let found: { site: string; from: string } | undefined;
+  const fromEnv = env.DECO_SITE?.trim();
+  if (fromEnv) found = { site: fromEnv, from: "the environment" };
+  for (const file of SITE_SOURCES) {
+    if (found) break;
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(paths.root, file), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new CliError(`${file}: ${(error as Error).message}`, { code: "invalid_config" });
+    }
+    const value = siteFrom(file, text)?.trim();
+    if (value) found = { site: value, from: file };
   }
-  return parseLinkTarget(`${org}/${site}`);
+  if (!found) {
+    throw usageError(
+      `no Studio site: set DECO_SITE in the environment, or in ${paths.root}'s .env, .dev.vars, ` +
+        "or vars.DECO_SITE of wrangler.jsonc, wrangler.json or wrangler.toml (looked in that order)",
+    );
+  }
+  if (!SITE_RE.test(found.site)) {
+    throw usageError(`DECO_SITE (from ${found.from}) isn't a site name: "${found.site}"`);
+  }
+  return found;
 }
 
 export interface PullEntry {

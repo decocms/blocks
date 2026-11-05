@@ -5,10 +5,8 @@
  * usage. Every command takes `--json`: stdout then carries exactly one JSON
  * object, and what a person reads goes to stderr.
  */
-import fs from "node:fs";
-import path from "node:path";
 import { readSchemaFile, reportCheck } from "./check/index.ts";
-import { readSavedBlocks, savedBlocksFromMap } from "./content.ts";
+import { savedBlocksFromMap } from "./content.ts";
 import { consoleReporter, type Reporter, withColor } from "./log.ts";
 import {
   diff,
@@ -25,7 +23,7 @@ import {
 } from "./remote/commands.ts";
 import type { CommandRunner, Env } from "./remote/env.ts";
 import type { Fetch } from "./remote/http.ts";
-import { checkDraftName, parseLinkTarget, requireDraftName, writeLink } from "./remote/local.ts";
+import { checkDraftName, requireDraftName } from "./remote/local.ts";
 import { CliError, decoPaths, EXIT, findDecoRoot, usageError } from "./root.ts";
 import { reportSchema, schema, writeSchema } from "./schema/index.ts";
 import { watchFiles, watchTree } from "./watch.ts";
@@ -43,8 +41,6 @@ const DRAFT = { draft: "string" } as const;
 
 const COMMANDS: Record<string, CommandSpec> = {
   login: { usage: "deco login", flags: {} },
-  init: { usage: "deco init <org>/<site>", flags: {}, positionals: 1 },
-  link: { usage: "deco link <org>/<site>", flags: {}, positionals: 1 },
   pull: {
     usage: "deco pull     [--draft=<name>] [--force]",
     flags: { ...DRAFT, force: "boolean" },
@@ -82,15 +78,13 @@ export const USAGE = `Usage: deco <command> [flags]
 
 Commands:
   login     print how to log in (the session is Studio CLI's: npx decocms auth login)
-  init      start .deco/ here and link it to a Studio site (writes .deco/link.json)
-  link      link this folder to a Studio site (writes .deco/link.json)
   pull      write production, or a draft, into .deco/blocks
   diff      show what .deco/blocks changes against what was pulled, or against a draft
   push      save the blocks changed since the pull into a draft; prints its preview link
   publish   make a draft live (prints its changes first)
   drafts    list, create, discard a draft, or print its preview link
   releases  list the published revisions, newest first, 50 a page
-  check     check that the content fits the schema (.deco/blocks, else production; a draft or a revision)
+  check     check that the content fits the schema (production; or a draft, or a revision)
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
             (--check: write nothing, fail when the file is out of date; for CI)
             schema push: upload it so Studio can draw forms (CI, on production deploys)
@@ -101,6 +95,8 @@ ${Object.values(COMMANDS)
 
 Every command finds .deco/ by walking up from the current folder, or takes --root.
 Every command takes --json (one JSON object on stdout) and --color or --no-color.
+Site: DECO_SITE, from the environment, else .env, .dev.vars, then vars.DECO_SITE in
+wrangler.jsonc, wrangler.json or wrangler.toml (in the folder that contains .deco/).
 Studio: DECO_STUDIO_URL (default https://studio.decocms.com); token: DECO_TOKEN, else
 npx decocms auth token. Exit codes: 0 ok, 1 failed, 2 conflict, 3 auth, 4 network,
 5 busy (run again), 64 usage.`;
@@ -260,10 +256,10 @@ export async function runCli(argv: string[], options: RunOptions = {}): Promise<
 }
 
 /**
- * The root of a remote command. With no `.deco/` at all there is no
- * `.deco/link.json` either, which contract §7.4 makes a usage error (64), as
- * when `.deco/` exists without it; local commands keep exit 1. The message
- * stays the documented one (cli-09).
+ * The root of a remote command. With no `.deco/` at all a remote command has
+ * no folder to work in nor to read `DECO_SITE` from, a usage error (64), as a
+ * missing `DECO_SITE` is (contract §7.4); local commands keep exit 1. The
+ * message stays the documented one (cli-09).
  */
 function remoteRoot(options: { root?: string; cwd?: string }): string {
   try {
@@ -302,21 +298,6 @@ async function runCommand(
   switch (command) {
     case "login":
       return login({ env: options.env, reporter });
-    case "init":
-    case "link": {
-      const link = parseLinkTarget(positionals[0]);
-      let paths: ReturnType<typeof decoPaths>;
-      if (command === "init") {
-        const dir = path.resolve(options.cwd ?? process.cwd(), root ?? ".");
-        paths = decoPaths(dir);
-        fs.mkdirSync(paths.deco, { recursive: true });
-      } else paths = decoPaths(findDecoRoot(base));
-      const changed = writeLink(paths, link);
-      reporter.info(
-        `${changed ? "linked" : "already linked:"} ${path.relative(options.cwd ?? process.cwd(), paths.link) || paths.link} → ${link.org}/${link.site}`,
-      );
-      return { exitCode: EXIT.ok, result: { org: link.org, site: link.site, file: paths.link } };
-    }
     case "pull": {
       const draft = stringFlag(flags, "draft");
       return pull(remote(), {
@@ -355,23 +336,10 @@ async function runCommand(
       const revision = stringFlag(flags, "revision");
       if (draft !== null && revision !== null)
         throw usageError("--draft and --revision can't be combined");
-      // No flag: the local folder when there is one (what deco pull wrote,
-      // with your edits); with none, as in CI on a fresh clone, where
-      // .deco/blocks is git-ignored, production. An absent folder never
-      // passes as an empty site.
-      if (
-        draft === null &&
-        revision === null &&
-        fs.existsSync(decoPaths(findDecoRoot(base)).blocks)
-      ) {
-        const paths = decoPaths(findDecoRoot(base));
-        const report = reportCheck(
-          readSchemaFile(paths.schema),
-          readSavedBlocks(paths.blocks),
-          reporter,
-        );
-        return checkOutcome(report);
-      }
+      // No flag: production (latest.json, then its data.json, from the
+      // CDN), always, even when .deco/blocks exists. No .deco/ at all stays
+      // exit 1 for check, as before.
+      findDecoRoot(base);
       const ctx = remote();
       const meta = readSchemaFile(ctx.paths.schema);
       const source = await remoteBlocks(ctx, {

@@ -4,7 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "./__tests__/fixture";
+import {
+  createFixture,
+  type Fixture,
+  folderAsProduction,
+  recorder,
+  STORE_FILES,
+} from "./__tests__/fixture";
 import { parseFlags, runCli, USAGE } from "./run";
 
 let fixture: Fixture;
@@ -97,7 +103,11 @@ describe("runCli", () => {
     const out = recorder();
     const args = ["--root", "apps/store"];
     expect(await runCli(["schema", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
-    expect(await runCli(["check", ...args], { cwd: fixture.root, reporter: out })).toBe(0);
+    // check reads production from the CDN: here, apps/store's own blocks.
+    const production = folderAsProduction(() => path.join(fixture.root, "apps/store"));
+    expect(
+      await runCli(["check", ...args], { cwd: fixture.root, reporter: out, ...production }),
+    ).toBe(0);
     expect(fixture.exists("apps/store/.deco/schema.gen.json")).toBe(true);
     expect(out.lines.at(-1)?.message).toBe("2 saved blocks checked: 0 errors, 0 warnings");
   }, 60_000);

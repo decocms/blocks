@@ -12,9 +12,12 @@ import { blockVersion } from "../../../protocol/canonical";
 import { blockFileName, serializeBlock } from "../../../protocol/keys";
 import { TOMBSTONE_VERSION } from "../../../protocol/storage";
 import { packBatches } from "../remote/commands";
-import { applyRequestBody } from "../remote/http";
+import { commandFor } from "../remote/env";
+import { applyRequestBody, layer } from "../remote/http";
+import { resolveSite, stripJsonc, wranglerTomlVar } from "../remote/local";
+import { decoPaths } from "../root";
 import { runCli } from "../run";
-import { type FakeStudio, ORG, SITE, startFakeStudio, TOKEN } from "./fakeStudio";
+import { type FakeStudio, SITE, startFakeStudio, TOKEN } from "./fakeStudio";
 import { createFixture, type Fixture, recorder } from "./fixture";
 
 let fixture: Fixture;
@@ -22,7 +25,7 @@ let studio: FakeStudio;
 
 beforeEach(async () => {
   studio = await startFakeStudio();
-  fixture = createFixture({ ".deco/link.json": { org: ORG, site: SITE } });
+  fixture = createFixture({ ".env": `DECO_SITE=${SITE}\n` });
 });
 afterEach(async () => {
   fixture?.remove();
@@ -64,7 +67,7 @@ function rpcCalls() {
     .map((r) => JSON.parse(r.body).params);
 }
 
-describe("deco login, init and link", () => {
+describe("deco login", () => {
   it("login prints Studio CLI's login, for the configured Studio", async () => {
     const r = await deco(["login"]);
     expect(r.code).toBe(0);
@@ -72,29 +75,79 @@ describe("deco login, init and link", () => {
     expect(studio.requests).toHaveLength(0);
   });
 
-  it("link writes .deco/link.json; init creates .deco/ too", async () => {
-    expect((await deco(["link", "other/shop"])).code).toBe(0);
-    expect(fixture.read(".deco/link.json")).toBe('{\n  "org": "other",\n  "site": "shop"\n}\n');
-    fs.mkdirSync(path.join(fixture.root, "fresh"));
-    expect((await deco(["init", "acme/fresh", "--root", "fresh"])).code).toBe(0);
-    expect(JSON.parse(fixture.read("fresh/.deco/link.json"))).toEqual({
-      org: "acme",
-      site: "fresh",
+  it("init and link are gone (the site is DECO_SITE)", async () => {
+    for (const command of ["init", "link"]) {
+      const r = await deco([command, "acme/shop"]);
+      expect(r.code).toBe(64);
+      expect(r.text).toContain(`unknown command "${command}"`);
+    }
+  });
+});
+
+describe("the site: DECO_SITE", () => {
+  const site = (env: Record<string, string | undefined> = {}) =>
+    resolveSite(decoPaths(fixture.root), env);
+
+  it("comes from the environment, then .env, .dev.vars, wrangler.jsonc, wrangler.json, wrangler.toml", () => {
+    fs.rmSync(path.join(fixture.root, ".env"));
+    fixture.write(
+      "wrangler.toml",
+      'name = "x"\n[vars]\nOTHER = "1"\nDECO_SITE = "from-toml" # the site\n[env.preview.vars]\nDECO_SITE = "no"\n',
+    );
+    expect(site()).toEqual({ site: "from-toml", from: "wrangler.toml" });
+    fixture.write("wrangler.json", { name: "x", vars: { DECO_SITE: "from-json" } });
+    expect(site().site).toBe("from-json");
+    fixture.write(
+      "wrangler.jsonc",
+      '{\n  // the worker\n  "name": "a//b", /* not a comment end: */\n  "vars": {\n    "URL": "https://x.test/*y*/",\n    "DECO_SITE": "from-jsonc", // the Studio site\n  },\n}\n',
+    );
+    expect(site().site).toBe("from-jsonc");
+    fixture.write(".dev.vars", 'DECO_SITE="from-dev-vars"\n');
+    expect(site().site).toBe("from-dev-vars");
+    fixture.write(".env", "# comment\nexport DECO_SITE=from-env-file # trailing\n");
+    expect(site()).toEqual({ site: "from-env-file", from: ".env" });
+    expect(site({ DECO_SITE: " from-process " })).toEqual({
+      site: "from-process",
+      from: "the environment",
     });
   });
 
-  it("a bad target, or no link.json for a remote command, is a usage error (64)", async () => {
-    expect((await deco(["link", "just-a-site"])).code).toBe(64);
-    expect((await deco(["link"])).code).toBe(64);
-    fs.rmSync(path.join(fixture.root, ".deco/link.json"));
+  it("an empty value falls through; none anywhere is a usage error (64) naming where it looked", async () => {
+    fixture.write(".env", "DECO_SITE=\n");
+    fixture.write("wrangler.jsonc", '{ "vars": { "DECO_SITE": "shop" } }');
+    expect(site().site).toBe("shop");
+    fs.rmSync(path.join(fixture.root, "wrangler.jsonc"));
     const r = await deco(["pull"]);
     expect(r.code).toBe(64);
-    expect(r.text).toContain("deco link <org>/<site>");
+    for (const where of [".env", ".dev.vars", "wrangler.jsonc", "wrangler.json", "wrangler.toml"])
+      expect(r.text).toContain(where);
+    expect(r.text).toContain("DECO_SITE");
+    expect((await deco(["drafts", "list"], { env: { DECO_SITE: "no/slash" } })).code).toBe(64);
     fs.rmSync(path.join(fixture.root, ".deco"), { recursive: true });
-    const none = await deco(["drafts", "list"]);
+    const none = await deco(["drafts", "list"], { env: { DECO_SITE: SITE } });
     expect(none.code).toBe(64);
     expect(none.text).toContain("run inside your app or pass --root");
     expect(studio.requests).toHaveLength(0);
+  });
+
+  it("Studio is called at /api/cms/<site>, no org; an unknown site exits 1", async () => {
+    expect((await deco(["drafts", "list"])).code).toBe(0);
+    expect(studio.requests.at(-1)!.path).toBe(`/api/cms/${SITE}/drafts`);
+    const r = await deco(["drafts", "list", "--json"], { env: { DECO_SITE: "elsewhere" } });
+    expect(r.code).toBe(1);
+    expect(r.json.error.code).toBe("site_not_found");
+  });
+
+  it("stripJsonc keeps strings and drops comments and trailing commas; toml reads [vars] or inline vars", () => {
+    expect(JSON.parse(stripJsonc('{"a":"//x", /* c */ "b":[1,2,],// d\n}'))).toEqual({
+      a: "//x",
+      b: [1, 2],
+    });
+    expect(JSON.parse(stripJsonc('{"a":"q\\"/*x*/"}'))).toEqual({ a: 'q"/*x*/' });
+    expect(wranglerTomlVar("vars = { A = 'b', DECO_SITE = 'inline' }\n", "DECO_SITE")).toBe(
+      "inline",
+    );
+    expect(wranglerTomlVar('[env.x.vars]\nDECO_SITE = "no"\n', "DECO_SITE")).toBeUndefined();
   });
 });
 
@@ -193,6 +246,23 @@ describe("deco diff", () => {
     await studio.save("pdp", { home: hero("Theirs") });
     const r = await deco(["diff", "--draft=pdp", "--json"]);
     expect(r.json.changes).toEqual([{ name: "home", status: "changed" }]);
+    expect(r.text).toContain("against draft pdp as it is now (over revision");
+  });
+
+  it("after a draft pull, diffs against the draft as it is now, and says so", async () => {
+    const revision = studio.release({ home: hero("Home") });
+    await studio.save("pdp", { home: hero("Draft") });
+    await deco(["pull", "--draft=pdp"]);
+    await studio.save("pdp", { home: hero("Theirs since") });
+    fixture.write(".deco/blocks/home.json", hero("Mine"));
+    const r = await deco(["diff", "--json"]);
+    expect(r.json.changes).toEqual([{ name: "home", status: "changed" }]);
+    expect(r.text).toContain('-   "title": "Theirs since",');
+    expect(r.text).toContain(`1 change against draft pdp as it is now (over revision ${revision})`);
+    await deco(["pull", "--force"]);
+    expect((await deco(["diff"])).text).toContain(
+      `no changes against production (revision ${revision})`,
+    );
   });
 });
 
@@ -497,13 +567,13 @@ describe("deco drafts and releases", () => {
     expect(created.code).toBe(0);
     expect(created.json.draft).toMatchObject({ name: "feature/x", created: true });
     // The name travels encoded: a / is %2F in the path.
-    expect(studio.requests.at(-1)!.path).toBe(`/api/${ORG}/cms/${SITE}/drafts`);
+    expect(studio.requests.at(-1)!.path).toBe(`/api/cms/${SITE}/drafts`);
     expect((await deco(["drafts", "new", "feature/x", "--json"])).json.draft.created).toBe(false);
     const list = await deco(["drafts", "list", "--json"]);
     expect(list.json.drafts.map((d: { name: string }) => d.name)).toEqual(["feature/x"]);
     const url = await deco(["drafts", "url", "feature/x"]);
     expect(url.text).toMatch(/^https:\/\/www\.store\.test\/\?__draft=/);
-    expect(studio.requests.at(-1)!.path).toBe(`/api/${ORG}/cms/${SITE}/drafts/feature%2Fx`);
+    expect(studio.requests.at(-1)!.path).toBe(`/api/cms/${SITE}/drafts/feature%2Fx`);
     expect((await deco(["drafts", "discard", "feature/x"])).code).toBe(0);
     expect(studio.drafts.size).toBe(0);
     expect((await deco(["drafts", "url", "feature/x"])).code).toBe(1);
@@ -592,7 +662,7 @@ describe("deco check --draft and --revision", () => {
     expect((await deco(["check", "--revision=abc"])).code).toBe(64);
   }, 60_000);
 
-  it("with no flag and no .deco/blocks (CI on a fresh clone), checks production", async () => {
+  it("with no flag, always checks production, even when .deco/blocks exists", async () => {
     fs.rmSync(path.join(fixture.root, ".deco/blocks"), { recursive: true, force: true });
     studio.release({ home: { __resolveType: "hero", title: 3, size: "md" } });
     const failed = await deco(["check", "--json"]);
@@ -603,11 +673,50 @@ describe("deco check --draft and --revision", () => {
     expect(ok.code).toBe(0);
     expect(ok.json).toMatchObject({ ok: true, blocks: 1, errors: 0 });
     expect(fs.existsSync(path.join(fixture.root, ".deco/blocks"))).toBe(false);
-    // A folder that deco pull wrote is checked as it is, edits included.
+    // A local folder, edits included, isn't what deco check reads.
     await deco(["pull"]);
     fixture.write(".deco/blocks/home.json", { __resolveType: "hero", title: 4, size: "md" });
-    expect((await deco(["check"])).code).toBe(1);
+    const prod = await deco(["check"]);
+    expect(prod.code).toBe(0);
+    expect(prod.text).toContain("checking production (revision");
   }, 60_000);
+});
+
+describe("the token command on Windows", () => {
+  it("runs npx.cmd through a shell, every argument quoted; elsewhere npx as is", () => {
+    const args = ["decocms", "auth", "token", "--target=https://studio.test/a b"];
+    expect(commandFor("npx", args, "linux")).toEqual({ file: "npx", args, shell: false });
+    expect(commandFor("npx", args, "win32")).toEqual({
+      file: "npx.cmd",
+      args: ['"decocms"', '"auth"', '"token"', '"--target=https://studio.test/a b"'],
+      shell: true,
+    });
+    expect(commandFor("npx", ['a"b', "c\\"], "win32").args).toEqual(['"a\\"b"', '"c\\\\"']);
+  });
+});
+
+describe("draft layering is spelling-aware, as Studio's", () => {
+  it("a set name replaces every spelling of it; a delete hides every spelling", () => {
+    const production = {
+      "pages%2Fhome": hero("old spelling"),
+      "pages/home": hero("Home"),
+      "pages%2Fold": hero("Old"),
+      keep: hero("K"),
+    };
+    const out = layer(production, { set: { "pages/home": hero("Draft") }, delete: ["pages/old"] });
+    expect(out).toEqual({ keep: hero("K"), "pages/home": hero("Draft") });
+    expect(Object.getPrototypeOf(out)).toBeNull();
+  });
+
+  it("deco pull --draft writes one file for a name the draft sets in another spelling", async () => {
+    studio.release({ "pages%2Fhome": hero("Home"), "pages%2Fold": hero("Old") });
+    await studio.save("pdp", { "pages/home": hero("Draft") }, ["pages/old"]);
+    expect((await deco(["pull", "--draft=pdp"])).code).toBe(0);
+    expect(fs.readdirSync(path.join(fixture.root, ".deco/blocks"))).toEqual([
+      blockFileName("pages/home"),
+    ]);
+    expect(block("pages/home")).toEqual(hero("Draft"));
+  });
 });
 
 describe("--json", () => {

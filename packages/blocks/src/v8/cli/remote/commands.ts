@@ -1,7 +1,7 @@
 /**
- * The remote content commands (spec: cli › The deco CLI): `login`, `init` /
- * `link`, `pull`, `diff`, `push`, `publish`, `drafts`, `releases`, the remote
- * sources of `check`, and `schema push`. Writes go through the Studio API;
+ * The remote content commands (spec: cli › The deco CLI): `login`, `pull`,
+ * `diff`, `push`, `publish`, `drafts`, `releases`, the remote sources of
+ * `check`, and `schema push`. The site is `DECO_SITE` (`resolveSite`). Writes go through the Studio API;
  * only public reads go straight to the CDN. Nothing here retries and nothing
  * publishes as a side effect: only `deco publish` goes live.
  */
@@ -43,15 +43,14 @@ import {
 } from "./http.ts";
 import {
   draftVersion,
-  type Link,
   type LocalChange,
   localChanges,
   mirrorBlocks,
   type PullEntry,
   type PullState,
-  readLink,
   readLocal,
   readPull,
+  resolveSite,
   writeLocalBlock,
   writePull,
 } from "./local.ts";
@@ -72,20 +71,19 @@ export interface RemoteContext {
   runCommand?: CommandRunner;
 }
 
-function services(ctx: RemoteContext): { link: Link; studio: Studio; delivery: Delivery } {
-  const link = readLink(ctx.paths);
+function services(ctx: RemoteContext): { site: string; studio: Studio; delivery: Delivery } {
+  const { site } = resolveSite(ctx.paths, ctx.env);
   let token: Promise<string> | undefined;
   const studio = new Studio({
     base: studioUrl(ctx.env),
-    org: link.org,
-    site: link.site,
+    site,
     fetch: ctx.fetch,
     token: () => {
       token ??= resolveToken(ctx.env, ctx.runCommand);
       return token;
     },
   });
-  return { link, studio, delivery: new Delivery(deliveryUrl(ctx.env), link.site, ctx.fetch) };
+  return { site, studio, delivery: new Delivery(deliveryUrl(ctx.env), site, ctx.fetch) };
 }
 
 function plural(n: number, word: string): string {
@@ -97,7 +95,7 @@ function at(seconds: number | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// login, init, link
+// login
 // ---------------------------------------------------------------------------
 
 export function login(ctx: { env: Env; reporter: Reporter }): Outcome {
@@ -144,6 +142,16 @@ function describeSource(source: { draft: string | null; revision: string | null 
   return source.draft === null
     ? `production (${revision})`
     : `draft ${source.draft} (over ${revision})`;
+}
+
+/**
+ * What `deco diff` compared against. A draft is read as it is now (pull.json
+ * keeps only hashes), which can differ from what was pulled: the label says so.
+ */
+function describeDiffSource(source: { draft: string | null; revision: string | null }): string {
+  if (source.draft === null) return describeSource(source);
+  const revision = source.revision ? `revision ${source.revision}` : "no release yet";
+  return `draft ${source.draft} as it is now (over ${revision})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,8 +275,8 @@ export async function diff(
   }
   ctx.reporter.info(
     rows.length === 0
-      ? `no changes against ${describeSource(source)}`
-      : `${plural(rows.length, "change")} against ${describeSource(source)}`,
+      ? `no changes against ${describeDiffSource(source)}`
+      : `${plural(rows.length, "change")} against ${describeDiffSource(source)}`,
   );
   return ok({ draft: source.draft, revision: source.revision, changes: rows });
 }
