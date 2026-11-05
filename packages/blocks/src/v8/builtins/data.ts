@@ -22,9 +22,8 @@ export const page = <P>(props: P): P => props;
  */
 export const redirect = (props: Redirect): Redirect => props;
 
-/** The type of the site's one redirects block, and its canonical saved name. */
+/** The type of the site's one redirects block (canonically saved as `Redirects`). */
 export const REDIRECTS_TYPE = "redirects";
-export const REDIRECTS_BLOCK = "Redirects";
 
 /**
  * `redirects`: the site's whole list of rules, one block (routing needs every
