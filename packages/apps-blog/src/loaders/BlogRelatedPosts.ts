@@ -1,6 +1,7 @@
 import handlePosts, { slicePosts } from "../core/handlePosts";
 import { getRecordsByPath } from "../core/records";
 import type { BlogPost, SortBy } from "../types";
+import { isDraftPreview } from "../utils/draftPreview";
 
 const COLLECTION_PATH = "collections/blog/posts";
 const ACCESSOR = "post";
@@ -57,7 +58,15 @@ export default async function BlogRelatedPostsLoader(
 
   const posts = getRecordsByPath<BlogPost>(COLLECTION_PATH, ACCESSOR);
 
-  const handledPosts = await handlePosts(posts, pageSort, slug, undefined, term, excludePostSlug);
+  const handledPosts = await handlePosts(
+    posts,
+    pageSort,
+    slug,
+    undefined,
+    term,
+    excludePostSlug,
+    isDraftPreview(url),
+  );
 
   if (!handledPosts) return null;
 

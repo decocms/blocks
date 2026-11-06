@@ -5,7 +5,8 @@
  * `filterRoutablePosts`, and the fact that the gate runs *before* pagination so
  * `count` yields `count` renderable posts. Also covers the counterpart on the
  * detail loaders: a non-live post still renders (it is the CMS preview) but is
- * marked `noIndexing`.
+ * marked `noIndexing`. And the `?draft=true` preview, which lifts the gate on
+ * the listing loaders.
  *
  * Deliberately not covered here: the strict-parsing edge cases of
  * `scheduledTime` (see `date.test.ts`) and anything requiring a records
@@ -23,7 +24,9 @@ import handlePosts, { filterRoutablePosts } from "../core/handlePosts";
 import { getRecordsByPath } from "../core/records";
 import BlogPostItem from "../loaders/BlogPostItem";
 import BlogPostPageLoader from "../loaders/BlogPostPage";
+import BlogpostList from "../loaders/BlogpostList";
 import BlogpostListing from "../loaders/BlogpostListing";
+import BlogRelatedPostsLoader from "../loaders/BlogRelatedPosts";
 import type { BlogPost, PostStatus } from "../types";
 import { isLivePost, isPublishedStatus } from "../types";
 
@@ -142,6 +145,87 @@ describe("listing pagination applies the gate before slicing", () => {
   it("returns null when every record is gated out", async () => {
     mockGetRecords.mockReturnValue([post({ slug: "d", status: "draft" })]);
     expect(await BlogpostListing({})).toBeNull();
+  });
+});
+
+describe("?draft=true previews every post in listings", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const mixed = [
+    post({ slug: "live-1", date: "2024-05-01" }),
+    post({ slug: "draft-1", date: "2024-04-01", status: "draft" }),
+    post({
+      slug: "future-1",
+      date: "2024-03-01",
+      status: "scheduled",
+      scheduledDatetime: iso(HOUR),
+    }),
+    post({ slug: "archived-1", date: "2024-02-01", status: "archived" }),
+  ];
+  const all = ["live-1", "draft-1", "future-1", "archived-1"];
+  const preview = (query = "draft=true") => new Request(`http://localhost/blog?${query}`);
+
+  it("filterRoutablePosts keeps non-live posts but still drops slugless ones", () => {
+    const posts = [...mixed, post({ slug: "", status: "draft" })];
+    expect(filterRoutablePosts(posts, true).map((p) => p.slug)).toEqual(all);
+  });
+
+  it("handlePosts includes drafts only when asked", async () => {
+    const live = await handlePosts(mixed, "date_desc");
+    expect(live?.map((p) => p.slug)).toEqual(["live-1"]);
+    const drafts = await handlePosts(
+      mixed,
+      "date_desc",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(drafts?.map((p) => p.slug)).toEqual(all);
+  });
+
+  it("BlogpostListing lists every post, unindexed, and pages keep the flag", async () => {
+    mockGetRecords.mockReturnValue(mixed);
+    const result = await BlogpostListing({ count: 2 }, preview());
+    expect(result?.posts.map((p) => p.slug)).toEqual(["live-1", "draft-1"]);
+    expect(result?.pageInfo.records).toBe(4);
+    expect(result?.pageInfo.nextPage).toContain("draft=true");
+    expect(result?.seo.noIndexing).toBe(true);
+  });
+
+  it("BlogpostListing without the flag stays live-only and indexable", async () => {
+    mockGetRecords.mockReturnValue(mixed);
+    const result = await BlogpostListing({}, new Request("http://localhost/blog"));
+    expect(result?.posts.map((p) => p.slug)).toEqual(["live-1"]);
+    expect(result?.seo).not.toHaveProperty("noIndexing");
+  });
+
+  it("only the literal `true` turns the preview on", async () => {
+    mockGetRecords.mockReturnValue(mixed);
+    for (const query of ["draft=1", "draft=false", "draft=", "draft", "__draft=true"]) {
+      const result = await BlogpostListing({}, preview(query));
+      expect(result?.posts.map((p) => p.slug)).toEqual(["live-1"]);
+    }
+  });
+
+  it("reads the flag from __pageUrl when there is no request", async () => {
+    mockGetRecords.mockReturnValue(mixed);
+    const result = await BlogpostListing({ __pageUrl: "http://localhost/blog?draft=true" });
+    expect(result?.posts.map((p) => p.slug)).toEqual(all);
+  });
+
+  it("BlogpostList includes drafts", async () => {
+    mockGetRecords.mockReturnValue(mixed);
+    expect((await BlogpostList({}, preview()))?.map((p) => p.slug)).toEqual(all);
+  });
+
+  it("BlogRelatedPosts includes drafts", async () => {
+    mockGetRecords.mockReturnValue(mixed);
+    const result = await BlogRelatedPostsLoader({ excludePostSlug: "live-1" }, preview());
+    expect(result?.map((p) => p.slug)).toEqual(["draft-1", "future-1", "archived-1"]);
   });
 });
 
