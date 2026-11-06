@@ -153,6 +153,63 @@ describe("redirects", () => {
     ]);
   });
 
+  it("folds what v7's loadRedirects read: 301 as permanent, trimmed routes, the std list type", () => {
+    site(
+      {
+        "a-std.json": {
+          __resolveType: "deco-sites/std/loaders/x/redirects.ts",
+          redirects: [{ from: " /std ", to: " /std-new ", type: "301" }],
+        },
+        // v7 read `redirects ?? redirect` whatever the type: a per-rule block holding a list.
+        "b-rule.json": {
+          __resolveType: "website/loaders/redirect.ts",
+          redirects: [{ from: "/one", to: "/two" }],
+        },
+      },
+      false,
+    );
+    const report = createReport();
+    foldRedirects(root, report);
+    expect(read("Redirects.json")).toEqual({
+      __resolveType: "redirects",
+      redirects: [
+        { from: "/std", to: "/std-new", permanent: true },
+        { from: "/one", to: "/two", permanent: false },
+      ],
+    });
+    expect(blockFiles()).toEqual(["Redirects.json"]);
+    expect(report.manual).toEqual([]);
+  });
+
+  it("reports every v7 CSV redirects loader, saved or inline: v8 reads no CSV", () => {
+    const csv = {
+      __resolveType: "website/loaders/redirectsFromCsv.ts",
+      from: "static/redirects.csv",
+      forcePermanentRedirects: true,
+    };
+    const siteBlock = {
+      __resolveType: "site/apps/site.ts",
+      routes: [{ __resolveType: "website/loaders/redirectsFromCsv.ts", from: "static/more.csv" }],
+    };
+    site({ "Csv.json": csv, "Site.json": siteBlock }, false);
+    const report = createReport();
+    foldRedirects(root, report);
+    // Nothing is folded or deleted: the rules live in the CSV files.
+    expect(blockFiles()).toEqual(["Csv.json", "Site.json"]);
+    expect(read("Csv.json")).toEqual(csv);
+    expect(report.done).toEqual([]);
+    expect(report.manual.map((n) => [n.subject, n.message])).toEqual([
+      [
+        ".deco/blocks/Csv.json",
+        expect.stringContaining("static/redirects.csv), which v8 doesn't read"),
+      ],
+      [
+        ".deco/blocks/Site.json",
+        expect.stringContaining("static/more.csv), which v8 doesn't read"),
+      ],
+    ]);
+  });
+
   it("does nothing on a site with no v7 redirect block", () => {
     site({ "Home.json": { __resolveType: "website/pages/Page.tsx", path: "/" } }, false);
     const report = createReport();

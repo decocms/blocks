@@ -6,18 +6,24 @@
  * - a per-rule `website/loaders/redirect.ts` block,
  *   `{ redirect: { from, to, type?, discardQueryParameters? } }`;
  * - a list `website/loaders/redirects.ts` block,
- *   `{ redirects: [{ from, to, type?, discardQueryParameters? }] }`.
+ *   `{ redirects: [{ from, to, type?, discardQueryParameters? }] }`;
+ * - a list `deco-sites/std/loaders/x/redirects.ts` block, the same shape.
  *
- * Each rule becomes `{ from, to, permanent }` (v7's `type: "permanent"` is
- * `permanent: true`, a 301; anything else, `temporary` or none, is
- * `permanent: false`), with `discardQueryParameters` kept. Rules are deduped
+ * These are the saved block types v7 routed (`loadRedirects` in 7.x's
+ * `sdk/redirects.ts`), which reads `redirects` or `redirect` from any of
+ * them. Each rule becomes `{ from, to, permanent }` (v7's `type:
+ * "permanent"` or `"301"` is `permanent: true`, a 301; anything else,
+ * `temporary` or none, is `permanent: false`), `from` and `to` trimmed as v7
+ * read them, with `discardQueryParameters` kept. Rules are deduped
  * by `from`: an existing `Redirects` block's rules come first, then the v7
  * blocks in code-unit name order, each in its own order, and the first rule
  * for a route wins; a later one that sends it somewhere else is reported.
  * The v7 blocks are deleted once folded; a second run changes nothing.
  *
  * A v7 redirect written inline in another block (not a saved block of its
- * own) is reported, not folded: where it sits decided whether v7 routed it.
+ * own) is reported, not folded: v7 routed only saved blocks. So is every
+ * `website/loaders/redirectsFromCsv.ts` loader, saved or inline: v7 read its
+ * CSV at build time and v8 reads none, so its rows go into `Redirects` by hand.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +37,11 @@ export const REDIRECTS_TYPE = "redirects";
 export const V7_REDIRECT_TYPE = "website/loaders/redirect.ts";
 /** v7's list-of-rules redirect block type. */
 export const V7_REDIRECTS_TYPE = "website/loaders/redirects.ts";
-const V7_TYPES = new Set([V7_REDIRECT_TYPE, V7_REDIRECTS_TYPE]);
+/** The std app's list-of-rules redirect block type, which v7 routed too. */
+export const V7_STD_REDIRECTS_TYPE = "deco-sites/std/loaders/x/redirects.ts";
+const V7_TYPES = new Set([V7_REDIRECT_TYPE, V7_REDIRECTS_TYPE, V7_STD_REDIRECTS_TYPE]);
+/** v7's CSV redirects loader: its rules live in a CSV file, not in content. */
+export const V7_CSV_REDIRECTS_TYPE = "website/loaders/redirectsFromCsv.ts";
 const ROUTING_DOC = "/next/routing#redirects";
 
 /** A v8 rule, as the `redirects` built-in stores it. */
@@ -47,19 +57,23 @@ function fromV7(rule: unknown): Rule | null {
   if (!isPlainObject(rule)) return null;
   // A list rule saved in the per-rule shape, `{ redirect: { … } }`, reads the same.
   const flat = isPlainObject(rule.redirect) ? rule.redirect : rule;
-  const { from, to, type, discardQueryParameters } = flat;
-  if (typeof from !== "string" || from === "" || typeof to !== "string" || to === "") return null;
-  const out: Rule = { from, to, permanent: type === "permanent" };
+  const { type, discardQueryParameters } = flat;
+  // Trimmed, as v7 read them; v7's `isPermanent` takes "301" too.
+  const from = typeof flat.from === "string" ? flat.from.trim() : "";
+  const to = typeof flat.to === "string" ? flat.to.trim() : "";
+  if (from === "" || to === "") return null;
+  const out: Rule = { from, to, permanent: type === "permanent" || type === "301" };
   if (typeof discardQueryParameters === "boolean") {
     out.discardQueryParameters = discardQueryParameters;
   }
   return out;
 }
 
-/** The v7 rules a saved v7 redirect block holds, in order. */
+/** The v7 rules a saved v7 redirect block holds, in order: `redirects ?? redirect`, as v7 read them. */
 function v7Rules(block: JsonObject): unknown[] {
-  if (block.__resolveType === V7_REDIRECT_TYPE) return [block.redirect];
-  return Array.isArray(block.redirects) ? block.redirects : [];
+  const entries = block.redirects ?? block.redirect;
+  if (entries === undefined || entries === null) return [];
+  return Array.isArray(entries) ? entries : [entries];
 }
 
 /** Where a rule sends its route: what makes two rules for one `from` the same rule. */
@@ -78,6 +92,21 @@ export function foldRedirects(root: string, report: Report): void {
   const sources = Object.keys(blocks)
     .filter((name) => V7_TYPES.has(blocks[name]!.__resolveType as string))
     .sort(byCodeUnit);
+
+  // v7 CSV redirects, saved or inline: v8 reads no CSV, so they're reported.
+  for (const [name, block] of Object.entries(blocks)) {
+    const csvs: string[] = [];
+    forEachBlock(block, (node) => {
+      if (node.__resolveType !== V7_CSV_REDIRECTS_TYPE) return;
+      csvs.push(typeof node.from === "string" && node.from !== "" ? node.from : "(no from)");
+    });
+    if (csvs.length === 0) continue;
+    report.manual.push({
+      step: "content",
+      subject: subject(name),
+      message: `holds a v7 CSV redirects loader (${V7_CSV_REDIRECTS_TYPE}: ${csvs.join(", ")}), which v8 doesn't read: add each CSV row to the "${REDIRECTS_BLOCK}" block (type "${REDIRECTS_TYPE}"; a row typed permanent or 301, or one with no type under forcePermanentRedirects, is permanent: true) and remove the loader (${ROUTING_DOC})`,
+    });
+  }
 
   // v7 redirects inline in another block: reported, never folded.
   for (const [name, block] of Object.entries(blocks)) {
