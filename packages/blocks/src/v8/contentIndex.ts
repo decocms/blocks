@@ -80,10 +80,18 @@ const PAGE = "page";
 
 export { REDIRECTS_TYPE };
 
+/**
+ * v7's per-rule redirect type. Blocks saved under this name (by the v7 site
+ * editor, or carried over by the migration) are routed, as `client.list("redirect")`
+ * routed them before the redirects block; a block typed `redirect` is not.
+ */
+export const LEGACY_REDIRECT_TYPE = "website/loaders/redirect.ts";
+
 interface Derived {
   names: string[];
   routes: Route[];
   redirects: string | null;
+  legacyRedirects: string[];
 }
 
 const derived = new WeakMap<IndexedContent, Derived>();
@@ -95,14 +103,16 @@ function derive(content: IndexedContent): Derived {
   const names = Object.keys(content.blocks).sort(byCodeUnit);
   const routes: Route[] = [];
   let redirects: string | null = null;
+  const legacyRedirects: string[] = [];
   for (const name of names) {
     const meta = content.blocks[name]?.meta;
     if (meta?.type === undefined) continue;
+    if (meta.type === LEGACY_REDIRECT_TYPE) legacyRedirects.push(name);
     const type = canonicalType(content, meta.type);
     if (type === PAGE && typeof meta.path === "string") routes.push({ name, path: meta.path });
     else if (type === REDIRECTS_TYPE && redirects === null) redirects = name;
   }
-  found = { names, routes, redirects };
+  found = { names, routes, redirects, legacyRedirects };
   derived.set(content, found);
   return found;
 }
@@ -125,6 +135,14 @@ export function routesOf(content: IndexedContent): Route[] {
 /** The redirects block: the first `redirects`-typed entry in code-unit name order, or `null`. */
 export function redirectsBlockOf(content: IndexedContent): string | null {
   return derive(content).redirects;
+}
+
+/**
+ * v7's per-rule redirect blocks (saved as `website/loaders/redirect.ts`), in
+ * code-unit name order: routed after the redirects block's rules.
+ */
+export function legacyRedirectBlocksOf(content: IndexedContent): readonly string[] {
+  return derive(content).legacyRedirects;
 }
 
 /** Names of entries whose type maps to `type`, in code-unit order. */

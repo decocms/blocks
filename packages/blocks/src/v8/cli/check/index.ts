@@ -56,6 +56,8 @@ type Json = any;
 const DOC_ID = "deco";
 /** The per-rule redirect type: it resolves, but routing reads only the redirects block. */
 const REDIRECT_TYPE = "redirect";
+/** v7's per-rule redirect type: routed (after the redirects block's rules), so no warning. */
+const LEGACY_REDIRECT_TYPE = "website/loaders/redirect.ts";
 /** The v7 name of the redirects type: it resolves and is routed, but Studio edits only `redirects`. */
 const LEGACY_REDIRECTS_TYPE = "website/loaders/redirects.ts";
 
@@ -935,7 +937,8 @@ class Checker {
 
   /**
    * Routing reads its redirects from one block: the first `redirects`-typed
-   * one in code-unit name order (see /next/routing). A per-rule `redirect`
+   * one in code-unit name order (see /next/routing), plus v7's per-rule
+   * blocks saved as `website/loaders/redirect.ts`. A per-rule `redirect`
    * block still resolves but is never routed, and a second `redirects`
    * block is ignored: both are warnings. So is a redirects block saved under
    * the legacy type name: routed, but Studio edits only `redirects`.
@@ -962,6 +965,8 @@ class Checker {
         });
       }
       if (type === REDIRECT_TYPE) {
+        // v7's per-rule blocks are routed, as they were before the redirects block.
+        if (entry.__resolveType === LEGACY_REDIRECT_TYPE) continue;
         problems.push({
           file,
           path: "",

@@ -110,6 +110,67 @@ describe("routes()", () => {
   });
 });
 
+describe("redirects()", () => {
+  const v7Rule = (from: string) => ({
+    __resolveType: "website/loaders/redirect.ts",
+    redirect: { from, to: "/", type: "permanent" },
+  });
+
+  it("routes v7's per-rule blocks (website/loaders/redirect.ts) after the redirects block's rules", async () => {
+    const api = cdn();
+    await api.publish({ ...site(), "v7-b": v7Rule("/v7-b"), "v7-a": v7Rule("/v7-a") });
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const [redirects, error] = await cms.forRelease().redirects();
+    expect(error).toBeNull();
+    expect(redirects).toEqual([
+      { from: "/old", to: "/", permanent: true },
+      { redirect: { from: "/legacy", to: "/", type: "temporary" } },
+      v7Rule("/v7-a"),
+      v7Rule("/v7-b"),
+    ]);
+    expect(matchRoute("/v7-a", { routes: [], redirects: redirects ?? [] })).toMatchObject({
+      kind: "redirect",
+      location: "/",
+      status: 301,
+    });
+  });
+
+  it('routes v7\'s per-rule blocks without a redirects block, as client.list("redirect") did', async () => {
+    const api = cdn();
+    const { Redirects: _, ...rest } = site();
+    await api.publish({ ...rest, Old: v7Rule("/v7") });
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const c = cms.forRelease();
+    const [redirects] = await c.redirects();
+    const [listed] = await c.list("redirect");
+    expect(redirects).toEqual(listed);
+    expect(redirects).toEqual([v7Rule("/v7")]);
+  });
+
+  it("doesn't route a block typed redirect: only the redirects block and v7's per-rule blocks", async () => {
+    const api = cdn();
+    await api.publish({
+      ...site(),
+      Flat: { __resolveType: "redirect", from: "/flat", to: "/", permanent: true },
+    });
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const [redirects] = await cms.forRelease().redirects();
+    expect(redirects).toEqual([
+      { from: "/old", to: "/", permanent: true },
+      { redirect: { from: "/legacy", to: "/", type: "temporary" } },
+    ]);
+  });
+
+  it("routes v7's per-rule blocks from local content too", async () => {
+    const cms = createCMS({
+      blocks: blocks(),
+      content: { revision: "r1", blocks: { Old: v7Rule("/v7") } } as never,
+    });
+    const [redirects] = await cms.forRelease().redirects();
+    expect(redirects).toEqual([v7Rule("/v7")]);
+  });
+});
+
 describe("one wave per request", () => {
   it("prefetch + redirects + resolve: the redirects block and the page's walk, nothing else", async () => {
     const api = cdn();
