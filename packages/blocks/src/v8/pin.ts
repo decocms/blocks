@@ -16,7 +16,6 @@ import {
   entryOf,
   hasEntry,
   type IndexedContent,
-  legacyRedirectBlocksOf,
   redirectsBlockOf,
   walk,
 } from "./contentIndex.ts";
@@ -124,17 +123,11 @@ export class Pin {
   }
 }
 
-/**
- * The walk a request starts from: its page (when known) plus the redirects
- * block and v7's per-rule redirect blocks.
- */
+/** The walk a request starts from: its page (when known) plus the redirects block. */
 export function rootsOf(content: IndexedContent, name: string | undefined): string[] {
   const roots = name !== undefined ? [name] : [];
   const redirects = redirectsBlockOf(content);
   if (redirects !== null && redirects !== name) roots.push(redirects);
-  for (const legacy of legacyRedirectBlocksOf(content)) {
-    if (legacy !== name) roots.push(legacy);
-  }
   return roots;
 }
 

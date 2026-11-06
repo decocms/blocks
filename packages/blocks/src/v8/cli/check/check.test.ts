@@ -414,6 +414,7 @@ describe("routes", () => {
     ).toEqual([
       'B.json from: "/old" is also the from of "A"',
       "A.json warning not routed; move it into the redirects block",
+      "B.json warning not routed; move it into the redirects block",
     ]);
   });
 });
@@ -1249,27 +1250,16 @@ describe("the redirects block (one block holds every rule)", () => {
       lines(
         run({
           Old: { __resolveType: "redirect", ...rule },
-          Other: { __resolveType: "redirect", from: "/other", to: "/new", permanent: false },
-        }),
-      ),
-    ).toEqual([
-      "Old.json warning not routed; move it into the redirects block",
-      "Other.json warning not routed; move it into the redirects block",
-    ]);
-  });
-
-  it("doesn't warn about v7's per-rule redirect blocks: they are routed, as before", () => {
-    expect(
-      lines(
-        run({
           Legacy: {
             __resolveType: "website/loaders/redirect.ts",
             redirect: { from: "/legacy", to: "/new", type: "permanent" },
           },
-          Redirects: { __resolveType: "redirects", redirects: [rule] },
         }),
       ),
-    ).toEqual([]);
+    ).toEqual([
+      "Legacy.json warning not routed; move it into the redirects block",
+      "Old.json warning not routed; move it into the redirects block",
+    ]);
   });
 
   it("warns about a second redirects block: only the first, in code-unit name order, is routed", () => {

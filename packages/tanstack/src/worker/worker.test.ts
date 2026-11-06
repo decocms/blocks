@@ -794,33 +794,6 @@ describe("CMS redirects, routes and assets", () => {
     expect(entry.served).toHaveLength(0);
   });
 
-  it("a v7 per-rule redirect block (website/loaders/redirect.ts) is served, as before the redirects block", async () => {
-    const content = snapshot();
-    const { Redirects: _, ...blocks } = content.blocks as Record<string, unknown>;
-    const { get } = setup({
-      cms: testCMS({
-        ...content,
-        blocks: {
-          ...blocks,
-          OldShoes: {
-            __resolveType: "website/loaders/redirect.ts",
-            redirect: { from: "/old-shoes", to: "/shoes", type: "permanent" },
-          },
-          Sale: {
-            __resolveType: "website/loaders/redirect.ts",
-            redirect: { from: "/sale", to: "/shoes", type: "temporary" },
-          },
-        },
-      } as never),
-    });
-    const permanent = await get("/old-shoes?color=red");
-    expect(permanent.status).toBe(301);
-    expect(permanent.headers.get("location")).toBe("/shoes?color=red");
-    const temporary = await get("/sale");
-    expect(temporary.status).toBe(307);
-    expect(temporary.headers.get("location")).toBe("/shoes");
-  });
-
   it("routes answer first; null falls through to the app", async () => {
     const { get, entry } = setup({
       routes: (request) =>

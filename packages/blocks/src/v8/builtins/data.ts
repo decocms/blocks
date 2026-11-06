@@ -17,9 +17,8 @@ export const page = <P>(props: P): P => props;
 
 /**
  * `redirect`: returns its arguments as saved. Still a built-in, so a v7 rule
- * block resolves. A block saved under v7's name, `website/loaders/redirect.ts`,
- * is routed as before (`client.redirects()` adds its rule after the redirects
- * block's); one typed `redirect` is not (`deco check` warns on it).
+ * block resolves, but no longer routed: `client.redirects()` reads only the
+ * redirects block (`deco check` warns on every `redirect` block).
  */
 export const redirect = (props: Redirect): Redirect => props;
 

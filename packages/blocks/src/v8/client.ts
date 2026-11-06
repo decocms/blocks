@@ -12,7 +12,6 @@
 import { keepAlive } from "./background.ts";
 import {
   canonicalType,
-  legacyRedirectBlocksOf,
   namesOfType,
   REDIRECTS_TYPE,
   redirectsBlockOf,
@@ -131,22 +130,11 @@ export class CMSClient implements Client {
     if ("error" in pinned) return this.#fail(pinned.error);
     const { pin, resolver } = pinned;
     const name = redirectsBlockOf(pin.content);
-    // v7's per-rule blocks (`website/loaders/redirect.ts`), routed as before
-    // the redirects block: each one's saved value, after the block's rules.
-    const legacy = legacyRedirectBlocksOf(pin.content);
-    if (name === null && legacy.length === 0) return [[], null];
+    if (name === null) return [[], null];
     try {
-      await pin.wave(walk(pin.content, name === null ? legacy : [name, ...legacy]));
-      const rules = name === null ? [] : rulesOf(await resolver.resolveEntry(name));
-      const perRule = await Promise.all(
-        legacy.map((entry) =>
-          resolver.expandEntry(entry).catch((error) => {
-            throw atEntry(entry, error);
-          }),
-        ),
-      );
-      for (const rule of perRule) if (isPlainObject(rule)) rules.push(rule as unknown as Redirect);
-      return [rules, null];
+      await pin.wave(walk(pin.content, [name]));
+      const value = await resolver.resolveEntry(name);
+      return [rulesOf(value), null];
     } catch (error) {
       return this.#fail(asCMSError(error));
     }
