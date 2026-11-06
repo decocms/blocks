@@ -1,10 +1,10 @@
 /**
  * Forced variants (see /next/releases-and-drafts#preview-a-variant): the
- * variants a draft pointer's `__variant` parameters name, applied to a
- * snapshot for one preview. Each addressed multivariate keeps only the forced
- * variant, with the rule `true`, so it shows that variant's value and no other
- * rule runs. The snapshot is copied along the addressed paths only; the shared
- * one is never touched.
+ * variants a draft pointer's `__variant` parameters name, applied to each body
+ * a preview request reads (see ./pin.ts). Each addressed multivariate keeps
+ * only the forced variant, with the rule `true`, so it shows that variant's
+ * value and no other rule runs. A body is copied along the addressed paths
+ * only; the shared one is never touched.
  *
  * An address that doesn't reach a multivariate block with that variant (a
  * renamed block, a moved section, an index past the end) is ignored, so a
@@ -12,25 +12,7 @@
  */
 import { LEGACY_ALIASES } from "./builtins/legacy.ts";
 import { isPlainObject, own } from "./json.ts";
-import type { ForcedVariant, Snapshot } from "./types.ts";
-
-export function forceVariants(
-  snapshot: Snapshot,
-  variants: readonly ForcedVariant[] | undefined,
-): Snapshot {
-  if (variants === undefined || variants.length === 0) return snapshot;
-  let blocks: Record<string, unknown> | undefined;
-  for (const { block, path, index } of variants) {
-    const entry = own(blocks ?? snapshot.blocks, block);
-    if (entry === undefined) continue;
-    const keys = path === "" ? [] : path.split(".");
-    const next = forceAt(entry, keys, index, snapshot.aliases);
-    if (next === entry) continue;
-    blocks ??= { ...snapshot.blocks };
-    blocks[block] = next;
-  }
-  return blocks === undefined ? snapshot : { ...snapshot, blocks };
-}
+import type { ForcedVariant } from "./types.ts";
 
 /**
  * One saved block's body with the variants forced on it (those whose `block`

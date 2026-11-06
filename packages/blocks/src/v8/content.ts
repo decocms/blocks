@@ -30,9 +30,6 @@ import { isPlainObject } from "./json.ts";
 import type { Selection } from "./pin.ts";
 import type { DraftPointer, Loader, Snapshot } from "./types.ts";
 
-export { BoundedMap } from "./boundedMap.ts";
-export { previewHostsOf, type ReleasePreviewHosts } from "./hostedSource.ts";
-
 export function isLoader(content: unknown): content is Loader {
   return (
     (typeof content === "object" || typeof content === "function") &&
