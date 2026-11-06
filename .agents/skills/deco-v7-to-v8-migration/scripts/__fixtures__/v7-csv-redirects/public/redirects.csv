@@ -1,0 +1,14 @@
+from,to,type
+# moved in 2024
+/old,/new,permanent
+
+/tmp-old,/tmp-new,temporary
+/numeric,/n,301
+/untyped,/u
+/keep-query,/kq,true
+/x,permanent,/y
+/semi;/semi-new;permanent
+https://store.example.com/absolute?map=c,/abs,permanent
+/dup,/from-csv,permanent
+/tmp-old,/elsewhere,temporary
+/lonely

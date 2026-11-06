@@ -1,0 +1,11 @@
+{
+  "__resolveType": "website/loaders/redirectsFromCsv.ts",
+  "from": "static/redirects.csv",
+  "redirects": [
+    {
+      "from": "/from-the-loader",
+      "to": "/kept",
+      "type": "permanent"
+    }
+  ]
+}

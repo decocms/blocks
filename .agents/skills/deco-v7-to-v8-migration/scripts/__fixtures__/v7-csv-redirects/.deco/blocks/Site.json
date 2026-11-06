@@ -1,0 +1,13 @@
+{
+  "__resolveType": "site/apps/site.ts",
+  "routes": [
+    {
+      "__resolveType": "website/loaders/pages.ts"
+    },
+    {
+      "__resolveType": "website/loaders/redirectsFromCsv.ts",
+      "from": "/campaigns/black-friday.csv",
+      "forcePermanentRedirects": true
+    }
+  ]
+}
