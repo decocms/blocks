@@ -91,16 +91,16 @@ export const DEFAULT_ORIGIN = "https://analytics.decocdn.com";
 /**
  * On unless "false", and independent of `ONEDOLLAR_ENABLED` so both can run at once.
  */
-const DECO_ANALYTICS_ENABLED = process.env.DECO_ANALYTICS_ENABLED !== "false";
-const DECO_ANALYTICS_FIRST_PARTY = process.env.DECO_ANALYTICS_FIRST_PARTY === "true";
-const DECO_ANALYTICS_ORIGIN = process.env.DECO_ANALYTICS_ORIGIN;
-const DECO_ANALYTICS_SITE_KEY = process.env.DECO_ANALYTICS_SITE_KEY;
-
 function Stats({ origin, siteKey, defer, dev, debug }: Props) {
-	if (!DECO_ANALYTICS_ENABLED) return null;
+	// Read at render, not at import: the `@decocms/blocks/hooks` barrel reaches client bundles, and
+	// `process` does not exist in a browser unless the bundler provides it.
+	if (process.env.DECO_ANALYTICS_ENABLED === "false") return null;
 
-	const base = origin ?? DECO_ANALYTICS_ORIGIN ?? (DECO_ANALYTICS_FIRST_PARTY ? "" : DEFAULT_ORIGIN);
-	const key = siteKey ?? DECO_ANALYTICS_SITE_KEY;
+	const base =
+		origin ??
+		process.env.DECO_ANALYTICS_ORIGIN ??
+		(process.env.DECO_ANALYTICS_FIRST_PARTY === "true" ? "" : DEFAULT_ORIGIN);
+	const key = siteKey ?? process.env.DECO_ANALYTICS_SITE_KEY;
 	if (base === DEFAULT_ORIGIN && !key) return null;
 
 	return (
