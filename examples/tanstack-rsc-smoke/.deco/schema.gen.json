@@ -86,10 +86,6 @@
         "website/loaders/redirect.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0LnRz",
           "namespace": "website"
-        },
-        "website/loaders/redirects.ts": {
-          "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0cy50cw==",
-          "namespace": "website"
         }
       },
       "content": {
@@ -1270,65 +1266,6 @@
           }
         }
       },
-      "d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0cy50cw==": {
-        "title": "website/loaders/redirects.ts",
-        "description": "The site's redirects: every rule in one block (the saved block Redirects)",
-        "type": "object",
-        "required": [
-          "__resolveType"
-        ],
-        "properties": {
-          "__resolveType": {
-            "type": "string",
-            "enum": [
-              "website/loaders/redirects.ts"
-            ],
-            "default": "website/loaders/redirects.ts"
-          },
-          "redirects": {
-            "type": "array",
-            "title": "Redirects",
-            "items": {
-              "type": "object",
-              "required": [
-                "from",
-                "to",
-                "permanent"
-              ],
-              "properties": {
-                "from": {
-                  "type": "string",
-                  "title": "From"
-                },
-                "to": {
-                  "type": "string",
-                  "title": "To"
-                },
-                "permanent": {
-                  "type": "boolean",
-                  "title": "Permanent",
-                  "description": "301 when true, 302 otherwise"
-                },
-                "status": {
-                  "type": "number",
-                  "enum": [
-                    301,
-                    302,
-                    307,
-                    308
-                  ],
-                  "title": "Status"
-                },
-                "discardQueryParameters": {
-                  "type": "boolean",
-                  "title": "Discard query parameters"
-                }
-              },
-              "title": "Redirect"
-            }
-          }
-        }
-      },
       "__SECTION_REF__": {
         "title": "Section",
         "anyOf": [
@@ -1447,7 +1384,6 @@
     "website/flags/multivariate/section.ts": "multivariate",
     "website/matchers/always.ts": "always",
     "website/matchers/never.ts": "never",
-    "website/loaders/redirect.ts": "redirect",
-    "website/loaders/redirects.ts": "redirects"
+    "website/loaders/redirect.ts": "redirect"
   }
 }

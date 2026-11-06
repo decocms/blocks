@@ -1992,9 +1992,10 @@ export default { page, multivariate } satisfies Blocks;
       "website/matchers/always.ts": "always",
       "website/matchers/never.ts": "never",
       "website/loaders/redirect.ts": "redirect",
-      "website/loaders/redirects.ts": "redirects",
     };
     expect(meta.aliases).toEqual(documented);
+    // v8 routes only a block typed redirects: v7's list type is folded in by the migration.
+    expect(meta.aliases).not.toHaveProperty("website/loaders/redirects.ts");
     const keys = Object.values(groups()).flatMap((g: any) => Object.keys(g));
     for (const alias of Object.keys(documented)) expect(keys).toContain(alias);
   });

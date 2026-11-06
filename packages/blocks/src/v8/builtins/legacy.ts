@@ -8,7 +8,10 @@
  * both, so a site can still register a legacy name itself.
  *
  * - Redirects keep v7's nested shape: `redirect` returns its arguments as
- *   saved, `redirects` its list of rules, and `matchRoute` accepts both shapes.
+ *   saved, and `matchRoute` accepts both shapes. v7's `website/loaders/redirects.ts`
+ *   has no alias: v8 routes only a block typed `redirects`, so the v7-to-v8
+ *   migration folds every v7 redirect block into `Redirects` and `deco check`
+ *   warns about one left over.
  * - `website/loaders/secret.ts` has no alias: secrets live in the deploy
  *   platform, read by the site's code and passed as params (see
  *   /next/renames-and-migrations#secrets), so a leftover v7 secret block
@@ -36,7 +39,6 @@ export const LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   "website/matchers/always.ts": "always",
   "website/matchers/never.ts": "never",
   "website/loaders/redirect.ts": "redirect",
-  "website/loaders/redirects.ts": "redirects",
 });
 
 /**

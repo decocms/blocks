@@ -414,7 +414,7 @@ describe("routes", () => {
     ).toEqual([
       'B.json from: "/old" is also the from of "A"',
       "A.json warning not routed; move it into the redirects block",
-      "B.json warning not routed; move it into the redirects block",
+      'B.json warning v7 redirect block (type website/loaders/redirect.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
     ]);
   });
 });
@@ -1221,31 +1221,34 @@ describe("the redirects block (one block holds every rule)", () => {
     ).toEqual([]);
   });
 
-  it("warns about a redirects block under the legacy type: routed, but Studio edits only redirects", () => {
+  it("warns about a v7 website/loaders/redirects.ts block: not routed on v8, fold it into Redirects", () => {
     const problems = run({
-      Redirects: { __resolveType: "website/loaders/redirects.ts", redirects: [rule] },
+      Redirects: {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+      },
     });
+    // A warning only: the type has no alias, but that's not reported as an unknown type.
     expect(lines(problems)).toEqual([
-      'Redirects.json warning redirects block "Redirects" uses the legacy type website/loaders/redirects.ts: Studio edits only "redirects"; change its __resolveType to "redirects"',
+      'Redirects.json warning v7 redirect block (type website/loaders/redirects.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
     ]);
     expect(problems.every((p) => p.severity === "warning")).toBe(true);
   });
 
-  it("counts a legacy-typed redirects block as routed: a later one is the ignored second", () => {
+  it("a v7 redirects block isn't the routed one: a redirects-typed block after it is", () => {
     expect(
       lines(
         run({
-          A: { __resolveType: "website/loaders/redirects.ts", redirects: [rule] },
-          Redirects: { __resolveType: "redirects", redirects: [] },
+          A: { __resolveType: "website/loaders/redirects.ts", redirects: [] },
+          Redirects: { __resolveType: "redirects", redirects: [rule] },
         }),
       ),
     ).toEqual([
-      'A.json warning redirects block "A" uses the legacy type website/loaders/redirects.ts: Studio edits only "redirects"; change its __resolveType to "redirects"',
-      'Redirects.json warning another redirects block, "A", is the one routed; this one is ignored. Move its rules there',
+      'A.json warning v7 redirect block (type website/loaders/redirects.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
     ]);
   });
 
-  it("warns about every redirect block: it resolves, but isn't routed", () => {
+  it("warns about every per-rule redirect block: it resolves, but isn't routed", () => {
     expect(
       lines(
         run({
@@ -1257,7 +1260,7 @@ describe("the redirects block (one block holds every rule)", () => {
         }),
       ),
     ).toEqual([
-      "Legacy.json warning not routed; move it into the redirects block",
+      'Legacy.json warning v7 redirect block (type website/loaders/redirect.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
       "Old.json warning not routed; move it into the redirects block",
     ]);
   });

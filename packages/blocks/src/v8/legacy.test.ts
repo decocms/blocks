@@ -44,7 +44,6 @@ describe("the built-in legacy alias table", () => {
       "website/matchers/always.ts": "always",
       "website/matchers/never.ts": "never",
       "website/loaders/redirect.ts": "redirect",
-      "website/loaders/redirects.ts": "redirects",
     });
     for (const target of Object.values(LEGACY_ALIASES)) expect(builtIns).toHaveProperty(target);
   });

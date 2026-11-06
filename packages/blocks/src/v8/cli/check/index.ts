@@ -56,8 +56,18 @@ type Json = any;
 const DOC_ID = "deco";
 /** The per-rule redirect type: it resolves, but routing reads only the redirects block. */
 const REDIRECT_TYPE = "redirect";
-/** The v7 name of the redirects type: it resolves and is routed, but Studio edits only `redirects`. */
-const LEGACY_REDIRECTS_TYPE = "website/loaders/redirects.ts";
+/**
+ * v7's redirect block types, per-rule and list: v8 routes neither (only a
+ * block typed `redirects`), so their rules belong in the Redirects block.
+ * `website/loaders/redirect.ts` still resolves (an alias of `redirect`);
+ * `website/loaders/redirects.ts` has no alias.
+ */
+const V7_REDIRECT_TYPES: ReadonlySet<string> = new Set([
+  "website/loaders/redirect.ts",
+  "website/loaders/redirects.ts",
+]);
+/** The block routing reads its redirects from, canonically. */
+const REDIRECTS_BLOCK = "Redirects";
 
 /** JSON-parsed objects only, so any non-array object is a plain one. */
 function isObject(value: unknown): value is Record<string, Json> {
@@ -925,6 +935,11 @@ class Checker {
         this.report(ctx, "preview", PREVIEW_FIELD_GONE, "warning");
         continue;
       }
+      // A v7 redirect block left over: redirectBlockProblems says to fold it into
+      // Redirects. With no alias its type is unknown here, which isn't an error.
+      if (V7_REDIRECT_TYPES.has(entry.__resolveType) && !this.canonicalType(entry.__resolveType)) {
+        continue;
+      }
       this.checkBlock(ctx, entry, "", null);
     }
     problems.push(...this.builtInOverrides());
@@ -937,8 +952,8 @@ class Checker {
    * Routing reads its redirects from one block: the first `redirects`-typed
    * one in code-unit name order (see /next/routing). A per-rule `redirect`
    * block still resolves but is never routed, and a second `redirects`
-   * block is ignored: both are warnings. So is a redirects block saved under
-   * the legacy type name: routed, but Studio edits only `redirects`.
+   * block is ignored: both are warnings. So is a block under one of v7's
+   * redirect types, which v8 doesn't route: its rules belong in Redirects.
    */
   private redirectBlockProblems(): Problem[] {
     const problems: Problem[] = [];
@@ -947,20 +962,21 @@ class Checker {
     for (const name of names) {
       const entry = this.saved.blocks[name];
       if (!isBlock(entry)) continue;
-      const { type } = this.underlyingType(entry.__resolveType);
-      if (type !== REDIRECT_TYPE && type !== REDIRECTS_TYPE) continue;
       const file = `.deco/blocks/${this.saved.files[name]}`;
-      if (type === REDIRECTS_TYPE && entry.__resolveType === LEGACY_REDIRECTS_TYPE) {
-        // Routed all the same, but Studio's redirects screen reads only the short type.
+      if (V7_REDIRECT_TYPES.has(entry.__resolveType)) {
         problems.push({
           file,
           path: "",
           severity: "warning",
           message:
-            `redirects block "${name}" uses the legacy type ${LEGACY_REDIRECTS_TYPE}: ` +
-            `Studio edits only "${REDIRECTS_TYPE}"; change its __resolveType to "${REDIRECTS_TYPE}"`,
+            `v7 redirect block (type ${entry.__resolveType}) isn't routed: v8 routes only a block ` +
+            `typed "${REDIRECTS_TYPE}". Fold its rules into the "${REDIRECTS_BLOCK}" block ` +
+            `(type "${REDIRECTS_TYPE}"; v7's type permanent is permanent: true) and delete it`,
         });
+        continue;
       }
+      const { type } = this.underlyingType(entry.__resolveType);
+      if (type !== REDIRECT_TYPE && type !== REDIRECTS_TYPE) continue;
       if (type === REDIRECT_TYPE) {
         problems.push({
           file,
