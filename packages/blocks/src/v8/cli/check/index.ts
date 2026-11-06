@@ -56,6 +56,8 @@ type Json = any;
 const DOC_ID = "deco";
 /** The per-rule redirect type: it resolves, but routing reads only the redirects block. */
 const REDIRECT_TYPE = "redirect";
+/** The v7 name of the redirects type: it resolves and is routed, but Studio edits only `redirects`. */
+const LEGACY_REDIRECTS_TYPE = "website/loaders/redirects.ts";
 
 /** JSON-parsed objects only, so any non-array object is a plain one. */
 function isObject(value: unknown): value is Record<string, Json> {
@@ -935,7 +937,8 @@ class Checker {
    * Routing reads its redirects from one block: the first `redirects`-typed
    * one in code-unit name order (see /next/routing). A per-rule `redirect`
    * block still resolves but is never routed, and a second `redirects`
-   * block is ignored: both are warnings.
+   * block is ignored: both are warnings. So is a redirects block saved under
+   * the legacy type name: routed, but Studio edits only `redirects`.
    */
   private redirectBlockProblems(): Problem[] {
     const problems: Problem[] = [];
@@ -947,6 +950,17 @@ class Checker {
       const { type } = this.underlyingType(entry.__resolveType);
       if (type !== REDIRECT_TYPE && type !== REDIRECTS_TYPE) continue;
       const file = `.deco/blocks/${this.saved.files[name]}`;
+      if (type === REDIRECTS_TYPE && entry.__resolveType === LEGACY_REDIRECTS_TYPE) {
+        // Routed all the same, but Studio's redirects screen reads only the short type.
+        problems.push({
+          file,
+          path: "",
+          severity: "warning",
+          message:
+            `redirects block "${name}" uses the legacy type ${LEGACY_REDIRECTS_TYPE}: ` +
+            `Studio edits only "${REDIRECTS_TYPE}"; change its __resolveType to "${REDIRECTS_TYPE}"`,
+        });
+      }
       if (type === REDIRECT_TYPE) {
         problems.push({
           file,

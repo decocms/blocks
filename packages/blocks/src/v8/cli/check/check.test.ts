@@ -1208,7 +1208,7 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
 describe("the redirects block (one block holds every rule)", () => {
   const rule = { from: "/old", to: "/new", permanent: true };
 
-  it("passes one redirects block, in either rule shape, and its legacy alias", () => {
+  it("passes one redirects block, in either rule shape", () => {
     expect(
       lines(
         run({
@@ -1219,11 +1219,30 @@ describe("the redirects block (one block holds every rule)", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  it("warns about a redirects block under the legacy type: routed, but Studio edits only redirects", () => {
+    const problems = run({
+      Redirects: { __resolveType: "website/loaders/redirects.ts", redirects: [rule] },
+    });
+    expect(lines(problems)).toEqual([
+      'Redirects.json warning redirects block "Redirects" uses the legacy type website/loaders/redirects.ts: Studio edits only "redirects"; change its __resolveType to "redirects"',
+    ]);
+    expect(problems.every((p) => p.severity === "warning")).toBe(true);
+  });
+
+  it("counts a legacy-typed redirects block as routed: a later one is the ignored second", () => {
     expect(
       lines(
-        run({ Redirects: { __resolveType: "website/loaders/redirects.ts", redirects: [rule] } }),
+        run({
+          A: { __resolveType: "website/loaders/redirects.ts", redirects: [rule] },
+          Redirects: { __resolveType: "redirects", redirects: [] },
+        }),
       ),
-    ).toEqual([]);
+    ).toEqual([
+      'A.json warning redirects block "A" uses the legacy type website/loaders/redirects.ts: Studio edits only "redirects"; change its __resolveType to "redirects"',
+      'Redirects.json warning another redirects block, "A", is the one routed; this one is ignored. Move its rules there',
+    ]);
   });
 
   it("warns about every redirect block: it resolves, but isn't routed", () => {
