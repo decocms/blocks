@@ -9,7 +9,9 @@ import { clearRedirectCache, lookupExactRedirect } from "./kvRedirects";
 
 /** Minimal KV binding that records every read. */
 function makeKV(values: Record<string, string> = {}) {
-  const get = vi.fn((key: string) => Promise.resolve(values[key] ?? null));
+  const get = vi.fn((key: string, _options?: { cacheTtl?: number }) =>
+    Promise.resolve(values[key] ?? null),
+  );
   return { get, put: vi.fn(), delete: vi.fn() };
 }
 
@@ -40,7 +42,9 @@ describe("lookupExactRedirect", () => {
     await expect(lookupExactRedirect(enabled(kv), "/old", "POST")).resolves.toBeNull();
     await expect(lookupExactRedirect(enabled(kv), "/old", "PUT")).resolves.toBeNull();
     expect(kv.get).not.toHaveBeenCalled();
-    await expect(lookupExactRedirect(enabled(kv), "/old", "HEAD")).resolves.toMatchObject({ to: "/new" });
+    await expect(lookupExactRedirect(enabled(kv), "/old", "HEAD")).resolves.toMatchObject({
+      to: "/new",
+    });
     expect(kv.get).toHaveBeenCalledTimes(1);
   });
 
@@ -109,6 +113,56 @@ describe("lookupExactRedirect", () => {
       to: "/new",
       status: 302,
     });
+  });
+});
+
+describe("lookupExactRedirect — KV cacheTtl", () => {
+  it("reads with KV's own default when no cacheTtl is given", async () => {
+    const kv = makeKV();
+    await lookupExactRedirect(enabled(kv), "/old");
+    expect(kv.get.mock.calls).toEqual([[`redirect:${ID}:/old`]]);
+  });
+
+  it("passes the cacheTtl to KV for a miss as for a hit", async () => {
+    // The miss is the common case: KV caches it in the location too, which is
+    // what makes the next isolate's read of the same path a hot one.
+    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' });
+    await expect(
+      lookupExactRedirect(enabled(kv), "/old", "GET", { cacheTtl: 3600 }),
+    ).resolves.toMatchObject({ to: "/new" });
+    await expect(
+      lookupExactRedirect(enabled(kv), "/nope", "GET", { cacheTtl: 3600 }),
+    ).resolves.toBeNull();
+    expect(kv.get.mock.calls).toEqual([
+      [`redirect:${ID}:/old`, { cacheTtl: 3600 }],
+      [`redirect:${ID}:/nope`, { cacheTtl: 3600 }],
+    ]);
+  });
+
+  it("only ever sends KV a cacheTtl it accepts: an integer of at least 30", async () => {
+    // KV rejects anything else, and a rejected read is "no redirect" — a bad
+    // value would silently turn every KV rule off.
+    const kv = makeKV();
+    const asked = [10, 90.7, 0, -5, Number.NaN, Number.POSITIVE_INFINITY];
+    for (const [i, cacheTtl] of asked.entries()) {
+      await lookupExactRedirect(enabled(kv), `/p${i}`, "GET", { cacheTtl });
+    }
+    expect(kv.get.mock.calls.map((call) => call[1])).toEqual([
+      { cacheTtl: 30 },
+      { cacheTtl: 90 },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("does not read KV for a POST, whatever the cacheTtl", async () => {
+    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' });
+    await expect(
+      lookupExactRedirect(enabled(kv), "/old", "POST", { cacheTtl: 3600 }),
+    ).resolves.toBeNull();
+    expect(kv.get).not.toHaveBeenCalled();
   });
 });
 

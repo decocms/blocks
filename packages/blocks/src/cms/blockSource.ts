@@ -101,7 +101,9 @@ export class BundledBlockSource implements BlockSource {
  * are modeled.
  */
 export interface KVNamespace {
-  get(key: string, options?: { type?: "text" }): Promise<string | null>;
+  /** `cacheTtl`: seconds the result (a miss too) stays cached in the Cloudflare
+   * location that read it — an integer, minimum 30; KV's default is 60. */
+  get(key: string, options?: { type?: "text"; cacheTtl?: number }): Promise<string | null>;
   put(
     key: string,
     value: string,

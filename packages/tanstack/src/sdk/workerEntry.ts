@@ -657,21 +657,64 @@ export interface DecoWorkerEntryOptions {
   outboundUserAgent?: string | false;
 
   /**
-   * How CMS redirects (`website/loaders/redirect(s).ts`, `redirectsFromCsv`)
-   * match and answer — see `@decocms/blocks/sdk/redirects`.
-   *
-   * - `"legacy"` (default): case- and trailing-slash-insensitive match,
-   *   temporary → 302, the request's query dropped from `Location`. What every
-   *   `@decocms/*` site has answered so far.
-   * - `"fresh"`: what the Fresh site a migration came from answered — source
-   *   matched byte for byte (`pathname + search` first), temporary → 307, the
-   *   request's query appended to `Location` unless `discardQueryParameters`.
-   *
-   * Both drop self-redirects and never double-encode `Location`.
+   * CMS redirects (`website/loaders/redirect(s).ts`, `redirectsFromCsv`): how
+   * they match and answer, and which requests check them.
    *
    * @default { semantics: "legacy" }
    */
-  redirects?: { semantics?: RedirectSemantics };
+  redirects?: {
+    /**
+     * How the rules match and answer — see `@decocms/blocks/sdk/redirects`.
+     *
+     * - `"legacy"` (default): case- and trailing-slash-insensitive match,
+     *   temporary → 302, the request's query dropped from `Location`. What every
+     *   `@decocms/*` site has answered so far.
+     * - `"fresh"`: what the Fresh site a migration came from answered — source
+     *   matched byte for byte (`pathname + search` first), temporary → 307, the
+     *   request's query appended to `Location` unless `discardQueryParameters`.
+     *
+     * Both drop self-redirects and never double-encode `Location`.
+     */
+    semantics?: RedirectSemantics;
+
+    /**
+     * Requests that are never a CMS redirect source — typically the paths
+     * `proxyHandler` forwards to the commerce platform. Return `true` and the
+     * worker does not check CMS redirects for that request at all: no KV read
+     * on a fast-deploy site (a cart path is new on every request, so each one
+     * paid a cold read before reaching the proxy), and no in-memory rule
+     * either, so the answer for those paths does not depend on the deploy mode.
+     *
+     * Runs on nearly every request, ahead of `?asJson`, the proxy and the page:
+     * keep it a cheap, synchronous test of the URL. Unset, every request is
+     * checked. Match whole path segments: a bare `/login` prefix also matches
+     * a page such as `/loginpedido.aspx`, whose CMS redirect would then never
+     * answer.
+     *
+     * @example
+     * ```ts
+     * // What proxyHandler forwards to the commerce platform.
+     * const PROXIED = /^\/(?:api|files|arquivos|_v)\/|^\/(?:checkout|account|login)(?:\/|$)/;
+     *
+     * createDecoWorkerEntry(serverEntry, {
+     *   redirects: { skip: (url) => PROXIED.test(url.pathname) },
+     * });
+     * ```
+     */
+    skip?: (url: URL, request: Request) => boolean;
+
+    /**
+     * Fast-deploy only: seconds a `redirect:<id>:<path>` read — a miss too —
+     * stays cached in the Cloudflare location that made it (KV's `cacheTtl`; an
+     * integer, at least 30). Unset: KV's default, 60s.
+     *
+     * The key is per CODE deployment: a content-only fast deploy rewrites it in
+     * place under the live id. So a redirect edit can take up to this long (plus
+     * the isolate's 60s memo) to show where that path was read recently. Raise
+     * it only if that delay is acceptable, or if every publish is a code deploy.
+     */
+    kvCacheTtl?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,6 +1349,8 @@ export function createDecoWorkerEntry(
   // Before the first request builds the redirect map — the map keys its rules
   // for the semantics in force when it is built.
   setRedirectSemantics(redirectsOpt?.semantics ?? "legacy");
+  const skipCmsRedirects = redirectsOpt?.skip;
+  const redirectKvLookup = { cacheTtl: redirectsOpt?.kvCacheTtl };
 
   // Speculation Rules — store the site-wide config in the shared singleton so
   // DecoRootLayout (SSR) emits the tag in <head>. Inert unless the site opts in.
@@ -2475,35 +2520,44 @@ export function createDecoWorkerEntry(
     }
 
     // CMS redirects (website/loaders/redirect.ts blocks) — checked before
-    // ?asJson and commerce proxy so every request path respects redirects.
-    // Revision-keyed so cross-bundle setBlocks() calls are detected even when
-    // onChange listeners don't fire across Vite split-bundle module instances.
-    // The semantics are part of the key: a map keys its rules for the
-    // semantics in force when it is built.
-    const currentRevision = `${getRevision()}:${getRedirectSemantics()}`;
-    if (_redirectMapRevision !== currentRevision) {
-      _redirectMap = loadRedirects(loadBlocks());
-      _redirectMapRevision = currentRevision;
-    }
-    // Exact before glob, across BOTH sources. On a fast-deploy site the exact
-    // rules live under their own `redirect:<id>:<path>` KV keys and are absent
-    // from the decofile, so the in-memory exact hit is the non-fast-deploy
-    // case. Going straight to `matchRedirect` and only then to KV would let a
-    // glob win over an exact rule, inverting the precedence.
-    // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
-    // stays one read, keyed by pathname.
-    // That precedence holds for navigations (GET/HEAD) only: other methods
-    // skip the KV read (see `lookupExactRedirect`), so for a POST a glob can
-    // answer where a KV-only exact rule would have.
-    const cmsRedirect =
-      matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
-      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname, request.method)) ??
-      matchPatternRedirect(url.pathname, _redirectMap!);
-    if (cmsRedirect) {
-      return new Response(null, {
-        status: cmsRedirect.status,
-        headers: { Location: redirectLocation(cmsRedirect, url.search) },
-      });
+    // ?asJson and commerce proxy so every request path respects redirects,
+    // except requests the site's `redirects.skip` marks as never a redirect
+    // source (typically its proxied paths).
+    if (!skipCmsRedirects?.(url, request)) {
+      // Revision-keyed so cross-bundle setBlocks() calls are detected even when
+      // onChange listeners don't fire across Vite split-bundle module instances.
+      // The semantics are part of the key: a map keys its rules for the
+      // semantics in force when it is built.
+      const currentRevision = `${getRevision()}:${getRedirectSemantics()}`;
+      if (_redirectMapRevision !== currentRevision) {
+        _redirectMap = loadRedirects(loadBlocks());
+        _redirectMapRevision = currentRevision;
+      }
+      // Exact before glob, across BOTH sources. On a fast-deploy site the exact
+      // rules live under their own `redirect:<id>:<path>` KV keys and are absent
+      // from the decofile, so the in-memory exact hit is the non-fast-deploy
+      // case. Going straight to `matchRedirect` and only then to KV would let a
+      // glob win over an exact rule, inverting the precedence.
+      // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
+      // stays one read, keyed by pathname.
+      // That precedence holds for navigations (GET/HEAD) only: other methods
+      // skip the KV read (see `lookupExactRedirect`), so for a POST a glob can
+      // answer where a KV-only exact rule would have.
+      const cmsRedirect =
+        matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
+        (await lookupExactRedirect(
+          env as Record<string, unknown>,
+          url.pathname,
+          request.method,
+          redirectKvLookup,
+        )) ??
+        matchPatternRedirect(url.pathname, _redirectMap!);
+      if (cmsRedirect) {
+        return new Response(null, {
+          status: cmsRedirect.status,
+          headers: { Location: redirectLocation(cmsRedirect, url.search) },
+        });
+      }
     }
 
     // ?renderJson — structured JSON of the page for the mobile app. Lean shape
