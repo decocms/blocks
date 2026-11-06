@@ -85,6 +85,17 @@ Three consequences worth knowing:
   ever has to be near-zero, the fix is a `index:redirects-revision:<id>` key
   polled alongside — not a shorter TTL, which just multiplies KV reads.
 
+Which requests read KV:
+
+- **Only GET/HEAD.** Other methods still see the in-memory rules, but never pay
+  the KV read — a cart POST through the commerce proxy has a new path per cart,
+  so its read was always cold, and it sat in front of the proxy.
+- **`redirects.skip(url, request)`** (`createDecoWorkerEntry`): the site names
+  the requests that are never a redirect source, typically what its
+  `proxyHandler` forwards (`/api/`, `/checkout`, `/files/`…). Those skip the CMS
+  redirect check entirely — KV and in-memory rules alike — so the answer for
+  them doesn't depend on the deploy mode. Unset: every request is checked.
+
 Add/update/remove is reconciled against a prefix `LIST` rather than a manifest
 key: KV has no "replace everything under this prefix", and a manifest is one
 more thing that can drift from reality. Pruning a deployment in
