@@ -17,7 +17,7 @@
  * types (and of the CSV type), and 7.x's build (`buildCsvRedirectBlocks`)
  * read every CSV loader, saved or nested anywhere, from the site's `public/`
  * (`static/x.csv`, `public/x.csv`, `/x.csv` or `x.csv` all name
- * `public/x.csv`). A CSV is parsed as 7.x's `parseRedirectsCsv` did: one rule
+ * `public/x.csv`, and `../x.csv` the site's `x.csv`). A CSV is parsed as 7.x's `parseRedirectsCsv` did: one rule
  * a line, `from,to` then `type` (`permanent`, `301` or `temporary`) and
  * `discardQueryParameters` (`true` or `false`) recognized by value in any
  * later column; fields split on `,` (and on `;` outside quotes); blank lines,
@@ -40,8 +40,9 @@
  *
  * A v7 redirect written inline in another block (not a saved block of its
  * own) is reported, not folded: v7 routed only saved blocks. A CSV loader
- * whose file 7.x couldn't read (a URL, a path outside `public/`, a missing
- * file) is left as it is and reported: 7.x routed none of its rows.
+ * whose file 7.x couldn't read (a URL, a path outside the site, a missing
+ * file) is left as it is and reported: 7.x routed none of its rows (a saved
+ * one's own `redirects`, which 7.x routed, are named in the report).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -159,21 +160,24 @@ function parseRedirectsCsv(
   return { rows, skipped };
 }
 
-/** A CSV loader's file, as 7.x resolved it under `public/`, or why 7.x couldn't read it. */
+/**
+ * A CSV loader's file, as 7.x resolved it (`path.resolve(public, from)` once
+ * a leading `static/`, `public/` or `/` is dropped, so `../x.csv` is the
+ * site's `x.csv`), or why 7.x couldn't read it.
+ */
 function csvFile(root: string, from: unknown): { file: string } | { problem: string } {
   if (typeof from !== "string" || from.trim() === "") return { problem: "it names no file" };
   const written = from.trim();
   if (/^[a-z][a-z\d+.-]*:/i.test(written)) {
-    return { problem: `${written} is a URL, which 7.x never fetched (it read only public/)` };
+    return { problem: `${written} is a URL, which 7.x never fetched (it read only files)` };
   }
-  const publicDir = path.join(root, "public");
-  const relative = written.replace(/^\/?(?:static|public)\//i, "").replace(/^\/+/, "");
-  const full = path.resolve(publicDir, relative);
-  const inside = path.relative(publicDir, full);
+  const relative = written.replace(/^\/?(?:static|public)\//i, "").replace(/^\//, "");
+  const full = path.resolve(root, "public", relative);
+  const inside = path.relative(root, full);
   if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside)) {
-    return { problem: `${written} is outside public/, where 7.x read it` };
+    return { problem: `${written} names ${full}, outside the site` };
   }
-  const file = `public/${inside.split(path.sep).join("/")}`;
+  const file = inside.split(path.sep).join("/");
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
     return { problem: `${file} (from ${written}) doesn't exist` };
   }
@@ -235,10 +239,16 @@ export function foldRedirects(root: string, report: Report): void {
   }
   for (const loader of loaders) {
     if (loader.problem === undefined) continue;
+    // 7.x routed a saved loader's own `redirects` even when its file was missing.
+    const own = loader.saved ? v7Rules(loader.node).length : 0;
+    const routed =
+      own > 0
+        ? `, and the ${own === 1 ? "rule" : `${own} rules`} in its own "redirects", which 7.x routed`
+        : "";
     report.manual.push({
       step: "content",
       subject: subject(loader.block),
-      message: `holds a v7 CSV redirects loader (${V7_CSV_REDIRECTS_TYPE}) whose file wasn't read: ${loader.problem}. 7.x routed none of its rows; if the site needs them, add each row to the "${REDIRECTS_BLOCK}" block (type "${REDIRECTS_TYPE}"; a row typed permanent or 301, or one with no type under forcePermanentRedirects, is permanent: true), then remove the loader (${ROUTING_DOC})`,
+      message: `holds a v7 CSV redirects loader (${V7_CSV_REDIRECTS_TYPE}) whose file wasn't read: ${loader.problem}. 7.x routed none of its rows; if the site needs them, add each row to the "${REDIRECTS_BLOCK}" block (type "${REDIRECTS_TYPE}"; a row typed permanent or 301, or one with no type under forcePermanentRedirects, is permanent: true)${routed}, then remove the loader (${ROUTING_DOC})`,
     });
   }
   const readable = loaders.filter((loader) => loader.file !== undefined);

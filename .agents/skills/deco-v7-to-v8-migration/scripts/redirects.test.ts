@@ -322,7 +322,7 @@ describe("redirects", () => {
     });
     const siteBlock = {
       __resolveType: "site/apps/site.ts",
-      routes: [loader("https://cdn.example.com/redirects.csv"), loader("../secrets.csv")],
+      routes: [loader("https://cdn.example.com/redirects.csv"), loader("../../outside.csv")],
     };
     site({ "Missing.json": loader("static/missing.csv"), "Site.json": siteBlock }, false);
     const report = createReport();
@@ -345,7 +345,52 @@ describe("redirects", () => {
           "https://cdn.example.com/redirects.csv is a URL, which 7.x never fetched",
         ),
       ],
-      [".deco/blocks/Site.json", expect.stringContaining("../secrets.csv is outside public/")],
+      [
+        ".deco/blocks/Site.json",
+        expect.stringMatching(/^holds .*: \.\.\/\.\.\/outside\.csv names .*, outside the site\./),
+      ],
+    ]);
+  });
+
+  it("reads a CSV outside public/ but in the site, as 7.x resolved it", () => {
+    site(
+      {
+        "Csv.json": {
+          __resolveType: "website/loaders/redirectsFromCsv.ts",
+          from: "../data/redirects.csv",
+        },
+      },
+      false,
+    );
+    fs.mkdirSync(path.join(root, "data"));
+    fs.writeFileSync(path.join(root, "data/redirects.csv"), "/a,/b,permanent\n");
+    const report = createReport();
+    foldRedirects(root, report);
+    expect(blockFiles()).toEqual(["Redirects.json"]);
+    expect(read("Redirects.json").redirects).toEqual([{ from: "/a", to: "/b", permanent: true }]);
+    expect(report.manual.map((n) => [n.subject, n.message])).toEqual([
+      ["data/redirects.csv", expect.stringMatching(/^kept: v8 reads no CSV/)],
+    ]);
+  });
+
+  it("names the own redirects of a saved CSV loader whose file is missing: 7.x routed them", () => {
+    site(
+      {
+        "Csv.json": {
+          __resolveType: "website/loaders/redirectsFromCsv.ts",
+          from: "static/missing.csv",
+          redirects: [{ from: "/x", to: "/y", type: "permanent" }],
+        },
+      },
+      false,
+    );
+    const report = createReport();
+    foldRedirects(root, report);
+    expect(blockFiles()).toEqual(["Csv.json"]);
+    expect(report.manual.map((n) => n.message)).toEqual([
+      expect.stringContaining(
+        'is permanent: true), and the rule in its own "redirects", which 7.x routed, then remove the loader',
+      ),
     ]);
   });
 
