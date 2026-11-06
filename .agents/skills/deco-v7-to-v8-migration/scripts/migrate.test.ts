@@ -400,7 +400,7 @@ describe("migrate", () => {
     expect(matchRoute("/sale?utm=1", { routes: [], redirects: redirects ?? [] })).toMatchObject({
       kind: "redirect",
       location: "/promo",
-      status: 302,
+      status: 307,
     });
   });
 

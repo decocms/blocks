@@ -118,16 +118,19 @@ export function findRouteConflicts<T extends { path: string }>(entries: readonly
 
 /**
  * Both redirect shapes: the flat built-in `{ from, to, permanent, status?,
- * discardQueryParameters? }` and the site editor's legacy nested
- * `{ redirect: { from, to, type } }` (see /next/studio-compatibility), where
- * `permanent` is a 301 and anything else a 307.
+ * discardQueryParameters? }`, where a valid `status` wins, `permanent: true`
+ * is a 301 and a temporary redirect (`permanent` false or unset) a 307, and
+ * the site editor's legacy nested `{ redirect: { from, to, type } }` (see
+ * /next/studio-compatibility), where `permanent` is a 301 and anything else
+ * a 307. A temporary redirect is a 307, not a 302, so a client never turns a
+ * `POST` into a `GET` on the way.
  */
 function normalizeRedirect(input: unknown): NormalizedRedirect | null {
   if (typeof input !== "object" || input === null) return null;
   const nested = (input as Partial<LegacyRedirect>).redirect;
   const flat = (nested ?? input) as Partial<Redirect & LegacyRedirect["redirect"]>;
   if (typeof flat.from !== "string" || typeof flat.to !== "string") return null;
-  let status: RedirectStatus = flat.permanent === true ? 301 : 302;
+  let status: RedirectStatus = flat.permanent === true ? 301 : 307;
   if (nested) status = flat.type === "permanent" ? 301 : 307;
   else if (STATUSES.has(flat.status as number)) status = flat.status as RedirectStatus;
   const { from, to, discardQueryParameters } = flat;

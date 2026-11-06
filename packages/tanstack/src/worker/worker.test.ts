@@ -794,6 +794,13 @@ describe("CMS redirects, routes and assets", () => {
     expect(entry.served).toHaveLength(0);
   });
 
+  it("a temporary CMS redirect answers 307", async () => {
+    const { get } = setup();
+    const res = await get("/sale");
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("/promo");
+  });
+
   it("routes answer first; null falls through to the app", async () => {
     const { get, entry } = setup({
       routes: (request) =>

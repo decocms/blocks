@@ -76,7 +76,7 @@ const REDIRECT_RULE = {
     permanent: {
       type: "boolean",
       title: "Permanent",
-      description: "301 when true, 302 otherwise",
+      description: "301 when true, 307 otherwise",
     },
     status: { type: "number", enum: [301, 302, 307, 308], title: "Status" },
     discardQueryParameters: { type: "boolean", title: "Discard query parameters" },

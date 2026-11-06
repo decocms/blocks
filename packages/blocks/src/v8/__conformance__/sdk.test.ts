@@ -1023,7 +1023,7 @@ describe("AR-50..AR-52 / RT-03 / RT-07..RT-10 / RT-16 / RT-17 / RI-* matchRoute"
     expect(matchRoute("/summer", { routes, redirects })).toEqual({
       kind: "redirect",
       location: "/winter",
-      status: 302,
+      status: 307,
     });
     expect(matchRoute("/summer", { routes })).toMatchObject({ entry: { name: "Exact" } });
     expect(matchRoute("/x/p", { routes: [route("A", "/:slug/p"), route("B", "/:id/p")] })).toEqual({
@@ -1076,7 +1076,7 @@ describe("AR-50..AR-52 / RT-03 / RT-07..RT-10 / RT-16 / RT-17 / RI-* matchRoute"
         routes: [],
         redirects: [{ ...legacy, permanent: false, discardQueryParameters: true }],
       }),
-    ).toEqual({ kind: "redirect", location: "/summer/p", status: 302 });
+    ).toEqual({ kind: "redirect", location: "/summer/p", status: 307 });
   });
 
   it("RT-09 /:slug/p matches /summer/p with params.slug", () => {

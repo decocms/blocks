@@ -79,7 +79,7 @@ describe("redirects", () => {
     ]);
   });
 
-  it("keeps v7's statuses: permanent a 301, temporary (or no type) a 302, as v7 answered", () => {
+  it("answers permanent with a 301 and temporary (or no type) with v8's temporary 307", () => {
     site();
     foldRedirects(root, createReport());
     const { redirects } = read("Redirects.json");
@@ -89,9 +89,9 @@ describe("redirects", () => {
     };
     expect(status("/a")).toEqual(["/b", 301]);
     expect(status("/old-shoes?utm=1")).toEqual(["/shoes", 301]);
-    expect(status("/sale")).toEqual(["/black-friday", 302]);
-    expect(status("/blog")).toEqual(["/news", 302]);
-    expect(status("/c/shirts")).toEqual(["/category", 302]);
+    expect(status("/sale")).toEqual(["/black-friday", 307]);
+    expect(status("/blog")).toEqual(["/news", 307]);
+    expect(status("/c/shirts")).toEqual(["/category", 307]);
   });
 
   it("changes nothing on a second run", () => {

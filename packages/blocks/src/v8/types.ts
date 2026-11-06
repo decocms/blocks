@@ -113,7 +113,7 @@ export interface Redirect {
    */
   from: string;
   to: string;
-  /** `true` for a 301, `false` for a 302. */
+  /** `true` for a 301, `false` (a temporary redirect) for a 307. */
   permanent: boolean;
   /** Wins over `permanent`. */
   status?: RedirectStatus;

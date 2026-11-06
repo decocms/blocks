@@ -73,7 +73,7 @@ export class TestContext implements ExecutionContextLike {
 }
 
 /**
- * A release with a page, the redirects block (one rule), a block that varies on the `buy-button`
+ * A release with a page, the redirects block (a permanent rule and a temporary one), a block that varies on the `buy-button`
  * test and, when given, the preview hosts Studio writes into its metadata and the saved
  * `experiments` and `campaigns` blocks.
  */
@@ -89,7 +89,10 @@ export function snapshot(
     Home: { __resolveType: "page", path: "/", sections: [] },
     Redirects: {
       __resolveType: "redirects",
-      redirects: [{ from: "/old-shoes", to: "/shoes", permanent: true }],
+      redirects: [
+        { from: "/old-shoes", to: "/shoes", permanent: true },
+        { from: "/sale", to: "/promo", permanent: false },
+      ],
     },
     BuyButton: {
       __resolveType: "multivariate",
