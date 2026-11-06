@@ -16,7 +16,11 @@ export const LOOPBACK_ANCESTORS: readonly string[] = Object.freeze([
 ]);
 
 export interface StudioCspOptions {
-  /** Studio's origins; default {@link studioOrigins}() (the option, `DECO_STUDIO_ORIGIN`, production and staging). */
+  /**
+   * Studio's origins; default {@link studioOrigins}() (`DECO_STUDIO_ORIGIN`,
+   * else production and staging). Read through {@link studioOrigins} like any
+   * other value: an entry that isn't an exact http(s) origin is dropped.
+   */
   studioOrigins?: readonly string[];
   /** More origins that may frame the site, besides Studio's (a marketing tool's editor). */
   frameAncestors?: readonly string[];
@@ -51,7 +55,7 @@ export function studioFrameAncestors(options: StudioCspOptions = {}): string[] {
   return [
     ...new Set([
       ...STUDIO_FRAME_ANCESTORS,
-      ...(options.studioOrigins ?? studioOrigins()),
+      ...studioOrigins(options.studioOrigins),
       ...(options.frameAncestors ?? []),
       ...(options.dev ? LOOPBACK_ANCESTORS : []),
     ]),
@@ -72,7 +76,7 @@ export function withStudioCsp(
   directives: string | readonly string[] | undefined,
   options: StudioCspOptions = {},
 ): string[] {
-  const origins = options.studioOrigins ?? studioOrigins();
+  const origins = studioOrigins(options.studioOrigins);
   let list = cspDirectives(directives);
   if (origins.length) {
     const isScript = (d: string) => ["script-src", "script-src-elem"].includes(nameOf(d));

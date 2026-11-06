@@ -65,4 +65,24 @@ describe("withStudioCsp", () => {
       ANCESTORS,
     ]);
   });
+
+  it("drops an option entry that isn't an exact http(s) origin, so it can't widen or inject into the policy", () => {
+    expect(
+      withStudioCsp("script-src 'self'", {
+        studioOrigins: [
+          "https://*.example.com",
+          "*",
+          "'unsafe-eval'",
+          "https://a.example.com; script-src *",
+          "null",
+          "https://studio.example.com/",
+        ],
+        addFrameAncestors: false,
+      }),
+    ).toEqual(["script-src 'self' https://studio.example.com"]);
+    expect(withStudioCsp("img-src https:", { studioOrigins: ["https://*"] })).toEqual([
+      "img-src https:",
+      ANCESTORS,
+    ]);
+  });
 });
