@@ -79,8 +79,16 @@
           "$ref": "#/definitions/cmVkaXJlY3Q=",
           "namespace": "deco"
         },
+        "redirects": {
+          "$ref": "#/definitions/cmVkaXJlY3Rz",
+          "namespace": "deco"
+        },
         "website/loaders/redirect.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0LnRz",
+          "namespace": "website"
+        },
+        "website/loaders/redirects.ts": {
+          "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0cy50cw==",
           "namespace": "website"
         }
       },
@@ -603,6 +611,65 @@
           }
         }
       },
+      "cmVkaXJlY3Rz": {
+        "title": "redirects",
+        "description": "The site's redirects: every rule in one block (the saved block Redirects)",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "redirects"
+            ],
+            "default": "redirects"
+          },
+          "redirects": {
+            "type": "array",
+            "title": "Redirects",
+            "items": {
+              "type": "object",
+              "required": [
+                "from",
+                "to",
+                "permanent"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "title": "From"
+                },
+                "to": {
+                  "type": "string",
+                  "title": "To"
+                },
+                "permanent": {
+                  "type": "boolean",
+                  "title": "Permanent",
+                  "description": "301 when true, 302 otherwise"
+                },
+                "status": {
+                  "type": "number",
+                  "enum": [
+                    301,
+                    302,
+                    307,
+                    308
+                  ],
+                  "title": "Status"
+                },
+                "discardQueryParameters": {
+                  "type": "boolean",
+                  "title": "Discard query parameters"
+                }
+              },
+              "title": "Redirect"
+            }
+          }
+        }
+      },
       "Y21zLXNldHRpbmdz": {
         "title": "cms-settings",
         "description": "Telemetry and analytics: the saved block named CMS",
@@ -661,6 +728,15 @@
                 "type": "boolean",
                 "title": "Enabled",
                 "default": true
+              },
+              "decoAnalyticsKey": {
+                "type": "string",
+                "title": "Deco Analytics key"
+              },
+              "decoAnalyticsFirstParty": {
+                "type": "boolean",
+                "title": "Deco Analytics first-party",
+                "default": false
               }
             }
           }
@@ -1194,6 +1270,65 @@
           }
         }
       },
+      "d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0cy50cw==": {
+        "title": "website/loaders/redirects.ts",
+        "description": "The site's redirects: every rule in one block (the saved block Redirects)",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "website/loaders/redirects.ts"
+            ],
+            "default": "website/loaders/redirects.ts"
+          },
+          "redirects": {
+            "type": "array",
+            "title": "Redirects",
+            "items": {
+              "type": "object",
+              "required": [
+                "from",
+                "to",
+                "permanent"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "title": "From"
+                },
+                "to": {
+                  "type": "string",
+                  "title": "To"
+                },
+                "permanent": {
+                  "type": "boolean",
+                  "title": "Permanent",
+                  "description": "301 when true, 302 otherwise"
+                },
+                "status": {
+                  "type": "number",
+                  "enum": [
+                    301,
+                    302,
+                    307,
+                    308
+                  ],
+                  "title": "Status"
+                },
+                "discardQueryParameters": {
+                  "type": "boolean",
+                  "title": "Discard query parameters"
+                }
+              },
+              "title": "Redirect"
+            }
+          }
+        }
+      },
       "__SECTION_REF__": {
         "title": "Section",
         "anyOf": [
@@ -1276,6 +1411,9 @@
           },
           {
             "$ref": "#/definitions/cmVkaXJlY3Q="
+          },
+          {
+            "$ref": "#/definitions/cmVkaXJlY3Rz"
           }
         ]
       },
@@ -1309,6 +1447,7 @@
     "website/flags/multivariate/section.ts": "multivariate",
     "website/matchers/always.ts": "always",
     "website/matchers/never.ts": "never",
-    "website/loaders/redirect.ts": "redirect"
+    "website/loaders/redirect.ts": "redirect",
+    "website/loaders/redirects.ts": "redirects"
   }
 }
