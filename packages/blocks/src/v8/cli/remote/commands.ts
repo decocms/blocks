@@ -470,9 +470,11 @@ export async function push(
     if (pulled) writePull(ctx.paths, state);
   }
   // (a) The names changed locally since the pull; deletes only with --prune.
-  const changes = (await localChanges(saved, state)).filter(
-    (change) => change.block !== undefined || options.prune,
-  );
+  const local = await localChanges(saved, state);
+  const changes = local.filter((change) => change.block !== undefined || options.prune);
+  const unsentDeletes = options.prune
+    ? []
+    : local.filter((change) => change.block === undefined).map((change) => change.name);
   const ensured = await studio.ensureDraft(options.draft);
   if (ensured.created) ctx.reporter.info(`created draft ${options.draft}`);
   // (b) Of those, the ones that differ from latest ⊕ the draft now, with the
@@ -622,6 +624,11 @@ export async function push(
     `pushed ${plural(pushed, "block")} to draft ${options.draft}` +
       (taken > 0 ? `; took theirs for ${plural(taken, "block")}` : ""),
   );
+  if (unsentDeletes.length > 0) {
+    ctx.reporter.info(
+      `not sent: ${plural(unsentDeletes.length, "deleted block")} (${unsentDeletes.join(", ")}); push with --prune to send deletes`,
+    );
+  }
   if (link) ctx.reporter.info(`preview: ${link}`);
   return ok({
     draft: options.draft,

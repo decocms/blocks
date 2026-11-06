@@ -309,11 +309,17 @@ describe("deco push", () => {
     await deco(["pull"]);
     fixture.write(".deco/blocks/home.json", hero("New home"));
     fs.rmSync(path.join(fixture.root, ".deco/blocks/footer.json"));
-    expect((await deco(["push", "--draft=pdp"])).code).toBe(0);
+    const r = await deco(["push", "--draft=pdp"]);
+    expect(r.code).toBe(0);
     expect(rpcCalls()).toEqual([
       { set: { home: hero("New home") }, delete: [], ifMatch: { home: null } },
     ]);
     expect(studio.drafts.get("pdp")!.body.delete).toEqual([]);
+    // The skipped delete is named, with the flag that sends it.
+    expect(r.text).toContain(
+      "not sent: 1 deleted block (footer); push with --prune to send deletes",
+    );
+    expect((await deco(["push", "--draft=pdp", "--prune"])).text).not.toContain("not sent");
   });
 
   it("sends only the names changed locally that differ from latest ⊕ the draft now, as one save", async () => {
