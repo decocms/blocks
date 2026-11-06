@@ -161,6 +161,31 @@ describe("redirects()", () => {
     ]);
   });
 
+  it("serves a v7 redirects block's flat rules with v7's statuses (permanent 301, temporary 307)", async () => {
+    const cms = createCMS({
+      blocks: blocks(),
+      content: {
+        revision: "r1",
+        blocks: {
+          Redirects: {
+            __resolveType: "website/loaders/redirects.ts",
+            redirects: [
+              { from: "/old", to: "/new", type: "permanent" },
+              { from: "/sale", to: "/new", type: "temporary" },
+            ],
+          },
+        },
+      } as never,
+    });
+    const [redirects] = await cms.forRelease().redirects();
+    const status = (path: string) => {
+      const match = matchRoute(path, { routes: [], redirects: redirects ?? [] });
+      return match.kind === "redirect" ? match.status : null;
+    };
+    expect(status("/old")).toBe(301);
+    expect(status("/sale")).toBe(307);
+  });
+
   it("routes v7's per-rule blocks from local content too", async () => {
     const cms = createCMS({
       blocks: blocks(),

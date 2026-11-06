@@ -116,11 +116,18 @@ export function findRouteConflicts<T extends { path: string }>(entries: readonly
   return conflicts;
 }
 
+/** v7's redirect `type`: `permanent` (301) or `temporary` (307). */
+function isV7Type(type: unknown): boolean {
+  return type === "permanent" || type === "temporary";
+}
+
 /**
  * Both redirect shapes: the flat built-in `{ from, to, permanent, status?,
  * discardQueryParameters? }` and the site editor's legacy nested
  * `{ redirect: { from, to, type } }` (see /next/studio-compatibility), where
- * `permanent` is a 301 and anything else a 307.
+ * `permanent` is a 301 and anything else a 307. A flat rule with no boolean
+ * `permanent` and v7's `type` (the rules of a v7 `website/loaders/redirects.ts`
+ * block) reads `type` the same way.
  */
 function normalizeRedirect(input: unknown): NormalizedRedirect | null {
   if (typeof input !== "object" || input === null) return null;
@@ -130,6 +137,9 @@ function normalizeRedirect(input: unknown): NormalizedRedirect | null {
   let status: RedirectStatus = flat.permanent === true ? 301 : 302;
   if (nested) status = flat.type === "permanent" ? 301 : 307;
   else if (STATUSES.has(flat.status as number)) status = flat.status as RedirectStatus;
+  else if (typeof flat.permanent !== "boolean" && isV7Type(flat.type)) {
+    status = flat.type === "permanent" ? 301 : 307;
+  }
   const { from, to, discardQueryParameters } = flat;
   const query = splitRef(from).query;
   // A `to` naming the path `from` matches would match again, forever: `/a` →
