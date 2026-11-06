@@ -67,8 +67,8 @@ already render a non-live post, unindexed. `isDraftPreview(url)` is exported
 for a site that renders its own listing.
 
 Anyone who knows the parameter sees unpublished posts: it is a convenience for
-previews, not access control. This is a 7.x addition with no counterpart in
-`deco-cx/apps`.
+previews, not access control. Same behaviour as `deco-cx/apps`
+(deco-cx/apps#1698).
 
 ## Divergences from upstream worth knowing
 
