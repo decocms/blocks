@@ -16,7 +16,7 @@ v8 has no binding for them, and needs none. The app keeps reading its JSON. Only
    - Keep the old v7 script names as aliases when other tooling, such as a content importer, calls them.
 4. **Generated files.**
    - Commit `.deco/schema.gen.json`, which Studio reads for the editor forms, and delete `meta.gen.json`, `blocks.gen.json` and `generate.digests.json`.
-   - There is no `deco content` any more; an app that imports the JSON directly keeps doing so.
+   - Skip `deco content` when the app imports the JSON directly, and gitignore `.deco/blocks.gen.ts`.
 5. **The block map isn't auto-discovered.** v7 listed every file under `sections/` as a section. In v8, a section that isn't in `.deco/index.ts` has no editor form. Say so in the app's AGENTS.md or contributor docs: a new section goes in the block map **and** in the app's component table.
    - Remove files that only hold shared types (`types.ts`) from the block map. They were never sections.
 6. **Studio.**

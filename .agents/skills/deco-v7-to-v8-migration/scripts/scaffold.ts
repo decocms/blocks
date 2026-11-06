@@ -88,16 +88,14 @@ function cmsFile(w: Wiring): string {
     w.framework === "tanstack" ? "@decocms/tanstack/server" : "@decocms/nextjs/server";
   return [
     ...HEADER(
-      "The CMS, created once at module scope (/next/content#create-the-cms), and the content client each\nrequest reads: the draft the binding accepted, or the release. Content comes from the CDN at runtime\nfor the Studio site DECO_SITE names; nothing is bundled.",
+      "The CMS, created once at module scope (/next/content#create-the-cms), and the content client each\nrequest reads: the draft the binding accepted, or the release.",
     ),
     'import { createCMS } from "@decocms/blocks";',
     `import { contentClient } from "${binding}";`,
-    ...(w.framework === "tanstack" ? ['import { env } from "cloudflare:workers";'] : []),
     'import blocks from "../.deco";',
+    'import content from "../.deco/blocks.gen";',
     "",
-    w.framework === "tanstack"
-      ? "export const cms = createCMS({ blocks, site: (env as unknown as Record<string, string>).DECO_SITE! });"
-      : "export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });",
+    "export const cms = createCMS({ blocks, content });",
     "",
     w.framework === "tanstack"
       ? "/** The client for this request: the draft createDecoWorker accepted, or the release. */\nexport const client = async (request: Request) => contentClient(cms, request);"

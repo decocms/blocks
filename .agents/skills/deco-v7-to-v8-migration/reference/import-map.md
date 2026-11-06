@@ -37,7 +37,7 @@ An import that mixes moved and other names is split; the rest is reported.
 | `@decocms/blocks/sdk/cachedLoader` | gone: an upstream cache is your own `fetch`, passed to `createInstrumentedFetch` (`/next/caching#upstream-data`) |
 | `…/invoke`, `createInvoke`, `@decocms/blocks/sdk/invoke` | `/deco/invoke` is gone: the script writes one server function per key and imports it at each call site (`reference/server-functions.md`), never a rebuilt invoke tree (`/next/renames-and-migrations#loaders-actions-and-invoke`) |
 | `@decocms/blocks-admin/*` | v8 sites serve no admin endpoints; the site editor uses the content protocol (`/next/studio-compatibility`) |
-| `@decocms/blocks-cli/*` | codegen is the `deco` CLI in `@decocms/blocks`: `deco schema`, `deco check` (`/next/cli`) |
+| `@decocms/blocks-cli/*` | codegen is the `deco` CLI in `@decocms/blocks`: `deco schema`, `deco content`, `deco check` (`/next/cli`) |
 | `@decocms/blocks/setup`, `@decocms/blocks/cms/*` | `createCMS` from `@decocms/blocks`, with the block map in `.deco/index.ts` (`/next/content#create-the-cms`) |
 | `@decocms/blocks/sdk/instrumentedFetch` (other names) | `createInstrumentedFetch({ provider, fetch?, retry?, circuitBreaker? })` from `@decocms/blocks/fetch` |
 | `@decocms/blocks/sdk/otel`, `/sdk/observability`, `/sdk/logger`, `/middleware/observability` | the `telemetry` option of `createCMS` (`/next/telemetry`) |

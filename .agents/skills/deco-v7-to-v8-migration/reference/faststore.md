@@ -33,7 +33,7 @@ FastStore's CMS pages are SSG and its CLI forbids `middleware`/`proxy` and `/api
 
 ## Saved-block names that differ only by letter case
 
-A case-insensitive disk (macOS) checks out one of the two files, so v7 silently bundled one of them on macOS while Linux had both. Before migrating, find which one content references (grep every saved block for both names), compare the two, and keep the referenced one; record the decision in its own commit. Make the build fail on such a pair, reading the git index too (the disk can't show it). v8's write path refuses a new name that differs from an existing one only by case, but `deco check` doesn't flag a pair that is already there.
+A case-insensitive disk (macOS) checks out one of the two files, so v7 silently bundled one of them on macOS while Linux had both. Before migrating, find which one content references (grep every saved block for both names), compare the two, and keep the referenced one; record the decision in its own commit. Make the build fail on such a pair, reading the git index too (the disk can't show it). v8's write path refuses a new name that differs from an existing one only by case, but `deco content` and `deco check` don't flag a pair that is already there.
 
 ## Global sections with per-URL matchers
 

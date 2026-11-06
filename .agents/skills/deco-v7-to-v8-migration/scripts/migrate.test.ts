@@ -2,8 +2,8 @@
 /**
  * End to end: a small v7 site (sections, an app loader its content calls, a
  * v7 secret to move to the deploy platform, v7 async-rendering wrappers) goes through `migrate`, then
- * through `deco schema` and `deco check`, and its content resolves with
- * `createCMS` (over the content module `content()` writes, as a test aid).
+ * through `deco schema`, `deco content` and `deco check`, and its content
+ * resolves with `createCMS`.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -292,11 +292,9 @@ describe("migrate", () => {
     expect(fs.existsSync(path.join(root, ".deco/sections.gen.ts"))).toBe(false);
     expect(JSON.parse(read("package.json")).scripts).toEqual({
       dev: "vite dev",
-      predev: "deco schema",
-      prebuild: "deco schema",
+      predev: "deco schema && deco content",
+      prebuild: "deco schema && deco content && deco check",
     });
-    // Content is read at runtime: publishing it to Studio is left to do.
-    expect(manual("scripts").join("\n")).toContain("deco push --draft=<name>");
   });
 
   it("adds deco schema --check to the site's pull-request CI, after the install (PO 2026-10-15)", () => {
@@ -339,7 +337,7 @@ describe("migrate", () => {
     );
   });
 
-  it("leaves a tree that passes deco schema and deco check, once the v7 secret is moved", async () => {
+  it("leaves a tree that passes deco schema, deco content and deco check, once the v7 secret is moved", async () => {
     expect(await schema({ root, reporter: quiet })).toBe(0);
     expect(await content({ root, reporter: quiet })).toBe(0);
     // deco check points at the one manual step left in content: the v7 secret.

@@ -443,7 +443,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/blocks-cli(\/|$)/,
-    "codegen is the deco CLI in @decocms/blocks: deco schema, deco check (/next/cli)",
+    "codegen is the deco CLI in @decocms/blocks: deco schema, deco content, deco check (/next/cli)",
   ],
   [
     /^@decocms\/blocks\/(setup|cms)(\/|$)/,
