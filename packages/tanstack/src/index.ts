@@ -6,5 +6,11 @@
  */
 export { ASSIGNMENTS_HEADER } from "./assignments.ts";
 export { DRAFT_COOKIE, DRAFT_PARAM, draftResponseHeaders, VERSION_HEADER } from "./draft.ts";
-export { isStudioOrigin, STUDIO_FRAME_ANCESTORS, STUDIO_ORIGINS } from "./studio.ts";
+export {
+  isStudioOrigin,
+  STUDIO_FRAME_ANCESTORS,
+  STUDIO_ORIGIN,
+  STUDIO_ORIGINS,
+  studioOrigin,
+} from "./studio.ts";
 export { VISITOR_HEADER } from "./visitor.ts";

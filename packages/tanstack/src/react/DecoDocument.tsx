@@ -11,15 +11,19 @@
  * - `StudioBridge` (in Studio's frame it answers Studio's origins,
  *   `STUDIO_ORIGINS`; outside it, "." opens the page in Studio's editor, with
  *   the page's `pathTemplate` from the route's loader data) and `DraftBadge`
- *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`.
+ *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`;
+ * - `StudioChannel` (every page, production included: framed by Studio's
+ *   origin, `studioOrigin` / `DECO_STUDIO_ORIGIN` / Studio's production
+ *   origin, it loads the editor's own modules from that origin; otherwise it
+ *   does nothing). A site with a CSP allows that origin in `script-src`.
  *
  * A site that keeps its own document renders `DecoPreview` in its `<body>`
  * for the bridge, the badge and the draft they read.
  */
-import { DraftBadge, StudioBridge } from "@decocms/blocks/preview";
+import { DraftBadge, StudioBridge, StudioChannel } from "@decocms/blocks/preview";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { STUDIO_ORIGINS } from "../studio.ts";
+import { STUDIO_ORIGINS, studioOrigin } from "../studio.ts";
 import { pageValues, publishScript } from "./pageValues.ts";
 import { DATA_EVENT_OBSERVER, eventsBootstrap, PROGRESS_CSS } from "./scripts.ts";
 
@@ -95,14 +99,15 @@ function studioPageOf(
   return undefined;
 }
 
-/** The Studio bridge, with the page on screen, and the badge for the request's draft. */
+/** The Studio bridge, with the page on screen, the Studio channel, and the badge for the request's draft. */
 function StudioPieces({
   site,
   editShortcut,
   nonce,
+  studioOrigin: origin,
   draft,
   draftUnavailable,
-}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce"> & {
+}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce" | "studioOrigin"> & {
   draft: string | undefined;
   draftUnavailable?: boolean;
 }) {
@@ -118,6 +123,7 @@ function StudioPieces({
         page={{ pathTemplate, id: pageId }}
         nonce={nonce}
       />
+      <StudioChannel studioOrigin={studioOrigin(origin)} nonce={nonce} />
       <DraftBadge pointer={draft ?? null} unavailable={draftUnavailable} />
     </>
   );
@@ -135,6 +141,11 @@ export interface DecoPreviewProps {
   editShortcut?: boolean;
   /** The CSP nonce for the inline scripts, when the site enforces one. */
   nonce?: string;
+  /**
+   * Studio's origin for the Studio channel. Default: `DECO_STUDIO_ORIGIN`,
+   * else Studio's production origin (`STUDIO_ORIGIN`).
+   */
+  studioOrigin?: string;
 }
 
 /**
@@ -143,7 +154,7 @@ export interface DecoPreviewProps {
  * draft and CDN segment token published to the browser, `StudioBridge` and
  * `DraftBadge`. Render it once, in the `<body>`.
  */
-export function DecoPreview({ site, editShortcut, nonce }: DecoPreviewProps) {
+export function DecoPreview({ site, editShortcut, nonce, studioOrigin }: DecoPreviewProps) {
   const values = pageValues();
   const publish = publishScript(values);
   return (
@@ -159,6 +170,7 @@ export function DecoPreview({ site, editShortcut, nonce }: DecoPreviewProps) {
         site={site}
         editShortcut={editShortcut}
         nonce={nonce}
+        studioOrigin={studioOrigin}
         draft={values.draft}
         draftUnavailable={values.draftUnavailable}
       />
@@ -188,6 +200,11 @@ export interface DecoDocumentProps {
   editShortcut?: boolean;
   /** The CSP nonce for the inline scripts, when the site enforces one. */
   nonce?: string;
+  /**
+   * Studio's origin for the Studio channel. Default: `DECO_STUDIO_ORIGIN`,
+   * else Studio's production origin (`STUDIO_ORIGIN`).
+   */
+  studioOrigin?: string;
   /** Rendered after the page (toasts, drawers, analytics). */
   children?: ReactNode;
 }
@@ -201,6 +218,7 @@ export function DecoDocument({
   outlet = "main",
   editShortcut,
   nonce,
+  studioOrigin,
   children,
 }: DecoDocumentProps) {
   // Pages wait for this signal before running work that must follow hydration.
@@ -239,6 +257,7 @@ export function DecoDocument({
           site={site}
           editShortcut={editShortcut}
           nonce={nonce}
+          studioOrigin={studioOrigin}
           draft={values.draft}
           draftUnavailable={values.draftUnavailable}
         />

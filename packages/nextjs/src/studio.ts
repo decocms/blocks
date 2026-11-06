@@ -33,6 +33,23 @@ export const STUDIO_FRAME_ANCESTORS: readonly string[] = Object.freeze([
   "https://*.deco.studio",
 ]);
 
+/** Studio's production origin: the Studio channel's default (`studioOrigin`). */
+export const STUDIO_ORIGIN = "https://studio.decocms.com";
+
+/**
+ * The origin the Studio channel (`StudioChannel` of `@decocms/blocks/preview`)
+ * accepts messages and modules from: the binding option when set, else the
+ * `DECO_STUDIO_ORIGIN` environment variable (a local or staging Studio, such
+ * as `http://localhost:3000`; read where `process.env` exists, so on the
+ * server), else {@link STUDIO_ORIGIN}. One exact origin, no wildcard.
+ */
+export function studioOrigin(option?: string): string {
+  if (option) return option;
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env?.DECO_STUDIO_ORIGIN;
+  return env || STUDIO_ORIGIN;
+}
+
 /**
  * Whether `origin` (a `MessageEvent.origin`, an `Origin` header) is one of
  * {@link STUDIO_ORIGINS}: `https`, the default port, and `decocms.com` or a

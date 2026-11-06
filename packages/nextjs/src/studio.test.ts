@@ -1,7 +1,15 @@
 // @vitest-environment node
 /** Studio's origins: one list for the Studio bridge, withDeco()'s dev origins and a site's own frame-ancestors. */
-import { describe, expect, it } from "vitest";
-import { isStudioOrigin, STUDIO_FRAME_ANCESTORS, STUDIO_ORIGINS } from "./studio";
+
+import { DEFAULT_STUDIO_ORIGIN } from "@decocms/blocks/protocol";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  isStudioOrigin,
+  STUDIO_FRAME_ANCESTORS,
+  STUDIO_ORIGIN,
+  STUDIO_ORIGINS,
+  studioOrigin,
+} from "./studio";
 
 describe("STUDIO_ORIGINS", () => {
   it("pins the values", () => {
@@ -71,5 +79,28 @@ describe("isStudioOrigin", () => {
     "https://store.example.com",
   ])("%j isn't", (origin) => {
     expect(isStudioOrigin(origin)).toBe(false);
+  });
+});
+
+describe("studioOrigin (the Studio channel's origin)", () => {
+  const env = process.env.DECO_STUDIO_ORIGIN;
+  afterEach(() => {
+    if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+    else process.env.DECO_STUDIO_ORIGIN = env;
+  });
+
+  it("defaults to Studio's production origin, the one the protocol names", () => {
+    delete process.env.DECO_STUDIO_ORIGIN;
+    expect(STUDIO_ORIGIN).toBe("https://studio.decocms.com");
+    expect(STUDIO_ORIGIN).toBe(DEFAULT_STUDIO_ORIGIN);
+    expect(studioOrigin()).toBe(STUDIO_ORIGIN);
+  });
+
+  it("DECO_STUDIO_ORIGIN overrides the default; the binding option wins over both", () => {
+    process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000";
+    expect(studioOrigin()).toBe("http://localhost:3000");
+    expect(studioOrigin("https://studio-stg.decocms.com")).toBe("https://studio-stg.decocms.com");
+    process.env.DECO_STUDIO_ORIGIN = "";
+    expect(studioOrigin()).toBe(STUDIO_ORIGIN);
   });
 });

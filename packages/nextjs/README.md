@@ -132,6 +132,8 @@ import { StudioBridge } from "@decocms/nextjs";
 
 Studio's origins are the package's own (`STUDIO_ORIGINS`), so the bridge takes only the site's name. v7's "." edit shortcut is on by default (`editShortcut={false}` turns it off), and `nonce` is optional.
 
+The bridge also mounts the Studio channel on every page, production included: a small inline script (about 0.6 kB gzipped) through which Studio loads its own editor code (the section wireframe, the page swap after a save) into the page when it frames it. Framed, the page posts `{ type: "deco:ready" }` to its parent and imports a module only when Studio's answer, `{ type: "deco:load", url }`, comes from exactly Studio's origin and names a URL on exactly that origin; not framed, or framed by any other origin, it does nothing. Studio's origin is `studioOrigin` when given, else the `DECO_STUDIO_ORIGIN` environment variable (a local or staging Studio, such as `http://localhost:3000`), else `https://studio.decocms.com` (`STUDIO_ORIGIN`). A site with a Content Security Policy allows Studio's origin in `script-src` (and the inline scripts by `nonce`). The message and module types are in `@decocms/blocks/protocol`.
+
 On a page that isn't in Studio's frame, "." (or Ctrl+Shift+E) opens the page in Studio's editor, and Ctrl or Cmd+"." opens it in a new tab; Studio asks a visitor who isn't signed in to sign in first. To open the right page, each CMS page tells the bridge its path template: the root layout stays across navigations, so the page renders the marker, next to the sections it resolved:
 
 ```tsx

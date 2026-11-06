@@ -55,7 +55,8 @@ describe("StudioBridge", () => {
     const html = renderToStaticMarkup(<StudioBridge site="acme" />);
     expect(html).toMatch(/^<script[^>]*>/);
     expect(html).toBe(
-      renderToStaticMarkup(<preview.StudioBridge site="acme" trustedOrigins={STUDIO_ORIGINS} />),
+      renderToStaticMarkup(<preview.StudioBridge site="acme" trustedOrigins={STUDIO_ORIGINS} />) +
+        renderToStaticMarkup(<preview.StudioChannel studioOrigin="https://studio.decocms.com" />),
     );
     const host = document.body.appendChild(document.createElement("div"));
     host.innerHTML = html;
@@ -67,6 +68,36 @@ describe("StudioBridge", () => {
       "https://decocms.com",
       "https://*.decocms.com",
     ]);
+  });
+
+  it("mounts the Studio channel for Studio's production origin, the option, or DECO_STUDIO_ORIGIN", () => {
+    const origin = (html: string) => {
+      const host = document.createElement("div");
+      host.innerHTML = html;
+      const script = host.querySelector("script[data-deco-studio-channel]");
+      return [script?.getAttribute("data-studio-origin"), script?.getAttribute("nonce")];
+    };
+    expect(origin(renderToStaticMarkup(<StudioBridge site="acme" nonce="n1" />))).toEqual([
+      "https://studio.decocms.com",
+      "n1",
+    ]);
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000";
+    try {
+      expect(origin(renderToStaticMarkup(<StudioBridge site="acme" />))[0]).toBe(
+        "http://localhost:3000",
+      );
+      expect(
+        origin(
+          renderToStaticMarkup(
+            <StudioBridge site="acme" studioOrigin="https://studio-stg.decocms.com" />,
+          ),
+        )[0],
+      ).toBe("https://studio-stg.decocms.com");
+    } finally {
+      if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+      else process.env.DECO_STUDIO_ORIGIN = env;
+    }
   });
 
   it("passes the site's shortcut and nonce through", () => {

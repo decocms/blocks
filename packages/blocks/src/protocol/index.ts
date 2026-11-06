@@ -14,6 +14,10 @@
  * - `@decocms/blocks/protocol/storage/fs` — the filesystem storage (Node only)
  * - `@decocms/blocks/protocol/conformance` — a black-box test suite over HTTP
  *
+ * The Studio channel's messages (`deco:ready`, `deco:load`, ...) and the
+ * context a Studio module gets are here too (`./channel.ts`):
+ * the page's bootstrap is `StudioChannel` in `@decocms/blocks/preview`.
+ *
  * `blockMeta`/`indexEntry` compute a hosted revision index's entries (the
  * SDK's own browser-safe module, shared with Studio and the CLI).
  *
@@ -39,6 +43,20 @@ export {
   computeContentRevision,
   sha256Hex,
 } from "./canonical.ts";
+export {
+  CHANNEL_MESSAGE,
+  type ChannelLoadErrorMessage,
+  type ChannelLoadedMessage,
+  type ChannelLoadMessage,
+  type ChannelReadyMessage,
+  DEFAULT_STUDIO_ORIGIN,
+  defineStudioModule,
+  type ModuleMessage,
+  type PageChannelMessage,
+  type StudioChannelContext,
+  type StudioChannelMessage,
+  type StudioChannelModule,
+} from "./channel.ts";
 export {
   assertSupportedEndpoint,
   type BatchCall,

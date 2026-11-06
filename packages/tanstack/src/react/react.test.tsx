@@ -51,6 +51,25 @@ describe("DecoDocument", () => {
     expect(html).not.toContain("__DECO_CSEG");
   });
 
+  it("mounts the Studio channel: Studio's production origin, the option, or DECO_STUDIO_ORIGIN", async () => {
+    const channel = (html: string) =>
+      html.match(/<script[^>]*data-deco-studio-channel[^>]*>/)?.[0] ?? "";
+    expect(channel(await render({}, { nonce: "n1" }))).toBe(
+      '<script data-deco-studio-channel="" data-studio-origin="https://studio.decocms.com" nonce="n1">',
+    );
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000";
+    try {
+      expect(channel(await render({}))).toContain('data-studio-origin="http://localhost:3000"');
+      expect(
+        channel(await render({}, { studioOrigin: "https://studio-stg.decocms.com" })),
+      ).toContain('data-studio-origin="https://studio-stg.decocms.com"');
+    } finally {
+      if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+      else process.env.DECO_STUDIO_ORIGIN = env;
+    }
+  });
+
   it("the Studio bridge answers Studio's origins, the package's own list", async () => {
     const html = await render({});
     const attr = html.match(/data-origins="([^"]*)"/)?.[1];

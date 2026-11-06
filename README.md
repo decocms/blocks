@@ -133,6 +133,10 @@ Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/
 
 Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app: a Server Component resolves the page and renders its blocks. [`@decocms/nextjs`](./packages/nextjs) adds draft previews (the proxy, the draft route, the badge), the Studio bridge, `withDeco()` and a next/image loader; [`examples/nextjs-binding-smoke`](./examples/nextjs-binding-smoke) is the same app on it.
 
+### Studio inside the page
+
+Both bindings mount the Studio channel on every page, production included (`StudioChannel` from `@decocms/blocks/preview`, about 0.6 kB of inline script gzipped): when Studio frames the page, it loads Studio's own editor code (the section wireframe, the page swap after a save) from Studio's origin; when the page isn't framed, or is framed by any other origin, it does nothing. The page accepts a module only from a message whose origin is exactly Studio's and only at a URL on that same origin. Studio's origin is the binding's `studioOrigin` option, else `DECO_STUDIO_ORIGIN` (a local or staging Studio), else `https://studio.decocms.com`. **A site with a Content Security Policy must allow Studio's origin in `script-src`** (and the inline scripts by `nonce`). The messages and the module contract are typed in `@decocms/blocks/protocol` (`StudioChannelContext`, `defineStudioModule`).
+
 ## Migration
 
 Moving a v7 site (`@decocms/blocks` 7.x with `@decocms/tanstack` or `@decocms/nextjs`) to v8 is the [`deco-v7-to-v8-migration`](./.agents/skills/deco-v7-to-v8-migration) agent skill. Point your coding agent at it, or run its script yourself from a checkout of this branch:
