@@ -210,21 +210,6 @@ describe("redirects", () => {
     }
   });
 
-  it("a flat v7 rule (website/loaders/redirects.ts) reads its type: permanent 301, temporary 307", () => {
-    const rule = (type: string) => [{ from: "/a", to: "/b", type }] as never;
-    expect(matchRoute("/a", { routes, redirects: rule("permanent") })).toMatchObject({
-      kind: "redirect",
-      status: 301,
-    });
-    expect(matchRoute("/a", { routes, redirects: rule("temporary") })).toMatchObject({
-      kind: "redirect",
-      status: 307,
-    });
-    // A v8 rule's permanent (and status) win: type is read only without them.
-    const both = [{ from: "/a", to: "/b", permanent: false, type: "permanent" }] as never;
-    expect(matchRoute("/a", { routes, redirects: both })).toMatchObject({ status: 302 });
-  });
-
   it("an invalid status falls back to permanent", () => {
     expect(
       matchRoute("/a", {

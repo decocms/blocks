@@ -30,9 +30,8 @@ export const REDIRECTS_TYPE = "redirects";
  * `redirects`: the site's whole list of rules, one block (routing needs every
  * rule, so it is one cached fetch). Each rule has either shape `matchRoute`
  * reads: the flat `{ from, to, permanent?, status?, discardQueryParameters? }`
- * (a v7 `website/loaders/redirects.ts` rule, `{ from, to, type }`, reads its
- * `type`) or v7's nested `{ redirect: { from, to, type? } }`; anything that
- * isn't an object is left out.
+ * or v7's nested `{ redirect: { from, to, type? } }`; anything that isn't an
+ * object is left out.
  */
 export const redirects = (props: {
   redirects?: Array<Redirect | LegacyRedirect>;
