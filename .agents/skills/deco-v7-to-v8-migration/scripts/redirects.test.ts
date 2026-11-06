@@ -48,12 +48,13 @@ describe("redirects", () => {
     const report = createReport();
     foldRedirects(root, report);
 
-    // Redirects (the v7 list) first, then the per-rule blocks, in code-unit name order.
+    // Redirects (the v7 list) first, then the per-rule blocks, in code-unit name
+    // order; a later rule for the same route takes the earlier one's place.
     expect(read("Redirects.json")).toEqual({
       __resolveType: "redirects",
       redirects: [
         { from: "/a", to: "/b", permanent: true },
-        { from: "/sale", to: "/black-friday", permanent: false },
+        { from: "/sale", to: "/promo", permanent: false },
         { from: "/old-shoes", to: "/shoes", permanent: true, discardQueryParameters: true },
         { from: "/c/*", to: "/category", permanent: false, discardQueryParameters: false },
         { from: "/blog", to: "/news", permanent: false },
@@ -72,8 +73,9 @@ describe("redirects", () => {
         ),
       }),
     ]);
-    // The first rule for a route wins; an identical later one is dropped quietly,
-    // a different one reported. Rules with no from are reported, and inline ones.
+    // The last rule for a route wins, as in 7.x; an identical later one is dropped
+    // quietly, the one it replaced reported. Rules with no from are reported, and
+    // inline ones.
     expect(report.manual.map((n) => [n.subject, n.message])).toEqual([
       [
         ".deco/blocks/Site.json",
@@ -81,8 +83,8 @@ describe("redirects", () => {
       ],
       [".deco/blocks/Redirects.json", expect.stringMatching(/^a rule without a from and a to/)],
       [
-        ".deco/blocks/redirect-c3d4.json",
-        'its rule for /sale (to /promo, temporary) conflicts with the one from "Redirects" (to /black-friday), which was kept in "Redirects": change it there if this one should win',
+        ".deco/blocks/Redirects.json",
+        'its rule for /sale (to /black-friday, temporary) conflicts with the later one from "redirect-c3d4" (to /promo), which was kept in "Redirects" as 7.x routed the last rule for a path: change it there if this one should win',
       ],
     ]);
   });
@@ -97,7 +99,7 @@ describe("redirects", () => {
     };
     expect(status("/a")).toEqual(["/b", 301]);
     expect(status("/old-shoes?utm=1")).toEqual(["/shoes", 301]);
-    expect(status("/sale")).toEqual(["/black-friday", 307]);
+    expect(status("/sale")).toEqual(["/promo", 307]);
     expect(status("/blog")).toEqual(["/news", 307]);
     expect(status("/c/shirts")).toEqual(["/category", 307]);
   });
@@ -139,6 +141,58 @@ describe("redirects", () => {
     });
     expect(blockFiles()).toEqual(["Redirects.json"]);
     expect(report.manual.map((n) => n.subject)).toEqual([".deco/blocks/redirect-x.json"]);
+  });
+
+  it("keeps the first glob rule for a route, as 7.x matched its patterns in order", () => {
+    site(
+      {
+        "a.json": {
+          __resolveType: "website/loaders/redirects.ts",
+          redirects: [
+            { from: "/c/*", to: "/first", type: "permanent" },
+            { from: "/p", to: "/p-first" },
+          ],
+        },
+        "b.json": {
+          __resolveType: "website/loaders/redirect.ts",
+          redirect: { from: "/c/*", to: "/second", type: "permanent" },
+        },
+        "c.json": {
+          __resolveType: "website/loaders/redirectsFromCsv.ts",
+          from: "static/r.csv",
+        },
+      },
+      false,
+    );
+    fs.mkdirSync(path.join(root, "public"));
+    // 7.x loaded the CSV before the saved blocks: its glob comes first, its
+    // exact row is overridden by the later block.
+    fs.writeFileSync(path.join(root, "public/r.csv"), "/c/*,/from-csv,permanent\n/p,/p-csv\n");
+    const report = createReport();
+    foldRedirects(root, report);
+    expect(read("Redirects.json").redirects).toEqual([
+      { from: "/c/*", to: "/from-csv", permanent: true },
+      { from: "/p", to: "/p-first", permanent: false },
+    ]);
+    expect(report.manual.map((n) => [n.subject, n.message])).toEqual([
+      [
+        ".deco/blocks/a.json",
+        'its rule for /c/* (to /first, permanent) conflicts with the earlier one from "public/r.csv" (to /from-csv), which was kept in "Redirects" as 7.x matched the first glob rule: change it there if this one should win',
+      ],
+      [
+        "public/r.csv",
+        'its rule for /p (to /p-csv, temporary) conflicts with the later one from "a" (to /p-first), which was kept in "Redirects" as 7.x routed the last rule for a path: change it there if this one should win',
+      ],
+      [
+        ".deco/blocks/b.json",
+        'its rule for /c/* (to /second, permanent) conflicts with the earlier one from "public/r.csv" (to /from-csv), which was kept in "Redirects" as 7.x matched the first glob rule: change it there if this one should win',
+      ],
+      ["public/r.csv", expect.stringMatching(/^kept: v8 reads no CSV/)],
+    ]);
+    const at = (url: string) =>
+      matchRoute(url, { routes: [], redirects: read("Redirects.json").redirects });
+    expect(at("/c/shirts")).toMatchObject({ location: "/from-csv", status: 301 });
+    expect(at("/p")).toMatchObject({ location: "/p-first", status: 307 });
   });
 
   it("leaves everything when Redirects is some other block, and says to rename it", () => {
@@ -189,20 +243,19 @@ describe("redirects", () => {
     expect(report.manual).toEqual([]);
   });
 
-  it("folds every CSV a v7 CSV loader reads, saved or inline, after the saved blocks", () => {
+  it("folds every CSV a v7 CSV loader reads, saved or inline, before the saved blocks", () => {
     site({}, CSV_FIXTURE);
     const report = createReport();
     foldRedirects(root, report);
 
-    // The saved blocks first (the CSV loader's own rules too, as 7.x routed
-    // them), then each CSV's rows in order, file by file.
+    // 7.x's load order: each CSV's rows in order, file by file, then the saved
+    // blocks (the CSV loader's own rules too, as 7.x routed them).
     expect(read("Redirects.json")).toEqual({
       __resolveType: "redirects",
       redirects: [
-        { from: "/from-the-loader", to: "/kept", permanent: true },
-        { from: "/dup", to: "/from-cms", permanent: true },
         { from: "/old", to: "/new", permanent: true },
-        { from: "/tmp-old", to: "/tmp-new", permanent: false },
+        // The later row for the route wins.
+        { from: "/tmp-old", to: "/elsewhere", permanent: false },
         { from: "/numeric", to: "/n", permanent: true },
         { from: "/untyped", to: "/u", permanent: false },
         { from: "/keep-query", to: "/kq", permanent: false, discardQueryParameters: true },
@@ -212,9 +265,12 @@ describe("redirects", () => {
         { from: "/semi", to: "/semi-new", permanent: true },
         // An absolute source is its path and query, as 7.x matched it.
         { from: "/absolute?map=c", to: "/abs", permanent: true },
+        // The curated block, loaded after the CSV, wins over its row.
+        { from: "/dup", to: "/from-cms", permanent: true },
         // forcePermanentRedirects: a row with no type is permanent.
         { from: "/bf", to: "/black-friday", permanent: true },
         { from: "/bf-temp", to: "/black-friday", permanent: false },
+        { from: "/from-the-loader", to: "/kept", permanent: true },
       ],
     });
     // The loaders are gone, the saved one and the inline one; the CSV files stay.
@@ -238,20 +294,21 @@ describe("redirects", () => {
         ),
       ],
     ]);
-    // A curated rule wins over a CSV row for the same route, as in 7.x; within
-    // the CSV the first row wins. A row with no to is left out.
+    // Within the CSV the last row wins, and a curated rule wins over a CSV row
+    // for the same route, as in 7.x: each losing row is reported. A row with no
+    // to is left out.
     expect(report.manual.map((n) => [n.subject, n.message])).toEqual([
       [
         "public/redirects.csv",
-        'its rule for /dup (to /from-csv, permanent) conflicts with the one from "redirect-curated" (to /from-cms), which was kept in "Redirects": change it there if this one should win',
-      ],
-      [
-        "public/redirects.csv",
-        'its rule for /tmp-old (to /elsewhere, temporary) conflicts with the one from "public/redirects.csv" (to /tmp-new), which was kept in "Redirects": change it there if this one should win',
+        'its rule for /tmp-old (to /tmp-new, temporary) conflicts with the later one from "public/redirects.csv" (to /elsewhere), which was kept in "Redirects" as 7.x routed the last rule for a path: change it there if this one should win',
       ],
       [
         "public/redirects.csv",
         'a row without a from and a to, left out of "Redirects", as 7.x skipped them',
+      ],
+      [
+        "public/redirects.csv",
+        'its rule for /dup (to /from-csv, permanent) conflicts with the later one from "redirect-curated" (to /from-cms), which was kept in "Redirects" as 7.x routed the last rule for a path: change it there if this one should win',
       ],
       [
         "public/redirects.csv",
@@ -266,7 +323,8 @@ describe("redirects", () => {
     // Temporary rows answer v8's temporary 307.
     const { redirects } = read("Redirects.json");
     const at = (url: string) => matchRoute(url, { routes: [], redirects });
-    expect(at("/tmp-old")).toMatchObject({ location: "/tmp-new", status: 307 });
+    expect(at("/tmp-old")).toMatchObject({ location: "/elsewhere", status: 307 });
+    expect(at("/dup")).toMatchObject({ location: "/from-cms", status: 301 });
     expect(at("/old")).toMatchObject({ location: "/new", status: 301 });
     expect(at("/absolute?map=c")).toMatchObject({ location: "/abs?map=c", status: 301 });
 

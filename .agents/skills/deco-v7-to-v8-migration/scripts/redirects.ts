@@ -23,18 +23,22 @@
  * later column; fields split on `,` (and on `;` outside quotes); blank lines,
  * `#` comments and a `from,to` header row skipped; a row with no type is
  * temporary, or permanent under the loader's `forcePermanentRedirects` (any
- * loader of the same file setting it). Its rules have lower precedence than
- * the saved blocks', as in 7.x.
+ * loader of the same file setting it). 7.x loaded the CSV rows before the
+ * saved blocks.
  *
  * Each rule becomes `{ from, to, permanent }` (v7's `type: "permanent"` or
  * `"301"` is `permanent: true`, a 301; anything else, `temporary` or none, is
  * `permanent: false`, a 307 in v8), `from` and `to` trimmed as v7 read them
  * (an absolute `from`, `https://store.com/x`, is its path, as 7.x matched
- * it), with `discardQueryParameters` kept. Rules are deduped by `from`: an
- * existing `Redirects` block's rules come first, then the v7 blocks in
- * code-unit name order, each in its own order, then the CSV rows, file by
- * file in the order the loaders are found; the first rule for a route wins,
- * and a later one that sends it somewhere else is reported. The v7 blocks and
+ * it), with `discardQueryParameters` kept. Rules are deduped by `from`, in
+ * 7.x's load order: the CSV rows, file by file in the order the loaders are
+ * found, then the v7 blocks in code-unit name order, each in its own order.
+ * For one exact `from` the last rule wins, as in 7.x's exact map (a later
+ * block, a later row; so a saved block's rule wins over a CSV row); for a
+ * glob (a `*` in `from`) the first wins, as 7.x scanned its patterns in
+ * order. An existing `Redirects` block's rules come first and always win
+ * (they are v8's already). Every rule that loses to one sending its route
+ * somewhere else is reported. The v7 blocks and
  * the CSV loaders are deleted once folded (the CSV files are kept, and
  * reported); a second run changes nothing.
  *
@@ -294,21 +298,29 @@ export function foldRedirects(root: string, report: Report): void {
     return;
   }
 
-  // An existing v8 Redirects block keeps its rules, first.
-  const kept: unknown[] =
+  // An existing v8 Redirects block keeps its rules, first, and they win:
+  // they are v8's already, which no v7 rule overrides.
+  const existing: unknown[] =
     current !== undefined && !currentIsV7 && Array.isArray(current.redirects)
       ? [...current.redirects]
       : [];
-  const seen = new Map<string, { rule: unknown; source: string }>();
-  for (const rule of kept) {
-    if (isPlainObject(rule) && typeof rule.from === "string" && !seen.has(rule.from)) {
-      seen.set(rule.from, { rule, source: REDIRECTS_BLOCK });
+  const pinned = new Map<string, unknown>();
+  for (const rule of existing) {
+    if (isPlainObject(rule) && typeof rule.from === "string" && !pinned.has(rule.from)) {
+      pinned.set(rule.from, rule);
     }
   }
 
-  let added = 0;
-  let temporary = 0;
-  /** Adds the v7 rules of one source; returns how many had no `from` and `to`. */
+  /** The v7 rule kept for each `from`, where 7.x's route table put it. */
+  const chosen = new Map<string, { rule: Rule; source: string; subject: string }>();
+  const describe = (rule: Rule) => `to ${rule.to}, ${rule.permanent ? "permanent" : "temporary"}`;
+  /**
+   * Adds the v7 rules of one source, in 7.x's load order; returns how many
+   * had no `from` and `to`. For one exact `from` the LAST rule wins, as
+   * 7.x's exact map (`map.exact.set`) kept it; for a glob (a `*` in `from`)
+   * the FIRST, as 7.x scanned its patterns in order. Each conflict is reported
+   * on the rule that lost.
+   */
   function fold(rules: unknown[], source: string, noteSubject: string): number {
     let skipped = 0;
     for (const v7 of rules) {
@@ -317,39 +329,45 @@ export function foldRedirects(root: string, report: Report): void {
         skipped += 1;
         continue;
       }
-      const first = seen.get(rule.from);
-      if (first) {
-        if (target(first.rule) !== target(rule)) {
+      const v8 = pinned.get(rule.from);
+      if (v8 !== undefined) {
+        if (target(v8) !== target(rule)) {
           report.manual.push({
             step: "content",
             subject: noteSubject,
-            message: `its rule for ${rule.from} (to ${rule.to}, ${rule.permanent ? "permanent" : "temporary"}) conflicts with the one from "${first.source}" (to ${String((first.rule as JsonObject).to)}), which was kept in "${REDIRECTS_BLOCK}": change it there if this one should win`,
+            message: `its rule for ${rule.from} (${describe(rule)}) conflicts with the one already in "${REDIRECTS_BLOCK}" (to ${String((v8 as JsonObject).to)}), which was kept: change it there if this one should win`,
           });
         }
         continue;
       }
-      seen.set(rule.from, { rule, source });
-      kept.push(rule);
-      added += 1;
-      if (!rule.permanent) temporary += 1;
+      const earlier = chosen.get(rule.from);
+      if (earlier === undefined) {
+        chosen.set(rule.from, { rule, source, subject: noteSubject });
+        continue;
+      }
+      if (target(earlier.rule) === target(rule)) continue;
+      if (rule.from.includes("*")) {
+        report.manual.push({
+          step: "content",
+          subject: noteSubject,
+          message: `its rule for ${rule.from} (${describe(rule)}) conflicts with the earlier one from "${earlier.source}" (to ${earlier.rule.to}), which was kept in "${REDIRECTS_BLOCK}" as 7.x matched the first glob rule: change it there if this one should win`,
+        });
+        continue;
+      }
+      report.manual.push({
+        step: "content",
+        subject: earlier.subject,
+        message: `its rule for ${rule.from} (${describe(earlier.rule)}) conflicts with the later one from "${source}" (to ${rule.to}), which was kept in "${REDIRECTS_BLOCK}" as 7.x routed the last rule for a path: change it there if this one should win`,
+      });
+      // The later rule takes the earlier one's place.
+      chosen.set(rule.from, { rule, source, subject: noteSubject });
     }
     return skipped;
   }
 
-  const folded: string[] = [];
-  for (const name of sources) {
-    const skipped = fold(v7Rules(blocks[name]!), name, subject(name));
-    if (skipped > 0) {
-      report.manual.push({
-        step: "content",
-        subject: subject(name),
-        message: `${skipped === 1 ? "a rule" : `${skipped} rules`} without a from and a to, left out of "${REDIRECTS_BLOCK}" (the block was deleted; git has it)`,
-      });
-    }
-    folded.push(files[name]!);
-  }
-
-  // The CSV files, each once, after every saved block (lower precedence, as in 7.x).
+  // 7.x's load order: the CSV files first, each once, in the order the
+  // loaders are found (7.x spread them before the saved blocks, so a saved
+  // block's exact rule wins over a CSV row), then the saved blocks in name order.
   const csvs = new Map<string, boolean>();
   for (const loader of readable) {
     const force = loader.node.forcePermanentRedirects === true;
@@ -369,6 +387,24 @@ export function foldRedirects(root: string, report: Report): void {
       });
     }
   }
+
+  const folded: string[] = [];
+  for (const name of sources) {
+    const skipped = fold(v7Rules(blocks[name]!), name, subject(name));
+    if (skipped > 0) {
+      report.manual.push({
+        step: "content",
+        subject: subject(name),
+        message: `${skipped === 1 ? "a rule" : `${skipped} rules`} without a from and a to, left out of "${REDIRECTS_BLOCK}" (the block was deleted; git has it)`,
+      });
+    }
+    folded.push(files[name]!);
+  }
+
+  const rules = [...chosen.values()].map((entry) => entry.rule);
+  const kept: unknown[] = [...existing, ...rules];
+  const added = rules.length;
+  const temporary = rules.filter((rule) => !rule.permanent).length;
 
   fs.mkdirSync(blocksDir, { recursive: true });
   const file = files[REDIRECTS_BLOCK] ?? blockFileName(REDIRECTS_BLOCK);
