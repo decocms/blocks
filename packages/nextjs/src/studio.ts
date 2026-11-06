@@ -33,21 +33,51 @@ export const STUDIO_FRAME_ANCESTORS: readonly string[] = Object.freeze([
   "https://*.deco.studio",
 ]);
 
-/** Studio's production origin: the Studio channel's default (`studioOrigin`). */
+/** Studio's production origin. */
 export const STUDIO_ORIGIN = "https://studio.decocms.com";
 
 /**
- * The origin the Studio channel (`StudioChannel` of `@decocms/blocks/preview`)
- * accepts messages and modules from: the binding option when set, else the
- * `DECO_STUDIO_ORIGIN` environment variable (a local or staging Studio, such
- * as `http://localhost:3000`; read where `process.env` exists, so on the
- * server), else {@link STUDIO_ORIGIN}. One exact origin, no wildcard.
+ * The exact origins a page trusts for the Studio channel by default, and adds
+ * to its CSP (`script-src`, `frame-ancestors`): Studio's production and
+ * staging origins. No wildcard: each one is compared exactly.
  */
-export function studioOrigin(option?: string): string {
-  if (option) return option;
+export const DEFAULT_STUDIO_ORIGINS: readonly string[] = Object.freeze([
+  STUDIO_ORIGIN,
+  "https://studio-stg.decocms.com",
+]);
+
+/** `value` as an exact http(s) origin (`https://host[:port]`, a trailing `/` dropped; no wildcard), or `""`. */
+function asOrigin(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+    // A host name or an IP address: a URL parser accepts `*` in a host, which a
+    // CSP source would read as a wildcard.
+    if (!/^(\[[0-9a-f:.]+\]|[a-z0-9_.-]+)$/.test(url.hostname)) return "";
+    return trimmed === url.origin || trimmed === `${url.origin}/` ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The Studio origins the page trusts: the Studio channel accepts messages and
+ * modules from them, and the binding adds them to the page's CSP `script-src`
+ * and `frame-ancestors`. The binding option when given (an empty list turns
+ * the channel off), else the `DECO_STUDIO_ORIGIN` environment variable, a
+ * comma-separated list (a local or staging Studio, such as
+ * `http://localhost:3000`; read where `process.env` exists, so on the
+ * server), else {@link DEFAULT_STUDIO_ORIGINS}. Each entry must be an exact
+ * http(s) origin; any other value (a path, a wildcard, a CSP keyword) is
+ * dropped, so the list never widens the CSP beyond origins.
+ */
+export function studioOrigins(option?: readonly string[]): readonly string[] {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
     ?.env?.DECO_STUDIO_ORIGIN;
-  return env || STUDIO_ORIGIN;
+  const list = option ?? (env?.trim() ? env.split(",") : DEFAULT_STUDIO_ORIGINS);
+  return [...new Set(list.map(asOrigin).filter(Boolean))];
 }
 
 /**

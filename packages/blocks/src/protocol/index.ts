@@ -50,6 +50,7 @@ export {
   type ChannelLoadMessage,
   type ChannelReadyMessage,
   DEFAULT_STUDIO_ORIGIN,
+  DEFAULT_STUDIO_ORIGINS,
   defineStudioModule,
   type ModuleMessage,
   type PageChannelMessage,

@@ -155,7 +155,9 @@ describe("v8 core bundle", () => {
         );
         const output = readFileSync(outfile, "utf-8");
         expect(output).not.toMatch(/node:|require\("(?!react)/);
-        expect(output).toContain("editor::inject");
+        expect(output).toContain("scrollToComponent");
+        expect(output).toContain("deco:load");
+        expect(output).not.toContain("editor::inject");
         expect(output).not.toMatch(/createCMS|AsyncLocalStorage/);
         const inputs = Object.keys(JSON.parse(readFileSync(metafile, "utf-8")).inputs);
         for (const input of inputs) {

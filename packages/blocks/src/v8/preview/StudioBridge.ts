@@ -2,11 +2,11 @@
  * The Studio bridge: what lets Deco Studio's site editor drive a page it
  * shows in an iframe (v7's `LiveControls`).
  *
- * When the frame loads, Studio posts `{ type: "editor::inject", args: {
- * script } }` to it; the bridge runs that script, which draws the section
- * overlay and handles Studio's `cms-editor::*` messages itself. The bridge also
- * answers v7's `scrollToComponent` and `editor::rerender` (same-origin
- * navigation only).
+ * The bridge answers v7's `scrollToComponent` and `editor::rerender`
+ * (same-origin navigation only). It runs no code Studio sends: Studio's own
+ * editor code (the section overlay, the HTML swap after a save) reaches the
+ * page through the Studio channel (`StudioChannel`: `deco:ready` /
+ * `deco:load`), which imports versioned modules from Studio's exact origins.
  *
  * In a frame it answers only messages from the parent window whose origin is
  * one of `trustedOrigins`. On a page that isn't framed it answers no message;
@@ -19,8 +19,8 @@
  * origin: under a test runner that proxies the site, the runner's own messages
  * would navigate the page.
  *
- * An inline script, not an effect: Studio posts on the frame's `load` event,
- * which can come before React hydrates, so the listener must exist as soon as
+ * An inline script, not an effect: Studio may post as soon as the frame
+ * loads, which can come before React hydrates, so the listener must exist as soon as
  * the HTML is parsed. No hooks, so it renders from a Next.js Server Component
  * as well as from a client tree. Its settings travel in `data-*` attributes;
  * the script itself is static.
@@ -103,9 +103,7 @@ if(window.self!==window.top){
     var d=e.data;
     if(!d||typeof d!=="object")return;
     var a=d.args||{};
-    if(d.type==="editor::inject"){
-      if(typeof a.script==="string"){try{(0,eval)(a.script)}catch(err){console.error("[deco] Studio script failed:",err)}}
-    }else if(d.type==="scrollToComponent"){
+    if(d.type==="scrollToComponent"){
       var id=typeof a.id==="string"?a.id:"";
       if(!id)return;
       var el=null,all=document.querySelectorAll("[data-manifest-key]");

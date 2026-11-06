@@ -12,10 +12,11 @@
  *   `STUDIO_ORIGINS`; outside it, "." opens the page in Studio's editor, with
  *   the page's `pathTemplate` from the route's loader data) and `DraftBadge`
  *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`;
- * - `StudioChannel` (every page, production included: framed by Studio's
- *   origin, `studioOrigin` / `DECO_STUDIO_ORIGIN` / Studio's production
- *   origin, it loads the editor's own modules from that origin; otherwise it
- *   does nothing). A site with a CSP allows that origin in `script-src`.
+ * - `StudioChannel` (every page, production included: framed by one of
+ *   Studio's origins, `studioOrigins` / `DECO_STUDIO_ORIGIN` / Studio's
+ *   production and staging origins, each exact, it loads the editor's own
+ *   modules from that origin; otherwise it does nothing). The worker adds the
+ *   same origins to the page's CSP `script-src` and `frame-ancestors`.
  *
  * A site that keeps its own document renders `DecoPreview` in its `<body>`
  * for the bridge, the badge and the draft they read.
@@ -23,7 +24,7 @@
 import { DraftBadge, StudioBridge, StudioChannel } from "@decocms/blocks/preview";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { STUDIO_ORIGINS, studioOrigin } from "../studio.ts";
+import { STUDIO_ORIGINS, studioOrigins } from "../studio.ts";
 import { pageValues, publishScript } from "./pageValues.ts";
 import { DATA_EVENT_OBSERVER, eventsBootstrap, PROGRESS_CSS } from "./scripts.ts";
 
@@ -104,10 +105,10 @@ function StudioPieces({
   site,
   editShortcut,
   nonce,
-  studioOrigin: origin,
+  studioOrigins: origins,
   draft,
   draftUnavailable,
-}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce" | "studioOrigin"> & {
+}: Pick<DecoPreviewProps, "site" | "editShortcut" | "nonce" | "studioOrigins"> & {
   draft: string | undefined;
   draftUnavailable?: boolean;
 }) {
@@ -123,7 +124,7 @@ function StudioPieces({
         page={{ pathTemplate, id: pageId }}
         nonce={nonce}
       />
-      <StudioChannel studioOrigin={studioOrigin(origin)} nonce={nonce} />
+      <StudioChannel studioOrigins={studioOrigins(origins)} nonce={nonce} />
       <DraftBadge pointer={draft ?? null} unavailable={draftUnavailable} />
     </>
   );
@@ -142,10 +143,12 @@ export interface DecoPreviewProps {
   /** The CSP nonce for the inline scripts, when the site enforces one. */
   nonce?: string;
   /**
-   * Studio's origin for the Studio channel. Default: `DECO_STUDIO_ORIGIN`,
-   * else Studio's production origin (`STUDIO_ORIGIN`).
+   * The Studio origins the Studio channel trusts, each an exact origin.
+   * Default: `DECO_STUDIO_ORIGIN` (comma-separated), else Studio's production
+   * and staging origins (`DEFAULT_STUDIO_ORIGINS`). A site that sets it sets
+   * the worker's `studioOrigins` too, so its CSP allows the same origins.
    */
-  studioOrigin?: string;
+  studioOrigins?: readonly string[];
 }
 
 /**
@@ -154,7 +157,7 @@ export interface DecoPreviewProps {
  * draft and CDN segment token published to the browser, `StudioBridge` and
  * `DraftBadge`. Render it once, in the `<body>`.
  */
-export function DecoPreview({ site, editShortcut, nonce, studioOrigin }: DecoPreviewProps) {
+export function DecoPreview({ site, editShortcut, nonce, studioOrigins }: DecoPreviewProps) {
   const values = pageValues();
   const publish = publishScript(values);
   return (
@@ -170,7 +173,7 @@ export function DecoPreview({ site, editShortcut, nonce, studioOrigin }: DecoPre
         site={site}
         editShortcut={editShortcut}
         nonce={nonce}
-        studioOrigin={studioOrigin}
+        studioOrigins={studioOrigins}
         draft={values.draft}
         draftUnavailable={values.draftUnavailable}
       />
@@ -201,10 +204,12 @@ export interface DecoDocumentProps {
   /** The CSP nonce for the inline scripts, when the site enforces one. */
   nonce?: string;
   /**
-   * Studio's origin for the Studio channel. Default: `DECO_STUDIO_ORIGIN`,
-   * else Studio's production origin (`STUDIO_ORIGIN`).
+   * The Studio origins the Studio channel trusts, each an exact origin.
+   * Default: `DECO_STUDIO_ORIGIN` (comma-separated), else Studio's production
+   * and staging origins (`DEFAULT_STUDIO_ORIGINS`). A site that sets it sets
+   * the worker's `studioOrigins` too, so its CSP allows the same origins.
    */
-  studioOrigin?: string;
+  studioOrigins?: readonly string[];
   /** Rendered after the page (toasts, drawers, analytics). */
   children?: ReactNode;
 }
@@ -218,7 +223,7 @@ export function DecoDocument({
   outlet = "main",
   editShortcut,
   nonce,
-  studioOrigin,
+  studioOrigins,
   children,
 }: DecoDocumentProps) {
   // Pages wait for this signal before running work that must follow hydration.
@@ -257,7 +262,7 @@ export function DecoDocument({
           site={site}
           editShortcut={editShortcut}
           nonce={nonce}
-          studioOrigin={studioOrigin}
+          studioOrigins={studioOrigins}
           draft={values.draft}
           draftUnavailable={values.draftUnavailable}
         />

@@ -189,19 +189,35 @@ function post(data: unknown, origin: string, source: Window | null = window.pare
   window.dispatchEvent(new MessageEvent("message", { data, origin, source }));
 }
 
-type Probe = { __probe?: string[] };
-const probe = () => ((globalThis as Probe).__probe ??= []);
-const injectProbe = (tag: string) => ({
-  type: "editor::inject",
-  args: { script: `globalThis.__probe.push(${JSON.stringify(tag)})` },
-});
+/**
+ * Whether the bridge answered: a `scrollToComponent` for a section keyed
+ * `tag` (created on demand) records the tag when the bridge scrolls to it.
+ */
+const probe = (): string[] => {
+  const g = globalThis as { __probe?: string[] };
+  g.__probe ??= [];
+  return g.__probe;
+};
+const scrollProbe = (tag: string) => {
+  const section = document.createElement("section");
+  section.setAttribute("data-manifest-key", tag);
+  section.setAttribute("data-probe", "");
+  document.body.appendChild(section);
+  return { type: "scrollToComponent", args: { id: tag } };
+};
 
 describe("StudioBridge", () => {
   let unmount: (() => void) | undefined;
+  const realScroll = Element.prototype.scrollIntoView;
   beforeEach(() => {
-    (globalThis as Probe).__probe = [];
+    (globalThis as { __probe?: string[] }).__probe = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      probe().push(this.getAttribute("data-manifest-key") ?? "");
+    };
   });
   afterEach(() => {
+    Element.prototype.scrollIntoView = realScroll;
+    for (const el of document.querySelectorAll("[data-probe]")) el.remove();
     unmount?.();
     unmount = undefined;
     vi.restoreAllMocks();
@@ -236,10 +252,19 @@ describe("StudioBridge", () => {
     expect(html).not.toContain("<script>x");
   });
 
-  it("runs Studio's editor::inject in a frame, the way Studio v8 sends it", () => {
+  it("runs no script Studio sends: editor::inject is gone (Studio's code comes through the Studio channel)", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
-    post(injectProbe("studio"), "https://studio.decocms.com");
-    expect(probe()).toEqual(["studio"]);
+    post(
+      { type: "editor::inject", args: { script: "globalThis.__probe.push('ran')" } },
+      "https://studio.decocms.com",
+    );
+    post(
+      { type: "editor::inject", args: { script: "throw new Error('x')" } },
+      "https://studio.decocms.com",
+    );
+    expect(probe()).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
   });
 
   it("answers exactly the origins Studio's list matches: https, default port, decocms.com or a name under it", () => {
@@ -259,7 +284,7 @@ describe("StudioBridge", () => {
       "null",
       "",
     ];
-    for (const origin of origins) post(injectProbe(origin), origin);
+    for (const origin of origins) post(scrollProbe(origin), origin);
     expect(probe()).toEqual([
       "https://studio.decocms.com",
       "https://studio-stg.decocms.com",
@@ -270,8 +295,8 @@ describe("StudioBridge", () => {
 
   it("trusts no origin of its own: with an empty list it answers nothing, not even Studio", () => {
     unmount = mountBridge({ site: "shop", trustedOrigins: [] }, true);
-    post(injectProbe("studio"), "https://studio.decocms.com");
-    post(injectProbe("self"), window.location.origin);
+    post(scrollProbe("studio"), "https://studio.decocms.com");
+    post(scrollProbe("self"), window.location.origin);
     expect(probe()).toEqual([]);
   });
 
@@ -286,34 +311,36 @@ describe("StudioBridge", () => {
       "https://a.studio.test",
       "https://studio.test",
     ]) {
-      post(injectProbe(origin), origin);
+      post(scrollProbe(origin), origin);
     }
     expect(probe()).toEqual(["http://localhost:4000", "https://a.studio.test"]);
   });
 
   it("ignores a Studio-origin message that doesn't come from the parent window", () => {
     unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
-    post(injectProbe("self"), "https://studio.decocms.com", window);
+    post(scrollProbe("self"), "https://studio.decocms.com", window);
     expect(probe()).toEqual([]);
   });
 
   it("does nothing when the page isn't framed", () => {
     unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, false);
-    post(injectProbe("top"), "https://studio.decocms.com", null);
+    post(scrollProbe("top"), "https://studio.decocms.com", null);
     expect(probe()).toEqual([]);
   });
 
-  it("ignores malformed messages and reports a failing script without throwing", () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("ignores malformed messages without throwing", () => {
     unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
-    for (const data of [null, "editor::inject", { type: "editor::inject" }, { type: "other" }]) {
+    for (const data of [
+      null,
+      "scrollToComponent",
+      { type: "scrollToComponent" },
+      { type: "scrollToComponent", args: { id: 42 } },
+      { type: "editor::rerender", args: {} },
+      { type: "other" },
+    ]) {
       post(data, "https://studio.decocms.com");
     }
-    post(
-      { type: "editor::inject", args: { script: "throw new Error('x')" } },
-      "https://studio.decocms.com",
-    );
-    expect(error).toHaveBeenCalledTimes(1);
+    expect(probe()).toEqual([]);
   });
 
   it("scrolls to a section on scrollToComponent", () => {
@@ -336,7 +363,7 @@ describe("StudioBridge", () => {
     unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     const second = mountBridge({ site: "shop", trustedOrigins: STUDIO }, true);
     // The second copy saw the global flag and returned before adding a listener.
-    post(injectProbe("once"), "https://studio.decocms.com");
+    post(scrollProbe("once"), "https://studio.decocms.com");
     expect(probe()).toEqual(["once"]);
     second();
   });

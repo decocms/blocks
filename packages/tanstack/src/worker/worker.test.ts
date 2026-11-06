@@ -116,7 +116,7 @@ describe("always on: security headers and Studio framing", () => {
     expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin-allow-popups");
   });
 
-  it("the site's enforced CSP gets frame-ancestors added; its report-only CSP is sent as is", async () => {
+  it("the site's enforced CSP gets frame-ancestors added and Studio's origins in script-src (from default-src); so does its report-only script-src", async () => {
     const { get } = setup({
       csp: {
         enforce: ["default-src 'self'", "object-src 'none'"],
@@ -126,11 +126,70 @@ describe("always on: security headers and Studio framing", () => {
     });
     const res = await get("/");
     expect(res.headers.get("content-security-policy")).toBe(
-      "default-src 'self'; object-src 'none'; frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio https://*.editor.example.com",
+      "default-src 'self'; object-src 'none'; script-src 'self' https://studio.decocms.com https://studio-stg.decocms.com; frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio https://*.editor.example.com",
     );
     expect(res.headers.get("content-security-policy-report-only")).toBe(
-      "script-src 'self'; img-src https:",
+      "script-src 'self' https://studio.decocms.com https://studio-stg.decocms.com; img-src https:",
     );
+  });
+
+  it("adds Studio's origins to the site's script-src and script-src-elem, once each", async () => {
+    const { get } = setup({
+      csp: {
+        enforce:
+          "script-src 'self' 'nonce-x' https://studio.decocms.com; script-src-elem 'self'; default-src 'self'",
+      },
+    });
+    expect((await get("/")).headers.get("content-security-policy")).toBe(
+      "script-src 'self' 'nonce-x' https://studio.decocms.com https://studio-stg.decocms.com; " +
+        "script-src-elem 'self' https://studio.decocms.com https://studio-stg.decocms.com; default-src 'self'; " +
+        "frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio",
+    );
+  });
+
+  it("leaves scripts alone when the site's CSP doesn't restrict them, or forbids them all", async () => {
+    const open = setup({ csp: { enforce: "object-src 'none'" } });
+    expect((await open.get("/")).headers.get("content-security-policy")).toMatch(
+      /^object-src 'none'; frame-ancestors /,
+    );
+    const none = setup({ csp: { enforce: "default-src 'none'; frame-ancestors 'self'" } });
+    expect((await none.get("/")).headers.get("content-security-policy")).toBe(
+      "default-src 'none'; frame-ancestors 'self'",
+    );
+    const noScripts = setup({ csp: { enforce: "script-src 'none'; frame-ancestors 'self'" } });
+    expect((await noScripts.get("/")).headers.get("content-security-policy")).toBe(
+      "script-src 'none'; frame-ancestors 'self'",
+    );
+  });
+
+  describe("Studio's origins: one list for script-src and frame-ancestors", () => {
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    afterEach(() => {
+      if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+      else process.env.DECO_STUDIO_ORIGIN = env;
+    });
+
+    it("DECO_STUDIO_ORIGIN (comma-separated) replaces the default; values that aren't origins are dropped", async () => {
+      process.env.DECO_STUDIO_ORIGIN =
+        " http://localhost:3000 , https://studio.example.com/, 'unsafe-eval', https://*.x.com, https://a.com/p";
+      const { get } = setup({ csp: { enforce: "script-src 'self'" } });
+      expect((await get("/")).headers.get("content-security-policy")).toBe(
+        "script-src 'self' http://localhost:3000 https://studio.example.com; " +
+          "frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio http://localhost:3000 https://studio.example.com",
+      );
+    });
+
+    it("the worker's studioOrigins option wins over DECO_STUDIO_ORIGIN", async () => {
+      process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000";
+      const { get } = setup({
+        csp: { enforce: "script-src 'self'" },
+        studioOrigins: ["https://studio.example.com"],
+      });
+      const csp = (await get("/")).headers.get("content-security-policy") ?? "";
+      expect(csp).toMatch(/^script-src 'self' https:\/\/studio\.example\.com; frame-ancestors /);
+      expect(csp).toContain(" https://studio.example.com");
+      expect(csp).not.toContain("localhost:3000");
+    });
   });
 
   it("a site CSP that sets its own frame-ancestors keeps it", async () => {

@@ -123,6 +123,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   // The draft names and Studio's origins live in each binding's root, not in @decocms/blocks.
   "@decocms/tanstack": new Set([
     "ASSIGNMENTS_HEADER",
+    "DEFAULT_STUDIO_ORIGINS",
     "DRAFT_COOKIE",
     "DRAFT_PARAM",
     "draftResponseHeaders",
@@ -130,9 +131,11 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "STUDIO_FRAME_ANCESTORS",
     "STUDIO_ORIGIN",
     "STUDIO_ORIGINS",
-    "studioOrigin",
+    "StudioCspOptions",
+    "studioOrigins",
     "VERSION_HEADER",
     "VISITOR_HEADER",
+    "withStudioCsp",
   ]),
   "@decocms/tanstack/worker": "*",
   "@decocms/tanstack/server": "*",
@@ -152,6 +155,7 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
   // v7's DraftPreviewIndicator kept its name but now shows what bindDraft bound: reported.
   "@decocms/nextjs": new Set([
     "ASSIGNMENTS_HEADER",
+    "DEFAULT_STUDIO_ORIGINS",
     "DRAFT_COOKIE",
     "DRAFT_PARAM",
     "DraftBadge",
@@ -164,10 +168,12 @@ export const V8_API: Record<string, ReadonlySet<string> | "*"> = {
     "StudioBridge",
     "StudioBridgeProps",
     "StudioPage",
+    "StudioCspOptions",
     "StudioPageInfo",
-    "studioOrigin",
+    "studioOrigins",
     "VERSION_HEADER",
     "VISITOR_HEADER",
+    "withStudioCsp",
   ]),
   "@decocms/nextjs/config": new Set([
     "DECO_DRAFT_HEADERS",
@@ -493,7 +499,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/blocks\/sdk\/csp$/,
-    "createDecoWorker's csp option (@decocms/tanstack/worker): Studio's frame-ancestors are always added",
+    "createDecoWorker's csp option (@decocms/tanstack/worker): Studio's origins are always added to frame-ancestors and script-src",
   ],
   [
     /^@decocms\/blocks\/sdk\/redirects$/,

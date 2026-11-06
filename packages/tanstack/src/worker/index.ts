@@ -24,7 +24,8 @@
  *   copy never carries one. A page request with `Authorization` is never
  *   handed to it and answers `private, no-cache, no-store`. A response with no
  *   `CDN-Cache-Control` tells the CDN `no-store`, at one exit.
- * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
+ * - Security headers, and Studio's origins in the CSP (`frame-ancestors`,
+ *   `script-src`: the Studio channel's list, `studioOrigins`); immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - The visitor: on a page or server-function request, `readVisitor` from
  *   `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new
@@ -51,6 +52,7 @@ import { runInScope } from "@decocms/tanstack/scope";
 import { ASSIGNMENTS_HEADER, serializeAssignments } from "../assignments.ts";
 import { draftResponseHeaders, RELEASE_CHECK_HEADER, VERSION_HEADER } from "../draft.ts";
 import { PAGE_STATUS_HEADER } from "../shared.ts";
+import { studioOrigins } from "../studio.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { type RequestAssignments, readAssignments } from "./assignments.ts";
 import { isCacheable } from "./cache.ts";
@@ -128,8 +130,19 @@ export interface DecoWorkerOptions<Env = unknown> {
   cms: CMS;
   /** Local development (`import.meta.env.DEV`): `pageCache` is never called, loopback may frame the site. */
   dev?: boolean;
-  /** The site's Content-Security-Policy. Studio's `frame-ancestors` is always added. */
+  /**
+   * The site's Content-Security-Policy. Studio's origins are always added:
+   * to `frame-ancestors` (when the site sets none) and to `script-src`.
+   */
   csp?: CspOptions;
+  /**
+   * The Studio origins the CSP allows (`script-src`, `frame-ancestors`),
+   * exact origins. Default: `DECO_STUDIO_ORIGIN` (comma-separated), else
+   * Studio's production and staging origins (`studioOrigins()` of
+   * `@decocms/tanstack`). A site that sets `studioOrigins` on `DecoDocument`
+   * sets the same list here; `DECO_STUDIO_ORIGIN` sets both.
+   */
+  studioOrigins?: readonly string[];
   /**
    * The site's own page cache (the example worker entry the README links), called for
    * every page and server-function request `isCacheable` accepts. Without
@@ -231,7 +244,9 @@ function mutable(response: Response): Response {
 export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>): DecoWorker<Env> {
   const { cms, serverEntry } = options;
   const dev = options.dev === true;
-  const securityHeaders = htmlSecurityHeaders(options.csp, dev);
+  // On the first HTML response, not at creation: the environment is read where
+  // the document reads it.
+  let securityHeaders: Record<string, string> | undefined;
   const preloadLinks = [
     ...(options.preload?.styles ?? []).map((href) => `<${href}>; rel=preload; as=style`),
     ...(options.preload?.fonts ?? []).map((href) => `<${href}>; rel=preload; as=font; crossorigin`),
@@ -565,6 +580,11 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     if (served.visitorCookie) response.headers.append("Set-Cookie", served.visitorCookie);
     dedupeSetCookies(response);
     if (isHtml(response)) {
+      securityHeaders ??= htmlSecurityHeaders(
+        options.csp,
+        dev,
+        studioOrigins(options.studioOrigins),
+      );
       for (const [k, v] of Object.entries(securityHeaders)) {
         if (!response.headers.has(k)) response.headers.set(k, v);
       }
