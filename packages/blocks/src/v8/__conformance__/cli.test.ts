@@ -399,7 +399,7 @@ describe("cli.mdx", () => {
     expect(await cli.runCli(["login"], { cwd: f.root, reporter: cli.silentReporter })).toBe(0);
   });
 
-  it("cli-03: the content commands; `deco dev`, `deco content`, `deco serve` and others are unknown", async () => {
+  it("cli-03: the content commands; `deco dev`, `deco serve` and others are unknown", async () => {
     const help = await deco(["--help"], tmpDir());
     const commands = [...help.out.matchAll(/^ {2}(\w+) {2,}\S/gm)].map((m) => m[1]);
     expect(commands).toEqual([
@@ -411,9 +411,11 @@ describe("cli.mdx", () => {
       "drafts",
       "releases",
       "check",
+      // Kept for content without a site (git-backed .deco/blocks, what the v7 migration writes).
+      "content",
       "schema",
     ]);
-    for (const unknown of ["dev", "build", "content", "serve", "generate", "migrate"]) {
+    for (const unknown of ["dev", "build", "serve", "generate", "migrate"]) {
       const r = await deco([unknown], tmpDir());
       expect(r.code).toBe(64);
       expect(r.out).toContain(`unknown command "${unknown}"`);

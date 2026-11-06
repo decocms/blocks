@@ -132,6 +132,27 @@ export function resolveSite(
   paths: DecoPaths,
   env: Record<string, string | undefined>,
 ): { site: string; from: string } {
+  const found = findSite(paths, env);
+  if (!found) {
+    throw usageError(
+      `no Studio site: set DECO_SITE in the environment, or in ${paths.root}'s .env, .dev.vars, ` +
+        "or vars.DECO_SITE of wrangler.jsonc, wrangler.json or wrangler.toml (looked in that order)",
+    );
+  }
+  if (!SITE_RE.test(found.site)) {
+    throw usageError(`DECO_SITE (from ${found.from}) isn't a site name: "${found.site}"`);
+  }
+  return found;
+}
+
+/**
+ * `DECO_SITE` as `resolveSite` looks for it, unchecked; `null` when it is set
+ * nowhere (a site whose content is its git-backed `.deco/blocks`).
+ */
+export function findSite(
+  paths: DecoPaths,
+  env: Record<string, string | undefined>,
+): { site: string; from: string } | null {
   let found: { site: string; from: string } | undefined;
   const fromEnv = env.DECO_SITE?.trim();
   if (fromEnv) found = { site: fromEnv, from: "the environment" };
@@ -147,16 +168,7 @@ export function resolveSite(
     const value = siteFrom(file, text)?.trim();
     if (value) found = { site: value, from: file };
   }
-  if (!found) {
-    throw usageError(
-      `no Studio site: set DECO_SITE in the environment, or in ${paths.root}'s .env, .dev.vars, ` +
-        "or vars.DECO_SITE of wrangler.jsonc, wrangler.json or wrangler.toml (looked in that order)",
-    );
-  }
-  if (!SITE_RE.test(found.site)) {
-    throw usageError(`DECO_SITE (from ${found.from}) isn't a site name: "${found.site}"`);
-  }
-  return found;
+  return found ?? null;
 }
 
 export interface PullEntry {

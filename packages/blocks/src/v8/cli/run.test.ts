@@ -45,6 +45,8 @@ describe("flags", () => {
     expect(parseFlags("schema", ["--check"])).toEqual({ check: true });
     expect(parseFlags("pull", ["--no-color", "--color"])).toEqual({ color: true });
     expect(parseFlags("releases", [])).toEqual({});
+    expect(parseFlags("content", [])).toEqual({});
+    expect(parseFlags("content", ["--watch"])).toEqual({ watch: true });
   });
 
   it.each([
@@ -56,6 +58,8 @@ describe("flags", () => {
     [["--watch=yes"], "schema", /--watch takes no value/],
     [["new", "pdp", "more"], "drafts", /unexpected argument "more"/],
     [["--force=yes"], "pull", /--force takes no value/],
+    [["extra"], "content", /unexpected argument "extra"/],
+    [["--watch=yes"], "content", /--watch takes no value/],
   ])("rejects %j for %s", (args, command, message) => {
     expect(() => parseFlags(command, args)).toThrow(message);
   });
@@ -74,8 +78,7 @@ describe("runCli", () => {
     expect(await runCli(["deploy"], { reporter: out })).toBe(64);
     expect(out.text()).toContain('unknown command "deploy"');
     expect(await runCli(["check", "--nope"], { reporter: recorder() })).toBe(64);
-    // deco content and deco serve are gone.
-    expect(await runCli(["content"], { reporter: recorder() })).toBe(64);
+    // deco serve is gone (deco content stays, for content without a site).
     expect(await runCli(["serve"], { reporter: recorder() })).toBe(64);
     const proto = recorder();
     expect(await runCli(["constructor"], { reporter: proto })).toBe(64);
@@ -92,6 +95,55 @@ describe("runCli", () => {
       `no .deco/ found from ${fixture.root}; run inside your app or pass --root`,
     );
   });
+
+  it("deco content prints the walk-up error when there's no .deco/ (exit 1)", async () => {
+    fixture = createFixture();
+    fs.rmSync(path.join(fixture.root, ".deco"), { recursive: true });
+    const out = recorder();
+    expect(await runCli(["content"], { cwd: fixture.root, reporter: out })).toBe(1);
+    expect(out.text()).toBe(
+      `no .deco/ found from ${fixture.root}; run inside your app or pass --root`,
+    );
+  });
+
+  it("with no DECO_SITE, runs schema, content and check on .deco/blocks, as before hosted releases", async () => {
+    fixture = createFixture();
+    for (const [file, content] of Object.entries(STORE_FILES))
+      fixture.write(`apps/store/${file}`, content);
+    fixture.write("apps/store/src/deco.ts", fixture.read("src/deco.ts"));
+    fixture.write("apps/store/.deco/blocks/Summer.json", hero);
+    fixture.write("apps/store/.deco/blocks/CMS.json", { __resolveType: "cms-settings" });
+    const out = recorder();
+    const args = ["--root", "apps/store"];
+    const local = { cwd: fixture.root, reporter: out, env: {} };
+    expect(await runCli(["schema", ...args], local)).toBe(0);
+    expect(await runCli(["content", ...args], local)).toBe(0);
+    expect(await runCli(["check", ...args], local)).toBe(0);
+    expect(fixture.exists("apps/store/.deco/blocks.gen.ts")).toBe(true);
+    expect(out.lines.at(-1)?.message).toBe("2 saved blocks checked: 0 errors, 0 warnings");
+    // The local blocks are what it checks: a bad one fails it.
+    fixture.write("apps/store/.deco/blocks/Bad.json", { ...hero, title: 3 });
+    const failed = recorder();
+    expect(await runCli(["check", ...args], { ...local, reporter: failed })).toBe(1);
+    expect(failed.text()).toContain("Bad.json");
+  }, 60_000);
+
+  it("deco content --watch regenerates when a file is added", async () => {
+    fixture = createFixture({ ".deco/blocks/A.json": hero });
+    let stop!: () => void;
+    const until = new Promise<void>((resolve) => {
+      stop = resolve;
+    });
+    const out = recorder();
+    const done = runCli(["content", "--watch"], { cwd: fixture.root, reporter: out, until });
+    await waitFor(() => out.text().includes("watching for changes"));
+    await settle();
+    expect(fixture.read(".deco/blocks.gen.ts")).toContain('"A"');
+    fixture.write(".deco/blocks/B.json", hero);
+    await waitFor(() => fixture.read(".deco/blocks.gen.ts").includes('"B"'));
+    stop();
+    expect(await done).toBe(0);
+  }, 20_000);
 
   it("runs schema and check against --root from a monorepo root", async () => {
     fixture = createFixture();

@@ -70,15 +70,16 @@ describe("releases-and-deployment", () => {
     expect(await run(["check"], fixture.root)).not.toBe(0);
   }, 60_000);
 
-  it("RD-1: the real deco bin runs `deco check` with exit codes; `deco content` is gone", () => {
+  it("RD-1: the real deco bin runs `deco check` with exit codes; `deco content` writes the module", () => {
     fixture = createFixture({ ".deco/blocks/Home.json": home });
     fixture.write(".deco/schema.gen.json", meta);
+    // Kept for content without a site (git-backed .deco/blocks, what the v7 migration writes).
     const content = spawnSync(process.execPath, [BIN, "content"], {
       cwd: fixture.root,
       encoding: "utf8",
     });
-    expect(content.status).toBe(64);
-    expect(content.stderr).toContain('unknown command "content"');
+    expect(content.status, content.stderr).toBe(0);
+    expect(fixture.exists(".deco/blocks.gen.ts")).toBe(true);
     const fits = spawnSync(process.execPath, [BIN, "check"], {
       cwd: fixture.root,
       encoding: "utf8",

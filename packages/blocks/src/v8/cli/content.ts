@@ -1,10 +1,11 @@
 /**
  * Reading `.deco/blocks` (every command that reads saved blocks), and the
  * content module, `.deco/blocks.gen.ts`, for content without a site: tests,
- * the example apps and self-hosted content. It never reads the block map.
- * There is no `deco content` command: a site with `site` set gets its
- * content at runtime, and `.deco/blocks` is what `deco pull` wrote. The
- * module is written by `content()` from `@decocms/blocks/cli`.
+ * the example apps, self-hosted content and git-backed sites
+ * (`createCMS({ blocks, content })`, what the v7 migration writes). It never
+ * reads the block map. `deco content` (and `content()` from
+ * `@decocms/blocks/cli`) writes the module; a site with `site` set gets its
+ * content at runtime instead, and its `.deco/blocks` is what `deco pull` wrote.
  */
 import fs from "node:fs";
 import path from "node:path";

@@ -6,7 +6,7 @@
  * object, and what a person reads goes to stderr.
  */
 import { readSchemaFile, reportCheck } from "./check/index.ts";
-import { savedBlocksFromMap } from "./content.ts";
+import { content, readSavedBlocks, savedBlocksFromMap, writeContent } from "./content.ts";
 import { consoleReporter, type Reporter, withColor } from "./log.ts";
 import {
   diff,
@@ -23,7 +23,7 @@ import {
 } from "./remote/commands.ts";
 import type { CommandRunner, Env } from "./remote/env.ts";
 import type { Fetch } from "./remote/http.ts";
-import { checkDraftName, requireDraftName } from "./remote/local.ts";
+import { checkDraftName, findSite, requireDraftName } from "./remote/local.ts";
 import { CliError, decoPaths, EXIT, findDecoRoot, usageError } from "./root.ts";
 import { reportSchema, schema, writeSchema } from "./schema/index.ts";
 import { watchFiles, watchTree } from "./watch.ts";
@@ -64,6 +64,10 @@ const COMMANDS: Record<string, CommandSpec> = {
     usage: "deco check    [--draft=<name> | --revision=<id>]",
     flags: { ...DRAFT, revision: "string" },
   },
+  content: {
+    usage: "deco content  [--watch]",
+    flags: { watch: "boolean" },
+  },
   schema: {
     usage: "deco schema   [--watch | --check]\n  deco schema push",
     flags: { watch: "boolean", check: "boolean" },
@@ -85,7 +89,10 @@ Commands:
   publish   make a draft live (prints its changes first)
   drafts    list, create, discard a draft, or print its preview link
   releases  list the published revisions, newest first, 50 a page
-  check     check that the content fits the schema (production; or a draft, or a revision)
+  check     check that the content fits the schema (production; or a draft, or a revision;
+            with no DECO_SITE set anywhere, the saved blocks in .deco/blocks)
+  content   turn .deco/blocks into the content module, .deco/blocks.gen.ts (content without
+            a site: createCMS({ blocks, content }))
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
             (--check: write nothing, fail when the file is out of date; for CI)
             schema push: upload it so Studio can draw forms (CI, on production deploys)
@@ -341,7 +348,14 @@ async function runCommand(
       // No flag: production (latest.json, then each block by hash, from the
       // CDN), always, even when .deco/blocks exists. No .deco/ at all stays
       // exit 1 for check, as before.
-      findDecoRoot(base);
+      const paths = decoPaths(findDecoRoot(base));
+      if (draft === null && revision === null && findSite(paths, options.env) === null) {
+        // No Studio site: the content is the git-backed .deco/blocks (a site
+        // on createCMS({ blocks, content }), a v7 site being migrated), checked
+        // as deco check always did.
+        const meta = readSchemaFile(paths.schema);
+        return checkOutcome(reportCheck(meta, readSavedBlocks(paths.blocks), reporter));
+      }
       const ctx = remote();
       const meta = readSchemaFile(ctx.paths.schema);
       const source = await remoteBlocks(ctx, {
@@ -350,6 +364,23 @@ async function runCommand(
       });
       reporter.info(`checking ${source.label}`);
       return checkOutcome(reportCheck(meta, savedBlocksFromMap(source.blocks), reporter));
+    }
+    case "content": {
+      if (!flags.watch) return legacy(await content(base));
+      const paths = decoPaths(findDecoRoot(base));
+      const once = async () => {
+        const result = await writeContent(paths);
+        if (result.changed) reporter.info(`wrote .deco/blocks.gen.ts (${result.count} blocks)`);
+      };
+      await content({ ...base, watching: true });
+      await watchLoop(
+        paths.blocks,
+        (rel) => rel.endsWith(".json"),
+        once,
+        options.until ?? stopSignal(),
+        reporter,
+      );
+      return { exitCode: EXIT.ok, result: {} };
     }
     case "schema": {
       if (positionals.length > 0) {

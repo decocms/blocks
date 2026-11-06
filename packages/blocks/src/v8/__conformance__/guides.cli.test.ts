@@ -769,7 +769,18 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
     const help = p.deco("--help").out;
     const commands = [...help.matchAll(/^ {2}(\w+) {2,}/gm)].map((m) => m[1]);
     expect(commands.sort()).toEqual(
-      ["check", "diff", "drafts", "login", "publish", "pull", "push", "releases", "schema"].sort(),
+      [
+        "check",
+        "content",
+        "diff",
+        "drafts",
+        "login",
+        "publish",
+        "pull",
+        "push",
+        "releases",
+        "schema",
+      ].sort(),
     );
     expect(help).toMatch(/deco schema\s+\[--watch \| --check\]/);
     expect(help).toMatch(/deco schema push/);
@@ -778,7 +789,9 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
       /Every command finds \.deco\/ by walking up from the current folder, or takes --root/,
     );
     expect(help).toMatch(/Every command takes --json/);
-    expect(help).not.toMatch(/deco serve|deco content/);
+    // deco content stays for content without a site; deco serve is gone.
+    expect(help).toMatch(/deco content\s+\[--watch\]/);
+    expect(help).not.toMatch(/deco serve/);
   });
 
   it("dd-09: `deco publish` needs a draft: it never publishes without one", () => {
