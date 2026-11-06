@@ -4,8 +4,8 @@
  * Scope: the read-time publication gate — `isPublishedStatus` / `isLivePost`,
  * `filterRoutablePosts`, and the fact that the gate runs *before* pagination so
  * `count` yields `count` renderable posts. Also covers the counterpart on the
- * detail loaders: a non-live post still renders (it is the CMS preview) but is
- * marked `noIndexing`.
+ * detail loaders: a non-live post only renders in a `?draft=true` preview, and
+ * then is marked `noIndexing`.
  *
  * Deliberately not covered here: the strict-parsing edge cases of
  * `scheduledTime` (see `date.test.ts`) and anything requiring a records
@@ -145,16 +145,46 @@ describe("listing pagination applies the gate before slicing", () => {
   });
 });
 
-describe("detail loaders serve non-live posts as previews, unindexed", () => {
+describe("detail loaders serve non-live posts only in a ?draft=true preview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("BlogPostPage marks a draft noIndexing but still renders it", () => {
+  const preview = new Request("http://localhost/blog/d?draft=true");
+
+  it("BlogPostPage renders a draft in preview, marked noIndexing", () => {
     mockGetRecords.mockReturnValue([post({ slug: "d", status: "draft" })]);
-    const result = BlogPostPageLoader({ slug: "d" });
+    const result = BlogPostPageLoader({ slug: "d" }, preview);
     expect(result?.post.slug).toBe("d");
     expect(result?.seo?.noIndexing).toBe(true);
+  });
+
+  it("BlogPostPage answers null for a draft without the flag", () => {
+    mockGetRecords.mockReturnValue([post({ slug: "d", status: "draft" })]);
+    expect(BlogPostPageLoader({ slug: "d" })).toBeNull();
+    for (const query of ["", "?draft=1", "?draft=false", "?draft", "?__draft=true"]) {
+      const req = new Request(`http://localhost/blog/d${query}`);
+      expect(BlogPostPageLoader({ slug: "d" }, req)).toBeNull();
+    }
+  });
+
+  it("BlogPostPage gates a scheduled post until its instant, unless previewed", () => {
+    mockGetRecords.mockReturnValue([
+      post({ slug: "s", status: "scheduled", scheduledDatetime: iso(HOUR) }),
+      post({ slug: "p", status: "scheduled", scheduledDatetime: iso(-HOUR) }),
+    ]);
+    expect(BlogPostPageLoader({ slug: "s" })).toBeNull();
+    expect(BlogPostPageLoader({ slug: "s" }, preview)?.seo?.noIndexing).toBe(true);
+    expect(BlogPostPageLoader({ slug: "p" })?.seo?.noIndexing).toBe(false);
+  });
+
+  it("BlogPostPage reads the flag from __pageUrl when there is no request", () => {
+    mockGetRecords.mockReturnValue([post({ slug: "d", status: "draft" })]);
+    const result = BlogPostPageLoader({
+      slug: "d",
+      __pageUrl: "http://localhost/blog/d?draft=true",
+    });
+    expect(result?.post.slug).toBe("d");
   });
 
   it("BlogPostPage leaves a live post indexable", () => {
@@ -162,10 +192,16 @@ describe("detail loaders serve non-live posts as previews, unindexed", () => {
     expect(BlogPostPageLoader({ slug: "p" })?.seo?.noIndexing).toBe(false);
   });
 
-  it("BlogPostItem stamps noIndexing without discarding the post's own seo", () => {
+  it("BlogPostItem stamps noIndexing in preview without discarding the post's own seo", () => {
     mockGetRecords.mockReturnValue([post({ slug: "d", status: "draft", seo: { title: "Kept" } })]);
-    const result = BlogPostItem({ slug: "d" });
+    const result = BlogPostItem({ slug: "d" }, preview);
     expect(result?.seo).toEqual({ title: "Kept", noIndexing: true });
+  });
+
+  it("BlogPostItem answers null for a draft without the flag", () => {
+    mockGetRecords.mockReturnValue([post({ slug: "d", status: "draft" })]);
+    expect(BlogPostItem({ slug: "d" })).toBeNull();
+    expect(BlogPostItem({ slug: "d" }, new Request("http://localhost/blog/d"))).toBeNull();
   });
 
   it("BlogPostItem returns a live post untouched", () => {
