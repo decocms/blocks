@@ -27,8 +27,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
-
 const blocks = { "site/sections/Text.tsx": (props: unknown) => props } as unknown as Blocks;
 
 /** home → header, footer; another page; the redirects block. */
@@ -112,9 +110,14 @@ describe("the worker on hosted releases", () => {
     expect(store.pageKeys().some((key) => key.includes(revisionId(1)))).toBe(true);
 
     release();
-    await settle();
-    const after = await worker.fetch(new Request(`${ORIGIN}/`), {}, ctx);
-    expect(await after.text()).toContain("Two");
+    // The new index lands in the background: the first request after it renders the new header.
+    await vi.waitFor(
+      async () => {
+        const after = await worker.fetch(new Request(`${ORIGIN}/`), {}, ctx);
+        expect(await after.text()).toContain("Two");
+      },
+      { timeout: 4_000, interval: 20 },
+    );
     const fresh = store.pageKeys().filter((key) => key.includes(revisionId(2)));
     expect(fresh).toHaveLength(1);
     expect(await (await store.match(new Request(fresh[0] as string)))?.text()).toContain("Two");
@@ -129,10 +132,15 @@ describe("the worker on hosted releases", () => {
     const worker = createDecoWorker({ serverEntry: app(cms), cms });
     const release = api.hold(blockKey(api, "Redirects"));
     const pending = worker.fetch(new Request(`${ORIGIN}/`), {}, new TestContext());
-    await settle();
     // The redirects body is still on its way: the page's subtree was asked for beside it.
-    const asked = api.keys();
-    for (const name of ["home", "header", "footer"]) expect(asked).toContain(blockKey(api, name));
+    await vi.waitFor(
+      () => {
+        const asked = api.keys();
+        for (const name of ["home", "header", "footer"])
+          expect(asked).toContain(blockKey(api, name));
+      },
+      { timeout: 4_000, interval: 20 },
+    );
     release();
     const response = await pending;
     expect(await response.text()).toContain("One,footer");
