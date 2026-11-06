@@ -83,11 +83,9 @@ Three consequences worth knowing:
   The rules are outside the decofile, so a redirect-only sync leaves the
   snapshot byte identical and `index:revision:<id>` never changes. If that delay
   ever has to be near-zero, the fix is a `index:redirects-revision:<id>` key
-  polled alongside — not a shorter TTL, which just multiplies KV reads. KV's
-  own location cache comes on top: 60s by default (hits and misses alike), or
-  `redirects.kvCacheTtl` (below).
+  polled alongside — not a shorter TTL, which just multiplies KV reads.
 
-Which requests read KV, and how cheaply:
+Which requests read KV:
 
 - **Only GET/HEAD.** Other methods still see the in-memory rules, but never pay
   the KV read — a cart POST through the commerce proxy has a new path per cart,
@@ -97,12 +95,6 @@ Which requests read KV, and how cheaply:
   `proxyHandler` forwards (`/api/`, `/checkout`, `/files/`…). Those skip the CMS
   redirect check entirely — KV and in-memory rules alike — so the answer for
   them doesn't depend on the deploy mode. Unset: every request is checked.
-- **`redirects.kvCacheTtl`** (seconds, ≥ 30) is the `cacheTtl` of the read. It
-  is not a safe "long" value by default: `redirect:<id>:<path>` is per code
-  deployment, and a content-only fast deploy rewrites it in place under the
-  live id, so an edit can take up to that long to show where the path was read
-  recently. Raise it if that delay is acceptable, or if every publish is a code
-  deploy (a new id, hence new keys).
 
 Add/update/remove is reconciled against a prefix `LIST` rather than a manifest
 key: KV has no "replace everything under this prefix", and a manifest is one

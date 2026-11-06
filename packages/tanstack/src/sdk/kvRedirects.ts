@@ -15,22 +15,9 @@
  * to look, and the rules are still in the decofile where `matchRedirect` finds
  * them. Same on-or-off switch as the rest of fast-deploy, so a site can't end
  * up with redirects in neither place.
- *
- * Two caches sit in front of KV's central store: the isolate memo below (60s)
- * and the Cloudflare location that made the read (KV's `cacheTtl`, 60s unless
- * the site sets `redirects.kvCacheTtl`). Both hold a miss as well as a hit, and
- * the location cache is shared by every isolate there, so a longer `cacheTtl`
- * is what turns the memo's once-a-minute re-read into a hot read. Neither can
- * be long by default: `redirect:<id>:<path>` is per CODE deployment, and a
- * content-only fast deploy rewrites it in place under the live id.
  */
 
-import {
-  getDeploymentId,
-  type KVNamespace,
-  redirectKey,
-  type StoredRedirect,
-} from "@decocms/blocks/cms";
+import { getDeploymentId, redirectKey, type StoredRedirect } from "@decocms/blocks/cms";
 import { normalizePath, type Redirect, selectExactRedirect } from "@decocms/blocks/sdk/redirects";
 import { getFastDeployKV } from "./kvHydration";
 
@@ -51,20 +38,6 @@ const TTL_MS = 60_000;
 /** Bounded so a crawler walking unique URLs cannot grow the isolate unbounded —
  *  the whole point of this module is to stop holding an unbounded list. */
 const MAX_ENTRIES = 2_000;
-
-/** KV refuses a `cacheTtl` below this (seconds). */
-const MIN_KV_CACHE_TTL_S = 30;
-
-/**
- * A `cacheTtl` KV accepts — an integer of at least 30 — or `undefined` to keep
- * KV's default (60s). KV rejects anything else, and `read` would turn that
- * rejection into "no redirect" on every request, so a bad value is ignored or
- * raised instead of reaching KV.
- */
-function kvCacheTtl(seconds: number | undefined): number | undefined {
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return undefined;
-  return Math.max(MIN_KV_CACHE_TTL_S, Math.floor(seconds));
-}
 
 type StoredValue = StoredRedirect | StoredRedirect[];
 
@@ -132,16 +105,11 @@ export function clearRedirectCache(): void {
  * the same rule is in memory and still redirects POSTs — the behaviour differs
  * by deploy mode for that one case. Content redirects are navigation-only in
  * practice; a site that redirects POST endpoints should do it in code.
- *
- * `options.cacheTtl` is the KV read's `cacheTtl` in seconds (see the module
- * comment): unset keeps KV's 60s; below 30 is raised to 30, fractions are
- * dropped, and anything that is not a positive number is ignored.
  */
 export async function lookupExactRedirect(
   env: Record<string, unknown>,
   pathname: string,
   method = "GET",
-  options: { cacheTtl?: number } = {},
 ): Promise<Redirect | null> {
   if (method !== "GET" && method !== "HEAD") return null;
   const kv = getFastDeployKV(env);
@@ -152,8 +120,7 @@ export async function lookupExactRedirect(
 
   const key = redirectKey(deploymentId, normalizePath(pathname));
   const cached = peek(key);
-  const stored =
-    cached !== undefined ? cached.value : await read(kv, key, kvCacheTtl(options.cacheTtl));
+  const stored = cached !== undefined ? cached.value : await read(kv, key);
   if (cached === undefined) remember(key, stored);
   if (!stored) return null;
 
@@ -161,13 +128,11 @@ export async function lookupExactRedirect(
 }
 
 async function read(
-  kv: Pick<KVNamespace, "get">,
+  kv: { get(key: string): Promise<string | null> },
   key: string,
-  cacheTtl: number | undefined,
 ): Promise<StoredValue | null> {
   try {
-    // No options object without a TTL: the read is exactly KV's default one.
-    const raw = await (cacheTtl === undefined ? kv.get(key) : kv.get(key, { cacheTtl }));
+    const raw = await kv.get(key);
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as unknown;
     // A malformed value is a miss, not a throw — never let bad data in one key

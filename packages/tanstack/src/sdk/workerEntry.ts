@@ -702,18 +702,6 @@ export interface DecoWorkerEntryOptions {
      * ```
      */
     skip?: (url: URL, request: Request) => boolean;
-
-    /**
-     * Fast-deploy only: seconds a `redirect:<id>:<path>` read — a miss too —
-     * stays cached in the Cloudflare location that made it (KV's `cacheTtl`; an
-     * integer, at least 30). Unset: KV's default, 60s.
-     *
-     * The key is per CODE deployment: a content-only fast deploy rewrites it in
-     * place under the live id. So a redirect edit can take up to this long (plus
-     * the isolate's 60s memo) to show where that path was read recently. Raise
-     * it only if that delay is acceptable, or if every publish is a code deploy.
-     */
-    kvCacheTtl?: number;
   };
 }
 
@@ -1350,7 +1338,6 @@ export function createDecoWorkerEntry(
   // for the semantics in force when it is built.
   setRedirectSemantics(redirectsOpt?.semantics ?? "legacy");
   const skipCmsRedirects = redirectsOpt?.skip;
-  const redirectKvLookup = { cacheTtl: redirectsOpt?.kvCacheTtl };
 
   // Speculation Rules — store the site-wide config in the shared singleton so
   // DecoRootLayout (SSR) emits the tag in <head>. Inert unless the site opts in.
@@ -2545,12 +2532,7 @@ export function createDecoWorkerEntry(
       // answer where a KV-only exact rule would have.
       const cmsRedirect =
         matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
-        (await lookupExactRedirect(
-          env as Record<string, unknown>,
-          url.pathname,
-          request.method,
-          redirectKvLookup,
-        )) ??
+        (await lookupExactRedirect(env as Record<string, unknown>, url.pathname, request.method)) ??
         matchPatternRedirect(url.pathname, _redirectMap!);
       if (cmsRedirect) {
         return new Response(null, {

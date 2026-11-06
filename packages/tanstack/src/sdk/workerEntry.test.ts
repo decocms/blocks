@@ -469,11 +469,11 @@ describe("CMS redirects on a fast-deploy site (exact rules in KV)", () => {
       [revisionKey(ID), computeRevision(blocks)],
       [redirectKey(ID, "/old"), JSON.stringify({ from: "/old", to: "/new", status: 301 })],
     ]);
-    const redirectReads: Array<{ key: string; options?: { cacheTtl?: number } }> = [];
+    const redirectReads: Array<{ key: string }> = [];
     const env = {
       DECO_KV: {
-        get: (key: string, options?: { cacheTtl?: number }) => {
-          if (key.startsWith(redirectPrefix(ID))) redirectReads.push({ key, options });
+        get: (key: string) => {
+          if (key.startsWith(redirectPrefix(ID))) redirectReads.push({ key });
           return Promise.resolve(store.get(key) ?? null);
         },
         put: () => Promise.resolve(),
@@ -511,7 +511,6 @@ describe("CMS redirects on a fast-deploy site (exact rules in KV)", () => {
 
     expect(res.status).toBe(301);
     expect(res.headers.get("Location")).toBe("/new");
-    // KV's own cacheTtl unless the site sets one: no options object at all.
     expect(redirectReads).toEqual([{ key: redirectKey(ID, "/old") }]);
   });
 
@@ -570,19 +569,6 @@ describe("CMS redirects on a fast-deploy site (exact rules in KV)", () => {
 
     expect(res.status).toBe(301);
     expect(res.headers.get("Location")).toBe("/gone");
-  });
-
-  it("redirects.kvCacheTtl reaches the KV read", async () => {
-    const { env, redirectReads } = fastDeploy();
-    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
-      observability: false,
-      redirects: { kvCacheTtl: 3600 },
-    });
-
-    const res = await worker.fetch(new Request("https://example.com/old"), env, MOCK_CTX);
-
-    expect(res.status).toBe(301);
-    expect(redirectReads).toEqual([{ key: redirectKey(ID, "/old"), options: { cacheTtl: 3600 } }]);
   });
 });
 
