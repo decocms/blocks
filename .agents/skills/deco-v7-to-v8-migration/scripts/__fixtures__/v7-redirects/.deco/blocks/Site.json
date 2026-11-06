@@ -1,0 +1,18 @@
+{
+  "__resolveType": "site/apps/site.ts",
+  "routes": [
+    {
+      "__resolveType": "website/loaders/pages.ts"
+    },
+    {
+      "__resolveType": "website/loaders/redirects.ts",
+      "redirects": [
+        {
+          "from": "/inline",
+          "to": "/",
+          "type": "permanent"
+        }
+      ]
+    }
+  ]
+}

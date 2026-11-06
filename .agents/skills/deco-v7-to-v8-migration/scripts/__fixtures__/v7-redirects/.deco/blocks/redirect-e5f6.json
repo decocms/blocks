@@ -1,0 +1,7 @@
+{
+  "__resolveType": "website/loaders/redirect.ts",
+  "redirect": {
+    "from": "/blog",
+    "to": "/news"
+  }
+}

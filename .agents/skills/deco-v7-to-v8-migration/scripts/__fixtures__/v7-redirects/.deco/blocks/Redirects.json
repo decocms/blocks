@@ -1,0 +1,31 @@
+{
+  "__resolveType": "website/loaders/redirects.ts",
+  "redirects": [
+    {
+      "from": "/a",
+      "to": "/b",
+      "type": "permanent"
+    },
+    {
+      "from": "/sale",
+      "to": "/black-friday",
+      "type": "temporary"
+    },
+    {
+      "from": "/old-shoes",
+      "to": "/shoes",
+      "type": "permanent",
+      "discardQueryParameters": true
+    },
+    {
+      "from": "/c/*",
+      "to": "/category",
+      "type": "temporary",
+      "discardQueryParameters": false
+    },
+    {
+      "to": "/nowhere",
+      "type": "permanent"
+    }
+  ]
+}

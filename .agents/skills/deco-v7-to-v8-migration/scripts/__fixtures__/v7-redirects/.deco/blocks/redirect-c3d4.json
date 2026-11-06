@@ -1,0 +1,8 @@
+{
+  "__resolveType": "website/loaders/redirect.ts",
+  "redirect": {
+    "from": "/sale",
+    "to": "/promo",
+    "type": "temporary"
+  }
+}
