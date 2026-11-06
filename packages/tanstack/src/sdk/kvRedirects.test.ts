@@ -35,6 +35,15 @@ describe("lookupExactRedirect", () => {
     });
   });
 
+  it("only navigations read KV: POST/PUT skip the lookup entirely", async () => {
+    const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' });
+    await expect(lookupExactRedirect(enabled(kv), "/old", "POST")).resolves.toBeNull();
+    await expect(lookupExactRedirect(enabled(kv), "/old", "PUT")).resolves.toBeNull();
+    expect(kv.get).not.toHaveBeenCalled();
+    await expect(lookupExactRedirect(enabled(kv), "/old", "HEAD")).resolves.toMatchObject({ to: "/new" });
+    expect(kv.get).toHaveBeenCalledTimes(1);
+  });
+
   it("returns null for a missing key", async () => {
     await expect(lookupExactRedirect(enabled(makeKV()), "/nope")).resolves.toBeNull();
   });
