@@ -131,28 +131,20 @@ export const slicePosts = (
  *
  * A scheduled post crossing its instant flips this filter on the next request
  * that misses cache; nothing re-deploys and no record is rewritten.
- *
- * `includeDrafts` (a `?draft=true` preview) skips the liveness check, so every
- * post shows whatever its status. A post without a slug is still dropped: it
- * has no route in a preview either.
  */
-export const filterRoutablePosts = (posts: BlogPost[], includeDrafts = false): BlogPost[] =>
+export const filterRoutablePosts = (posts: BlogPost[]): BlogPost[] =>
   // Records come straight from the CMS, so `slug` is only a string by
   // convention: the typeof guard keeps a malformed one from throwing here and
   // taking the whole listing down with it.
-  posts.filter(
-    (post) =>
-      typeof post.slug === "string" && post.slug.trim() && (includeDrafts || isLivePost(post)),
-  );
+  posts.filter((post) => typeof post.slug === "string" && post.slug.trim() && isLivePost(post));
 
 const filterPosts = (
   allPosts: BlogPost[],
   slug?: string | string[],
   postSlugs?: string[],
   term?: string,
-  includeDrafts = false,
 ): BlogPost[] => {
-  const posts = filterRoutablePosts(allPosts, includeDrafts);
+  const posts = filterRoutablePosts(allPosts);
 
   const byCategory =
     postSlugs && postSlugs.length > 0
@@ -171,7 +163,6 @@ const filterPosts = (
  * @param postSlugs Specific slugs to filter by
  * @param term Term to filter by
  * @param excludePostSlug Slug to exclude
- * @param includeDrafts Keep posts that aren't live (a `?draft=true` preview)
  */
 export default async function handlePosts(
   posts: BlogPost[],
@@ -180,9 +171,8 @@ export default async function handlePosts(
   postSlugs?: string[],
   term?: string,
   excludePostSlug?: string,
-  includeDrafts = false,
 ): Promise<BlogPost[] | null> {
-  const filteredPosts = filterPosts(posts, slug, postSlugs, term, includeDrafts).filter(
+  const filteredPosts = filterPosts(posts, slug, postSlugs, term).filter(
     ({ slug: postSlug }) => postSlug !== excludePostSlug,
   );
 

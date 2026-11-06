@@ -3,6 +3,7 @@ import { ancestorsOf, indexCategories, withCategoryPath } from "../core/category
 import { getRecordsByPath } from "../core/records";
 import type { BlogPost, BlogPostPage, Category } from "../types";
 import { isLivePost } from "../types";
+import { isDraftPreview } from "../utils/draftPreview";
 
 const COLLECTION_PATH = "collections/blog/posts";
 const ACCESSOR = "post";
@@ -29,6 +30,11 @@ export default function BlogPostPageLoader(
   const post = posts.find((p) => p?.slug === slug);
 
   if (!post) return null;
+
+  // A post that isn't live yet — unpublished, or scheduled for an instant still
+  // ahead — only renders in a `?draft=true` preview. Without it the page
+  // answers as if the post didn't exist.
+  if (!isLivePost(post) && !isDraftPreview(url)) return null;
 
   // The post lives under the full path of its primary category, so the
   // breadcrumb and the canonical need that category's ancestor chain. A broken
@@ -66,10 +72,9 @@ export default function BlogPostPageLoader(
       description: post?.seo?.description || post?.excerpt,
       canonical: post?.seo?.canonical || canonical || url.href,
       image: post?.seo?.image || post?.image,
-      // A post that isn't live yet — unpublished, or scheduled for an instant
-      // still ahead — renders anyway, because that page *is* the CMS preview.
-      // It just must never be indexed, even if the URL leaks. A scheduled post
-      // becomes indexable on its own once its instant passes.
+      // A non-live post reaching this point is a draft preview: it must never
+      // be indexed, even if the URL leaks. A scheduled post becomes indexable
+      // on its own once its instant passes.
       noIndexing: post?.seo?.noIndexing || !isLivePost(post),
     },
   };

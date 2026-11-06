@@ -3,7 +3,6 @@ import { descendantSlugs } from "../core/categoryTree";
 import handlePosts, { slicePosts } from "../core/handlePosts";
 import { getRecordsByPath } from "../core/records";
 import type { BlogPost, Category, SortBy } from "../types";
-import { isDraftPreview } from "../utils/draftPreview";
 
 const COLLECTION_PATH = "collections/blog/posts";
 const ACCESSOR = "post";
@@ -79,15 +78,7 @@ export default async function BlogPostList(
       }
     }
 
-    const handledPosts = await handlePosts(
-      posts,
-      pageSort,
-      categorySlugs,
-      postSlugs,
-      term,
-      undefined,
-      isDraftPreview(url),
-    );
+    const handledPosts = await handlePosts(posts, pageSort, categorySlugs, postSlugs, term);
 
     if (!handledPosts) return null;
 

@@ -8,7 +8,6 @@ import {
 import handlePosts, { slicePosts } from "../core/handlePosts";
 import { getRecordsByPath } from "../core/records";
 import type { BlogPost, BlogPostListingPage, Category, PageInfo, SortBy } from "../types";
-import { isDraftPreview } from "../utils/draftPreview";
 
 const COLLECTION_PATH = "collections/blog/posts";
 const ACCESSOR = "post";
@@ -77,7 +76,6 @@ export default async function BlogPostListing(
   const pageNumber = Number(page ?? params.get("page") ?? 1);
   const pageSort = sortBy ?? (params.get("sortBy") as SortBy) ?? "date_desc";
   const term = query ?? params.get("q") ?? undefined;
-  const includeDrafts = isDraftPreview(url);
 
   const posts = getRecordsByPath<BlogPost>(COLLECTION_PATH, ACCESSOR);
 
@@ -101,15 +99,7 @@ export default async function BlogPostListing(
     // A parent lists its own posts plus every descendant's.
     const categorySlugs = leafSlug ? descendantSlugs(leafSlug, categories) : undefined;
 
-    const handledPosts = await handlePosts(
-      posts,
-      pageSort,
-      categorySlugs,
-      undefined,
-      term,
-      undefined,
-      includeDrafts,
-    );
+    const handledPosts = await handlePosts(posts, pageSort, categorySlugs, undefined, term);
 
     if (!handledPosts) return null;
 
@@ -143,8 +133,6 @@ export default async function BlogPostListing(
         // Reached through a stale or wrong path, the page still renders and
         // points at the one canonical URL instead of 404ing.
         canonical: canonical ?? new URL(url.pathname, url.origin).href,
-        // A preview lists posts that aren't live, so it must never be indexed.
-        ...(includeDrafts ? { noIndexing: true } : {}),
       },
     };
   } catch (e) {

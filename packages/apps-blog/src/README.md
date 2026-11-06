@@ -58,17 +58,16 @@ a missing backend shouldn't blank a listing.
 
 ## Draft preview (`?draft=true`)
 
-Listings (`BlogpostList`, `BlogpostListing`, `BlogRelatedPosts`) keep posts
-that aren't live out — see `isLivePost`. Opening the page with `?draft=true`
-lifts that gate: every post with a slug is listed, whatever its status, and
-`BlogpostListing` marks its `seo` `noIndexing`. Only the literal `true` turns
-it on. The post page itself needs no flag: `BlogPostPage` and `BlogPostItem`
-already render a non-live post, unindexed. `isDraftPreview(url)` is exported
-for a site that renders its own listing.
+A post that isn't live (see `isLivePost`) only renders on its own page when
+the URL carries `?draft=true`: `BlogPostPage` and `BlogPostItem` answer `null`
+for it otherwise, as for a slug that doesn't exist, and mark it `noIndexing`
+in a preview. Only the literal `true` turns it on. Listings are unaffected:
+they never show a non-live post. `isDraftPreview(url)` is exported for a site
+that renders its own post page.
 
-Anyone who knows the parameter sees unpublished posts: it is a convenience for
-previews, not access control. Same behaviour as `deco-cx/apps`
-(deco-cx/apps#1698).
+Anyone who knows the parameter can open an unpublished post: it is a
+convenience for previews, not access control. Same behaviour as
+`deco-cx/apps` (deco-cx/apps#1698).
 
 ## Divergences from upstream worth knowing
 
