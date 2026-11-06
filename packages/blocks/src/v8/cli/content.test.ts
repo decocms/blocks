@@ -168,7 +168,7 @@ describe("the content module", () => {
     const out = recorder();
     await content({ cwd: fixture.root, reporter: out });
     expect(out.lines.at(-1)?.message).toBe(
-      "1 file with % in the name is inlined, not imported: after editing one by hand, write the module again",
+      "1 file with % in the name is inlined, not imported: after editing one by hand, run deco content again (or keep deco content --watch running)",
     );
     const watching = recorder();
     await content({ cwd: fixture.root, reporter: watching, watching: true });

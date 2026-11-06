@@ -175,7 +175,8 @@ function identifierFor(name: string, taken: Set<string>): string {
  * esbuild read `./blocks/a%20b.json` as that file and fail on `a%2520b.json`;
  * Node reads it as a URL and loads `a b.json` instead. No spelling of the
  * specifier names the same file everywhere, so those entries are written into
- * the module, and hand edits to them need the module written again.
+ * the module, and hand edits to them need `deco content` again (`--watch`
+ * does it).
  */
 const IMPORTABLE_FILE = /^[A-Za-z0-9_][A-Za-z0-9._-]*\.json$/;
 
@@ -317,7 +318,7 @@ export async function content(options: ContentOptions = {}): Promise<number> {
   if (inlined > 0 && !options.watching) {
     reporter.info(
       `${inlined} file${inlined === 1 ? "" : "s"} with % in the name ${inlined === 1 ? "is" : "are"} inlined, not imported: ` +
-        "after editing one by hand, write the module again",
+        "after editing one by hand, run deco content again (or keep deco content --watch running)",
     );
   }
   return 0;
