@@ -77,3 +77,77 @@ export const contentHashFixtures: readonly ContentHashFixture[] = [
     revision: "6913c5e6aa28f441d3b0102177b372e4fb7c08bc09bdd8698df85e597282ac96",
   },
 ];
+
+export interface BlockVersionFixture {
+  id: string;
+  /** The block (any JSON value). */
+  block: unknown;
+  /** Its canonical JSON. */
+  canonical: string;
+  /** `blockVersion(block)`: the first 16 bytes of SHA-256 over the canonical JSON, base64url, no padding. */
+  version: string;
+}
+
+/**
+ * Golden fixtures for block versions (`blockVersion`, in
+ * `@decocms/blocks/protocol`): every implementation that writes or checks
+ * `ifMatch` produces these exact versions.
+ */
+export const blockVersionFixtures: readonly BlockVersionFixture[] = [
+  { id: "empty", block: {}, canonical: "{}", version: "RBNvo1WzZ4oRRq0W9-hkng" },
+  {
+    id: "key-order",
+    block: { b: 1, a: [true, null, "x"] },
+    canonical: '{"a":[true,null,"x"],"b":1}',
+    version: "VKZUFa03AiiFGh2ksxtv1A",
+  },
+  {
+    id: "unicode-numbers",
+    block: {
+      __resolveType: "site/sections/Hero.tsx",
+      title: "Olá — ünïcode 😀",
+      n: -0,
+      f: 1.5e-7,
+      big: 1e21,
+      int: 10,
+    },
+    canonical:
+      '{"__resolveType":"site/sections/Hero.tsx","big":1e+21,"f":1.5e-7,"int":10,"n":0,"title":"Olá — ünïcode 😀"}',
+    version: "cvNhsZmxtnrgaCwRg73Kxw",
+  },
+  {
+    id: "code-unit-order",
+    block: { é: 1, Z: 2, a: 3, aa: 4, "": 0 },
+    canonical: '{"":0,"Z":2,"a":3,"aa":4,"é":1}',
+    version: "psFj7dEx0yLDzHd3f9mabQ",
+  },
+  {
+    id: "nested-escapes",
+    block: { nested: { z: { y: [1, { b: 2, a: 1 }] }, a: 'line\nbreak "q" \\ \u0001' } },
+    canonical: '{"nested":{"a":"line\\nbreak \\"q\\" \\\\ \\u0001","z":{"y":[1,{"a":1,"b":2}]}}}',
+    version: "-F2yA3CkzEaGhmts3kOA3w",
+  },
+];
+
+export interface RevisionIdFixture {
+  id: string;
+  /** Whether it has the shape of a revision id (`isRevisionId`). */
+  valid: boolean;
+}
+
+/** Revision ids (`<inv>-<uuidv7>`) and strings that aren't one. */
+export const revisionIdFixtures: readonly RevisionIdFixture[] = [
+  { id: "fe6c5e0d97ff-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a55", valid: true },
+  { id: "fe5e5eb831ff-01a1a147-ce00-7000-8000-000000000000", valid: true },
+  { id: "fe5e5eb831fe-01a1a147-ce01-7fff-bfff-ffffffffffff", valid: true },
+  // A git commit SHA, a content hash, a bare UUIDv7.
+  { id: "1".repeat(40), valid: false },
+  { id: "f".repeat(64), valid: false },
+  { id: "0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a55", valid: false },
+  // Uppercase, another UUID version, the wrong variant, a path.
+  { id: "FE6C5E0D97FF-0193A1F2-6800-7C3E-9D2A-4B8E1F0C7A55", valid: false },
+  { id: "fe6c5e0d97ff-0193a1f2-6800-4c3e-9d2a-4b8e1f0c7a55", valid: false },
+  { id: "fe6c5e0d97ff-0193a1f2-6800-7c3e-cd2a-4b8e1f0c7a55", valid: false },
+  { id: "fe6c5e0d97ff-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a55/../x", valid: false },
+  { id: "", valid: false },
+];

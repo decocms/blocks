@@ -4,11 +4,14 @@
  * without a block-map entry (see /next/studio-compatibility#well-known-types-and-the-alias-table
  * and /next/renames-and-migrations#rename-a-type-with-an-alias).
  *
- * A snapshot's own `aliases` (the table `deco content` writes) win over these, and a key in the block map wins over
+ * A snapshot's own `aliases` (the table the content module carries) win over these, and a key in the block map wins over
  * both, so a site can still register a legacy name itself.
  *
  * - Redirects keep v7's nested shape: `redirect` returns its arguments as
- *   saved, and `matchRoute` accepts both shapes.
+ *   saved, and `matchRoute` accepts both shapes. v7's `website/loaders/redirects.ts`
+ *   has no alias: v8 routes only a block typed `redirects`, so the v7-to-v8
+ *   migration folds every v7 redirect block into `Redirects` and `deco check`
+ *   warns about one left over.
  * - `website/loaders/secret.ts` has no alias: secrets live in the deploy
  *   platform, read by the site's code and passed as params (see
  *   /next/renames-and-migrations#secrets), so a leftover v7 secret block
@@ -20,7 +23,7 @@ import { isPlainObject, type JsonObject } from "../json.ts";
 
 /**
  * Legacy type name → built-in. The one table: the runtime falls back to it,
- * and `deco schema` / `deco content` write it into the schema and the content
+ * and `deco schema` and the content module write it into the schema and the content
  * module. Exactly the names the site editor's special screens look for
  * (/next/studio-compatibility#well-known-types-and-the-alias-table); other
  * legacy names (`$live/…`, the per-kind multivariate files, the date

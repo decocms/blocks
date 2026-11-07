@@ -12,7 +12,9 @@ Saved content stores type names in `__resolveType`. Treat them like database col
 | `website/flags/multivariate.ts`, `website/flags/multivariate/section.ts` | `multivariate` (each plain variant `value` is wrapped in a `lazy` block on the way) |
 | `website/matchers/always.ts` | `always` |
 | `website/matchers/never.ts` | `never` |
-| `website/loaders/redirect.ts` | `redirect` |
+| `website/loaders/redirect.ts` | `redirect` (resolves, but isn't routed: routing reads only the redirects block; the script folds it into `Redirects`) |
+
+`website/loaders/redirects.ts` has no alias: v8 routes only a block typed `redirects`. The script folds every v7 redirect block, per-rule and list, and the CSV of every `website/loaders/redirectsFromCsv.ts` loader into one block named `Redirects` (`reference/script-steps.md`, step 1), and `deco check` warns about one left over.
 
 `website/loaders/secret.ts` has no built-in: secrets live in the deploy platform's secrets, and the script lists each one (`reference/script-steps.md`, step 2).
 

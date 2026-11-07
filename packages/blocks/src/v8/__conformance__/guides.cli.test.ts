@@ -6,21 +6,24 @@
  *
  * Every command runs the real bin (`node bin/deco.js`) in a temp project that
  * imports `@decocms/blocks` like an app, and examples run with `tsx` or go
- * through `tsc` as written in the docs.
+ * through `tsc` as written in the docs. The content module (content without
+ * a site) is written by `content()` from the compiled `@decocms/blocks/cli`:
+ * there is no `deco content` command any more.
  */
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import { ensureGitWorkTree, gitInit } from "../../protocol/__tests__/git";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { startFolderCdn } from "../cli/__tests__/fixture";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE = path.resolve(HERE, "../../..");
 const REPO = path.resolve(PACKAGE, "../..");
 const NODE_MODULES = path.join(REPO, "node_modules");
 const BIN = path.join(PACKAGE, "bin/deco.js");
+const CLI = pathToFileURL(path.join(PACKAGE, "dist/v8/cli/index.js")).href;
 const TSX = path.join(NODE_MODULES, ".bin/tsx");
 const TSC = path.join(NODE_MODULES, ".bin/tsc");
 const T = 120_000;
@@ -31,13 +34,18 @@ interface Project {
   read(file: string): string;
   exists(file: string): boolean;
   deco(...args: string[]): { code: number; out: string };
-  run(cmd: string, args: string[]): { code: number; out: string };
+  /** Writes `.deco/blocks.gen.ts` with `content()`, from this folder or `root`. */
+  module(root?: string): { code: number; out: string };
+  run(cmd: string, args: string[], env?: Record<string, string>): { code: number; out: string };
 }
 
 const projects: Project[] = [];
-const children: ChildProcess[] = [];
+let cdn: Awaited<ReturnType<typeof startFolderCdn>>;
+beforeAll(async () => {
+  cdn = await startFolderCdn();
+});
+afterAll(() => cdn.close());
 afterEach(() => {
-  for (const child of children.splice(0)) child.kill("SIGKILL");
   for (const p of projects.splice(0)) fs.rmSync(p.root, { recursive: true, force: true });
 });
 
@@ -56,12 +64,20 @@ function project(files: Record<string, string | object> = {}, withDeco = true): 
     },
     read: (file) => fs.readFileSync(path.join(root, file), "utf8"),
     exists: (file) => fs.existsSync(path.join(root, file)),
-    deco: (...args) => p.run(process.execPath, [BIN, ...args]),
-    run(cmd, args) {
+    // deco check reads production from the CDN: here, this project's own blocks.
+    deco: (...args) =>
+      p.run(process.execPath, [BIN, ...args], args[0] === "check" ? cdn.envFor(root) : {}),
+    module: (contentRoot) =>
+      p.run(process.execPath, [
+        "--input-type=module",
+        "-e",
+        `const { content } = await import(${JSON.stringify(CLI)}); process.exitCode = await content(${contentRoot ? JSON.stringify({ root: contentRoot }) : ""});`,
+      ]),
+    run(cmd, args, env = {}) {
       const r = spawnSync(cmd, args, {
         cwd: root,
         encoding: "utf8",
-        env: { ...process.env, NO_COLOR: "1" },
+        env: { ...process.env, NO_COLOR: "1", ...env },
       });
       return { code: r.status ?? 1, out: `${r.stdout}${r.stderr}` };
     },
@@ -202,7 +218,7 @@ describe("quickstart", () => {
       ]);
 
       expect(p.deco("schema").code).toBe(0);
-      const content = p.deco("content");
+      const content = p.module();
       expect(content.code, content.out).toBe(0);
       expect(p.exists(".deco/blocks.gen.ts")).toBe(true);
 
@@ -210,7 +226,7 @@ describe("quickstart", () => {
       expect(run1.code, run1.out).toBe(0);
       expect(JSON.parse(run1.out.trim().split("\n").at(-1)!).freeShippingBanner).toBe(false);
 
-      // Edit the existing file, no `deco content`: newCheckout is true every time.
+      // Edit the existing file, no module rewrite: newCheckout is true every time.
       p.write(".deco/blocks/Experiments.json", experimentsJson(100));
       for (let i = 0; i < 3; i++) {
         const run = p.run(TSX, ["checkout.ts"]);
@@ -225,7 +241,7 @@ describe("quickstart", () => {
     "qs-03/qs-11: `satisfies Blocks` keeps exact types; the quickstart typechecks",
     () => {
       const p = quickstart();
-      expect(p.deco("content").code).toBe(0);
+      expect(p.module().code).toBe(0);
       p.write(
         "types.ts",
         `import blocks from "./.deco";
@@ -258,33 +274,6 @@ const _b: Blocks = blocks;
   );
 
   it(
-    "qs-06/tr-16: deco serve prints a site editor link with no token; saves write .deco/blocks",
-    async () => {
-      const p = quickstart();
-      gitInit(p.root);
-      expect(p.deco("schema").code).toBe(0);
-      const first = await serve(p, ["--port", "0"]);
-      expect(first.out).toContain(
-        `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(first.endpoint)}\n`,
-      );
-      expect(first.out).not.toMatch(/token/i);
-      const reply = await fetch(first.endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "blocks.apply",
-          params: { set: { Holiday: experimentsJson(25) } },
-        }),
-      });
-      expect(reply.status).toBe(200);
-      expect(JSON.parse(p.read(".deco/blocks/Holiday.json"))).toEqual(experimentsJson(25));
-    },
-    T,
-  );
-
-  it(
     "qs-07: deco check accepts block type `experiments` next to saved block `Experiments`",
     () => {
       const p = quickstart();
@@ -300,7 +289,7 @@ const _b: Blocks = blocks;
     "qs-08/in-01/ts-01/tr-12: blocks.gen.ts default-exports { revision, blocks } and imports each JSON file",
     () => {
       const p = quickstart();
-      expect(p.deco("content").code).toBe(0);
+      expect(p.module().code).toBe(0);
       const gen = p.read(".deco/blocks.gen.ts");
       expect(gen).toMatch(/import [\w$]+ from "\.\/blocks\/Experiments\.json"/);
       p.write(
@@ -337,106 +326,9 @@ const _b: Blocks = blocks;
   );
 });
 
-// --- serve -------------------------------------------------------------------
-
-async function serve(
-  p: Project,
-  args: string[],
-): Promise<{ endpoint: string; out: string; child: ChildProcess }> {
-  // deco serve runs only inside the site's git repository.
-  ensureGitWorkTree(p.root);
-  const child = spawn(process.execPath, [BIN, "serve", ...args], {
-    cwd: p.root,
-    env: { ...process.env, NO_COLOR: "1" },
-  });
-  children.push(child);
-  let out = "";
-  child.stdout?.on("data", (d) => (out += d));
-  child.stderr?.on("data", (d) => (out += d));
-  const started = Date.now();
-  while (!/site-editor#endpoint=\S+\n/.test(out)) {
-    if (child.exitCode !== null) throw new Error(`serve exited: ${out}`);
-    if (Date.now() - started > 30_000) throw new Error(`serve never printed a link: ${out}`);
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  const endpoint = /(http:\/\/[^\s]+\/rpc)/.exec(out)![1];
-  return { endpoint, out, child };
-}
-
-describe("serve flags", () => {
-  it(
-    "nx-26/ts-12: the canvas defaults to Vite's port; --preview points it elsewhere",
-    async () => {
-      const p = project();
-      gitInit(p.root);
-      p.write(".deco/schema.gen.json", {});
-      const def = await serveWith(p, ["--port", "0"]);
-      expect(def).toMatch(/Preview\s+http:\/\/localhost:5173/);
-      const next = await serveWith(p, ["--port", "0", "--preview", "localhost:3000"]);
-      expect(next).toMatch(/Preview\s+http:\/\/localhost:3000/);
-    },
-    T,
-  );
-
-  it(
-    "tr-16: any origin is answered, and local-network preflights too",
-    async () => {
-      const p = project();
-      gitInit(p.root);
-      p.write(".deco/schema.gen.json", {});
-      const s = await serve(p, ["--port", "0"]);
-      const reply = await fetch(s.endpoint, {
-        method: "OPTIONS",
-        headers: {
-          origin: "https://editor.example.com",
-          "access-control-request-method": "POST",
-          "access-control-request-private-network": "true",
-        },
-      });
-      expect(reply.headers.get("access-control-allow-origin")).toBe("https://editor.example.com");
-      expect(reply.headers.get("access-control-allow-private-network")).toBe("true");
-    },
-    T,
-  );
-});
-
-async function serveWith(p: Project, args: string[]): Promise<string> {
-  const s = await serve(p, args);
-  await new Promise((r) => setTimeout(r, 200));
-  s.child.kill("SIGKILL");
-  return s.out;
-}
-
 // --- Next.js guide ------------------------------------------------------------
 
 describe("nextjs guide", () => {
-  it(
-    "nx-08: deco content --watch regenerates when a file is added",
-    async () => {
-      const p = quickstart();
-      const child = spawn(process.execPath, [BIN, "content", "--watch"], { cwd: p.root });
-      children.push(child);
-      let out = "";
-      child.stdout?.on("data", (d) => (out += d));
-      child.stderr?.on("data", (d) => (out += d));
-      await waitFor(
-        () => /watching/.test(out),
-        () => out,
-      );
-      p.write(".deco/blocks/Holiday.json", experimentsJson(5));
-      await waitFor(
-        () => p.read(".deco/blocks.gen.ts").includes("Holiday"),
-        () => out,
-      );
-      fs.rmSync(path.join(p.root, ".deco/blocks/Holiday.json"));
-      await waitFor(
-        () => !p.read(".deco/blocks.gen.ts").includes("Holiday"),
-        () => out,
-      );
-    },
-    T,
-  );
-
   it(
     "nx-04: the built-in page's sections take JSX-returning blocks in the schema",
     () => {
@@ -636,7 +528,7 @@ describe("troubleshooting", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("no .deco/ found");
     const app = quickstart();
-    const viaRoot = empty.deco("content", "--root", app.root);
+    const viaRoot = empty.module(app.root);
     expect(viaRoot.code, viaRoot.out).toBe(0);
     expect(app.exists(".deco/blocks.gen.ts")).toBe(true);
   });
@@ -686,12 +578,12 @@ describe("internals", () => {
       const a = quickstart();
       const b = quickstart();
       const rev = (p: Project) => /revision: "([^"]+)"/.exec(p.read(".deco/blocks.gen.ts"))?.[1];
-      expect(a.deco("content").code).toBe(0);
-      expect(b.deco("content").code).toBe(0);
+      expect(a.module().code).toBe(0);
+      expect(b.module().code).toBe(0);
       expect(rev(a)).toBeDefined();
       expect(rev(a)).toBe(rev(b));
       b.write(".deco/blocks/Experiments.json", experimentsJson(11));
-      expect(b.deco("content").code).toBe(0);
+      expect(b.module().code).toBe(0);
       expect(rev(b)).not.toBe(rev(a));
     },
     T,
@@ -770,7 +662,7 @@ export default {
   );
 
   it(
-    'in-07: an unknown block type is one error, `unknown block type "promo-banner"`',
+    'in-07: an unknown block type is one error, `no saved block or block type "promo-banner"`',
     () => {
       const p = project({
         "tsconfig.json": TSCONFIG,
@@ -787,7 +679,7 @@ export default {
       expect(r.code).not.toBe(0);
       const lines = r.out.split("\n").filter((l) => /^\s+\S/.test(l));
       expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain('unknown block type "promo-banner"');
+      expect(lines[0]).toContain('no saved block or block type "promo-banner"');
     },
     T,
   );
@@ -872,56 +764,40 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
     T,
   );
 
-  it("dd-06: four commands; schema and content take --watch, schema also --check; every command takes --root", () => {
+  it("dd-06: the commands; schema takes --watch or --check; every command takes --root and --json", () => {
     const p = project();
     const help = p.deco("--help").out;
     const commands = [...help.matchAll(/^ {2}(\w+) {2,}/gm)].map((m) => m[1]);
-    expect(commands.sort()).toEqual(["check", "content", "schema", "serve"]);
-    expect(help).toMatch(/deco schema\s+\[--root <dir>\] \[--watch \| --check\]/);
-    expect(help).toMatch(/deco content\s+\[--root <dir>\] \[--watch\]/);
-    expect(help).toMatch(/deco check\s+\[--root <dir>\]/);
-    expect(help).toMatch(/deco serve\s+\[--root <dir>\]/);
+    expect(commands.sort()).toEqual(
+      [
+        "check",
+        "content",
+        "diff",
+        "drafts",
+        "login",
+        "publish",
+        "pull",
+        "push",
+        "releases",
+        "schema",
+      ].sort(),
+    );
+    expect(help).toMatch(/deco schema\s+\[--watch \| --check\]/);
+    expect(help).toMatch(/deco schema push/);
+    expect(help).toMatch(/deco check\s+\[--draft=<name> \| --revision=<id>\]/);
+    expect(help).toMatch(
+      /Every command finds \.deco\/ by walking up from the current folder, or takes --root/,
+    );
+    expect(help).toMatch(/Every command takes --json/);
+    // deco content stays for content without a site; deco serve is gone.
+    expect(help).toMatch(/deco content\s+\[--watch\]/);
+    expect(help).not.toMatch(/deco serve/);
   });
 
-  it("dd-09: `deco publish` is a signpost: it explains to commit instead, and exits", () => {
+  it("dd-09: `deco publish` needs a draft: it never publishes without one", () => {
     const p = quickstart();
     const r = p.deco("publish");
-    expect(r.out).toMatch(/commit/i);
-    expect(r.out).not.toMatch(/unknown command/);
+    expect(r.code).toBe(64);
+    expect(r.out).toContain("--draft=<name>");
   });
-
-  it(
-    "dd-07: the protocol has seven methods and polls every 2 s locally",
-    async () => {
-      const p = quickstart();
-      gitInit(p.root);
-      expect(p.deco("schema").code).toBe(0);
-      const s = await serve(p, ["--port", "0"]);
-      const reply = await fetch(s.endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
-      });
-      const body = await reply.json();
-      expect(body.result.pollIntervalMs).toBe(2000);
-      const changes = await fetch(s.endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "changes.list" }),
-      });
-      expect((await changes.json()).result.base.resolvedRef).toBe("main");
-    },
-    T,
-  );
 });
-
-async function waitFor(check: () => boolean, out: () => string, ms = 30_000): Promise<void> {
-  const started = Date.now();
-  for (;;) {
-    try {
-      if (check()) return;
-    } catch {}
-    if (Date.now() - started > ms) throw new Error(`timed out; output:\n${out()}`);
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}

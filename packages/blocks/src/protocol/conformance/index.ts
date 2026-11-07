@@ -31,8 +31,16 @@ import { writeCases } from "./cases/writes.ts";
 import { ConformanceContext, type ConformanceOptions, SkipCase } from "./context.ts";
 
 export type { ConformanceCase } from "./cases/types.ts";
-export { type ContentHashFixture, contentHashFixtures } from "./contentHashFixtures.ts";
+export {
+  type BlockVersionFixture,
+  blockVersionFixtures,
+  type ContentHashFixture,
+  contentHashFixtures,
+  type RevisionIdFixture,
+  revisionIdFixtures,
+} from "./contentHashFixtures.ts";
 export type { ConformanceOptions } from "./context.ts";
+export { type BlockMetaVector, type BlockMetaVectors, blockMetaVectors } from "./vectors.ts";
 
 /** Every conformance case, in the order they run. */
 export const conformanceCases: readonly ConformanceCase[] = [

@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createCMS, resetForTests } from "@decocms/blocks";
+import { createCMS, matchRoute, resetForTests } from "@decocms/blocks";
 import { check, content, type Reporter, schema } from "@decocms/blocks/cli";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "./migrate";
@@ -190,6 +190,15 @@ beforeAll(async () => {
     __resolveType: "website/sections/Rendering/Lazy.tsx",
     section: { __resolveType: "site/sections/Hero.tsx", title: "Later" },
   });
+  // v7's redirects, per-rule and a list: v8 routes neither, so they're folded into Redirects.
+  write(root, ".deco/blocks/redirect-7f2a.json", {
+    __resolveType: "website/loaders/redirect.ts",
+    redirect: { from: "/old", to: "/", type: "permanent" },
+  });
+  write(root, ".deco/blocks/Redirects%20-%20Sale.json", {
+    __resolveType: "website/loaders/redirects.ts",
+    redirects: [{ from: "/sale", to: "/promo", type: "temporary", discardQueryParameters: true }],
+  });
   // A prerelease next-major settings block: deco check fails on it until it's folded.
   write(root, ".deco/blocks/Telemetry.json", { __resolveType: "telemetry", errorSampleRate: 0.01 });
   write(root, ".deco/meta.gen.json", { v7: true });
@@ -363,6 +372,36 @@ describe("migrate", () => {
     const [page, error] = await client.resolve<any>("pages-home");
     expect(error).toBeNull();
     expect(page.sections).toEqual(SECTIONS);
+  });
+
+  it("folds v7's redirect blocks into the one Redirects block v8 routes", async () => {
+    expect(fs.existsSync(path.join(root, ".deco/blocks/redirect-7f2a.json"))).toBe(false);
+    expect(fs.existsSync(path.join(root, ".deco/blocks/Redirects%20-%20Sale.json"))).toBe(false);
+    expect(JSON.parse(read(".deco/blocks/Redirects.json"))).toEqual({
+      __resolveType: "redirects",
+      redirects: [
+        { from: "/sale", to: "/promo", permanent: false, discardQueryParameters: true },
+        { from: "/old", to: "/", permanent: true },
+      ],
+    });
+    await content({ root, reporter: quiet });
+    const blocks = (await import(pathToFileURL(path.join(root, ".deco/index.ts")).href)).default;
+    const snapshot = (await import(pathToFileURL(path.join(root, ".deco/blocks.gen.ts")).href))
+      .default;
+    const [redirects, error] = await createCMS({ blocks, content: snapshot })
+      .forRelease()
+      .redirects();
+    expect(error).toBeNull();
+    expect(matchRoute("/old", { routes: [], redirects: redirects ?? [] })).toMatchObject({
+      kind: "redirect",
+      location: "/",
+      status: 301,
+    });
+    expect(matchRoute("/sale?utm=1", { routes: [], redirects: redirects ?? [] })).toMatchObject({
+      kind: "redirect",
+      location: "/promo",
+      status: 307,
+    });
   });
 
   it("writes the view registry: each section's module by its v7 type name", () => {

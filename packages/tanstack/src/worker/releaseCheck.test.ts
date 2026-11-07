@@ -5,7 +5,8 @@
  * check, its read of the draft and the page's draft reads (`contentClient`,
  * through `x-deco-release-check`) share it: exactly one `latest.json` fetch.
  */
-import { type Blocks, createCMS, type Snapshot } from "@decocms/blocks";
+import { type Blocks, createCMS, resetForTests } from "@decocms/blocks";
+import { indexEntry } from "@decocms/blocks/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDecoWorker } from "./index.ts";
 import { POINTER, TestContext } from "./testing.ts";
@@ -17,63 +18,61 @@ vi.mock("@tanstack/react-start/server", () => ({
 
 const { contentClient } = await import("../server/index.ts");
 
-const SCHEMA = "a".repeat(64);
-const RELEASE_B = "b".repeat(40);
+const RELEASE_A = "aaaaaaaaaaaa-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5a";
+const RELEASE_B = "bbbbbbbbbbbb-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a5b";
 const LATEST = "https://delivery.decocms.com/sites/acme/latest.json";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-let roots = 0;
-
 /**
- * A hosted CMS whose bundle holds release A while `latest.json` names B (a
+ * A hosted CMS that loaded release A, while `latest.json` now names B (a
  * publish this isolate hasn't picked up), the drafts' host answering POINTER,
- * and the URLs fetched.
+ * and the URLs fetched after that first load.
  */
-function hosted() {
-  roots += 1;
-  const blocks = { Title: { __resolveType: "seo", title: "A" } };
-  const content = {
-    revision: "a".repeat(40),
-    schemaHash: SCHEMA,
-    committedAt: "2026-01-01T00:00:00Z",
-    blocks,
-    root: `/release-check-${roots}`,
-  } as Snapshot & { root: string };
+async function hosted() {
+  resetForTests();
+  // The hosted layout: latest.json is the current index; bodies by hash; drafts are folders.
+  const bodies = new Map<string, unknown>();
+  const indexes = new Map<string, unknown>();
+  for (const [sequence, id, title] of [
+    [1, RELEASE_A, "A"],
+    [2, RELEASE_B, "B"],
+  ] as const) {
+    const body = { __resolveType: "seo", title };
+    const entry = await indexEntry("Title", body, ["Title"]);
+    bodies.set(`/sites/acme/blocks/${entry.version}.json`, body);
+    indexes.set(id, { revision: id, sequence, blocks: { Title: entry } });
+  }
+  let current = RELEASE_A;
   const urls: string[] = [];
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : String(input);
     urls.push(url);
     if (url === LATEST) {
       return Response.json({
-        revision: RELEASE_B,
-        schemaHash: SCHEMA,
-        publishedAt: new Date().toISOString(),
+        ...(indexes.get(current) as object),
         previewHosts: ["store.example.com"],
       });
     }
-    if (url.endsWith(`/revisions/${RELEASE_B}.json`)) {
-      return Response.json({
-        revision: RELEASE_B,
-        schemaHash: SCHEMA,
-        blocks: { Title: { __resolveType: "seo", title: "B" } },
-        previewHosts: ["store.example.com"],
-      });
-    }
-    if (url.startsWith("https://studio.decocms.com/")) {
-      return Response.json({ set: {}, delete: [] }, { headers: { etag: '"e1"' } });
+    const path = new URL(url).pathname;
+    if (bodies.has(path)) return Response.json(bodies.get(path));
+    if (url.startsWith("https://studio.decocms.com/") && path.endsWith("/index.json")) {
+      return Response.json({ names: [] });
     }
     return new Response("not found", { status: 404 });
   });
-  const cms = createCMS({ blocks: {} as Blocks, content, site: "acme" });
+  const cms = createCMS({ blocks: {} as Blocks, site: "acme" });
+  expect(await cms.forRelease().revision()).toBe(RELEASE_A);
+  current = RELEASE_B;
+  urls.length = 0;
   return { cms, urls };
 }
 
 describe("one release check per preview request", () => {
   it("a draft link: the host check, the worker's read of the draft and the page's reads make one latest.json fetch", async () => {
-    const { cms, urls } = hosted();
+    const { cms, urls } = await hosted();
     const titles: unknown[] = [];
     const worker = createDecoWorker({
       cms,
@@ -109,7 +108,7 @@ describe("one release check per preview request", () => {
   });
 
   it("a release-check id from outside never reaches the page", async () => {
-    const { cms } = hosted();
+    const { cms } = await hosted();
     const seen: (string | null)[] = [];
     const worker = createDecoWorker({
       cms,

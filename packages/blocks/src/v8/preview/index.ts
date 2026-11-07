@@ -8,6 +8,8 @@
  * - `StudioBridge`: lets Studio's site editor drive the page when Studio
  *   frames it, and opens the page in Studio on "." when it isn't framed.
  * - `StudioPage`: what a page renders to tell the bridge which page it is.
+ * - `StudioChannel`: the bootstrap through which Studio loads its own modules
+ *   into the page when it frames it (protocol: `@decocms/blocks/protocol`).
  */
 export { DraftBadge, type DraftBadgeProps } from "./DraftBadge.tsx";
 export {
@@ -16,3 +18,4 @@ export {
   StudioPage,
   type StudioPageInfo,
 } from "./StudioBridge.ts";
+export { StudioChannel, type StudioChannelProps } from "./StudioChannel.ts";

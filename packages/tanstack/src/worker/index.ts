@@ -24,7 +24,8 @@
  *   copy never carries one. A page request with `Authorization` is never
  *   handed to it and answers `private, no-cache, no-store`. A response with no
  *   `CDN-Cache-Control` tells the CDN `no-store`, at one exit.
- * - Security headers and `frame-ancestors` for Studio; immutable fingerprinted
+ * - Security headers, and Studio's origins in the CSP (`frame-ancestors`,
+ *   `script-src`: the Studio channel's list, `studioOrigins`); immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - The visitor: on a page or server-function request, `readVisitor` from
  *   `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new
@@ -44,13 +45,14 @@
  *   `pageCache` answered with) and the device; nothing when the CMS has no
  *   telemetry.
  */
-import { type CMS, matchRoute, type Redirect, type Route } from "@decocms/blocks";
+import { type CMS, matchRoute, type Redirect } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
 import { runInScope } from "@decocms/tanstack/scope";
 import { ASSIGNMENTS_HEADER, serializeAssignments } from "../assignments.ts";
 import { draftResponseHeaders, RELEASE_CHECK_HEADER, VERSION_HEADER } from "../draft.ts";
 import { PAGE_STATUS_HEADER } from "../shared.ts";
+import { studioOrigins } from "../studio.ts";
 import { VISITOR_HEADER } from "../visitor.ts";
 import { type RequestAssignments, readAssignments } from "./assignments.ts";
 import { isCacheable } from "./cache.ts";
@@ -128,8 +130,19 @@ export interface DecoWorkerOptions<Env = unknown> {
   cms: CMS;
   /** Local development (`import.meta.env.DEV`): `pageCache` is never called, loopback may frame the site. */
   dev?: boolean;
-  /** The site's Content-Security-Policy. Studio's `frame-ancestors` is always added. */
+  /**
+   * The site's Content-Security-Policy. Studio's origins are always added:
+   * to `frame-ancestors` (when the site sets none) and to `script-src`.
+   */
   csp?: CspOptions;
+  /**
+   * The Studio origins the CSP allows (`script-src`, `frame-ancestors`),
+   * exact origins. Default: `DECO_STUDIO_ORIGIN` (comma-separated), else
+   * Studio's production and staging origins (`studioOrigins()` of
+   * `@decocms/tanstack`). A site that sets `studioOrigins` on `DecoDocument`
+   * sets the same list here; `DECO_STUDIO_ORIGIN` sets both.
+   */
+  studioOrigins?: readonly string[];
   /**
    * The site's own page cache (the example worker entry the README links), called for
    * every page and server-function request `isCacheable` accepts. Without
@@ -231,58 +244,38 @@ function mutable(response: Response): Response {
 export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>): DecoWorker<Env> {
   const { cms, serverEntry } = options;
   const dev = options.dev === true;
-  const securityHeaders = htmlSecurityHeaders(options.csp, dev);
+  // On the first HTML response, not at creation: the environment is read where
+  // the document reads it.
+  let securityHeaders: Record<string, string> | undefined;
   const preloadLinks = [
     ...(options.preload?.styles ?? []).map((href) => `<${href}>; rel=preload; as=style`),
     ...(options.preload?.fonts ?? []).map((href) => `<${href}>; rel=preload; as=font; crossorigin`),
   ];
 
-  // The release's redirects, read once per revision (a draft's are read each time).
-  let releaseRedirects: { revision: string; list: Promise<Redirect[]> } | undefined;
-
+  // The redirects block, read through the client (its body is held by hash
+  // once fetched). The page the URL routes to is prefetched first, so its
+  // subtree goes out in the same wave as the redirects block (the app's
+  // later reads find the bodies by hash) and this client pins the index the
+  // page's client pins.
   async function redirectsFor(
+    url: URL,
     pointer: string | null,
     releaseCheck: string | undefined,
   ): Promise<Redirect[]> {
-    const read = async (client: ReturnType<CMS["forRelease"]>) => {
-      const [list] = await client.list<Redirect>("redirect");
-      return list ?? [];
-    };
-    if (pointer) return read(cms.client({ version: pointer, releaseCheck }));
-    const client = cms.client();
-    const revision = await client.revision();
-    if (releaseRedirects?.revision !== revision) {
-      releaseRedirects = { revision, list: read(client) };
-    }
-    return releaseRedirects.list;
+    const client = pointer ? cms.client({ version: pointer, releaseCheck }) : cms.client();
+    const [routes] = await client.routes();
+    const match = matchRoute(url, { routes: routes ?? [] });
+    if (match.kind === "match") client.prefetch(match.entry.name);
+    const [list] = await client.redirects();
+    return list ?? [];
   }
 
-  // The release's page templates, for `http.route`: read once per revision,
-  // and only while telemetry is measuring (`recordServerRequest` calls the
-  // route function only then).
-  let metricRoutes: { revision: string; pages: Promise<Route[]> } | undefined;
-
+  // The release's page templates, for `http.route`: the index's routes, read
+  // only while telemetry is measuring (`recordServerRequest` calls the route
+  // function only then). The same array per revision, so its trie is built once.
   async function routeTemplate(url: URL): Promise<string | undefined> {
-    const client = cms.forRelease();
-    const revision = await client.revision();
-    let routes = metricRoutes;
-    if (routes?.revision !== revision) {
-      const pages = client
-        .list<{ path?: unknown }>("page")
-        .then(([list]) =>
-          (list ?? []).flatMap((p) =>
-            typeof p?.path === "string" ? [{ name: p.path, path: p.path }] : [],
-          ),
-        );
-      const entry = { revision, pages };
-      metricRoutes = entry;
-      routes = entry;
-      // A failed read is tried again on the next request, not kept for the revision.
-      pages.catch(() => {
-        if (metricRoutes === entry) metricRoutes = undefined;
-      });
-    }
-    const match = matchRoute(url, { routes: await routes.pages });
+    const [routes] = await cms.forRelease().routes();
+    const match = matchRoute(url, { routes: routes ?? [] });
     return match.kind === "match" ? match.entry.path : undefined;
   }
 
@@ -328,7 +321,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     releaseCheck: string | undefined,
   ): Promise<Response | null> {
     try {
-      const redirects = await redirectsFor(pointer, releaseCheck);
+      const redirects = await redirectsFor(url, pointer, releaseCheck);
       if (!redirects.length) return null;
       const match = matchRoute(url, { routes: [], redirects });
       if (match.kind !== "redirect") return null;
@@ -587,6 +580,11 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     if (served.visitorCookie) response.headers.append("Set-Cookie", served.visitorCookie);
     dedupeSetCookies(response);
     if (isHtml(response)) {
+      securityHeaders ??= htmlSecurityHeaders(
+        options.csp,
+        dev,
+        studioOrigins(options.studioOrigins),
+      );
       for (const [k, v] of Object.entries(securityHeaders)) {
         if (!response.headers.has(k)) response.headers.set(k, v);
       }

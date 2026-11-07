@@ -83,6 +83,10 @@
           "$ref": "#/definitions/cmVkaXJlY3Q=",
           "namespace": "deco"
         },
+        "redirects": {
+          "$ref": "#/definitions/cmVkaXJlY3Rz",
+          "namespace": "deco"
+        },
         "website/loaders/redirect.ts": {
           "$ref": "#/definitions/d2Vic2l0ZS9sb2FkZXJzL3JlZGlyZWN0LnRz",
           "namespace": "website"
@@ -627,7 +631,7 @@
           "permanent": {
             "type": "boolean",
             "title": "Permanent",
-            "description": "301 when true, 302 otherwise"
+            "description": "301 when true, 307 otherwise"
           },
           "status": {
             "type": "number",
@@ -642,6 +646,65 @@
           "discardQueryParameters": {
             "type": "boolean",
             "title": "Discard query parameters"
+          }
+        }
+      },
+      "cmVkaXJlY3Rz": {
+        "title": "redirects",
+        "description": "The site's redirects: every rule in one block (the saved block Redirects)",
+        "type": "object",
+        "required": [
+          "__resolveType"
+        ],
+        "properties": {
+          "__resolveType": {
+            "type": "string",
+            "enum": [
+              "redirects"
+            ],
+            "default": "redirects"
+          },
+          "redirects": {
+            "type": "array",
+            "title": "Redirects",
+            "items": {
+              "type": "object",
+              "required": [
+                "from",
+                "to",
+                "permanent"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "title": "From"
+                },
+                "to": {
+                  "type": "string",
+                  "title": "To"
+                },
+                "permanent": {
+                  "type": "boolean",
+                  "title": "Permanent",
+                  "description": "301 when true, 307 otherwise"
+                },
+                "status": {
+                  "type": "number",
+                  "enum": [
+                    301,
+                    302,
+                    307,
+                    308
+                  ],
+                  "title": "Status"
+                },
+                "discardQueryParameters": {
+                  "type": "boolean",
+                  "title": "Discard query parameters"
+                }
+              },
+              "title": "Redirect"
+            }
           }
         }
       },
@@ -703,6 +766,15 @@
                 "type": "boolean",
                 "title": "Enabled",
                 "default": true
+              },
+              "decoAnalyticsKey": {
+                "type": "string",
+                "title": "Deco Analytics key"
+              },
+              "decoAnalyticsFirstParty": {
+                "type": "boolean",
+                "title": "Deco Analytics first-party",
+                "default": false
               }
             }
           }
@@ -1321,6 +1393,9 @@
           },
           {
             "$ref": "#/definitions/cmVkaXJlY3Q="
+          },
+          {
+            "$ref": "#/definitions/cmVkaXJlY3Rz"
           }
         ]
       },

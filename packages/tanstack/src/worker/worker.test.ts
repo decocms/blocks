@@ -116,7 +116,7 @@ describe("always on: security headers and Studio framing", () => {
     expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin-allow-popups");
   });
 
-  it("the site's enforced CSP gets frame-ancestors added; its report-only CSP is sent as is", async () => {
+  it("the site's enforced CSP gets frame-ancestors added and Studio's origins in script-src (from default-src); so does its report-only script-src", async () => {
     const { get } = setup({
       csp: {
         enforce: ["default-src 'self'", "object-src 'none'"],
@@ -126,11 +126,70 @@ describe("always on: security headers and Studio framing", () => {
     });
     const res = await get("/");
     expect(res.headers.get("content-security-policy")).toBe(
-      "default-src 'self'; object-src 'none'; frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio https://*.editor.example.com",
+      "default-src 'self'; object-src 'none'; script-src 'self' https://studio.decocms.com https://studio-stg.decocms.com; frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio https://*.editor.example.com",
     );
     expect(res.headers.get("content-security-policy-report-only")).toBe(
-      "script-src 'self'; img-src https:",
+      "script-src 'self' https://studio.decocms.com https://studio-stg.decocms.com; img-src https:",
     );
+  });
+
+  it("adds Studio's origins to the site's script-src and script-src-elem, once each", async () => {
+    const { get } = setup({
+      csp: {
+        enforce:
+          "script-src 'self' 'nonce-x' https://studio.decocms.com; script-src-elem 'self'; default-src 'self'",
+      },
+    });
+    expect((await get("/")).headers.get("content-security-policy")).toBe(
+      "script-src 'self' 'nonce-x' https://studio.decocms.com https://studio-stg.decocms.com; " +
+        "script-src-elem 'self' https://studio.decocms.com https://studio-stg.decocms.com; default-src 'self'; " +
+        "frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio",
+    );
+  });
+
+  it("leaves scripts alone when the site's CSP doesn't restrict them, or forbids them all", async () => {
+    const open = setup({ csp: { enforce: "object-src 'none'" } });
+    expect((await open.get("/")).headers.get("content-security-policy")).toMatch(
+      /^object-src 'none'; frame-ancestors /,
+    );
+    const none = setup({ csp: { enforce: "default-src 'none'; frame-ancestors 'self'" } });
+    expect((await none.get("/")).headers.get("content-security-policy")).toBe(
+      "default-src 'none'; frame-ancestors 'self'",
+    );
+    const noScripts = setup({ csp: { enforce: "script-src 'none'; frame-ancestors 'self'" } });
+    expect((await noScripts.get("/")).headers.get("content-security-policy")).toBe(
+      "script-src 'none'; frame-ancestors 'self'",
+    );
+  });
+
+  describe("Studio's origins: one list for script-src and frame-ancestors", () => {
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    afterEach(() => {
+      if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+      else process.env.DECO_STUDIO_ORIGIN = env;
+    });
+
+    it("DECO_STUDIO_ORIGIN (comma-separated) replaces the default; values that aren't origins are dropped", async () => {
+      process.env.DECO_STUDIO_ORIGIN =
+        " http://localhost:3000 , https://studio.example.com/, 'unsafe-eval', https://*.x.com, https://a.com/p";
+      const { get } = setup({ csp: { enforce: "script-src 'self'" } });
+      expect((await get("/")).headers.get("content-security-policy")).toBe(
+        "script-src 'self' http://localhost:3000 https://studio.example.com; " +
+          "frame-ancestors 'self' https://studio.decocms.com https://studio-stg.decocms.com https://decocms.com https://*.decocms.com https://*.deco.studio http://localhost:3000 https://studio.example.com",
+      );
+    });
+
+    it("the worker's studioOrigins option wins over DECO_STUDIO_ORIGIN", async () => {
+      process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000";
+      const { get } = setup({
+        csp: { enforce: "script-src 'self'" },
+        studioOrigins: ["https://studio.example.com"],
+      });
+      const csp = (await get("/")).headers.get("content-security-policy") ?? "";
+      expect(csp).toMatch(/^script-src 'self' https:\/\/studio\.example\.com; frame-ancestors /);
+      expect(csp).toContain(" https://studio.example.com");
+      expect(csp).not.toContain("localhost:3000");
+    });
   });
 
   it("a site CSP that sets its own frame-ancestors keeps it", async () => {
@@ -648,7 +707,7 @@ describe("the visitor", () => {
   it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ set: {}, delete: [] })),
+      vi.fn(async () => Response.json({ names: [] })),
     );
     const { get, entry } = setup();
     const res = await get(`/?__draft=${encodeURIComponent(POINTER)}`, { firstVisit: true });
@@ -675,7 +734,7 @@ describe("the visitor", () => {
 });
 
 describe("the version: an old release from a Studio link", () => {
-  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const SHA = "0123456789ab-01234567-89ab-7def-8123-456789abcdef";
   const segmentCookies = (res: Response) =>
     res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
 
@@ -792,6 +851,13 @@ describe("CMS redirects, routes and assets", () => {
     expect(res.headers.get("cdn-cache-control")).toBe("no-store");
     expect(routes).not.toHaveBeenCalled();
     expect(entry.served).toHaveLength(0);
+  });
+
+  it("a temporary CMS redirect answers 307", async () => {
+    const { get } = setup();
+    const res = await get("/sale");
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("/promo");
   });
 
   it("routes answer first; null falls through to the app", async () => {
@@ -1028,76 +1094,69 @@ describe("http.server.request.duration", () => {
     ]);
   });
 
-  it("reads the release's pages once per revision", async () => {
-    recordMetrics();
+  /** The CMS with its release clients' `routes()` and `list()` observed. */
+  function observed(onRoutes: () => void, onList: (type: string) => void = () => {}) {
     const cms = storeCMS();
     const forRelease = cms.forRelease.bind(cms);
-    let pageLists = 0;
     cms.forRelease = () => {
       const client = forRelease();
       return {
-        ...client,
         revision: () => client.revision(),
         resolve: client.resolve.bind(client),
+        redirects: client.redirects.bind(client),
+        prefetch: client.prefetch.bind(client),
+        routes: () => {
+          onRoutes();
+          return client.routes();
+        },
         list: (type: string, options?: object) => {
-          if (type === "page") pageLists++;
+          onList(type);
           return client.list(type, options);
         },
-      } as ReturnType<typeof forRelease>;
+      } as unknown as ReturnType<typeof forRelease>;
     };
+    return cms;
+  }
+
+  it("reads the route templates from the release's index, never by listing pages", async () => {
+    recordMetrics();
+    let routeReads = 0;
+    const listed: string[] = [];
+    const cms = observed(
+      () => routeReads++,
+      (type) => listed.push(type),
+    );
     const { get } = setup({ cms });
     await get("/blue-shoes/p");
     await get("/red-shoes/p");
     await get("/");
-    expect(pageLists).toBe(1);
+    expect(routeReads).toBe(3);
+    expect(listed).toEqual([]);
   });
 
-  it("a failed page read is tried again on the next request", async () => {
+  it("a failed routes read is tried again on the next request", async () => {
     const points = recordMetrics();
-    const cms = storeCMS();
-    const forRelease = cms.forRelease.bind(cms);
     let fail = true;
-    cms.forRelease = () => {
-      const client = forRelease();
-      return {
-        ...client,
-        revision: () => client.revision(),
-        resolve: client.resolve.bind(client),
-        list: (type: string, options?: object) => {
-          if (type === "page" && fail) {
-            fail = false;
-            return Promise.reject(new Error("store down"));
-          }
-          return client.list(type, options);
-        },
-      } as ReturnType<typeof forRelease>;
-    };
+    const cms = observed(() => {
+      if (fail) {
+        fail = false;
+        throw new Error("store down");
+      }
+    });
     const { get } = setup({ cms });
     await get("/blue-shoes/p");
     await get("/blue-shoes/p");
     expect(points.map((p) => p.labels["http.route"])).toEqual(["unmatched", "/:slug/p"]);
   });
 
-  it("costs nothing with telemetry off: no point, and the pages are never listed", async () => {
+  it("costs nothing with telemetry off: no point, and the routes are never read", async () => {
     for (const off of [() => removeMetrics(), () => recordMetrics({ measuring: false })]) {
       off();
-      const cms = storeCMS();
-      const forRelease = cms.forRelease.bind(cms);
-      const listed: string[] = [];
-      cms.forRelease = () => {
-        const client = forRelease();
-        return {
-          revision: () => client.revision(),
-          resolve: client.resolve.bind(client),
-          list: (type: string, options?: object) => {
-            listed.push(type);
-            return client.list(type, options);
-          },
-        } as ReturnType<typeof forRelease>;
-      };
+      let routeReads = 0;
+      const cms = observed(() => routeReads++);
       const { get } = setup({ cms });
       expect((await get("/blue-shoes/p")).status).toBe(200);
-      expect(listed).not.toContain("page");
+      expect(routeReads).toBe(0);
     }
   });
 

@@ -130,7 +130,7 @@ describe("where telemetry goes", () => {
 
   it("top-level site alone never turns telemetry on", async () => {
     const { fetch } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
+    createCMS({ blocks: docsBlocks(), site: "acme" });
     expect(currentTelemetry()).toBeUndefined();
     await upstream("https://search.example/q");
     await runBackground();
@@ -138,12 +138,11 @@ describe("where telemetry goes", () => {
   });
 
   it("a top-level token turns it on to the hosted collector; telemetry: false opts out", async () => {
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
+    createCMS({ blocks: docsBlocks(), site: "acme", token: "tok" });
     expect(currentTelemetry()).toBeDefined();
     resetForTests();
     createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: false,
@@ -195,7 +194,7 @@ describe("metrics", () => {
 
   it("labels batches with the site and service name for the hosted collector", async () => {
     const { sent } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "tok" });
+    createCMS({ blocks: docsBlocks(), site: "acme", token: "tok" });
     await upstream("https://search.example/q");
     await runBackground();
     expect(sent[0]?.url).toBe(`${HOSTED_TELEMETRY_ENDPOINT}/v1/metrics`);
@@ -307,7 +306,6 @@ describe("error logs", () => {
     const pointer = "not-a-pointer-secret-abc123";
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: { endpoint: ENDPOINT },
@@ -458,7 +456,6 @@ describe("sending", () => {
     const { sent } = collector();
     createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: {

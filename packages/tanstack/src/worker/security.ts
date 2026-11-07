@@ -1,11 +1,13 @@
 /**
  * The headers every HTML response carries: v7's security headers, the site's
- * Content-Security-Policy, and `frame-ancestors` so Deco Studio's site editor
- * (and nothing else the site doesn't name) can show the page in its frame. No
- * `X-Frame-Options`: `frame-ancestors` supersedes it and, unlike `SAMEORIGIN`,
- * can allow Studio's origin.
+ * Content-Security-Policy, and what Studio needs in it (`withStudioCsp`):
+ * `frame-ancestors` so Deco Studio's site editor (and nothing else the site
+ * doesn't name) can show the page in its frame, and Studio's origins in
+ * `script-src` so the Studio channel can import Studio's modules. No
+ * `X-Frame-Options`: `frame-ancestors` supersedes it and, unlike
+ * `SAMEORIGIN`, can allow Studio's origin.
  */
-import { STUDIO_FRAME_ANCESTORS } from "../studio.ts";
+import { cspDirectives, withStudioCsp } from "../csp.ts";
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "X-Content-Type-Options": "nosniff",
@@ -16,45 +18,29 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
 };
 
-/** A Studio on this machine, in local development. */
-const LOOPBACK_ANCESTORS = ["http://localhost:*", "http://127.0.0.1:*"];
-
 export interface CspOptions {
-  /** The enforced policy's directives (`frame-ancestors` is added when they have none). */
+  /**
+   * The enforced policy's directives. `frame-ancestors` is added when they
+   * have none; Studio's origins are added to `script-src` (`withStudioCsp`).
+   */
   enforce?: string | readonly string[];
-  /** Directives sent as `Content-Security-Policy-Report-Only`. */
+  /** Directives sent as `Content-Security-Policy-Report-Only` (Studio's origins added to its `script-src`). */
   reportOnly?: string | readonly string[];
   /** More origins that may frame the site, besides Studio's (a marketing tool's editor). */
   frameAncestors?: readonly string[];
 }
 
-function directives(value: string | readonly string[] | undefined): string[] {
-  if (value === undefined) return [];
-  const list = typeof value === "string" ? value.split(";") : [...value];
-  return list.map((d) => d.trim()).filter(Boolean);
-}
-
-/** The `frame-ancestors` sources: Studio's, the site's own, and loopback in development. */
-export function frameAncestors(csp: CspOptions | undefined, dev: boolean): string[] {
-  return [
-    ...new Set([
-      ...STUDIO_FRAME_ANCESTORS,
-      ...(csp?.frameAncestors ?? []),
-      ...(dev ? LOOPBACK_ANCESTORS : []),
-    ]),
-  ];
-}
-
-/** Every HTML response's security headers. */
+/** Every HTML response's security headers. `studioOrigins`: the list the Studio channel trusts. */
 export function htmlSecurityHeaders(
   csp: CspOptions | undefined,
   dev: boolean,
+  studioOrigins?: readonly string[],
 ): Record<string, string> {
-  const enforce = directives(csp?.enforce);
-  if (!enforce.some((d) => /^frame-ancestors(\s|$)/i.test(d))) {
-    enforce.push(`frame-ancestors ${frameAncestors(csp, dev).join(" ")}`);
-  }
-  const reportOnly = directives(csp?.reportOnly);
+  const options = { studioOrigins, frameAncestors: csp?.frameAncestors, dev };
+  const enforce = withStudioCsp(csp?.enforce, options);
+  const reportOnly = cspDirectives(csp?.reportOnly).length
+    ? withStudioCsp(csp?.reportOnly, { ...options, addFrameAncestors: false })
+    : [];
   return {
     ...SECURITY_HEADERS,
     "Content-Security-Policy": enforce.join("; "),

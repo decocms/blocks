@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "deco schema && deco content",
+    "predev": "deco schema && node ../content-module.mjs",
     "dev": "vite dev",
-    "prebuild": "deco schema && deco content && deco check",
+    "prebuild": "deco schema && node ../content-module.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   },

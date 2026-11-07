@@ -2,11 +2,11 @@
  * Draft pointers (see /next/api-reference#draft-pointers): the string
  * `<host[:port]><path[?query]>@<version>` that names a draft, and what
  * `cms.readVersion` and `cms.draftCookie` read and write to carry one (or a
- * published release's commit SHA) from a `?__draft=` link into a cookie. The
+ * published release's revision id) from a `?__draft=` link into a cookie. The
  * host check against the preview hosts is the CMS's: these read the request
  * only.
  *
- * A version is a draft pointer or a release's commit SHA, nothing else. A
+ * A version is a draft pointer or a release's revision id, nothing else. A
  * pointer's query may force variants, which are part of the draft it names:
  *
  * - `__variant=<block>@<path>=<index>`: a variant the preview forces, one per
@@ -14,7 +14,7 @@
  *
  * A Studio preview link carries more than the version: the moment it shows
  * and the tests and campaigns it switches on or off. They ride in the same
- * query (a pointer's, or after a SHA: `<sha>?__at=…&__test=…`), and
+ * query (a pointer's, or after a revision id: `<id>?__at=…&__test=…`), and
  * `parseVersion` lifts them out into the client's other options:
  *
  * - `__at=<ISO date-time with offset>`: the client's `date`.
@@ -24,6 +24,7 @@
  * Each value is URL-encoded.
  */
 import type { Assignments } from "./experiments.ts";
+import { REVISION_ID_RE } from "./revisionId.ts";
 import type { DraftPointer, ForcedVariant, RequestLike, RequestVersion } from "./types.ts";
 
 /** The draft cookie's name. Not exported from the package: reading it directly would skip the host check. */
@@ -49,27 +50,27 @@ const PREVIEW_PARAMS = [AT_PARAM, TEST_PARAM, CAMPAIGN_PARAM];
 /** An ISO 8601 date-time with its offset (`Z` or `±hh:mm`): the moment a preview shows. */
 const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const INDEX_RE = /^(0|[1-9][0-9]{0,3})$/;
-/** A published release: its git commit SHA (SHA-1, 40 lowercase hex). */
-const REVISION_RE = /^[0-9a-f]{40}$/;
+/** A published release: its revision id (`<inv>-<uuidv7>`, see ./revisionId.ts). */
+const REVISION_RE = REVISION_ID_RE;
 
-/** A version, read: a published release (by its commit SHA) or a draft. */
-type ClientVersion = { kind: "revision"; sha: string } | { kind: "draft"; pointer: DraftPointer };
+/** A version, read: a published release (by its revision id) or a draft. */
+type ClientVersion = { kind: "revision"; id: string } | { kind: "draft"; pointer: DraftPointer };
 
 /**
- * What `cms.client({ version })` reads: a published release's commit SHA (40
- * lowercase hex, nothing after it) or a draft pointer. `null` for anything
+ * What `cms.client({ version })` reads: a published release's revision id
+ * (nothing after it) or a draft pointer. `null` for anything
  * else, a preview link's `__at`, `__test` or `__campaign` included: those
  * are the client's `date`, `experiments` and `campaigns` (`parseVersion`).
  */
 export function parseClientVersion(value: string): ClientVersion | null {
-  if (REVISION_RE.test(value)) return { kind: "revision", sha: value };
+  if (REVISION_RE.test(value)) return { kind: "revision", id: value };
   const pointer = parseDraftPointer(value);
   return pointer === null ? null : { kind: "draft", pointer };
 }
 
 /**
  * A Studio link's value (what `?__draft=` and the draft cookie carry): the
- * version, a draft pointer or a published release's commit SHA, and the
+ * version, a draft pointer or a published release's revision id, and the
  * preview's moment and switched tests and campaigns, lifted out of its query
  * as the client's `date`, `experiments` and `campaigns`. `null` for a value
  * that is neither, or whose preview parameters don't parse (a second `__at`,
@@ -84,7 +85,7 @@ export function parseVersion(value: string | null | undefined): RequestVersion |
   if (REVISION_RE.test(head === -1 ? value : value.slice(0, head))) {
     if (head === -1) return { version: value };
     const preview = liftPreview(value.slice(head + 1));
-    // After a SHA, only the preview's own parameters.
+    // After a revision id, only the preview's own parameters.
     if (preview === null || preview.kept.length > 0) return null;
     return { version: value.slice(0, head), ...preview.options };
   }
@@ -296,7 +297,7 @@ function normalizeIPv6Host(authority: string): string | null {
 
 /**
  * The version a request carries (a draft pointer, or a published release's
- * commit SHA) with its preview's date, tests and campaigns (`parseVersion`):
+ * revision id) with its preview's date, tests and campaigns (`parseVersion`):
  * `?__draft=` from the URL first, then the `__deco_draft`
  * cookie. `null` when neither is present, or when the URL says
  * `?__draft=off`. A value that doesn't parse is ignored, as if it were
@@ -313,7 +314,7 @@ export function readVersion(request: RequestLike): RequestVersion | null {
 
 /**
  * The `Set-Cookie` value for a request whose URL carries `?__draft=`: one that
- * stores the version (a draft pointer or a release's commit SHA), or one that expires the cookie when the value is `off`
+ * stores the version (a draft pointer or a release's revision id), or one that expires the cookie when the value is `off`
  * (how the site editor ends a preview). `null` on every other request, and for
  * a pointer that doesn't parse, so garbage never lands in the cookie.
  *

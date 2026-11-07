@@ -1,32 +1,34 @@
 /**
- * The content side of a CMS: one source (the content module or a `Loader`)
- * and the caches every client shares. Clients only ever see whole
- * `{ revision, blocks }` snapshots.
+ * The content side of a CMS: one source (the content module, a `Loader`, or
+ * hosted releases) and what every client shares. Clients are handed a
+ * `Selection`: the current index (and the previous one, for hosted releases)
+ * that a request pins (see ./pin.ts).
  *
- * A draft is the release with a draft's changes layered over it (see
- * ./draftChanges.ts).
+ * A draft is the current index with a draft's files laid over it (see
+ * ./draftChanges.ts), read for each draft request and never kept: the
+ * draft reads of one request share one read of its files, and nothing read
+ * by name from `drafts/` serves a later request.
  */
-import { formatDraftPointer, parseDraftPointer } from "./draft.ts";
+import { keepAlive } from "./background.ts";
+import { type IndexedContent, localIndex } from "./contentIndex.ts";
+import { parseDraftPointer } from "./draft.ts";
 import {
   DEFAULT_DRAFT_HOSTS,
-  type DraftChanges,
-  fetchDraftChanges,
+  type DraftState,
+  fetchDraft,
   LOCAL_VERSION,
-  layerDraft,
+  overlayDraft,
 } from "./draftChanges.ts";
 import { errors, isResolutionError } from "./errors.ts";
+import {
+  type HostedSource,
+  isHostedSource,
+  previewHostsOf,
+  type ReleasePreviewHosts,
+} from "./hostedSource.ts";
 import { isPlainObject } from "./json.ts";
-import type { Loader, Snapshot } from "./types.ts";
-
-/** Fetched drafts kept per CMS. */
-const CACHED_DRAFTS = 3;
-
-/** A fetched draft body, its ETag, and the views of it over each release it was layered on. */
-interface CachedDraft {
-  changes: DraftChanges;
-  etag: string | null;
-  views: WeakMap<Snapshot, Snapshot>;
-}
+import type { Selection } from "./pin.ts";
+import type { DraftPointer, Loader, Snapshot } from "./types.ts";
 
 export function isLoader(content: unknown): content is Loader {
   return (
@@ -37,8 +39,8 @@ export function isLoader(content: unknown): content is Loader {
 }
 
 /**
- * An internal hook a built-in loader (`remoteLoader`) has: the release it
- * would return right now, from memory, or `undefined` when that takes a load.
+ * An internal hook a built-in local loader has: the snapshot it would return
+ * right now, from memory, or `undefined` when that takes a load.
  * `cms.settings()` reads through it, so it never fetches.
  */
 export const PEEK_RELEASE: unique symbol = Symbol.for("decocms.blocks.peekRelease");
@@ -50,59 +52,19 @@ export function peekRelease(source: Snapshot | Loader): Snapshot | undefined {
   return typeof peek === "function" ? peek.call(source) : undefined;
 }
 
-/**
- * An internal hook `remoteLoader` has: a published release by its commit SHA
- * (`sites/<site>/revisions/<sha>.json`), kept in memory once read. Rejects
- * with `LOADER_FAILED`, never falls back to another release.
- */
-export const READ_REVISION: unique symbol = Symbol.for("decocms.blocks.readRevision");
-
-/**
- * An internal hook `remoteLoader` has: the current release's preview hosts
- * from the release metadata (`latest.json`), read once when this process
- * hasn't read them yet (see `ReleasePreviewHosts`).
- */
-export const PREVIEW_HOSTS: unique symbol = Symbol.for("decocms.blocks.previewHosts");
-
-/**
- * What the current release says about where it may be previewed (PO 2026-10-22):
- * - a list: the hosts Studio wrote (`previewHosts`), enforced;
- * - `"every"`: a remote site with no list published, so every host: no
- *   `latest.json` yet (a 404), or one without `previewHosts` (published
- *   before Studio wrote the list; its next publish writes one);
- * - `"local"`: content with no remote site (no release metadata at all):
- *   `createCMS`'s `preview.hosts` when set, else every host;
- * - `"unknown"`: the metadata couldn't be read (a network error, a 5xx, a
- *   malformed `latest.json`). That isn't "missing": previews stay closed.
- */
-export type ReleasePreviewHosts = readonly string[] | "every" | "local" | "unknown";
-
-/**
- * A release's `previewHosts` as Studio wrote them: the strings of a list;
- * `undefined` when the field is absent (no list written); an empty list (no
- * host) for a field that isn't a list, so a malformed one never opens previews.
- */
-export function previewHostsOf(value: unknown): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return [];
-  return value.filter((host): host is string => typeof host === "string");
-}
-
 export function isSnapshot(content: unknown): content is Snapshot {
   return (
     isPlainObject(content) &&
     typeof content.revision === "string" &&
     isPlainObject(content.blocks) &&
     (content.aliases === undefined || isPlainObject(content.aliases)) &&
-    (content.schemaHash === undefined || typeof content.schemaHash === "string") &&
-    (content.committedAt === undefined || typeof content.committedAt === "string") &&
     (content.previewHosts === undefined || Array.isArray(content.previewHosts))
   );
 }
 
 export class ContentStore {
   #source: Snapshot | Loader;
-  #release: Promise<Snapshot> | undefined;
+  #release: Promise<IndexedContent> | undefined;
   #updating: Promise<{ updated: boolean }> | undefined;
   /** The check a draft read waits on when one was already running when it arrived (see `checkRelease`). */
   #queued: Promise<string> | undefined;
@@ -115,11 +77,10 @@ export class ContentStore {
    */
   #checksDone = 0;
   #checkPrefix: string | undefined;
-  readonly #drafts = new BoundedMap<string, CachedDraft>(CACHED_DRAFTS);
-  /** Draft reads in flight, so concurrent renders of one draft share one request. */
-  readonly #draftReads = new Map<string, Promise<CachedDraft>>();
+  /** Draft reads shared under one release check, by the check's number, then the pointer (`#draftFiles`). */
+  readonly #draftReads = new Map<number, Map<string, Promise<Map<string, DraftState>>>>();
   readonly #draftHosts: readonly string[];
-  /** The release this store last handed a client, for a loader that can't peek. */
+  /** The snapshot this store last loaded, for a loader that can't peek. */
   #latest: Snapshot | undefined;
 
   constructor(source: Snapshot | Loader, draftHosts: readonly string[] = DEFAULT_DRAFT_HOSTS) {
@@ -127,20 +88,40 @@ export class ContentStore {
     this.#draftHosts = draftHosts;
   }
 
-  /** Whether the source can change while the process runs (has `update()`). */
+  /** Whether the source can change while the process runs (hosted, or a loader with `update()`). */
   get updatable(): boolean {
-    return isLoader(this.#source) && typeof this.#source.update === "function";
+    const source = this.#source;
+    if (isHostedSource(source)) return true;
+    return isLoader(source) && typeof source.update === "function";
   }
 
   /**
-   * The current release. A snapshot is the release; a loader with `update()`
-   * is loaded once and reloaded after an update; a loader without `update()`
-   * is asked on every call, since it's always current by construction.
+   * The current release, as an index. Hosted: the index held (the first use
+   * loads it), with the previous one. A snapshot is the release; a loader
+   * with `update()` is loaded once (concurrent calls share the one load in
+   * flight; a failed load isn't kept) and reloaded after an update; a loader
+   * without `update()` is asked on every call, since it's always current by
+   * construction.
    */
-  release(): Promise<Snapshot> {
+  release(): Promise<Selection> {
     const source = this.#source;
-    if (!isLoader(source)) return Promise.resolve(this.#serve(source));
-    if (!this.updatable) return this.#load(source).then((snapshot) => this.#serve(snapshot));
+    if (isHostedSource(source)) {
+      return source.current().then(
+        (current): Selection => {
+          const previous = source.previous();
+          return previous === undefined ? { current } : { current, previous };
+        },
+        (error: unknown) => {
+          throw isResolutionError(error)
+            ? error
+            : errors.loaderFailed("the content loader failed", error);
+        },
+      );
+    }
+    if (!isLoader(source)) return Promise.resolve({ current: this.#serve(source) });
+    if (!this.updatable) {
+      return this.#load(source).then((snapshot) => ({ current: this.#serve(snapshot) }));
+    }
     if (this.#release === undefined) {
       const pending = this.#load(source).then((snapshot) => this.#serve(snapshot));
       this.#release = pending;
@@ -149,143 +130,108 @@ export class ContentStore {
         if (this.#release === pending) this.#release = undefined;
       });
     }
-    return this.#release;
+    return this.#release.then((current) => ({ current }));
   }
 
   /**
-   * The draft a pointer names: its changes, fetched from a draft host,
-   * layered over the release. A pointer that doesn't parse, or any failure, is
+   * The draft a pointer names: its files, read from a draft host, laid over
+   * the current index. A pointer that doesn't parse, or any failure, is
    * `LOADER_FAILED`, never a silent fallback to the release. A pointer whose
-   * version is `local` names no draft: the release, with nothing fetched. The
-   * changes are keyed by the pointer without its `__variant` parameters (every
-   * variant of one draft shares one body) and revalidated on every read: a
-   * `304` reuses the body held, a `200` replaces it.
+   * version is `local` names no draft: the release, with nothing fetched.
+   * Every draft request reads the draft again (nothing from `drafts/` is kept
+   * for a later request; the reads of one request, under its `releaseCheck`,
+   * share one), and never the previous index.
    *
-   * Before layering, a draft read checks the source for a newer release and
+   * Before overlaying, a draft read checks the source for a newer release and
    * waits for that check (see `checkRelease`), so a draft always shows over
    * the latest release, even in a process that hasn't picked it up yet. The
-   * check runs beside the draft's own revalidation. With `releaseCheck` (the
-   * id `checkRelease` resolved with, for this request), it waits for that
-   * check instead of making its own; an id this store didn't make is a check
-   * of its own.
+   * check runs beside the draft's own reads. With `releaseCheck` (the id
+   * `checkRelease` resolved with, for this request), it waits for that check
+   * instead of making its own; an id this store didn't make is a check of its
+   * own.
    */
-  draft(pointer: string, releaseCheck?: string | null): Promise<Snapshot> {
+  draft(pointer: string, releaseCheck?: string | null): Promise<Selection> {
     const parsed = parseDraftPointer(pointer);
     if (parsed === null) {
       return Promise.reject(errors.loaderFailed(`invalid draft pointer "${truncate(pointer)}"`));
     }
-    if (parsed.version === LOCAL_VERSION) return this.release();
-    const { host, path, version } = parsed;
-    const key = formatDraftPointer({ host, path, version });
-    let read = this.#draftReads.get(key);
-    if (read === undefined) {
-      const held = this.#drafts.get(key);
-      read = fetchDraftChanges(parsed, { domains: this.#draftHosts, etag: held?.etag }).then(
-        (result) => {
-          if (result.status === 304 && held !== undefined) return held;
-          if (result.status === 304) throw new Error("draft changes: 304 without a held body");
-          const entry: CachedDraft = {
-            changes: result.changes,
-            etag: result.etag,
-            views: new WeakMap(),
-          };
-          this.#drafts.set(key, entry);
-          return entry;
+    const { variants } = parsed;
+    const withVariants = (selection: Selection): Selection =>
+      variants === undefined ? selection : { ...selection, variants };
+    if (parsed.version === LOCAL_VERSION) {
+      return this.release().then(({ current }) => withVariants({ current }));
+    }
+    const files = this.#draftFiles(parsed, releaseCheck);
+    const release = this.waitForCheck(releaseCheck).then(() => this.release());
+    return Promise.all([release, files]).then(([base, states]) =>
+      withVariants({ current: overlayDraft(base.current, states, parsed.version) }),
+    );
+  }
+
+  /**
+   * A published release by its revision id: from the source's hosted
+   * releases (`remoteLoader`, which `createCMS` builds with `site`), or the
+   * content in memory when it is that revision. Anything else is
+   * `LOADER_FAILED`, never a silent fallback to the current release.
+   */
+  revision(id: string): Promise<Selection> {
+    const source = this.#source;
+    if (isHostedSource(source)) {
+      return source.revision(id).then(
+        (current): Selection => ({ current }),
+        (error: unknown) => {
+          if (isResolutionError(error)) throw error;
+          throw errors.loaderFailed(`the release ${id} couldn't be read`, error);
         },
       );
-      const pending = read;
-      this.#draftReads.set(key, pending);
-      const settle = () => {
-        if (this.#draftReads.get(key) === pending) this.#draftReads.delete(key);
-      };
-      pending.then(settle, settle);
     }
-    const changes = read.catch((error: unknown) => {
-      throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
-    });
-    const release = this.waitForCheck(releaseCheck).then(() => this.release());
-    return Promise.all([release, changes]).then(([base, entry]) => {
-      let view = entry.views.get(base);
-      if (view === undefined) {
-        // OPEN: the view is keyed by the body's ETag (the pointer outlives later saves); the version without one.
-        view = layerDraft(base, entry.changes, entry.etag ?? version);
-        entry.views.set(base, view);
-      }
-      return view;
-    });
-  }
-
-  /**
-   * A published release by its commit SHA: from the source's hosted releases
-   * (`remoteLoader`, which `createCMS` builds with `site`), or the content in
-   * memory when it is that revision. Anything else is `LOADER_FAILED`, never
-   * a silent fallback to the current release.
-   */
-  revision(sha: string): Promise<Snapshot> {
-    const source = this.#source;
-    const read = isLoader(source)
-      ? (source as { [READ_REVISION]?: (sha: string) => Promise<Snapshot> })[READ_REVISION]
-      : undefined;
-    if (typeof read === "function") {
-      return read.call(source, sha).catch((error: unknown) => {
-        if (isResolutionError(error)) throw error;
-        throw errors.loaderFailed(`the release ${sha} couldn't be read`, error);
-      });
-    }
-    return this.release().then((snapshot) => {
-      if (snapshot.revision === sha) return snapshot;
+    return this.release().then((selection) => {
+      if (selection.current.revision === id) return { current: selection.current };
       throw errors.loaderFailed(
-        `the release ${sha} isn't available: published releases are read from hosted releases (createCMS with site)`,
+        `the release ${id} isn't available: published releases are read from hosted releases (createCMS with site)`,
       );
     });
   }
 
   /**
-   * The current release as it is in memory, without loading anything: the
-   * content module, what a built-in loader holds, or the release this store
-   * last loaded. `undefined` before a custom loader's first load.
+   * The current release's index as it is in memory, without loading
+   * anything: the content module, what a built-in loader holds, or the
+   * release this store last loaded. `undefined` before the first load.
    */
-  current(): Snapshot | undefined {
-    return peekRelease(this.#source) ?? this.#latest;
+  current(): IndexedContent | undefined {
+    const source = this.#source;
+    if (isHostedSource(source)) return source.peek();
+    const snapshot = peekRelease(source) ?? this.#latest;
+    return snapshot === undefined ? undefined : localIndex(snapshot);
   }
 
   /**
    * The current release's preview hosts (see `ReleasePreviewHosts`): what the
-   * source's release metadata says (`remoteLoader` reads it once if it hasn't
-   * yet; a failed read is `"unknown"`), else, for a source with no release
-   * metadata (no remote site), the release in memory's own `previewHosts`, or
-   * `"local"` without one. `peek` reads memory only, never the network.
+   * hosted release metadata says (read once if it hasn't been yet; a failed
+   * read is `"unknown"`), else, for a source with no release metadata (no
+   * remote site), the snapshot in memory's own `previewHosts`, or `"local"`
+   * without one. `peek` reads memory only, never the network.
    */
   async previewHosts(peek = false): Promise<ReleasePreviewHosts> {
     const source = this.#source;
-    const read = isLoader(source)
-      ? (source as { [PREVIEW_HOSTS]?: (peek: boolean) => Promise<ReleasePreviewHosts> })[
-          PREVIEW_HOSTS
-        ]
-      : undefined;
-    if (typeof read === "function") {
-      return read.call(source, peek).catch((): ReleasePreviewHosts => "unknown");
+    if (isHostedSource(source)) {
+      return source.previewHosts(peek).catch((): ReleasePreviewHosts => "unknown");
     }
-    return previewHostsOf(this.current()?.previewHosts) ?? "local";
+    const snapshot = peekRelease(source) ?? this.#latest;
+    return previewHostsOf(snapshot?.previewHosts) ?? "local";
   }
 
   /** Asks the source for newer content; never throws, and concurrent calls share one check. */
   update(): Promise<{ updated: boolean }> {
     const source = this.#source;
-    if (!isLoader(source) || typeof source.update !== "function") {
-      return Promise.resolve({ updated: false });
-    }
+    if (!this.updatable) return Promise.resolve({ updated: false });
     this.#updating ??= (async () => {
       try {
-        const result = await source.update?.();
+        if (isHostedSource(source)) return await (source as HostedSource).poll();
+        const result = await (source as Loader).update?.();
         const updated = result?.updated === true;
-        if (updated) {
-          this.#release = undefined;
-          // `#latest` stays: settings keep the release that was serving until
-          // the next one loads, never the defaults (which allow no host).
-          // Drafts are fetched again, so a preview follows the release too.
-          this.#drafts.clear();
-        }
+        // `#latest` stays: settings keep the release that was serving until the next one loads.
+        if (updated) this.#release = undefined;
         return { updated };
       } catch {
         return { updated: false };
@@ -340,7 +286,57 @@ export class ContentStore {
   }
 
   #startCheck(): Promise<string> {
-    return this.update().then(() => this.#checkId(++this.#checksDone));
+    return this.update().then(() => {
+      const n = ++this.#checksDone;
+      // Reads under checks older than the one before this are dropped: their requests are over or nearly.
+      for (const check of this.#draftReads.keys()) {
+        if (check < n - 1) this.#draftReads.delete(check);
+      }
+      return this.#checkId(n);
+    });
+  }
+
+  /**
+   * A draft's files (its index, then every file it lists). Reads under one
+   * release check share one read: the check's id is handed to every draft
+   * read of the request that made it (the host check, the redirects, the
+   * assignments and the page), so a preview request reads the draft folder
+   * once and every part of it sees the same save. A read under a check starts
+   * only after the check ended, so it is never older than any request that
+   * shares it. A failed read isn't shared, and reads under old checks are
+   * dropped once newer checks end (`#startCheck`): nothing from `drafts/`
+   * serves a later request. Without a check id this store made (or for a
+   * source that can't change, whose checks are all one), every read is its
+   * own.
+   */
+  #draftFiles(
+    pointer: DraftPointer,
+    releaseCheck: string | null | undefined,
+  ): Promise<Map<string, DraftState>> {
+    const read = () =>
+      fetchDraft(pointer, { domains: this.#draftHosts }).catch((error: unknown) => {
+        throw errors.loaderFailed("the draft's changes couldn't be fetched", error);
+      });
+    const check = this.updatable ? this.#checkNumber(releaseCheck) : undefined;
+    if (check === undefined) return read();
+    const key = `${pointer.host}${pointer.path}@${pointer.version}`;
+    let reads = this.#draftReads.get(check);
+    if (reads === undefined) {
+      reads = new Map();
+      this.#draftReads.set(check, reads);
+    }
+    const shared = reads.get(key);
+    if (shared !== undefined) return shared;
+    const pending = read();
+    reads.set(key, pending);
+    // Requests under one check share it: kept alive past the request that
+    // started it (see ./blockStore.ts), so none of them awaits it forever.
+    keepAlive(pending);
+    pending.catch(() => {
+      if (this.#draftReads.get(check)?.get(key) === pending)
+        this.#draftReads.get(check)?.delete(key);
+    });
+    return pending;
   }
 
   #checkId(n: number): string {
@@ -350,31 +346,29 @@ export class ContentStore {
 
   /** Whether `id` names a check this store made (and so one that ended). */
   #madeCheck(id: string): boolean {
+    return this.#checkNumber(id) !== undefined;
+  }
+
+  /** The number of the check `id` names, when this store made it; otherwise `undefined`. */
+  #checkNumber(id: string | null | undefined): number | undefined {
     const prefix = this.#checkPrefix;
-    if (prefix === undefined || !id.startsWith(prefix)) return false;
+    if (typeof id !== "string" || prefix === undefined || !id.startsWith(prefix)) return undefined;
     const digits = id.slice(prefix.length);
-    return /^\d{1,15}$/.test(digits) && Number(digits) <= this.#checksDone;
+    if (!/^\d{1,15}$/.test(digits)) return undefined;
+    const n = Number(digits);
+    return n <= this.#checksDone ? n : undefined;
   }
 
   /**
    * Swaps the content in place, for a hot reload that hands the same CMS a new
    * content module. Any new object swaps, even with the same `revision`: an
-   * edited JSON file reloads without rerunning `deco content`, so the new
-   * module carries new `blocks` under the old revision.
+   * edited JSON file can carry new `blocks` under the old revision.
    */
   replace(source: Snapshot | Loader): void {
-    const previous = this.#source;
-    if (source === previous) {
-      // The same loader (a hosted remoteLoader that adopted new fallback content): re-read it.
-      this.#release = undefined;
-      this.#latest = undefined;
-      this.#drafts.clear();
-      return;
-    }
     this.#source = source;
+    this.#draftReads.clear();
     this.#release = undefined;
     this.#latest = undefined;
-    this.#drafts.clear();
   }
 
   async #load(loader: Loader): Promise<Snapshot> {
@@ -391,56 +385,12 @@ export class ContentStore {
     return snapshot;
   }
 
-  #serve(snapshot: Snapshot): Snapshot {
+  #serve(snapshot: Snapshot): IndexedContent {
     this.#latest = snapshot;
-    return snapshot;
+    return localIndex(snapshot);
   }
 }
 
 function truncate(value: string): string {
   return value.length > 80 ? `${value.slice(0, 80)}…` : value;
-}
-
-/**
- * A Map that forgets its least recently used entries past `limit`, counted by
- * `size` (one per entry unless given).
- */
-export class BoundedMap<K, V> {
-  readonly #map = new Map<K, V>();
-  #total = 0;
-  constructor(
-    readonly limit: number,
-    readonly size: (value: V) => number = () => 1,
-  ) {}
-
-  get(key: K): V | undefined {
-    const value = this.#map.get(key);
-    if (value !== undefined) {
-      this.#map.delete(key);
-      this.#map.set(key, value);
-    }
-    return value;
-  }
-
-  set(key: K, value: V): void {
-    this.delete(key);
-    this.#map.set(key, value);
-    this.#total += this.size(value);
-    for (const [oldest, old] of this.#map) {
-      if (this.#total <= this.limit || oldest === key) break;
-      this.#map.delete(oldest);
-      this.#total -= this.size(old);
-    }
-  }
-
-  delete(key: K): void {
-    if (!this.#map.has(key)) return;
-    this.#total -= this.size(this.#map.get(key) as V);
-    this.#map.delete(key);
-  }
-
-  clear(): void {
-    this.#map.clear();
-    this.#total = 0;
-  }
 }

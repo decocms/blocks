@@ -189,7 +189,7 @@ export async function decideDraft(
  */
 function isDraftGone(error: unknown): boolean {
   for (let e = error, depth = 0; e instanceof Error && depth < 5; e = e.cause, depth++) {
-    if (/draft changes: HTTP (404|410)\b/.test(e.message)) return true;
+    if (/draft (?:changes|index): HTTP (?:404|410)\b/.test(e.message)) return true;
   }
   return false;
 }

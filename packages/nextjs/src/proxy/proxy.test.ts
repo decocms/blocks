@@ -381,7 +381,7 @@ describe("the visitor", () => {
 });
 
 describe("the version: an old release from a Studio link", () => {
-  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const SHA = "0123456789ab-01234567-89ab-7def-8123-456789abcdef";
   const link = (value: string, host = "shop.example.com") =>
     new NextRequest(`https://${host}/shoes?__draft=${encodeURIComponent(value)}`);
   const cms = () => testCMS(snapshot({ previewHosts: ["shop.example.com"] }));

@@ -104,29 +104,33 @@ function cmsFile(w: Wiring): string {
   ].join("\n");
 }
 
-/** The part of openPage both frameworks share: list, match, resolve every section, run the loaders. */
+/** The part of openPage both frameworks share: route, match, resolve every section, run the loaders. */
 function resolveBody(w: Wiring, request: string): string[] {
   return [
-    '  const [pages, pagesError] = await c.list<StoredPage>("page");',
-    "  if (pagesError) throw pagesError;",
-    '  const [redirects, redirectsError] = await c.list<Redirect>("redirect");',
+    "  // Routing reads the index: the pages' paths, then the redirects block.",
+    "  const [routes, routesError] = await c.routes();",
+    "  if (routesError) throw routesError;",
+    "  const match = matchRoute(url, { routes });",
+    "  // The page's blocks start downloading with the redirects block, in one wave.",
+    '  if (match.kind === "match") c.prefetch(match.entry.name);',
+    "  const [redirects, redirectsError] = await c.redirects();",
     "  if (redirectsError) throw redirectsError;",
-    "",
-    "  const match = matchRoute(url, { routes: pages, redirects });",
+    "  const moved = matchRoute(url, { routes: [], redirects });",
     ...(w.framework === "tanstack"
       ? [
-          '  if (match.kind === "not-found") throw notFound();',
-          '  if (match.kind === "redirect") throw redirect({ href: match.location, statusCode: match.status });',
+          '  if (moved.kind === "redirect") throw redirect({ href: moved.location, statusCode: moved.status });',
+          '  if (match.kind !== "match") throw notFound();',
         ]
       : [
-          '  if (match.kind === "not-found") notFound();',
-          '  if (match.kind === "redirect") {',
-          "    if (match.status === 301 || match.status === 308) permanentRedirect(match.location);",
-          "    redirect(match.location);",
+          '  if (moved.kind === "redirect") {',
+          "    if (moved.status === 301 || moved.status === 308) permanentRedirect(moved.location);",
+          "    redirect(moved.location);",
           "  }",
+          '  if (match.kind !== "match") notFound();',
         ]),
     "",
-    "  const page = match.entry;",
+    "  const [page, pageError] = await c.resolve<StoredPage>(match.entry.name, { run: false });",
+    "  if (pageError) throw pageError;",
     "  // Variants of the whole list are one multivariate block: it resolves to the chosen list.",
     "  const saved = Array.isArray(page.sections) ? page.sections : page.sections ? [page.sections] : [];",
     "  const resolved = await Promise.all(",
@@ -160,7 +164,7 @@ function openPageTanstack(w: Wiring): string {
     ...HEADER(
       "Finds the page for a URL and resolves it the way v7 rendered it: every section, then v7's\nsection loaders (/next/tanstack-start-descriptors#3-match-the-url-to-a-page).",
     ),
-    'import { matchRoute, type Redirect, type Route } from "@decocms/blocks";',
+    'import { matchRoute, type Route } from "@decocms/blocks";',
     ...(compat.length > 0
       ? [`import { ${compat.join(", ")} } from "@decocms/compat-v7/tanstack/server";`]
       : []),
@@ -696,7 +700,7 @@ function openPageNext(w: Wiring): string {
     ...HEADER(
       "Finds the page for a URL and resolves it the way v7 rendered it: every section, then v7's\nsection loaders (/next/nextjs#4-match-the-url-to-a-page). React's cache shares one result between\ngenerateMetadata and the page.",
     ),
-    'import { matchRoute, type Redirect, type Route } from "@decocms/blocks";',
+    'import { matchRoute, type Route } from "@decocms/blocks";',
     ...(w.device ? ['import { requestDevice } from "@decocms/compat-v7/nextjs/server";'] : []),
     'import { headers } from "next/headers";',
     'import { notFound, permanentRedirect, redirect } from "next/navigation";',

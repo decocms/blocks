@@ -8,6 +8,7 @@
  * shows, the tests and campaigns it switches). One test per claim.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { indexEntry } from "../blockMeta";
 import { createCMS, resetForTests } from "../cms";
 import { currentClient } from "../current";
 import { parseDraftPointer, parseVersion } from "../draft";
@@ -292,19 +293,28 @@ describe("a client's date and the campaigns it is given", () => {
 });
 
 describe("the preview link: the version, the moment and the tests and campaigns it switches", () => {
-  const OLD = "1".repeat(40);
-  const SCHEMA = "a".repeat(64);
+  const OLD = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
   const enc = encodeURIComponent;
 
   /** A fake delivery CDN holding the published revision OLD, with campaigns and a test. */
-  function delivery() {
+  async function delivery() {
+    const { blocks } = snapshotWith({ "black-friday": BLACK_FRIDAY });
+    blocks.experiments = { __resolveType: "split-traffic", "hero-copy": 0 };
+    const objects = new Map<string, unknown>();
+    const names = Object.keys(blocks);
+    const index: Record<string, unknown> = {};
+    for (const name of names) {
+      const entry = await indexEntry(name, blocks[name], names);
+      index[name] = entry;
+      objects.set(`blocks/${entry.version}.json`, blocks[name]);
+    }
+    objects.set(`revisions/${OLD}/index.json`, { revision: OLD, sequence: 1, blocks: index });
+    const prefix = "https://delivery.decocms.com/sites/acme/";
     const fetch = vi.fn(async (input: string | URL | Request) => {
-      if (String(input) !== `https://delivery.decocms.com/sites/acme/revisions/${OLD}.json`) {
-        return new Response("not found", { status: 404 });
-      }
-      const { blocks } = snapshotWith({ "black-friday": BLACK_FRIDAY });
-      blocks.experiments = { __resolveType: "split-traffic", "hero-copy": 0 };
-      return Response.json({ revision: OLD, schemaHash: SCHEMA, blocks });
+      const key = String(input).slice(prefix.length);
+      return objects.has(key)
+        ? Response.json(objects.get(key))
+        : new Response("not found", { status: 404 });
     });
     vi.stubGlobal("fetch", fetch);
     return fetch;
@@ -404,14 +414,10 @@ describe("the preview link: the version, the moment and the tests and campaigns 
     ).not.toHaveProperty("gone");
   });
 
-  it("pv-05: an old release's SHA carries the same parameters: <sha>?__at=…&__test=…", async () => {
+  it("pv-05: an old release's revision id carries the same parameters: <id>?__at=…&__test=…", async () => {
     at(BEFORE);
-    delivery();
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { ...snapshotWith(undefined), schemaHash: SCHEMA },
-      site: "acme",
-    });
+    await delivery();
+    const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const read = parseVersion(
       `${OLD}?__at=${enc("2026-11-28T09:00:00-03:00")}&__test=${enc("hero-copy=on")}`,
     );
@@ -468,7 +474,7 @@ describe("the preview link: the version, the moment and the tests and campaigns 
     }
   });
 
-  it("pv-08: every preview of one draft shares one fetched body, whatever moment, tests or campaigns it sets", async () => {
+  it("pv-08: every preview of one draft reads the same draft folder, whatever moment, tests or campaigns it sets", async () => {
     const studio = fakeStudio();
     vi.stubGlobal("fetch", vi.fn(studio.fetch));
     const cms = createCMS({
@@ -482,6 +488,10 @@ describe("the preview link: the version, the moment and the tests and campaigns 
       cms.client({ version, campaigns: { "black-friday": false } }).resolve("Banner"),
       cms.client({ version }).resolve("Banner"),
     ]);
-    expect(studio.requests).toHaveLength(1);
+    // Nothing of a draft is kept across clients: each reads its index (it names no file).
+    expect(new Set(studio.requests.map((r) => r.url))).toEqual(
+      new Set([`https://${version.slice(0, version.lastIndexOf("@"))}`]),
+    );
+    expect(studio.requests).toHaveLength(4);
   });
 });

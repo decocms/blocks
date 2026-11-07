@@ -74,7 +74,7 @@ class MemoryCache {
 const ORIGIN = "https://store.example.com";
 const DESKTOP = "Mozilla/5.0 (X11; Linux x86_64) Chrome/130";
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
-const POINTER = "studio.decocms.com/api/acme/decofile/store/main/changes?token=abc@9f3c1a";
+const POINTER = "studio.decocms.com/sites/acme/drafts/main/index.json@9f3c1a";
 const BF = { start: "2026-11-27T00:00:00Z", end: "2026-12-01T23:59:59Z" };
 const TOKEN = "s3cret";
 
@@ -192,8 +192,8 @@ describe("the page cache", () => {
 
   it("previews never reach the cache: a draft renders, uncached, and stores nothing", async () => {
     await get("/");
-    // The drafts' host answers the pointer's (empty) changes: the worker reads the draft first.
-    vi.stubGlobal("fetch", async () => Response.json({ set: {}, delete: [] }));
+    // The drafts' host answers the pointer's folder (an empty draft): the worker reads it first.
+    vi.stubGlobal("fetch", async () => Response.json({ names: [] }));
     const draft = await get(`/?${DRAFT_PARAM}=${encodeURIComponent(POINTER)}`);
     expect(draft.headers.get("set-cookie")).toContain(`${DRAFT_COOKIE}=studio`);
     expect(draft.headers.get("cache-control")).toBe("max-age=0, no-cache, must-revalidate");

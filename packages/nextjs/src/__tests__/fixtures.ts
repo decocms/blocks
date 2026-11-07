@@ -3,16 +3,20 @@ import { type Blocks, type CMS, createCMS, type Snapshot } from "@decocms/blocks
 import { vi } from "vitest";
 
 /** A pointer that parses (Studio's draft API on a decocms.com host). */
-export const POINTER = "studio.decocms.com/api/acme/decofile/mcp/main?token=t@v1";
+/** A draft pointer: Studio's draft folder on its host, at a version. */
+export const POINTER = "studio.decocms.com/sites/acme/drafts/main/index.json@v1";
 /** A pointer to a draft Studio no longer has (its host answers 404). */
-export const GONE_POINTER = "studio.decocms.com/api/acme/decofile/mcp/gone?token=t@v1";
+export const GONE_POINTER = "studio.decocms.com/sites/acme/drafts/gone/index.json@v1";
 
-/** Stands in for the drafts' host: {@link POINTER}'s changes (empty), a 404 for any other draft. */
+/** Stands in for the drafts' host: {@link POINTER}'s folder (an empty draft), a 404 for any other draft. */
 export function serveDrafts(): void {
   vi.stubGlobal("fetch", async (input: string | URL | Request) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.host === "studio.decocms.com" && url.pathname === "/api/acme/decofile/mcp/main") {
-      return Response.json({ set: {}, delete: [] }, { headers: { etag: '"etag-1"' } });
+    if (
+      url.host === "studio.decocms.com" &&
+      url.pathname === "/sites/acme/drafts/main/index.json"
+    ) {
+      return Response.json({ names: [] });
     }
     return new Response("not found", { status: 404 });
   });

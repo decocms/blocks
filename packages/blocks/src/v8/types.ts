@@ -22,37 +22,23 @@ export type BlockFunction = (inputs: any) => unknown | Promise<unknown>;
 /** A block map: what `.deco/index.ts` exports and the CLI reads. */
 export type Blocks = Record<string, BlockFunction>;
 
-/** One fixed copy of the content: what the content module exports and `load()` returns. */
+/** One fixed copy of the content: what a content module exports and `load()` returns. */
 export type Snapshot = {
   revision: string;
   /** The content map: entry name → saved JSON. */
   blocks: Record<string, unknown>;
-  /** The alias table `deco content` writes: old type name → your type. */
+  /** An alias table: old type name → your type. */
   aliases?: Record<string, string>;
   /**
-   * The hash of the `.deco/schema.gen.json` this content was built with, which
-   * `deco content` writes. A hosted release is swapped in only when its
-   * `schemaHash` equals the bundled content's; without one, never.
-   */
-  schemaHash?: string;
-  /**
-   * The commit time of the git HEAD `deco content` built this content from
-   * (committer date, ISO 8601). A hosted release is swapped in only when its
-   * `publishedAt` is later; without one (a custom loader, an older content
-   * module, a build outside git), the bundled content counts as the oldest.
-   */
-  committedAt?: string;
-  /**
-   * The hosts this release may be previewed on (host patterns), as Studio
-   * wrote them into the release metadata on delivery.decocms.com
-   * (`latest.json` and `revisions/<sha>.json`). Previews are checked against
-   * the current release's list; the bundled content has none.
+   * The hosts this content may be previewed on (host patterns), for content
+   * with no remote site. A hosted release's list is Studio's, in
+   * `latest.json` on delivery.decocms.com, and the CMS reads it from there.
    */
   previewHosts?: string[];
 };
 
 /**
- * The content module `deco content` writes: a snapshot plus `root`, the
+ * The content module the CLI's `content()` writes: a snapshot plus `root`, the
  * `.deco` folder it was generated from, which `createCMS` keys its instance
  * on (see /next/api-reference#one-instance-per-process). Not exported.
  */
@@ -73,7 +59,7 @@ export interface DraftPointer {
   host: string;
   /** Starts with `/`; opaque to the app. Never carries the `__variant` parameters. */
   path: string;
-  /** Opaque: identifies the editor's last save. `"local"` names no draft (`deco serve`). */
+  /** Opaque: identifies the editor's last save. `"local"` names no draft (the release itself). */
   version: string;
   /** The variants this preview forces (the query's `__variant` parameters); absent when none. */
   variants?: ForcedVariant[];
@@ -127,7 +113,7 @@ export interface Redirect {
    */
   from: string;
   to: string;
-  /** `true` for a 301, `false` for a 302. */
+  /** `true` for a 301, `false` (a temporary redirect) for a 307. */
   permanent: boolean;
   /** Wins over `permanent`. */
   status?: RedirectStatus;
@@ -269,17 +255,14 @@ export interface TelemetryConfig {
 export interface CMSConfig {
   /** Your block functions; the CMS uses `{ ...builtIns, ...blocks }`. */
   blocks: Blocks;
-  /** The content module (`.deco/blocks.gen.ts`), or any {@link Loader}. */
-  content: ContentModule | Loader;
+  /**
+   * The content without `site`: a snapshot, or any {@link Loader}. With
+   * `site`, leave it out: content comes from the delivery CDN at runtime,
+   * never from the bundle (passing both is an error).
+   */
+  content?: ContentModule | Loader;
   /** ms between `update()` checks of a content source that has one; minimum 60 000. */
   interval?: number;
-  /**
-   * Local development: hosted releases are never swapped in, so local files win.
-   * Drafts still load. Default: `process.env.NODE_ENV === "development"` (read
-   * guarded, so `false` where there is no `process`: Workers, browsers). Pass it
-   * to override that, e.g. `dev: import.meta.env.DEV` or `dev: false`.
-   */
-  dev?: boolean;
   /** Where telemetry goes; see /next/telemetry. */
   telemetry?: false | TelemetryConfig;
   preview?: {
@@ -300,8 +283,11 @@ export interface CMSConfig {
     draftHosts?: string[];
   };
   /**
-   * Your site ID (Studio's site slug): turns on hosted releases from
-   * `delivery.decocms.com`. Drafts don't need it.
+   * Your site ID (Studio's site slug): the content is the site's latest
+   * release on `delivery.decocms.com`, fetched at runtime (the first client
+   * loads it, with 10 s per fetch; until a load succeeds, clients answer
+   * `LOADER_FAILED` with a `ContentUnavailableError` cause) and followed
+   * every `interval`. Drafts don't need it.
    */
   site?: string;
   /**
@@ -335,7 +321,33 @@ export interface ListOptions<T> {
  */
 export interface Client {
   resolve<T = unknown>(target: unknown, options?: ResolveOptions): Promise<Result<T>>;
+  /**
+   * Every saved block of a type, read whole. For tools and type lists; routing
+   * reads `routes()` and `redirects()`, which need no body (a `page` or
+   * `redirect` list warns outside production).
+   */
   list<T = Block>(type: string, options?: ListOptions<T>): Promise<Result<T[]>>;
+  /**
+   * `{ name, path }` of every page (a saved block whose type is `page`, or an
+   * alias of it, with a `path`), from the index alone, in code-unit order of
+   * name so the same page wins a path conflict everywhere. The same array for
+   * the same revision, so `matchRoute` builds its trie once per revision.
+   * `name` is the saved block's name: `resolve(name)` reads the page.
+   */
+  routes(): Promise<Result<Route[]>>;
+  /**
+   * The rules of the site's redirects block (the saved block of type
+   * `redirects`; the first in code-unit order of name when there are
+   * several), `[]` when there is none.
+   */
+  redirects(): Promise<Result<Redirect[]>>;
+  /**
+   * Starts fetching the saved block `name` and everything it references,
+   * with the redirects block, in one parallel wave, so `redirects()` and
+   * `resolve(name)` find them in memory. Never throws; a block that can't be
+   * fetched fails where it is read.
+   */
+  prefetch(name: string): void;
   /**
    * The revision this client reads (loads it on first use). Unlike `resolve`
    * and `list`, it rejects with the `LOADER_FAILED` error when the content
@@ -345,8 +357,8 @@ export interface Client {
   /** Who is visiting, as passed to `cms.client()` (a frozen copy); `null` for none. */
   readonly visitor: Visitor | null;
   /**
-   * The version it reads: the release's commit SHA, or the draft pointer, as
-   * passed to `cms.client()`. For the current release, the SHA of the release
+   * The version it reads: the release's revision id, or the draft pointer, as
+   * passed to `cms.client()`. For the current release, the id of the release
    * it loaded (`undefined` until its first `resolve`, `list` or `revision()`).
    */
   readonly version: string | undefined;
@@ -364,7 +376,7 @@ export interface Client {
 export interface ClientOptions {
   /**
    * What to read: `undefined` (or `null`) for the current release; a
-   * published release's commit SHA (40 hex characters), read from hosted
+   * published release's revision id (`<inv>-<uuidv7>`), read from hosted
    * releases; or a draft pointer, the draft's changes over the current
    * release. Only a version: a Studio link's moment and switched tests are
    * the options below (`cms.readVersion(request)` reads all of them).
@@ -375,7 +387,7 @@ export interface ClientOptions {
    * (`cms.checkRelease()`), so the draft waits for it instead of making a
    * check of its own; one request, one read of the release metadata. An id
    * this CMS didn't make (another process's) is a check of its own. Ignored
-   * for the release and a release's SHA.
+   * for the release and a release's revision id.
    */
   releaseCheck?: string | null;
   /**
@@ -409,7 +421,7 @@ export interface ClientOptions {
  * in the shape of `ClientOptions`, so it spreads into `cms.client()`.
  */
 export interface RequestVersion {
-  /** A draft pointer, or a published release's commit SHA. */
+  /** A draft pointer, or a published release's revision id. */
   version: string;
   /** The moment the preview shows (`__at`). */
   date?: Date;
@@ -466,7 +478,7 @@ export interface CMS {
   settings(): Promise<EffectiveSettings>;
   /**
    * What a Studio link asks for: `?__draft=` first, then the `__deco_draft`
-   * cookie, holding a draft pointer or a published release's commit SHA,
+   * cookie, holding a draft pointer or a published release's revision id,
    * with the preview's moment (`__at`) and switched tests (`__test`) and
    * campaigns (`__campaign`) as `date`, `experiments` and `campaigns`.
    * `null` when neither is present, for `?__draft=off`, on a host outside
@@ -476,7 +488,7 @@ export interface CMS {
    * `preview.hosts`; no host while the metadata can't be read, besides
    * `preview.hosts`), and for a value that doesn't parse (ignored,
    * as if absent): in each case the request gets the current release. A
-   * draft and an older release's SHA are both checked against the current
+   * draft and an older release's id are both checked against the current
    * release's list.
    *
    * ```ts

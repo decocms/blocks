@@ -503,6 +503,9 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
 
   it("writes the page setup: the CMS, a page server function on the page's URL, the catch-all route", () => {
     expect(read("src/cms.ts")).toContain("contentClient(cms, request)");
+    // Git-backed content, as before hosted releases: deco content writes the module it imports.
+    expect(read("src/cms.ts")).toContain('import content from "../.deco/blocks.gen";');
+    expect(read("src/cms.ts")).toContain("createCMS({ blocks, content })");
     const open = read("src/open-page.server.ts");
     expect(open).toContain("const url = new URL(href, request.url);");
     expect(open).toContain("matchPage(url, request);");
@@ -690,6 +693,7 @@ describe("a v7 Next.js site on the v8 binding", () => {
     );
     expect(read("src/clients/vtex.ts")).toContain("process.env[name]");
     expect(read("src/cms.ts")).toContain("contentClient(cms)");
+    expect(read("src/cms.ts")).toContain("createCMS({ blocks, content })");
     const page = read("src/app/[[...slug]]/page.tsx");
     expect(page).toContain("await bindDraft(cms, { searchParams: query });");
     expect(page).not.toContain("SegmentCookie");

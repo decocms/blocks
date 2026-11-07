@@ -26,12 +26,24 @@ import { isMultivariateBuiltin } from "./builtins/multivariate.ts";
 import { runWithClient } from "./current.ts";
 import { errors, isResolutionError } from "./errors.ts";
 import { canonicalKey, isPlainObject, type JsonObject, own } from "./json.ts";
-import type { BlockFunction, Blocks, Client, Lazy, Snapshot } from "./types.ts";
+import type { BlockFunction, Blocks, Client, Lazy } from "./types.ts";
 
 type Path = (string | number)[];
 
+/**
+ * The content a resolver reads (a request's pin, see ./pin.ts): whether a
+ * saved block exists comes from the index, synchronously; its body may take a
+ * fetch.
+ */
+export interface ContentView {
+  has(name: string): boolean;
+  /** The body of a name `has` knows; rejects with `LOADER_FAILED` when it can't be fetched. */
+  body(name: string, path?: Path): Promise<unknown>;
+  readonly aliases?: Readonly<Record<string, string>>;
+}
+
 interface ResolverOptions {
-  snapshot: Snapshot;
+  content: ContentView;
   blocks: Blocks;
   /** The built-in blocks. */
   builtIns: Readonly<Blocks>;
@@ -44,7 +56,7 @@ interface ResolverOptions {
 }
 
 export class Resolver {
-  readonly #snapshot: Snapshot;
+  readonly #content: ContentView;
   readonly #blocks: Blocks;
   readonly #builtIns: Readonly<Blocks>;
   readonly #client: Client | undefined;
@@ -53,8 +65,8 @@ export class Resolver {
   readonly #memo = new WeakMap<BlockFunction, Map<string, Promise<unknown>>>();
   readonly #keys = new WeakMap<object, string | null>();
 
-  constructor({ snapshot, blocks, builtIns, client, onCollision, onBlock }: ResolverOptions) {
-    this.#snapshot = snapshot;
+  constructor({ content, blocks, builtIns, client, onCollision, onBlock }: ResolverOptions) {
+    this.#content = content;
     this.#blocks = blocks;
     this.#builtIns = builtIns;
     this.#client = client;
@@ -62,9 +74,9 @@ export class Resolver {
     this.#onBlock = onBlock;
   }
 
-  /** The saved entry with this name, or `undefined`. */
-  entry(name: string): unknown {
-    return own(this.#snapshot.blocks, name);
+  /** Whether the content has a saved block with this name. */
+  has(name: string): boolean {
+    return this.#content.has(name);
   }
 
   /** The type an alias points at, or the type itself. */
@@ -74,17 +86,20 @@ export class Resolver {
 
   /** The snapshot's alias table first, then the built-in legacy one. */
   #alias(type: string): string | undefined {
-    return own(this.#snapshot.aliases, type) ?? own(LEGACY_ALIASES, type);
+    return (
+      own(this.#content.aliases as Record<string, string> | undefined, type) ??
+      own(LEGACY_ALIASES, type)
+    );
   }
 
   /** Resolves a saved entry by name (the target is known to exist). */
-  resolveEntry(name: string): Promise<unknown> {
-    return this.resolve(this.entry(name), [], [name], true);
+  async resolveEntry(name: string): Promise<unknown> {
+    return this.resolve(await this.#content.body(name), [], [name], true);
   }
 
   /** Expands a saved entry by name without running anything. */
-  expandEntry(name: string): unknown {
-    return this.expand(this.entry(name), [], [name], true);
+  async expandEntry(name: string): Promise<unknown> {
+    return this.expand(await this.#content.body(name), [], [name], true);
   }
 
   /**
@@ -112,10 +127,15 @@ export class Resolver {
     return this.#resolveFields(node, path, chain, fromContent);
   }
 
-  /** Expands saved blocks in place without running any function (`{ run: false }`). */
-  expand(node: unknown, path: Path, chain: string[], fromContent: boolean): unknown {
+  /**
+   * Expands saved blocks in place without running any function (`{ run: false }`).
+   * Async only because a saved block's body may take a fetch.
+   */
+  async expand(node: unknown, path: Path, chain: string[], fromContent: boolean): Promise<unknown> {
     if (Array.isArray(node)) {
-      const items = node.map((item, i) => this.expand(item, [...path, i], chain, fromContent));
+      const items = await Promise.all(
+        node.map((item, i) => this.expand(item, [...path, i], chain, fromContent)),
+      );
       return !fromContent && sameItems(node, items) ? node : items;
     }
     if (!isPlainObject(node)) return node;
@@ -123,22 +143,24 @@ export class Resolver {
     if (
       typeof type === "string" &&
       this.#functionFor(type) === undefined &&
-      this.#aliasFor(type) === undefined
+      this.#aliasFor(type) === undefined &&
+      this.#content.has(type)
     ) {
-      const saved = this.entry(type);
-      if (saved !== undefined) {
-        const next = [...chain, type];
-        if (chain.includes(type)) throw errors.cycle(next);
-        return this.expand(mergeReference(saved, node), path, next, true);
-      }
+      const next = [...chain, type];
+      if (chain.includes(type)) throw errors.cycle(next);
+      const saved = await this.#content.body(type, path);
+      return this.expand(mergeReference(saved, node), path, next, true);
     }
     let changed = fromContent;
     const out: JsonObject = {};
-    for (const [key, value] of Object.entries(node)) {
-      const expanded = this.expand(value, [...path, key], chain, fromContent);
-      if (expanded !== value) changed = true;
-      out[key] = expanded;
-    }
+    const keys = Object.keys(node);
+    const values = await Promise.all(
+      keys.map((key) => this.expand(node[key], [...path, key], chain, fromContent)),
+    );
+    keys.forEach((key, i) => {
+      if (values[i] !== node[key]) changed = true;
+      out[key] = values[i];
+    });
     return changed ? out : node;
   }
 
@@ -180,12 +202,13 @@ export class Resolver {
     // An alias is a second key for a type, so like a function it wins over a
     // saved block of the same name (with a warning; deco check rejects it).
     const alias = viaAlias ? undefined : this.#aliasFor(type);
-    const saved = alias === undefined ? this.entry(type) : undefined;
-    if (saved !== undefined) {
+    if (alias === undefined && this.#content.has(type)) {
       const next = [...chain, type];
       if (chain.includes(type)) return Promise.reject(errors.cycle(next));
       if (RESERVED_NAMES.has(type)) this.#onCollision?.(type);
-      return this.resolve(mergeReference(saved, node), path, next, true);
+      return this.#content
+        .body(type, path)
+        .then((saved) => this.resolve(mergeReference(saved, node), path, next, true));
     }
 
     if (alias !== undefined) {
@@ -205,7 +228,7 @@ export class Resolver {
   #aliasFor(type: string): string | undefined {
     const alias = this.#alias(type);
     if (alias === undefined || alias === type) return undefined;
-    if (this.entry(type) !== undefined) this.#onCollision?.(type);
+    if (this.#content.has(type)) this.#onCollision?.(type);
     return alias;
   }
 
@@ -213,7 +236,7 @@ export class Resolver {
   #functionFor(type: string): BlockFunction | undefined {
     const fn = own(this.#blocks, type) ?? own(this.#builtIns, type);
     if (typeof fn !== "function") return undefined;
-    if (this.entry(type) !== undefined) this.#onCollision?.(type);
+    if (this.#content.has(type)) this.#onCollision?.(type);
     return fn;
   }
 

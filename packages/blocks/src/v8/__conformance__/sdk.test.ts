@@ -26,7 +26,7 @@ import {
   resetForTests,
 } from "../index";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
-import { docsBlocks, docsSnapshot, fakeStudio, hero, seo } from "../testFixtures";
+import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio, hero, seo } from "../testFixtures";
 import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
@@ -116,6 +116,7 @@ function exportedNames(source: string, from: string): string[] {
 // ---------------------------------------------------------------------------
 
 const DOCUMENTED_ROOT_VALUES = [
+  "ContentUnavailableError",
   "createCMS",
   "currentClient",
   "formatDraftPointer",
@@ -126,6 +127,7 @@ const DOCUMENTED_ROOT_VALUES = [
   "resetForTests",
 ].sort();
 const DOCUMENTED_ROOT_TYPES = [
+  "ContentUnavailableReason",
   "Block",
   "BlockFunction",
   "Blocks",
@@ -235,10 +237,11 @@ declare const blocks: Blocks;
 declare const content: Snapshot;
 declare const loader: Loader;
 createCMS({ blocks, content });
-createCMS({ blocks, content: loader, interval: 60_000, telemetry: false, site: "s", token: "t" });
+createCMS({ blocks, content: loader, interval: 60_000, telemetry: false });
+createCMS({ blocks, interval: 60_000, telemetry: false, site: "s", token: "t" });
 // @ts-expect-error secrets live in the deploy platform: createCMS takes no key
 createCMS({ blocks, content, secrets: { key: "k" } });
-createCMS({ blocks, content, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
+createCMS({ blocks, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" }, resource: { "service.version": "abc" } } });
 createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], draftHosts: [".decocms.com"] } });
 // @ts-expect-error draft hosts are preview.draftHosts
@@ -281,7 +284,13 @@ assert<Equal<
 >>();
 assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
-assert<Equal<keyof Client, "resolve" | "list" | "revision" | "visitor" | "version" | "date">>();
+assert<Equal<
+  keyof Client,
+  "resolve" | "list" | "revision" | "routes" | "redirects" | "prefetch" | "visitor" | "version" | "date"
+>>();
+assert<Equal<Client["routes"], () => Promise<Result<Route[]>>>>();
+assert<Equal<Client["redirects"], () => Promise<Result<Redirect[]>>>>();
+assert<Equal<Client["prefetch"], (name: string) => void>>();
 assert<Equal<Client["visitor"], Visitor | null>>();
 assert<Equal<Client["version"], string | undefined>>();
 assert<Equal<Client["date"], Date>>();
@@ -315,13 +324,13 @@ export { r1, r2, r3 };
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, schemaHash?, committedAt?, previewHosts? }", () => {
+  it("AR-57 Snapshot is exactly { revision, blocks, aliases?, previewHosts? }", () => {
     const errors = typecheck({
       "snapshot.ts": `
 import type { Snapshot } from "@decocms/blocks";
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assert = <T extends true>() => {};
-assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; schemaHash?: string; committedAt?: string; previewHosts?: string[] }>>();
+assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; aliases?: Record<string, string>; previewHosts?: string[] }>>();
 `,
     });
     expect(errors).toEqual([]);
@@ -386,21 +395,21 @@ describe("AR-06 / AR-07 telemetry destination and limits", () => {
 describe("AR-08 site loads hosted releases; token sends telemetry; neither is needed for drafts", () => {
   it("site alone: releases from delivery, no telemetry", async () => {
     const { currentTelemetry } = await import("../telemetry");
-    const fetch = vi.fn(
-      async (_input: string | URL | Request) => new Response("{}", { status: 404 }),
-    );
+    const cdn = fakeDelivery();
+    await cdn.publish(docsSnapshot().blocks);
+    const fetch = vi.fn(cdn.fetch);
     vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { ...docsSnapshot(), schemaHash: "5".repeat(64) },
-      site: "acme",
-    });
+    const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     const [seo] = await cms.forRelease().resolve("SummerSEO");
     expect(seo).toEqual({ title: "Sunny!", description: "Light layers for long days." });
     expect(await cms.update()).toEqual({ updated: false });
-    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+    const urls = fetch.mock.calls.map(([url]) => String(url));
+    expect(urls.slice(0, 2)).toEqual([
       "https://delivery.decocms.com/sites/acme/latest.json",
+      `https://delivery.decocms.com/sites/acme/blocks/${cdn.hashOf("SummerSEO")}.json`,
     ]);
+    // Then only checks of latest.json: nothing else is fetched, and no collector.
+    expect(urls.slice(2).every((url) => url.endsWith("/sites/acme/latest.json"))).toBe(true);
     expect(currentTelemetry()).toBeUndefined();
   });
 
@@ -446,7 +455,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     const draft = cms.forDraft(pointer);
     expect((await draft.resolve<{ title: string }>("SummerSEO"))[0]?.title).toBe("Draft!");
     expect((await draft.resolve("HomePage"))[1]).toBeNull();
-    expect(await draft.revision()).toBe('rev-1~"etag-1"');
+    expect(await draft.revision()).toBe("rev-1~9f3c1a");
   });
 
   it("a draft whose changes can't be fetched makes every call return LOADER_FAILED with the cause", async () => {
@@ -550,7 +559,7 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect([value, error]).toEqual(["spring", null]);
   });
 
-  it("a draft is fetched without them, one body for every variant of one draft (later reads revalidate it)", async () => {
+  it("a draft is fetched without them: every variant of one draft reads the same files, afresh", async () => {
     const { fetch, pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: content() });
     const draft = (index: number) =>
@@ -560,10 +569,14 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
       });
     expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
     expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(String(fetch.mock.calls[0]![0])).toBe(String(fetch.mock.calls[1]![0]));
-    expect(String(fetch.mock.calls[0]![0])).not.toContain("__variant");
-    expect((await fetch.mock.results[1]!.value).status).toBe(304);
+    // Each read: the draft's index, then its one file (SummerSEO).
+    const urls = fetch.mock.calls.map(([url]) => String(url));
+    expect(urls).toHaveLength(4);
+    expect(urls.slice(2)).toEqual(urls.slice(0, 2));
+    expect(urls.some((url) => url.includes("__variant"))).toBe(false);
+    for (const [, init] of fetch.mock.calls) {
+      expect(new Headers(init?.headers).has("if-none-match")).toBe(false);
+    }
   });
 });
 
@@ -660,10 +673,10 @@ describe("AR-18 / AR-19 content: a snapshot or any loader", () => {
 });
 
 describe("AR-22 remoteLoader", () => {
-  it("is exported from the root, and is a loader over the fallback without site", async () => {
+  it("is exported from the root, and is a loader over the content given without site", async () => {
     expect(root.remoteLoader).toBe(remoteLoader);
-    const fallback = docsSnapshot();
-    expect(await remoteLoader(fallback, { site: "" }).load()).toBe(fallback);
+    const content = docsSnapshot();
+    expect(await remoteLoader(content, { site: "" }).load()).toBe(content);
   });
 
   it("createCMS builds it when site is set: update() reads latest.json from delivery.decocms.com", async () => {
@@ -671,11 +684,7 @@ describe("AR-22 remoteLoader", () => {
       async (_input: string | URL | Request) => new Response("nope", { status: 404 }),
     );
     vi.stubGlobal("fetch", fetch);
-    const cms = createCMS({
-      blocks: docsBlocks(),
-      content: { ...docsSnapshot(), schemaHash: "5".repeat(64) },
-      site: "acme",
-    });
+    const cms = createCMS({ blocks: docsBlocks(), site: "acme" });
     expect(await cms.update()).toEqual({ updated: false });
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
       "https://delivery.decocms.com/sites/acme/latest.json",
@@ -737,9 +746,9 @@ describe("AR-28 / AR-29 / AR-30 / CT-10 one instance per process", () => {
     const content = docsSnapshot();
     const a = createCMS({ blocks: docsBlocks(), content });
     expect(instanceOf(createCMS({ blocks: docsBlocks(), content }))).toBe(instanceOf(a));
-    expect(
-      instanceOf(createCMS({ blocks: docsBlocks(), content, site: "acme", token: "t" })),
-    ).not.toBe(instanceOf(a));
+    expect(instanceOf(createCMS({ blocks: docsBlocks(), site: "acme", token: "t" }))).not.toBe(
+      instanceOf(a),
+    );
   });
 
   it("a hot reload that hands in a new content module (new revision) keeps the instance", () => {
@@ -1014,7 +1023,7 @@ describe("AR-50..AR-52 / RT-03 / RT-07..RT-10 / RT-16 / RT-17 / RI-* matchRoute"
     expect(matchRoute("/summer", { routes, redirects })).toEqual({
       kind: "redirect",
       location: "/winter",
-      status: 302,
+      status: 307,
     });
     expect(matchRoute("/summer", { routes })).toMatchObject({ entry: { name: "Exact" } });
     expect(matchRoute("/x/p", { routes: [route("A", "/:slug/p"), route("B", "/:id/p")] })).toEqual({
@@ -1067,7 +1076,7 @@ describe("AR-50..AR-52 / RT-03 / RT-07..RT-10 / RT-16 / RT-17 / RI-* matchRoute"
         routes: [],
         redirects: [{ ...legacy, permanent: false, discardQueryParameters: true }],
       }),
-    ).toEqual({ kind: "redirect", location: "/summer/p", status: 302 });
+    ).toEqual({ kind: "redirect", location: "/summer/p", status: 307 });
   });
 
   it("RT-09 /:slug/p matches /summer/p with params.slug", () => {

@@ -193,10 +193,31 @@ describe("redirects", () => {
     });
   });
 
-  it("permanent: false is a 302", () => {
+  it("a temporary redirect (permanent false or unset) is a 307", () => {
     expect(
       matchRoute("/a", { routes, redirects: [{ from: "/a", to: "/b", permanent: false }] }),
+    ).toMatchObject({ status: 307 });
+    expect(
+      matchRoute("/a", { routes, redirects: [{ from: "/a", to: "/b" } as Redirect] }),
+    ).toMatchObject({ status: 307 });
+  });
+
+  it("an explicit status is kept: a temporary rule can still answer 302", () => {
+    expect(
+      matchRoute("/a", {
+        routes,
+        redirects: [{ from: "/a", to: "/b", permanent: false, status: 302 }],
+      }),
     ).toMatchObject({ status: 302 });
+  });
+
+  it("an invalid status on a temporary rule falls back to 307", () => {
+    expect(
+      matchRoute("/a", {
+        routes,
+        redirects: [{ from: "/a", to: "/b", permanent: false, status: 303 as never }],
+      }),
+    ).toMatchObject({ status: 307 });
   });
 
   it("status wins over permanent: 301, 302, 307 and 308", () => {
@@ -257,7 +278,7 @@ describe("redirects", () => {
         routes,
         redirects: [{ from: "/out/:slug", to: "https://other.example/:slug", permanent: false }],
       }),
-    ).toMatchObject({ location: "https://other.example/shoes", status: 302 });
+    ).toMatchObject({ location: "https://other.example/shoes", status: 307 });
   });
 
   it("encodes filled parameters", () => {
@@ -389,7 +410,7 @@ describe("redirects", () => {
       });
       expect(at("/calcados?map=c,ft")).toMatchObject({
         location: "/calcados/tenis?map=c,ft",
-        status: 302,
+        status: 307,
       });
     });
 
@@ -593,7 +614,7 @@ describe("trailing splat (/*)", () => {
       const exact: Redirect = { from: "/old-blog/about", to: "/about", permanent: false };
       expect(matchRoute("/old-blog/about", { routes, redirects: [moved, exact] })).toMatchObject({
         location: "/about",
-        status: 302,
+        status: 307,
       });
     });
 

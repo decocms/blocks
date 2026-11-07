@@ -20,6 +20,9 @@ const ALLOWED: { file: string; line: string }[] = [
     file: "protocol/storage/fs/git.ts",
     line: "const env: NodeJS.ProcessEnv = { ...process.env };",
   },
+  // The deco CLI's remote commands read DECO_STUDIO_URL and DECO_TOKEN (spec: cli);
+  // the CLI never reaches an app bundle.
+  { file: "v8/cli/run.ts", line: "const env = options.env ?? process.env;" },
   // createCMS's `dev` default, the one exception (see isDevelopment in cms.ts).
   {
     file: "v8/cms.ts",

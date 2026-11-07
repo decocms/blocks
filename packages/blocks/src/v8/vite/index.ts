@@ -3,8 +3,8 @@
  * block in open pages during `vite dev`. Vite sites add it to
  * `vite.config.ts`; Next.js sites don't use it.
  *
- * `deco serve` (the site editor's local server) rewrites
- * `.deco/blocks.gen.ts` on every save. In `vite dev`, in the server
+ * Whatever rewrites `.deco/blocks.gen.ts` (content without a site: the
+ * CLI's `content()`) triggers it. In `vite dev`, in the server
  * environments, the plugin makes each module that imports it (usually
  * `src/cms.ts`) accept that import's updates: the new content goes into the
  * CMS already created for its `.deco` folder (`adoptContent`), and only then
@@ -34,7 +34,7 @@ const RELOAD_DELAY_MS = 100;
 /** The module the footer imports `adoptContent` from. */
 const HOT_MODULE = "@decocms/blocks/vite/hot";
 
-/** The content module `deco content` writes, wherever the `.deco` folder is. */
+/** The content module (the CLI's `content()` writes it), wherever the `.deco` folder is. */
 const CONTENT_MODULE = /(?:^|[\\/])\.deco[\\/]blocks\.gen\.ts$/;
 
 /** Source files whose imports the plugin reads. */

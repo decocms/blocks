@@ -103,25 +103,39 @@ import hero from "../src/sections/hero";
 export default { hero } satisfies Blocks;
 ```
 
-Generate the schema and the content module (`deco schema && deco content`, in `predev`/`prebuild`), then read content through the CMS:
+Name the Studio site, and read content through the CMS. Content isn't bundled: the client fetches the latest release from the CDN at runtime.
 
 ```ts
 import { createCMS } from "@decocms/blocks";
 import blocks from "./.deco";
-import content from "./.deco/blocks.gen";
 
-export const cms = createCMS({ blocks, content });
+export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
 
 const [props, error] = await cms.forRelease().resolve("Home Hero");
 ```
 
+On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code; a team that wants the guard adds `deco check`, which checks production (the live release, from the CDN) against the code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key). It talks to the site named by `DECO_SITE`: the environment's, else the first of `.env`, `.dev.vars`, then `vars.DECO_SITE` in `wrangler.jsonc`, `wrangler.json` or `wrangler.toml`, in the folder that contains `.deco/`; Studio knows the site's organization.
+
+```bash
+deco pull                         # production into .deco/blocks (git-ignored); or --draft=<name>
+deco check && deco diff
+deco push --draft=pdp-copy        # exit 2 on a conflict; --ours / --theirs
+deco publish --draft=pdp-copy     # makes the draft live
+```
+
+`deco drafts`, `deco releases` and `deco check --draft=<name> | --revision=<id>` cover the rest; every command takes `--json`. Exit codes: 0 ok, 1 failed, 2 conflict, 3 auth, 4 network, 5 busy (run again), 64 usage.
+
 ### TanStack Start
 
-Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS` over the content module, `matchRoute` in a catch-all route, one promise per block. In `vite.config.ts`, add `decoContent()` from `@decocms/blocks/vite` so a block saved in the site editor shows in open pages during `vite dev`. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps. A site on Cloudflare Workers deployed the Deco way uses [`@decocms/tanstack`](./packages/tanstack): `createDecoWorker` (drafts, Studio framing, the hook for the site's own page cache, with a complete recipe), `DecoDocument`, the router, `Image`/`Picture` and `decoTanstack()` (which includes `decoContent()`); [`examples/tanstack-worker-smoke`](./examples/tanstack-worker-smoke) is the same app on it.
+Follow the docs' TanStack Start guide (`/next/tanstack-start-descriptors`, or `/next/tanstack-start-rsc` for React Server Components): `createCMS({ blocks, site })`, so content arrives from the CDN at runtime, `matchRoute` in a catch-all route, one promise per block. [`examples/tanstack-smoke`](./examples/tanstack-smoke) and [`examples/tanstack-rsc-smoke`](./examples/tanstack-rsc-smoke) are complete apps; they have no Studio site, so they pass `content`, a module written by `content()` from `@decocms/blocks/cli`, and add `decoContent()` from `@decocms/blocks/vite` in `vite.config.ts` so an edit of that module shows in open pages during `vite dev`. A site on Cloudflare Workers deployed the Deco way uses [`@decocms/tanstack`](./packages/tanstack): `createDecoWorker` (drafts, Studio framing, the hook for the site's own page cache, with a complete recipe), `DecoDocument`, the router, `Image`/`Picture` and `decoTanstack()` (which includes `decoContent()`); [`examples/tanstack-worker-smoke`](./examples/tanstack-worker-smoke) is the same app on it.
 
 ### Next.js App Router
 
 Follow the docs' Next.js guide (`/next/nextjs`). [`examples/nextjs-smoke`](./examples/nextjs-smoke) is a complete app: a Server Component resolves the page and renders its blocks. [`@decocms/nextjs`](./packages/nextjs) adds draft previews (the proxy, the draft route, the badge), the Studio bridge, `withDeco()` and a next/image loader; [`examples/nextjs-binding-smoke`](./examples/nextjs-binding-smoke) is the same app on it.
+
+### Studio inside the page
+
+Both bindings mount the Studio channel on every page, production included (`StudioChannel` from `@decocms/blocks/preview`, about 0.7 kB of inline script gzipped): when Studio frames the page, it loads Studio's own editor code (the section wireframe, the page swap after a save) from Studio's origin; when the page isn't framed, or is framed by any other origin, it does nothing. It is the only way Studio runs code in the page: the bridge evaluates no script Studio sends. The page trusts a list of exact Studio origins: the binding's `studioOrigins` option, else `DECO_STUDIO_ORIGIN` (comma-separated; a local Studio), else Studio's production and staging origins (`https://studio.decocms.com`, `https://studio-stg.decocms.com`). It accepts a module only from a message whose origin is exactly one of them and only at a URL on the origin of that message, and posts `deco:ready` with each trusted origin as the target, so only a parent at one of them receives it. The binding adds the same list to the page's Content Security Policy: `frame-ancestors`, and `script-src` when the site's policy restricts scripts (the TanStack worker does it for its `csp`; a Next.js site passes its own policy through `withStudioCsp`). The inline scripts take the site's `nonce`. The messages and the module contract are typed in `@decocms/blocks/protocol` (`StudioChannelContext`, `defineStudioModule`).
 
 ## Migration
 

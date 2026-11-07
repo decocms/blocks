@@ -17,13 +17,15 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFixture } from "../cli/__tests__/fixture";
+import { content as writeContentModule } from "../cli/content";
+import { silentReporter } from "../cli/log";
 import { decoPaths } from "../cli/root";
 import { generateSchema } from "../cli/schema/generate";
 import { toBase64 } from "../cli/schema/typeToSchema";
 import { createCMS, instanceOf, resetForTests } from "../cms";
 import { createInstrumentedFetch } from "../fetch";
 import { currentTelemetry } from "../telemetry";
-import { docsBlocks, docsSnapshot } from "../testFixtures";
+import { docsBlocks, docsSnapshot, fakeDelivery } from "../testFixtures";
 import type { Snapshot } from "../types";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -237,7 +239,7 @@ describe("where telemetry goes (telemetry.mdx)", () => {
 
   it("tel-03/htel-02: a top-level token sends to the hosted collector with token auth, and site to deco.site", async () => {
     const { sent } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme", token: "site-token" });
+    createCMS({ blocks: docsBlocks(), site: "acme", token: "site-token" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
     expect(sent[0]?.url).toBe(`${HOSTED_TELEMETRY_ENDPOINT}/v1/metrics`);
@@ -249,7 +251,6 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     const { fetch } = collector();
     createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: false,
@@ -267,7 +268,6 @@ describe("where telemetry goes (telemetry.mdx)", () => {
     const { sent } = collector();
     createCMS({
       blocks: docsBlocks(),
-      content: docsSnapshot(),
       site: "acme",
       token: "tok",
       telemetry: { endpoint: ENDPOINT, headers: { "x-team": "store" } },
@@ -291,7 +291,7 @@ describe("where telemetry goes (telemetry.mdx)", () => {
 
   it("tel-07: a top-level site alone never turns telemetry on", async () => {
     const { attempts } = collector();
-    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), site: "acme" });
+    createCMS({ blocks: docsBlocks(), site: "acme" });
     expect(currentTelemetry()).toBeUndefined();
     await upstreamWith().request("https://search.example/q", { operation: "search" });
     await runBackground();
@@ -617,17 +617,13 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
     expect(sent.some((s) => s.url.endsWith("/v1/logs"))).toBe(true);
   });
 
-  it("tel-20: deco content doesn't create .deco/blocks/CMS.json", () => {
+  it("tel-20: writing the content module doesn't create .deco/blocks/CMS.json", async () => {
     const fixture = createFixture({
       ".deco/index.ts": "export default {};\n",
       ".deco/blocks/Home.json": { __resolveType: "page", name: "Home", path: "/", sections: [] },
     });
     try {
-      execFileSync(process.execPath, [path.join(PACKAGE, "bin/deco.js"), "content"], {
-        cwd: fixture.root,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
+      expect(await writeContentModule({ cwd: fixture.root, reporter: silentReporter })).toBe(0);
       expect(fixture.exists(".deco/blocks.gen.ts")).toBe(true);
       expect(fixture.exists(".deco/blocks/CMS.json")).toBe(false);
     } finally {
@@ -917,9 +913,18 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
   it("tin-05: every batch carries service.name, service.version, deployment.environment.name, deco.site and deco.release", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
+    const release = withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }, "rev-9");
+    const cdn = fakeDelivery();
+    const { revision: REV_9 } = await cdn.publish(release.blocks);
+    const collectorFetch = globalThis.fetch;
+    // The release, from the delivery CDN; everything else is the collector.
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) =>
+      String(input).startsWith("https://delivery.decocms.com/")
+        ? cdn.fetch(input, init)
+        : collectorFetch(input, init),
+    );
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
-      content: withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }, "rev-9"),
       site: "acme",
       token: "tok",
       telemetry: { limits: { errorSampleRate: 1, traceSampleRate: 1 } },
@@ -943,7 +948,7 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
         ]),
       );
       expect(resource["deco.site"]).toBe("acme");
-      expect(resource["deco.release"]).toBe("rev-9");
+      expect(resource["deco.release"]).toBe(REV_9);
     }
   });
 

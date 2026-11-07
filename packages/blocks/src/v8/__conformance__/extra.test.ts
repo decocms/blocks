@@ -75,7 +75,7 @@ describe("matchRoute (router-internals.mdx, routing.mdx)", () => {
     expect(matchRoute("/c?q=1", { routes, redirects })).toEqual({
       kind: "redirect",
       location: "/d",
-      status: 302,
+      status: 307,
     });
   });
 

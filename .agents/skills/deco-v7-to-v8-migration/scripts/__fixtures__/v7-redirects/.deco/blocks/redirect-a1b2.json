@@ -1,0 +1,9 @@
+{
+  "__resolveType": "website/loaders/redirect.ts",
+  "redirect": {
+    "from": "/old-shoes",
+    "to": "/shoes",
+    "type": "permanent",
+    "discardQueryParameters": true
+  }
+}

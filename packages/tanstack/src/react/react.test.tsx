@@ -44,11 +44,34 @@ describe("DecoDocument", () => {
     expect(html).toContain('<html lang="en" data-theme="light">');
     expect(html).toContain('class="bg-base-200 text-base-content"');
     expect(html).toContain('data-site="acme"');
-    expect(html).toContain("editor::inject");
+    expect(html).toContain("scrollToComponent");
+    expect(html).not.toContain("editor::inject");
     expect(html).toContain("window.DECO.events");
     expect(html).toContain('id="extra"');
     expect(html).toMatch(/<main><div>/);
     expect(html).not.toContain("__DECO_CSEG");
+  });
+
+  it("mounts the Studio channel: Studio's production and staging origins, the option, or DECO_STUDIO_ORIGIN", async () => {
+    const channel = (html: string) =>
+      html.match(/<script[^>]*data-deco-studio-channel[^>]*>/)?.[0] ?? "";
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    delete process.env.DECO_STUDIO_ORIGIN;
+    try {
+      expect(channel(await render({}, { nonce: "n1" }))).toBe(
+        '<script data-deco-studio-channel="" data-studio-origins="[&quot;https://studio.decocms.com&quot;,&quot;https://studio-stg.decocms.com&quot;]" nonce="n1">',
+      );
+      process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000,https://studio.example.com";
+      expect(channel(await render({}))).toContain(
+        'data-studio-origins="[&quot;http://localhost:3000&quot;,&quot;https://studio.example.com&quot;]"',
+      );
+      expect(
+        channel(await render({}, { studioOrigins: ["https://studio-stg.decocms.com"] })),
+      ).toContain('data-studio-origins="[&quot;https://studio-stg.decocms.com&quot;]"');
+    } finally {
+      if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+      else process.env.DECO_STUDIO_ORIGIN = env;
+    }
   });
 
   it("the Studio bridge answers Studio's origins, the package's own list", async () => {

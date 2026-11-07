@@ -1,7 +1,14 @@
 // @vitest-environment node
 import Ajv from "ajv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../__tests__/fixture";
+import {
+  createFixture,
+  type Fixture,
+  FOLDER_REVISION,
+  folderAsProduction,
+  recorder,
+  STORE_FILES,
+} from "../__tests__/fixture";
 import { BUILT_IN_BLOCKS, BUILT_IN_USES } from "../builtins";
 import { readSavedBlocks, type SavedBlocks } from "../content";
 import { decoPaths } from "../root";
@@ -9,6 +16,10 @@ import { runCli } from "../run";
 import { type DecoMeta, generateSchema } from "../schema/generate";
 import { writeSchema } from "../schema/index";
 import { check, checkContent, formatProblems, type Problem } from "./index";
+
+/** deco check reads production from the CDN; here, the fixture's own blocks. */
+const production = (fixture: Fixture) => folderAsProduction(() => fixture.root);
+const CHECKING = `checking production (revision ${FOLDER_REVISION})`;
 
 let store: Fixture;
 let meta: DecoMeta;
@@ -98,7 +109,7 @@ describe("props match the block type's schema", () => {
 });
 
 describe("__resolveType", () => {
-  it("reports an unknown block type once, at the top or nested", () => {
+  it("reports a name that is no block type and no saved block once, at the top or nested", () => {
     expect(
       lines(
         run({
@@ -107,8 +118,8 @@ describe("__resolveType", () => {
         }),
       ),
     ).toEqual([
-      'HomePage.json sections[0]: unknown block type "nope"',
-      'Promo.json unknown block type "promo-banner"',
+      'HomePage.json sections[0]: no saved block or block type "nope"',
+      'Promo.json no saved block or block type "promo-banner"',
     ]);
   });
 
@@ -400,7 +411,11 @@ describe("routes", () => {
           C: page([], { path: "/old" }),
         }),
       ),
-    ).toEqual(['B.json from: "/old" is also the from of "A"']);
+    ).toEqual([
+      'B.json from: "/old" is also the from of "A"',
+      "A.json warning not routed; move it into the redirects block",
+      'B.json warning v7 redirect block (type website/loaders/redirect.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
+    ]);
   });
 });
 
@@ -446,7 +461,7 @@ describe("lists of lazy values", () => {
 });
 
 describe("names that are also Object.prototype keys", () => {
-  it("reports a __resolveType of constructor or toString as an unknown block type", () => {
+  it("reports a __resolveType of constructor or toString as a missing name", () => {
     expect(
       lines(
         run({
@@ -456,9 +471,9 @@ describe("names that are also Object.prototype keys", () => {
         }),
       ),
     ).toEqual([
-      'A.json unknown block type "constructor"',
-      'B.json product: unknown block type "toString"',
-      'C.json sections[0]: unknown block type "hasOwnProperty"',
+      'A.json no saved block or block type "constructor"',
+      'B.json product: no saved block or block type "toString"',
+      'C.json sections[0]: no saved block or block type "hasOwnProperty"',
     ]);
   });
 
@@ -597,7 +612,7 @@ describe("deco check", () => {
           ".deco/blocks/HomePage.json",
           "  sections[0].title: required",
           ".deco/blocks/Promo.json",
-          '  unknown block type "promo-banner"',
+          '  no saved block or block type "promo-banner"',
           "3 saved blocks checked: 2 errors, 0 warnings",
         ].join("\n"),
       );
@@ -717,16 +732,26 @@ describe("deco check --color", () => {
     });
     try {
       const out = recorder();
-      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(0);
+      expect(
+        await runCli(["check", "--color"], {
+          cwd: fixture.root,
+          reporter: out,
+          ...production(fixture),
+        }),
+      ).toBe(0);
       expect(out.text()).toBe(
-        `${green("✓")} 2 saved blocks checked: ${green("0 errors, 0 warnings")}`,
+        `${CHECKING}\n${green("✓")} 2 saved blocks checked: ${green("0 errors, 0 warnings")}`,
       );
       // Plain unless asked, and --no-color wins when it comes last.
       const plain = recorder();
       expect(
-        await runCli(["check", "--color", "--no-color"], { cwd: fixture.root, reporter: plain }),
+        await runCli(["check", "--color", "--no-color"], {
+          cwd: fixture.root,
+          reporter: plain,
+          ...production(fixture),
+        }),
       ).toBe(0);
-      expect(plain.text()).toBe("2 saved blocks checked: 0 errors, 0 warnings");
+      expect(plain.text()).toBe(`${CHECKING}\n2 saved blocks checked: 0 errors, 0 warnings`);
     } finally {
       fixture.remove();
     }
@@ -740,21 +765,35 @@ describe("deco check --color", () => {
     });
     try {
       const out = recorder();
-      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: out })).toBe(1);
-      expect(out.lines.map((l) => l.level)).toEqual(["error", "error"]);
+      expect(
+        await runCli(["check", "--color"], {
+          cwd: fixture.root,
+          reporter: out,
+          ...production(fixture),
+        }),
+      ).toBe(1);
+      expect(out.lines.map((l) => l.level)).toEqual(["info", "error", "error"]);
       expect(out.text()).toBe(
         [
+          CHECKING,
           bold(".deco/blocks/Promo.json"),
-          `  ${red('unknown block type "promo-banner"')}`,
+          `  ${red('no saved block or block type "promo-banner"')}`,
           `${red("✗")} 2 saved blocks checked: ${red("1 error")}, 0 warnings`,
         ].join("\n"),
       );
 
       fixture.write(".deco/blocks/Promo.json", warned);
       const ok = recorder();
-      expect(await runCli(["check", "--color"], { cwd: fixture.root, reporter: ok })).toBe(0);
+      expect(
+        await runCli(["check", "--color"], {
+          cwd: fixture.root,
+          reporter: ok,
+          ...production(fixture),
+        }),
+      ).toBe(0);
       expect(ok.text()).toBe(
         [
+          CHECKING,
           bold(".deco/blocks/Promo.json"),
           `  ${yellow("warning")}: ${dim("title.variants[1]")}: can never be picked: variants[0] has an always rule`,
           `${yellow("⚠")} 2 saved blocks checked: 0 errors, ${yellow("1 warning")}`,
@@ -870,13 +909,13 @@ describe("the saved block experiments and the experiment rule", () => {
     ]);
   });
 
-  it("warns about a rule naming a test the experiments block doesn't have", () => {
+  it("fails a rule naming a test the experiments block doesn't have", () => {
     expect(lines(run({ experiments, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
+      'Rule.json name: no test "gone" in the saved block "experiments": this rule is always false',
     ]);
-    // With no experiments block at all, every experiment rule is always false.
+    // With no experiments block at all, every experiment rule names a missing test.
     expect(lines(run({ Rule: rule("buy-button") }))).toEqual([
-      'Rule.json warning name: no test "buy-button" in the saved block "experiments": this rule is always false',
+      'Rule.json name: no test "buy-button" in the saved block "experiments": this rule is always false',
     ]);
     // A saved rule is reported once, where it is saved.
     expect(
@@ -893,7 +932,7 @@ describe("the saved block experiments and the experiment rule", () => {
         }),
       ),
     ).toEqual([
-      'GoneRule.json warning name: no test "gone" in the saved block "experiments": this rule is always false',
+      'GoneRule.json name: no test "gone" in the saved block "experiments": this rule is always false',
     ]);
   });
 
@@ -1003,12 +1042,12 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     ]);
   });
 
-  it("warns about a rule naming a campaign the campaigns block doesn't have", () => {
+  it("fails a rule naming a campaign the campaigns block doesn't have", () => {
     expect(lines(run({ campaigns, Rule: rule("gone") }))).toEqual([
-      'Rule.json warning name: no campaign "gone" in the saved block "campaigns": this rule is always false',
+      'Rule.json name: no campaign "gone" in the saved block "campaigns": this rule is always false',
     ]);
     expect(lines(run({ Rule: rule("black-friday") }))).toEqual([
-      'Rule.json warning name: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
+      'Rule.json name: no campaign "black-friday" in the saved block "campaigns": this rule is always false',
     ]);
   });
 
@@ -1152,9 +1191,9 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
       group![name] = { ...group![name], namespace: "site" };
       replaced.push(name);
     }
-    expect(replaced).toHaveLength(11);
+    expect(replaced).toHaveLength(12);
     const warnings = lines(checkContent(own, saved({})));
-    expect(warnings).toHaveLength(11);
+    expect(warnings).toHaveLength(12);
     for (const name of BUILT_IN_BLOCKS) {
       expect(BUILT_IN_USES[name], name).toBeTruthy();
       expect(warnings).toContain(
@@ -1163,5 +1202,152 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
     }
     // A built-in left alone is never named.
     expect(lines(checkContent(meta, saved({})))).toEqual([]);
+  });
+});
+
+describe("the redirects block (one block holds every rule)", () => {
+  const rule = { from: "/old", to: "/new", permanent: true };
+
+  it("passes one redirects block, in either rule shape", () => {
+    expect(
+      lines(
+        run({
+          Redirects: {
+            __resolveType: "redirects",
+            redirects: [rule, { from: "/a", to: "/b", permanent: false, status: 307 }],
+          },
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("warns about a v7 website/loaders/redirects.ts block: not routed on v8, fold it into Redirects", () => {
+    const problems = run({
+      Redirects: {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+      },
+    });
+    // A warning only: the type has no alias, but that's not reported as an unknown type.
+    expect(lines(problems)).toEqual([
+      'Redirects.json warning v7 redirect block (type website/loaders/redirects.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
+    ]);
+    expect(problems.every((p) => p.severity === "warning")).toBe(true);
+  });
+
+  it("a v7 redirects block isn't the routed one: a redirects-typed block after it is", () => {
+    expect(
+      lines(
+        run({
+          A: { __resolveType: "website/loaders/redirects.ts", redirects: [] },
+          Redirects: { __resolveType: "redirects", redirects: [rule] },
+        }),
+      ),
+    ).toEqual([
+      'A.json warning v7 redirect block (type website/loaders/redirects.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
+    ]);
+  });
+
+  it("warns about every per-rule redirect block: it resolves, but isn't routed", () => {
+    expect(
+      lines(
+        run({
+          Old: { __resolveType: "redirect", ...rule },
+          Legacy: {
+            __resolveType: "website/loaders/redirect.ts",
+            redirect: { from: "/legacy", to: "/new", type: "permanent" },
+          },
+        }),
+      ),
+    ).toEqual([
+      'Legacy.json warning v7 redirect block (type website/loaders/redirect.ts) isn\'t routed: v8 routes only a block typed "redirects". Fold its rules into the "Redirects" block (type "redirects"; v7\'s type permanent is permanent: true) and delete it',
+      "Old.json warning not routed; move it into the redirects block",
+    ]);
+  });
+
+  it("warns about a second redirects block: only the first, in code-unit name order, is routed", () => {
+    expect(
+      lines(
+        run({
+          b: { __resolveType: "redirects", redirects: [] },
+          Redirects: { __resolveType: "redirects", redirects: [rule] },
+        }),
+      ),
+    ).toEqual([
+      'b.json warning another redirects block, "Redirects", is the one routed; this one is ignored. Move its rules there',
+    ]);
+  });
+
+  it("redirects is a reserved name: the redirects block is named Redirects", () => {
+    expect(lines(run({ redirects: { __resolveType: "redirects", redirects: [] } }))).toContain(
+      'redirects.json saved block "redirects" has the name of a built-in block',
+    );
+  });
+});
+
+describe("references a delete leaves behind", () => {
+  // Studio deletes a block, test or campaign without rewriting its uses: deco check reports them.
+  const experiments = { __resolveType: "split-traffic", "buy-button": 50 };
+  const campaigns = { __resolveType: "calendar", "black-friday": {} };
+  const lazy = (value: unknown) => ({ __resolveType: "lazy", value });
+  const home = page([
+    { __resolveType: "GoneSection" },
+    {
+      __resolveType: "multivariate",
+      variants: [
+        { rule: { __resolveType: "experiment", name: "gone-test" }, value: lazy(hero) },
+        {
+          rule: { __resolveType: "campaign", name: "gone-campaign" },
+          value: lazy({ __resolveType: "GoneBanner" }),
+        },
+        { rule: { __resolveType: "GoneRule" }, value: lazy(hero) },
+      ],
+    },
+  ]);
+
+  it("fails each at its path: a missing block, saved rule, test or campaign", () => {
+    expect(lines(run({ experiments, campaigns, HomePage: home }))).toEqual([
+      'HomePage.json sections[0]: no saved block or block type "GoneSection"',
+      'HomePage.json sections[1].variants[0].rule.name: no test "gone-test" in the saved block "experiments": this rule is always false',
+      'HomePage.json sections[1].variants[1].rule.name: no campaign "gone-campaign" in the saved block "campaigns": this rule is always false',
+      'HomePage.json sections[1].variants[1].value.value: no saved block or block type "GoneBanner"',
+      'HomePage.json sections[1].variants[2].rule: no saved block or block type "GoneRule"',
+    ]);
+  });
+
+  it("exits 1 for a missing test or campaign alone", () => {
+    for (const rule of [
+      { __resolveType: "experiment", name: "gone-test" },
+      { __resolveType: "campaign", name: "gone-campaign" },
+    ]) {
+      const fixture = createFixture({
+        ".deco/schema.gen.json": meta,
+        ".deco/blocks/experiments.json": experiments,
+        ".deco/blocks/campaigns.json": campaigns,
+        ".deco/blocks/Banner.json": {
+          ...hero,
+          title: { __resolveType: "multivariate", variants: [{ rule, value: lazy("x") }] },
+        },
+      });
+      try {
+        const out = recorder();
+        expect(check({ cwd: fixture.root, reporter: out }), rule.__resolveType).toBe(1);
+        expect(out.lines.at(-1)?.message).toBe("3 saved blocks checked: 1 error, 0 warnings");
+      } finally {
+        fixture.remove();
+      }
+    }
+  });
+
+  it("passes the same page once they are back", () => {
+    const back = {
+      experiments: { ...experiments, "gone-test": 50 },
+      campaigns: { ...campaigns, "gone-campaign": {} },
+      GoneSection: hero,
+      GoneBanner: hero,
+      GoneRule: { __resolveType: "always" },
+      HomePage: home,
+    };
+    expect(lines(run(back))).toEqual([]);
   });
 });

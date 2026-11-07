@@ -9,14 +9,16 @@
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
 import { builtIns } from "./builtins/index.ts";
-import { CMSClient } from "./client.ts";
+import { CMSClient, resetListWarnings } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
+import type { IndexedContent } from "./contentIndex.ts";
 import type { Overrides } from "./current.ts";
 import { draftCookieFor, endsPreview, parseClientVersion, readVersion } from "./draft.ts";
 import { parseDraftHosts } from "./draftChanges.ts";
 import { allowsHost, type HostPattern, parseHostPattern } from "./hosts.ts";
 import { clearGlobals, contentIdentity, fnv1a } from "./identity.ts";
 import { isPlainObject } from "./json.ts";
+import type { Selection } from "./pin.ts";
 import { remoteLoader, resetRemoteLoaders } from "./remoteLoader.ts";
 import {
   deepFreeze,
@@ -47,7 +49,6 @@ import type {
   RequestVersion,
   Snapshot,
 } from "./types.ts";
-import { forceVariants } from "./variants.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
 const MIN_INTERVAL = 60_000;
@@ -77,12 +78,12 @@ class CMSInstance {
   readonly #warned = new Set<string>();
   readonly #telemetry: TelemetryPipeline | undefined;
   readonly #caps: SettingsCaps;
-  /** Settings of a `CMS` block with nothing to run, per release snapshot. */
-  #staticSettings = new WeakMap<Snapshot, SavedSettings>();
+  /** Settings of a `CMS` block with nothing to run, per release index. */
+  #staticSettings = new WeakMap<IndexedContent, SavedSettings>();
   /** Code's `preview.hosts`, parsed: added to the release's own preview hosts, or the only list without a site. */
   readonly #codeHosts: readonly HostPattern[] | undefined;
   /** The release and time telemetry last read its section. */
-  #telemetryRead: { snapshot: Snapshot; at: number } | undefined;
+  #telemetryRead: { content: IndexedContent; at: number } | undefined;
   /** One handle per block map, so the same config returns the same object. */
   readonly #handles = new WeakMap<Blocks, CMS>();
   /**
@@ -107,7 +108,7 @@ class CMSInstance {
 
   /**
    * A client for one request: the version it reads (the current release, a
-   * published release by its commit SHA, or a draft pointer), the visitor it
+   * published release by its revision id, or a draft pointer), the visitor it
    * decides tests for and the date it checks campaigns at (default: now),
    * all passed in, with the tests and campaigns it is given on top.
    */
@@ -129,23 +130,20 @@ class CMSInstance {
     if (parsed === null)
       return this.#client(blocks, () => this.#store.draft(version, check), inputs);
     if (parsed.kind === "revision") {
-      return this.#client(blocks, () => this.#store.revision(parsed.sha), inputs);
+      return this.#client(blocks, () => this.#store.revision(parsed.id), inputs);
     }
-    const { variants } = parsed.pointer;
-    const load = () => this.#store.draft(version, check);
-    if (variants === undefined) return this.#client(blocks, load, inputs);
-    return this.#client(blocks, () => load().then((s) => forceVariants(s, variants)), inputs);
+    return this.#client(blocks, () => this.#store.draft(version, check), inputs);
   }
 
   /** Loads the current release, keeping telemetry on the release's settings. */
-  #release(blocks: Blocks): () => Promise<Snapshot> {
+  #release(blocks: Blocks): () => Promise<Selection> {
     const telemetry = this.#telemetry;
     if (telemetry === undefined) return () => this.#store.release();
     return () =>
-      this.#store.release().then(async (snapshot) => {
-        telemetry.useRelease(snapshot);
-        await this.#followTelemetrySettings(blocks, telemetry, snapshot);
-        return snapshot;
+      this.#store.release().then(async (selection) => {
+        telemetry.useRelease(selection.current);
+        await this.#followTelemetrySettings(blocks, telemetry, selection.current);
+        return selection;
       });
   }
 
@@ -215,15 +213,20 @@ class CMSInstance {
     this.#telemetryRead = undefined;
   }
 
-  async #settingsOf(blocks: Blocks, snapshot: Snapshot | undefined): Promise<SavedSettings> {
-    if (snapshot === undefined) return defaultSettings(this.#caps);
-    const cached = this.#staticSettings.get(snapshot);
+  /**
+   * The settings of a release index: the `CMS` body comes from memory (held
+   * by local content, inline in a hosted index as `data`), never a fetch.
+   */
+  async #settingsOf(blocks: Blocks, content: IndexedContent | undefined): Promise<SavedSettings> {
+    if (content === undefined) return defaultSettings(this.#caps);
+    const cached = this.#staticSettings.get(content);
     if (cached !== undefined) return cached;
+    const entry = settingsBody(content);
     const settings = await readSettings(
-      snapshot,
+      entry,
       () =>
         new CMSClient({
-          load: () => Promise.resolve(snapshot),
+          load: () => Promise.resolve({ current: content }),
           blocks,
           builtIns,
           date: Date.now(),
@@ -232,10 +235,9 @@ class CMSInstance {
       this.#caps,
     );
     // A block map's own cms-settings function may answer differently per call.
-    const entry = snapshot.blocks[SETTINGS_BLOCK];
     const fixed = !isPlainObject(entry) || isStatic(entry);
     if (fixed && !Object.hasOwn(blocks, SETTINGS_TYPE)) {
-      this.#staticSettings.set(snapshot, settings);
+      this.#staticSettings.set(content, settings);
     }
     return settings;
   }
@@ -262,23 +264,23 @@ class CMSInstance {
   async #followTelemetrySettings(
     blocks: Blocks,
     telemetry: TelemetryPipeline,
-    snapshot: Snapshot,
+    content: IndexedContent,
   ): Promise<void> {
     const last = this.#telemetryRead;
     const now = Date.now();
-    if (last?.snapshot === snapshot && now - last.at < TELEMETRY_SETTINGS_MS) return;
-    this.#telemetryRead = { snapshot, at: now };
-    const read = this.#settingsOf(blocks, snapshot).then((settings) => {
-      if (this.#telemetryRead?.snapshot === snapshot) telemetry.apply(settings.telemetry);
+    if (last?.content === content && now - last.at < TELEMETRY_SETTINGS_MS) return;
+    this.#telemetryRead = { content, at: now };
+    const read = this.#settingsOf(blocks, content).then((settings) => {
+      if (this.#telemetryRead?.content === content) telemetry.apply(settings.telemetry);
     });
     // A new release waits for its rates; a periodic re-read doesn't hold up the request.
-    if (last?.snapshot !== snapshot) await read;
+    if (last?.content !== content) await read;
   }
 
   /** A client with its inputs (each client copies its visitor, so none is shared). */
   #client(
     blocks: Blocks,
-    load: () => Promise<Snapshot>,
+    load: () => Promise<Selection>,
     inputs: {
       version: string | undefined;
       visitor: ClientOptions["visitor"];
@@ -321,6 +323,15 @@ class CMSInstance {
         "the function wins. Rename the saved block (deco check reports this).",
     );
   }
+}
+
+/** The `CMS` block's body from memory: held (local content) or inline (`data`, hosted). */
+function settingsBody(content: IndexedContent): unknown {
+  if (content.held?.has(SETTINGS_BLOCK)) return content.held.get(SETTINGS_BLOCK);
+  const entry = Object.hasOwn(content.blocks, SETTINGS_BLOCK)
+    ? content.blocks[SETTINGS_BLOCK]
+    : undefined;
+  return entry?.data;
 }
 
 /** `Symbol.for`, so a second copy of this module still reads it. */
@@ -399,7 +410,7 @@ export function instanceOf(cms: CMS): object | undefined {
 export function createCMS(config: CMSConfig): CMS {
   validate(config);
   // A remoteLoader passed as `content` carries the `interval` it was created with.
-  const own = (config.content as { interval?: unknown }).interval;
+  const own = (config.content as { interval?: unknown } | undefined)?.interval;
   const interval = resolveInterval(config.interval ?? (typeof own === "number" ? own : undefined));
   const key = Symbol.for(INSTANCE_PREFIX + identityOf(config));
   const store = globalThis as unknown as Record<symbol, CMSInstance | undefined>;
@@ -423,7 +434,8 @@ export function createCMS(config: CMSConfig): CMS {
 /**
  * Hands a new content module to every CMS created for its `.deco` folder, as
  * a later `createCMS` call with the same content would, but without the
- * site's config: each instance keeps its own options (`site`, `dev`, …).
+ * site's config: each instance keeps its own options. Only content without
+ * `site` comes from a content module (with `site`, it comes from the CDN).
  * Returns how many instances took it; none when no CMS has been created for
  * that folder yet (the first `createCMS` call then reads the new module) or
  * when the module has no `root` to match on.
@@ -441,7 +453,7 @@ export function adoptContent(content: Snapshot): number {
   let adopted = 0;
   for (const symbol of Object.getOwnPropertySymbols(globalThis)) {
     const key = Symbol.keyFor(symbol);
-    if (key === undefined || (key !== own && !key.startsWith(`${own}|site:`))) continue;
+    if (key !== own) continue;
     const instance = store[symbol] as Partial<CMSInstance> | undefined;
     if (
       !(instance instanceof Object) ||
@@ -473,24 +485,14 @@ function overridesOf(given: unknown): Overrides | undefined {
 export function resetForTests(): void {
   clearGlobals(INSTANCE_PREFIX);
   resetRemoteLoaders();
+  resetListWarnings();
   setCurrentTelemetry(undefined);
 }
 
-/** With `site`, the content is the fallback of hosted releases. */
+/** With `site`, hosted releases from the delivery CDN, at runtime only; without, the content given. */
 function contentOf(config: CMSConfig): Snapshot | Loader {
-  if (!config.site) return config.content;
-  return remoteLoader(config.content, { site: config.site, dev: config.dev ?? isDevelopment() });
-}
-
-/**
- * `NODE_ENV=development`: the SDK's one environment read (an explicit `dev`
- * overrides it). Guarded, so a Worker or a browser without `process` reads
- * `false`; spelled `process.env.NODE_ENV` so a bundler's `define` replaces it.
- */
-function isDevelopment(): boolean {
-  return (
-    typeof process !== "undefined" && process.env != null && process.env.NODE_ENV === "development"
-  );
+  if (!config.site) return config.content as Snapshot | Loader;
+  return remoteLoader(undefined, { site: config.site });
 }
 
 function validate(config: CMSConfig): void {
@@ -500,9 +502,16 @@ function validate(config: CMSConfig): void {
   if (config.blocks === null || typeof config.blocks !== "object") {
     throw new TypeError("createCMS: `blocks` must be your block map (an object of functions)");
   }
-  if (!isLoader(config.content) && !isSnapshot(config.content)) {
+  if (config.site) {
+    // Content is never bundled: with site, it comes from the delivery CDN at runtime.
+    if (config.content !== undefined) {
+      throw new TypeError(
+        "createCMS: with site, content comes from the delivery CDN at runtime; remove content",
+      );
+    }
+  } else if (!isLoader(config.content) && !isSnapshot(config.content)) {
     throw new TypeError(
-      "createCMS: `content` must be the content module ({ revision, blocks }) or a loader with load()",
+      "createCMS: `content` must be a snapshot ({ revision, blocks }) or a loader with load(), or pass site",
     );
   }
   // The token is the site's credential: it means nothing without the site it belongs to.
@@ -526,8 +535,8 @@ function resolveInterval(configured: number | undefined): number {
 }
 
 /**
- * The instance key: the content's identity (never its revision, so a hot
- * reload keeps the instance) and, with hosted releases, the site.
+ * The instance key: with hosted releases, the site; otherwise the content's
+ * identity (never its revision, so a hot reload keeps the instance).
  *
  * A content module is identified by the `.deco` folder it was generated from
  * (its `root`). One without a `root` is identified by the object itself, so
@@ -535,8 +544,8 @@ function resolveInterval(configured: number | undefined): number {
  * new instance instead of updating the old.
  */
 function identityOf(config: CMSConfig): string {
-  const content = contentIdentity(config.content);
-  return config.site ? `${content}|site:${config.site}` : content;
+  if (config.site) return `site:${config.site}`;
+  return contentIdentity(config.content as Snapshot | Loader);
 }
 
 function fingerprintOf(config: CMSConfig, interval: number): Fingerprint {

@@ -237,7 +237,7 @@ export async function generateSchema(paths: DecoPaths): Promise<SchemaResult> {
     const ret = nonNullable(returnType);
     let group: ManifestGroup;
     if (key === "page") group = "pages";
-    else if (key === "redirect") group = "redirects";
+    else if (key === "redirect" || key === "redirects") group = "redirects";
     else if (usableReturn && (isJsxType(ret) || isDescriptorType(ret))) group = "sections";
     else if (usableReturn && isBooleanType(ret)) group = "matchers";
     else if (propsType && usableReturn && sameType(returnType, propsType)) {

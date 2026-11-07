@@ -50,7 +50,7 @@ rm -rf .deco-migrate
 | `--decofile <file>` | Content to split into `.deco/blocks` when the site has none: the JSON the v7 site serves at `/.decofile`. |
 | `--vtex-invoke keep\|v8` | No default. Needed if the site calls v7's VTEX invoke-map keys (else it stops, listing them): `keep` vendors v7's handler; `v8` uses the v8 client or a stub ([`reference/server-functions.md`](reference/server-functions.md)). |
 
-In order: **content** (site **settings** folded into `.deco/blocks/CMS.json`, app blocks turned into `src/clients/<app>.ts`), **secrets**, **block map**, **invoke** (one server function per key), **scaffold** (`src/cms.ts`, the page loader, the catch-all route), **imports**, **scripts**. Each step: [`reference/script-steps.md`](reference/script-steps.md).
+In order: **content** (every v7 redirect block and CSV loader folded into `.deco/blocks/Redirects.json`, site **settings** folded into `.deco/blocks/CMS.json`, app blocks turned into `src/clients/<app>.ts`), **secrets**, **block map**, **invoke** (one server function per key), **scaffold** (`src/cms.ts`, the page loader, the catch-all route), **imports**, **scripts**. Each step: [`reference/script-steps.md`](reference/script-steps.md).
 
 Commit the script's output unedited as its own commit (`chore: run the v7-to-v8 migration`), apart from hand-written changes.
 
@@ -114,7 +114,7 @@ What the site migrations taught, one subject per file. Commit hashes refer to `d
 | [`caching-and-privacy.md`](reference/caching-and-privacy.md) | Per-visitor data, QueryClient scope, draft bypass, hydration waits |
 | [`nextjs.md`](reference/nextjs.md) | Next.js App Router: `@decocms/nextjs` drafts and proxy, `list('page')`, head order, Jest |
 | [`hosted-releases.md`](reference/hosted-releases.md) | Hosted CMS instead of fast deploy, bundled content, v7 leftovers to delete |
-| [`content.md`](reference/content.md) | `deco check` as a deploy gate, content it rejects, editing locally with `deco serve` |
+| [`content.md`](reference/content.md) | `deco check` as a deploy gate, content it rejects, editing the bundled content, moving it to Studio's hosted CMS |
 | [`telemetry.md`](reference/telemetry.md) | Telemetry params, resource attributes, dropped v7 bindings, analytics |
 
 `scripts/` is the migration (`main.ts`), tested by the repo's `bun run test`.

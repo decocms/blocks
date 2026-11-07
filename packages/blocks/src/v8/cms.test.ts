@@ -87,7 +87,7 @@ describe("loaders", () => {
       title: "Draft title",
       description: "Draft",
     });
-    expect(await client.revision()).toBe('rev-1~"etag-1"'); // the draft body's ETag names the view
+    expect(await client.revision()).toBe("rev-1~9f3c1a"); // the pointer's version names the view
     expect(loads()).toBe(2); // a loader without update() is asked per client
   });
 
@@ -191,7 +191,7 @@ describe("loaders", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
-  it("an update drops fetched drafts, and the next draft client follows the new release", async () => {
+  it("a draft client follows the release the update brought", async () => {
     const { fetch, pointer } = studioDraft();
     let revision = "r1";
     const cms = createCMS({
@@ -205,22 +205,11 @@ describe("loaders", () => {
     revision = "r2";
     await cms.update();
     expect(await cms.forDraft(pointer).resolve("Name")).toEqual(["r2", null]);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    // Each draft read: the draft index, then its two files.
+    expect(fetch).toHaveBeenCalledTimes(6);
   });
 
-  it("an update that finds nothing new keeps the fetched draft body: the next read revalidates it", async () => {
-    const { fetch, pointer } = studioDraft();
-    const { loader } = countingLoader({ update: async () => ({ updated: false }) });
-    const cms = createCMS({ blocks: docsBlocks(), content: loader });
-    await cms.forDraft(pointer).resolve("SummerSEO");
-    await cms.update();
-    await cms.forDraft(pointer).resolve("SummerSEO");
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("if-none-match")).toBe('"etag-1"');
-    expect((await fetch.mock.results[1]?.value)?.status).toBe(304);
-  });
-
-  it("every draft read revalidates: a 304 reuses the body, a new save is read again", async () => {
+  it("every draft request reads the draft index and its files again, with no If-None-Match", async () => {
     const { studio, fetch, pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const first = cms.forDraft(pointer);
@@ -228,25 +217,82 @@ describe("loaders", () => {
     const second = cms.forDraft(pointer);
     expect((await second.resolve("SummerSEO"))[0]).toMatchObject({ title: "Draft title" });
     expect(await second.revision()).toBe(await first.revision());
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("if-none-match")).toBeNull();
-    expect((await fetch.mock.results[1]?.value)?.status).toBe(304);
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://delivery.decocms.com/sites/acme/drafts/summer-sale/index.json",
+      "https://delivery.decocms.com/sites/acme/drafts/summer-sale/HelloWorld.json",
+      "https://delivery.decocms.com/sites/acme/drafts/summer-sale/SummerSEO.json",
+      "https://delivery.decocms.com/sites/acme/drafts/summer-sale/index.json",
+      "https://delivery.decocms.com/sites/acme/drafts/summer-sale/HelloWorld.json",
+      "https://delivery.decocms.com/sites/acme/drafts/summer-sale/SummerSEO.json",
+    ]);
+    for (const [, init] of fetch.mock.calls) {
+      expect(new Headers(init?.headers).get("if-none-match")).toBeNull();
+    }
 
     studio.draft({ set: { SummerSEO: { ...DRAFT_SEO, title: "Saved again" } } });
     const third = cms.forDraft(pointer); // the same pointer outlives the save
     expect((await third.resolve("SummerSEO"))[0]).toMatchObject({ title: "Saved again" });
-    expect(await third.revision()).toBe('rev-1~"etag-2"');
+    expect(await third.revision()).toBe("rev-1~9f3c1a");
   });
 
-  it("concurrent reads of one draft share one request", async () => {
-    const { fetch, pointer } = studioDraft();
+  it("two concurrent draft requests and a production request never see each other's content", async () => {
+    const studio = fakeStudio();
+    vi.stubGlobal("fetch", vi.fn(studio.fetch));
+    const a = studio.draft(
+      { set: { SummerSEO: { ...DRAFT_SEO, title: "A" } } },
+      { slug: "a", version: "va" },
+    );
+    const b = studio.draft({ delete: ["SummerSEO"] }, { slug: "b", version: "vb" });
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    await Promise.all([
-      cms.forDraft(pointer).resolve("SummerSEO"),
-      cms.forDraft(pointer).resolve("SummerSEO"),
-      cms.forDraft(pointer).resolve("HomePage"),
+    const [inA, inB, inRelease] = await Promise.all([
+      cms.forDraft(a).resolve("SummerSEO"),
+      cms.forDraft(b).resolve("SummerSEO"),
+      cms.forRelease().resolve("SummerSEO"),
     ]);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(inA[0]).toMatchObject({ title: "A" });
+    expect(inB[1]?.code).toBe("NOT_FOUND");
+    expect(inRelease[0]).toMatchObject({ title: "Sunny!" });
+    // …and again, in the other order: nothing a draft read is kept.
+    expect((await cms.forRelease().resolve("SummerSEO"))[0]).toMatchObject({ title: "Sunny!" });
+    expect((await cms.forDraft(b).resolve("SummerSEO"))[1]?.code).toBe("NOT_FOUND");
+    expect((await cms.forDraft(a).resolve("SummerSEO"))[0]).toMatchObject({ title: "A" });
+  });
+
+  it("a draft file holding a published marker, or missing, reads as not in the draft", async () => {
+    const studio = fakeStudio();
+    vi.stubGlobal("fetch", vi.fn(studio.fetch));
+    const pointer = studio.draft({ set: { SummerSEO: DRAFT_SEO } });
+    studio.file("summer-sale", "SummerSEO", {
+      operation: "published",
+      revision: null,
+      version: null,
+    });
+    studio.file("summer-sale", "Ghost", undefined); // listed, its file never written
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const client = cms.forDraft(pointer);
+    expect((await client.resolve("SummerSEO"))[0]).toMatchObject({ title: "Sunny!" });
+    expect((await client.resolve("Ghost"))[1]?.code).toBe("NOT_FOUND");
+  });
+
+  it("a draft file that isn't one fails the draft request", async () => {
+    const studio = fakeStudio();
+    vi.stubGlobal("fetch", vi.fn(studio.fetch));
+    const pointer = studio.draft({ set: { SummerSEO: DRAFT_SEO } });
+    studio.file("summer-sale", "SummerSEO", { operation: "rename" });
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const [, error] = await cms.forDraft(pointer).resolve("HomePage");
+    expect(error?.code).toBe("LOADER_FAILED");
+  });
+
+  it("a pointer whose path isn't a draft folder's index fails, with nothing fetched", async () => {
+    const { fetch } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    const [, error] = await cms
+      .forDraft("delivery.decocms.com/sites/acme/drafts/summer-sale.json@1")
+      .resolve("HomePage");
+    expect(error?.code).toBe("LOADER_FAILED");
+    expect(String((error?.cause as Error)?.message)).toContain("not a draft folder");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -507,23 +553,19 @@ describe("one instance per process", () => {
   it("with hosted releases, the site ID is part of the key; the token isn't (another one warns)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = docsSnapshot();
-    const a = createCMS({ blocks: {}, content, site: "acme", token: "t1" });
-    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t1" }))).toBe(
-      instanceOf(a),
-    );
-    expect(instanceOf(createCMS({ blocks: {}, content, site: "other", token: "t1" }))).not.toBe(
+    const a = createCMS({ blocks: {}, site: "acme", token: "t1" });
+    expect(instanceOf(createCMS({ blocks: {}, site: "acme", token: "t1" }))).toBe(instanceOf(a));
+    expect(instanceOf(createCMS({ blocks: {}, site: "other", token: "t1" }))).not.toBe(
       instanceOf(a),
     );
     expect(warn).not.toHaveBeenCalled();
-    expect(instanceOf(createCMS({ blocks: {}, content, site: "acme", token: "t2" }))).toBe(
-      instanceOf(a),
-    );
+    expect(instanceOf(createCMS({ blocks: {}, site: "acme", token: "t2" }))).toBe(instanceOf(a));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("(token)"));
     expect(instanceOf(createCMS({ blocks: {}, content }))).not.toBe(instanceOf(a));
   });
 
   it("never puts the token in the global symbol registry", () => {
-    createCMS({ blocks: {}, content: docsSnapshot(), site: "acme", token: "super-secret-token" });
+    createCMS({ blocks: {}, site: "acme", token: "super-secret-token" });
     const keys = Object.getOwnPropertySymbols(globalThis).map((s) => Symbol.keyFor(s) ?? "");
     expect(keys.some((k) => k.startsWith("decocms.blocks.cms:"))).toBe(true);
     expect(keys.some((k) => k.includes("super-secret-token"))).toBe(false);
@@ -548,9 +590,8 @@ describe("one instance per process", () => {
 
   it("the warning never prints a token", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const content = docsSnapshot();
-    createCMS({ blocks: {}, content, site: "acme", token: "TOKEN-ONE" });
-    createCMS({ blocks: {}, content, site: "acme", token: "TOKEN-TWO" });
+    createCMS({ blocks: {}, site: "acme", token: "TOKEN-ONE" });
+    createCMS({ blocks: {}, site: "acme", token: "TOKEN-TWO" });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("token");
     expect(warn.mock.calls[0]?.[0]).not.toContain("TOKEN-");
@@ -611,11 +652,9 @@ describe("one instance per process", () => {
 
 describe("preview.draftHosts", () => {
   it("replaces the default draft hosts a draft pointer's host must fall under", async () => {
-    const fetch = vi.fn(async (_input: string | URL | Request) =>
-      Response.json({ set: {}, delete: [] }),
-    );
+    const fetch = vi.fn(async (_input: string | URL | Request) => Response.json({ names: [] }));
     vi.stubGlobal("fetch", fetch);
-    const pointer = "drafts.example.com/sites/acme/drafts/x.json@1";
+    const pointer = "drafts.example.com/sites/acme/drafts/x/index.json@1";
     const defaults = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     expect((await defaults.forDraft(pointer).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
     expect(fetch).not.toHaveBeenCalled();
@@ -627,18 +666,18 @@ describe("preview.draftHosts", () => {
     });
     expect((await own.forDraft(pointer).resolve("SummerSEO"))[1]).toBeNull();
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
-      "https://drafts.example.com/sites/acme/drafts/x.json?v=1",
+      "https://drafts.example.com/sites/acme/drafts/x/index.json",
     );
-    const studio = "delivery.decocms.com/sites/acme/drafts/x.json@1";
+    const studio = "delivery.decocms.com/sites/acme/drafts/x/index.json@1";
     expect((await own.forDraft(studio).resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
   });
 
   it("reads no DECO_PREVIEW_API_DOMAINS", async () => {
     vi.stubEnv("DECO_PREVIEW_API_DOMAINS", "drafts.example.com");
-    const fetch = vi.fn(async () => Response.json({ set: {}, delete: [] }));
+    const fetch = vi.fn(async () => Response.json({ names: [] }));
     vi.stubGlobal("fetch", fetch);
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const [, error] = await cms.forDraft("drafts.example.com/x.json@1").resolve("SummerSEO");
+    const [, error] = await cms.forDraft("drafts.example.com/x/index.json@1").resolve("SummerSEO");
     expect(error?.code).toBe("LOADER_FAILED");
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -663,12 +702,19 @@ describe("site and token", () => {
     );
   });
 
+  it("with site, content is never bundled: passing content too is a TypeError", () => {
+    expect(() => createCMS({ blocks: {}, content: docsSnapshot(), site: "acme" })).toThrow(
+      new TypeError(
+        "createCMS: with site, content comes from the delivery CDN at runtime; remove content",
+      ),
+    );
+    expect(() => createCMS({ blocks: {} })).toThrow(TypeError);
+  });
+
   it("accepts site with token, site alone, or neither", () => {
-    expect(() =>
-      createCMS({ blocks: {}, content: docsSnapshot(), site: "acme", token: "tok" }),
-    ).not.toThrow();
+    expect(() => createCMS({ blocks: {}, site: "acme", token: "tok" })).not.toThrow();
     resetForTests();
-    expect(() => createCMS({ blocks: {}, content: docsSnapshot(), site: "acme" })).not.toThrow();
+    expect(() => createCMS({ blocks: {}, site: "acme" })).not.toThrow();
     resetForTests();
     expect(() => createCMS({ blocks: {}, content: docsSnapshot() })).not.toThrow();
   });

@@ -1,7 +1,9 @@
 // @vitest-environment node
 /**
- * Docs conformance: the `deco` CLI, `deco schema`, `deco check`, `deco serve`
- * and the content protocol as the local server exposes it.
+ * Docs conformance: the `deco` CLI, `deco schema`, `deco check`, and the
+ * content protocol over the filesystem storage (./localServer.ts serves it the
+ * way `deco serve` did; `deco serve` and `deco content` are gone, and the
+ * remote commands are covered in ../cli/__tests__/remote.test.ts).
  *
  * Source of truth: src/content/docs/en/storefront/blocks/next/{cli,schema,checking,site-editor,
  * content-protocol,studio-compatibility,studio-implementation}.mdx in
@@ -17,17 +19,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ensureGitWorkTree, git, gitInit } from "../../protocol/__tests__/git";
+import { ensureGitWorkTree, gitInit } from "../../protocol/__tests__/git";
 import { ErrorCode } from "../../protocol/errors";
 import { blockFileName, blockNameFromFile } from "../../protocol/keys";
 import { BLOCKS_MAJOR } from "../../protocol/types";
-import { createFixture, type Fixture, recorder, STORE_FILES } from "../cli/__tests__/fixture";
+import {
+  checkProductionFromFolder,
+  createFixture,
+  type Fixture,
+  recorder,
+  STORE_FILES,
+  startFolderCdn,
+} from "../cli/__tests__/fixture";
+import { content as writeContentModule } from "../cli/content";
 import { runCli } from "../cli/run";
-import { type RunningServer, startServer } from "../cli/serve/server";
 import { createCMS, resetForTests } from "../cms";
 import { matchRoute } from "../matchRoute";
-import { remoteLoader } from "../remoteLoader";
-import type { Blocks, Loader, Snapshot } from "../types";
+import { fakeDelivery, fakeStudio } from "../testFixtures";
+import type { Blocks } from "../types";
+import { type LocalServerOptions, type RunningServer, startLocalServer } from "./localServer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(HERE, "../../..");
@@ -39,7 +49,8 @@ type Json = Record<string, any>;
 
 async function deco(argv: string[], cwd: string) {
   const out = recorder();
-  const code = await runCli(argv, { cwd, reporter: out });
+  // deco check reads production from the CDN: here, the fixture's own blocks.
+  const code = await runCli(argv, { cwd, reporter: out, ...checkProductionFromFolder(argv, cwd) });
   return { code, out: out.text(), lines: out.lines };
 }
 
@@ -129,13 +140,12 @@ function tmpDir(): string {
 }
 async function serveFixture(
   root: string,
-  options: Parameters<typeof startServer>[0] = {},
-): Promise<RunningServer & { log: ReturnType<typeof recorder> }> {
-  const log = recorder();
+  options: LocalServerOptions = {},
+): Promise<RunningServer> {
   ensureGitWorkTree(options.root ? path.resolve(root, options.root) : root);
-  const s = await startServer({ cwd: root, port: 0, reporter: log, ...options });
+  const s = await startLocalServer({ cwd: root, ...options });
   servers.push(s);
-  return Object.assign(s, { log });
+  return s;
 }
 
 afterAll(async () => {
@@ -383,18 +393,31 @@ describe("cli.mdx", () => {
     });
     const cli = await import("@decocms/blocks/cli");
     const f = fixture({ ".deco/blocks/A.json": { __resolveType: "hero", title: "x" } });
-    const code = await cli.runCli(["content"], { cwd: f.root, reporter: cli.silentReporter });
+    const code = await cli.content({ cwd: f.root, reporter: cli.silentReporter });
     expect(code).toBe(0);
     expect(f.read(".deco/blocks.gen.ts")).toContain('"A"');
+    expect(await cli.runCli(["login"], { cwd: f.root, reporter: cli.silentReporter })).toBe(0);
   });
 
-  it("cli-03: exactly four commands; `deco dev` and others are unknown", async () => {
+  it("cli-03: the content commands; `deco dev`, `deco serve` and others are unknown", async () => {
     const help = await deco(["--help"], tmpDir());
     const commands = [...help.out.matchAll(/^ {2}(\w+) {2,}\S/gm)].map((m) => m[1]);
-    expect(commands).toEqual(["schema", "content", "check", "serve"]);
-    for (const unknown of ["dev", "build", "init", "generate", "migrate"]) {
+    expect(commands).toEqual([
+      "login",
+      "pull",
+      "diff",
+      "push",
+      "publish",
+      "drafts",
+      "releases",
+      "check",
+      // Kept for content without a site (git-backed .deco/blocks, what the v7 migration writes).
+      "content",
+      "schema",
+    ]);
+    for (const unknown of ["dev", "build", "serve", "generate", "migrate"]) {
       const r = await deco([unknown], tmpDir());
-      expect(r.code).toBe(1);
+      expect(r.code).toBe(64);
       expect(r.out).toContain(`unknown command "${unknown}"`);
     }
   });
@@ -412,21 +435,19 @@ describe("cli.mdx", () => {
     );
   }, 60_000);
 
-  it("cli-05: deco content reads only JSON in .deco/blocks, never the block map", async () => {
+  it("cli-05: the content module reads only JSON in .deco/blocks, never the block map", async () => {
     const f = fixture({
       ".deco/index.ts": "this is not TypeScript at all {{{",
       ".deco/blocks/Home.json": { __resolveType: "page", name: "Home", path: "/", sections: [] },
       ".deco/blocks/notes.txt": "not a block",
       ".deco/blocks/README.md": "# nope",
     });
-    const r = await deco(["content"], f.root);
-    expect(r.code, r.out).toBe(0);
+    expect(await writeContentModule({ cwd: f.root, reporter: recorder() })).toBe(0);
     const mod = f.read(".deco/blocks.gen.ts");
     expect(mod).toContain('"Home"');
-    // committedAt: the commit time of git HEAD (hosted releases: newer wins). The
-    // fixture isn't a git repository, so there is none, and deco content says so.
+    // Hosted content arrives at runtime: the module carries no schemaHash or committedAt.
     expect(mod).not.toContain("committedAt");
-    expect(r.out).toMatch(/^no git commit found, so \.deco\/blocks\.gen\.ts has no committedAt/m);
+    expect(mod).not.toContain("schemaHash");
     expect(mod).not.toContain("notes");
     expect(mod).not.toContain("README");
     expect(mod).not.toContain("index");
@@ -492,13 +513,16 @@ describe("cli.mdx", () => {
     });
   });
 
-  it("cli-07 / cli-22: the predev/prebuild scripts run, and the example apps use them", () => {
+  it("cli-07 / cli-22: the predev/prebuild scripts run, and the example apps use them", async () => {
+    // The examples have no site: they write the content module with content()
+    // from @decocms/blocks/cli (examples/content-module.mjs). deco check reads
+    // a site's production from the CDN, so they don't run it.
     for (const example of ["tanstack-smoke", "nextjs-smoke"]) {
       const pkg = JSON.parse(
         fs.readFileSync(path.join(REPO, "examples", example, "package.json"), "utf8"),
       );
-      expect(pkg.scripts.predev).toBe("deco schema && deco content");
-      expect(pkg.scripts.prebuild).toBe("deco schema && deco content && deco check");
+      expect(pkg.scripts.predev).toBe("deco schema && node ../content-module.mjs");
+      expect(pkg.scripts.prebuild).toBe("deco schema && node ../content-module.mjs");
     }
 
     const app = fixture({
@@ -507,10 +531,7 @@ describe("cli.mdx", () => {
         name: "fixture-site",
         private: true,
         type: "module",
-        scripts: {
-          predev: "deco schema && deco content",
-          prebuild: "deco schema && deco content && deco check",
-        },
+        scripts: { predev: "deco schema", prebuild: "deco schema && deco check" },
       },
       ".deco/blocks/Home.json": {
         __resolveType: "page",
@@ -519,13 +540,21 @@ describe("cli.mdx", () => {
         sections: [{ __resolveType: "hero", title: "Hi", size: "md" }],
       },
     });
-    for (const script of ["predev", "prebuild"]) {
-      fs.rmSync(path.join(app.root, ".deco/schema.gen.json"), { force: true });
-      fs.rmSync(path.join(app.root, ".deco/blocks.gen.ts"), { force: true });
-      const r = spawnSync("npm", ["run", script], { cwd: app.root, encoding: "utf8" });
-      expect(r.status, r.stdout + r.stderr).toBe(0);
-      expect(app.exists(".deco/schema.gen.json")).toBe(true);
-      expect(app.exists(".deco/blocks.gen.ts")).toBe(true);
+    // prebuild's deco check reads production from the CDN: here, the app's own blocks.
+    const cdn = await startFolderCdn();
+    try {
+      for (const script of ["predev", "prebuild"]) {
+        fs.rmSync(path.join(app.root, ".deco/schema.gen.json"), { force: true });
+        const r = spawnSync("npm", ["run", script], {
+          cwd: app.root,
+          encoding: "utf8",
+          env: { ...process.env, ...cdn.envFor(app.root) },
+        });
+        expect(r.status, r.stdout + r.stderr).toBe(0);
+        expect(app.exists(".deco/schema.gen.json")).toBe(true);
+      }
+    } finally {
+      await cdn.close();
     }
   }, 120_000);
 
@@ -538,19 +567,22 @@ describe("cli.mdx", () => {
     fs.mkdirSync(nested, { recursive: true });
     expect((await deco(["schema"], nested)).code).toBe(0);
     expect(f.exists(".deco/schema.gen.json")).toBe(true);
-    expect((await deco(["content"], nested)).code).toBe(0);
-    expect(f.exists(".deco/blocks.gen.ts")).toBe(true);
     expect((await deco(["check"], nested)).code).toBe(0);
-    const s = await serveFixture(nested);
-    expect((await call(s, "describe")).result.root).toBeDefined();
-    expect(s.log.text()).toContain("(.deco/schema.gen.json, 1 blocks)");
   }, 60_000);
 
   it("cli-09: no .deco up the tree gives the documented error", async () => {
     const dir = tmpDir();
-    for (const cmd of ["schema", "content", "check", "serve"]) {
-      const r = await deco([cmd], dir);
-      expect(r.code).not.toBe(0);
+    // Local commands exit 1; remote ones have no folder to work in or read
+    // DECO_SITE from, a usage error (64, contract §7.4). The message is the same.
+    for (const [cmd, code] of [
+      ["schema", 1],
+      ["check", 1],
+      ["pull", 64],
+      ["push --draft=x", 64],
+      ["drafts list", 64],
+    ] as const) {
+      const r = await deco(cmd.split(" "), dir);
+      expect(r.code).toBe(code);
       expect(r.out).toBe(`no .deco/ found from ${dir}; run inside your app or pass --root`);
     }
     // Through the real bin too: the message lands on stderr.
@@ -565,26 +597,12 @@ describe("cli.mdx", () => {
     const { repo, appRoot } = monorepo();
     expect((await deco(["schema", "--root", "apps/storefront"], repo)).code).toBe(0);
     expect(fs.existsSync(path.join(appRoot, ".deco/schema.gen.json"))).toBe(true);
-    expect((await deco(["content", "--root", "apps/storefront"], repo)).code).toBe(0);
-    expect(fs.existsSync(path.join(appRoot, ".deco/blocks.gen.ts"))).toBe(true);
     expect((await deco(["check", "--root", "apps/storefront"], repo)).code).toBe(0);
     expect(fs.existsSync(path.join(repo, ".deco"))).toBe(false);
   }, 60_000);
 
-  it("cli-11: schema and content take --watch; check and serve reject it", async () => {
+  it("cli-11: schema takes --watch; check and the remote commands reject it", async () => {
     const f = fixture({ ...STORE_FILES });
-    let stop!: () => void;
-    const until = new Promise<void>((r) => {
-      stop = r;
-    });
-    const out = recorder();
-    const running = runCli(["content", "--watch"], { cwd: f.root, reporter: out, until });
-    await waitFor(() => f.exists(".deco/blocks.gen.ts"));
-    f.write(".deco/blocks/New.json", { __resolveType: "hero", title: "new", size: "sm" });
-    await waitFor(() => f.read(".deco/blocks.gen.ts").includes('"New"'));
-    stop();
-    expect(await running).toBe(0);
-
     let stop2!: () => void;
     const until2 = new Promise<void>((r) => {
       stop2 = r;
@@ -603,143 +621,23 @@ describe("cli.mdx", () => {
     stop2();
     expect(await running2).toBe(0);
 
-    for (const cmd of ["check", "serve"]) {
+    for (const cmd of ["check", "pull"]) {
       const r = await deco([cmd, "--watch"], f.root);
-      expect(r.code).toBe(1);
+      expect(r.code).toBe(64);
       expect(r.out).toContain("unknown flag --watch");
     }
   }, 60_000);
 
-  it("cli-12: deco check takes only --root", async () => {
+  it("cli-12: deco check takes only --root, --draft, --revision and --json", async () => {
     const f = fixture();
-    for (const flag of ["--port", "--watch", "--json", "--fix"]) {
+    for (const flag of ["--port", "--watch", "--fix"]) {
       const r = await deco(["check", flag], f.root);
-      expect(r.code).toBe(1);
+      expect(r.code).toBe(64);
       expect(r.out).toContain(`unknown flag ${flag}`);
     }
   });
 
-  it("cli-13: deco serve takes exactly the documented flags", async () => {
-    const f = fixture();
-    f.write(".deco/schema.gen.json", "{}");
-    const { parseFlags } = await import("../cli/run");
-    expect(
-      parseFlags("serve", [
-        "--root",
-        ".",
-        "--port",
-        "1",
-        "--host",
-        "127.0.0.1",
-        "--preview",
-        "localhost:8001",
-        "--assets",
-        "static",
-        "--read-only",
-      ]),
-    ).toEqual({
-      root: ".",
-      port: "1",
-      host: "127.0.0.1",
-      preview: "localhost:8001",
-      assets: "static",
-      "read-only": true,
-    });
-    for (const flag of ["--watch", "--studio", "--open", "--cors", "--token", "--allow-origin"]) {
-      const r = await deco(["serve", flag], f.root);
-      expect(r.code).toBe(1);
-      expect(r.out).toContain(`unknown flag ${flag}`);
-    }
-  });
-
-  it("cli-14: --port defaults to 4545", async () => {
-    const f = fixture();
-    const log = recorder();
-    let s: RunningServer;
-    try {
-      ensureGitWorkTree(f.root);
-      s = await startServer({ cwd: f.root, reporter: log });
-    } catch (error) {
-      // Something else holds 4545 on this machine: the error names the port.
-      expect(String(error)).toContain("port 4545 is in use");
-      return;
-    }
-    servers.push(s);
-    expect(s.port).toBe(4545);
-    expect(s.endpoint).toBe("http://localhost:4545/rpc");
-    expect(log.text()).toContain("http://localhost:4545/rpc");
-  });
-
-  it("cli-15: --host defaults to loopback, shown as localhost; another address warns", async () => {
-    const f = fixture();
-    const loop = await serveFixture(f.root);
-    expect(loop.endpoint.startsWith("http://localhost:")).toBe(true);
-    expect(loop.log.lines.filter((l) => l.level === "warn")).toEqual([]);
-
-    const open = await serveFixture(f.root, { host: "0.0.0.0" });
-    const warns = open.log.lines.filter((l) => l.level === "warn").map((l) => l.message);
-    expect(warns.join("\n")).toMatch(/other machines on the network can reach this server/);
-  });
-
-  it("cli-16: --preview defaults to the Vite config's port, else http://localhost:5173", async () => {
-    const plain = fixture();
-    const s1 = await serveFixture(plain.root);
-    expect(s1.log.text()).toMatch(/Preview\s+http:\/\/localhost:5173/);
-    expect((await call(s1, "describe")).result.preview).toEqual({
-      url: "http://localhost:5173",
-    });
-
-    const vite = fixture({
-      "vite.config.ts": `import { defineConfig } from "vite";\nexport default defineConfig({ server: { port: 3000 } });\n`,
-    });
-    const s2 = await serveFixture(vite.root);
-    expect(s2.log.text()).toMatch(/Preview\s+http:\/\/localhost:3000/);
-    expect((await call(s2, "describe")).result.preview).toEqual({
-      url: "http://localhost:3000",
-    });
-  });
-
-  it("cli-17: deco serve has no token: no Authorization, DECO_SERVE_TOKEN ignored, none in the link", async () => {
-    const f = fixture();
-    process.env.DECO_SERVE_TOKEN = "abc";
-    let a: Awaited<ReturnType<typeof serveFixture>>;
-    try {
-      a = await serveFixture(f.root);
-    } finally {
-      delete process.env.DECO_SERVE_TOKEN;
-    }
-    expect("token" in a).toBe(false);
-    expect(a.siteEditorUrl).toBe(
-      `https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(a.endpoint)}`,
-    );
-    expect(a.log.text()).not.toMatch(/token/i);
-    const plain = await raw(a.endpoint, {
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
-    });
-    expect(plain.status).toBe(200);
-    expect(plain.json().result.protocol).toBe("deco-content");
-    // An Authorization header is neither needed nor checked.
-    const stray = await rpcCall(
-      a,
-      { jsonrpc: "2.0", id: 1, method: "describe" },
-      { authorization: "Bearer anything" },
-    );
-    expect(stray.status).toBe(200);
-  });
-
-  it("cli-18 / cp-42: any origin is answered, its Origin reflected", async () => {
-    const f = fixture();
-    const s = await serveFixture(f.root);
-    for (const origin of ["https://studio.decocms.com", "https://example.com"]) {
-      const r = await rpcCall(s, { jsonrpc: "2.0", id: 1, method: "describe" }, { origin });
-      expect(r.status).toBe(200);
-      expect(r.headers["access-control-allow-origin"]).toBe(origin);
-      expect(r.headers.vary).toBe("Origin");
-    }
-  });
-
-  it("cli-19: --assets is relative to the app root; the field always stores /assets/<name>", async () => {
+  it("cli-19: the upload folder is relative to the app root; the field always stores /assets/<name>", async () => {
     const f = fixture();
     const s = await serveFixture(f.root, { assets: "static/img" });
     const r = await raw(s.endpoint.replace("/rpc", "/assets/x.png"), {
@@ -754,7 +652,7 @@ describe("cli.mdx", () => {
     expect(f.exists("public/assets/x.png")).toBe(false);
   });
 
-  it("cli-20 / cp-46: --read-only refuses writes and uploads; describe says so", async () => {
+  it("cli-20 / cp-46: a read-only storage refuses writes and uploads; describe says so", async () => {
     const f = fixture();
     const s = await serveFixture(f.root, { readOnly: true });
     const d = (await call(s, "describe")).result;
@@ -772,7 +670,7 @@ describe("cli.mdx", () => {
     expect(f.exists("public/assets/x.png")).toBe(false);
   });
 
-  it("cli-21 / cp-11: serve reports the app root relative to the repository root", async () => {
+  it("cli-21 / cp-11: the fs storage reports the app root relative to the repository root", async () => {
     const { repo, appRoot } = monorepo();
     fs.writeFileSync(path.join(appRoot, ".deco/schema.gen.json"), "{}\n");
     const s = await serveFixture(repo, {
@@ -781,7 +679,7 @@ describe("cli.mdx", () => {
     });
     const d = (await call(s, "describe")).result;
     expect(d.root).toBe("apps/storefront");
-    expect(d.server.name).toBe("deco-cli");
+    expect(d.server.name).toBe("fs-test");
     expect(d.kind).toBe("working-tree");
     expect(d.pollIntervalMs).toBe(2000);
     expect(d.assets.dir).toBe("apps/storefront/public/assets");
@@ -1111,7 +1009,7 @@ describe("checking.mdx", () => {
   it("chk-02: unknown __resolveType; aliases and saved blocks pass", async () => {
     const r = await check({ Promo: { __resolveType: "promo-banner", title: "x" } });
     expect(r.code).toBe(1);
-    expect(r.out).toContain('unknown block type "promo-banner"');
+    expect(r.out).toContain('no saved block or block type "promo-banner"');
     const ok = await check({
       Home: { __resolveType: "website/pages/Page.tsx", name: "Home", path: "/", sections: [] },
       SummerHero: hero,
@@ -1181,17 +1079,23 @@ describe("checking.mdx", () => {
     expect(r.out).toMatch(/can never be picked/);
   });
 
-  it("chk-09: `npx @decocms/blocks schema && npx @decocms/blocks check`", () => {
+  it("chk-09: `npx @decocms/blocks schema && npx @decocms/blocks check`", async () => {
     const f = fixture({
       ...STORE_FILES,
       ".deco/blocks/Home.json": page([hero]),
     });
-    const r = spawnSync(
-      "sh",
-      ["-c", "npx --no-install @decocms/blocks schema && npx --no-install @decocms/blocks check"],
-      { cwd: f.root, encoding: "utf8" },
-    );
-    expect(r.status, r.stdout + r.stderr).toBe(0);
+    // check reads production from the CDN: here, the fixture's own blocks.
+    const cdn = await startFolderCdn();
+    try {
+      const r = spawnSync(
+        "sh",
+        ["-c", "npx --no-install @decocms/blocks schema && npx --no-install @decocms/blocks check"],
+        { cwd: f.root, encoding: "utf8", env: { ...process.env, ...cdn.envFor(f.root) } },
+      );
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+    } finally {
+      await cdn.close();
+    }
   }, 120_000);
 
   it("chk-10: failure output is grouped per file, as in the docs", async () => {
@@ -1205,7 +1109,7 @@ describe("checking.mdx", () => {
         ".deco/blocks/HomePage.json",
         "  sections[2].title: required",
         ".deco/blocks/Promo.json",
-        '  unknown block type "promo-banner"',
+        '  no saved block or block type "promo-banner"',
       ].join("\n"),
     );
   });
@@ -1265,30 +1169,6 @@ describe("checking.mdx", () => {
 // ===========================================================================
 
 describe("site-editor.mdx", () => {
-  it("se-01: the site editor banner", async () => {
-    const { repo, appRoot } = monorepo({
-      ...STORE_FILES,
-      ".deco/blocks/A.json": { __resolveType: "page", name: "A", path: "/a" },
-      ".deco/blocks/B.json": { __resolveType: "page", name: "B", path: "/b" },
-    });
-    fs.writeFileSync(path.join(appRoot, ".deco/schema.gen.json"), "{}\n");
-    const s = await serveFixture(path.join(appRoot, "src"));
-    expect(repo).toBeTruthy();
-    const lines = s.log.lines.map((l) => l.message);
-    const port = s.port;
-    expect(lines).toEqual([
-      `Deco server          http://localhost:${port}/rpc`,
-      "Root                 apps/storefront   (.deco/schema.gen.json, 2 blocks)",
-      "Assets               apps/storefront/public/assets   (PUT /assets/<name>)",
-      "Preview              http://localhost:5173",
-      `Changes              compared with main (${git(repo, "rev-parse", "--short=7", "HEAD")})`,
-      `Site editor          https://studio.decocms.com/site-editor#endpoint=${encodeURIComponent(`http://localhost:${port}/rpc`)}`,
-    ]);
-    const url = new URL(s.siteEditorUrl);
-    expect(url.search).toBe("");
-    expect(url.hash).not.toContain("token");
-  });
-
   it("se-02: the RPC endpoint is /rpc; other paths 404", async () => {
     const f = fixture();
     const s = await serveFixture(f.root);
@@ -1300,23 +1180,7 @@ describe("site-editor.mdx", () => {
     expect(other.status).toBe(404);
   });
 
-  it("se-03: serve regenerates the content module after every save", async () => {
-    const f = fixture({ "vite.config.ts": "export default {};\n" });
-    f.write(".deco/schema.gen.json", "{}\n");
-    const s = await serveFixture(f.root);
-    await call(s, "blocks.apply", { set: { A: { __resolveType: "page", name: "A", path: "/a" } } });
-    expect(f.read(".deco/blocks.gen.ts")).toContain('"A"');
-    const before = f.read(".deco/blocks.gen.ts");
-    await call(s, "blocks.apply", {
-      set: { A: { __resolveType: "page", name: "A", path: "/a", title: "changed" } },
-    });
-    // The module carries the revision, so an update rewrites it too.
-    expect(f.read(".deco/blocks.gen.ts")).not.toBe(before);
-    await call(s, "blocks.apply", { delete: ["A"] });
-    expect(f.read(".deco/blocks.gen.ts")).not.toContain('"A"');
-  });
-
-  it("se-04: serve commits nothing", async () => {
+  it("se-04: saving commits nothing", async () => {
     const f = fixture();
     f.write(".deco/schema.gen.json", "{}\n");
     const git = (...args: string[]) =>
@@ -1371,22 +1235,6 @@ describe("site-editor.mdx", () => {
     expect(typeof max).toBe("number");
   });
 
-  it("se-06: answers Chrome's local-network preflight, from any origin", async () => {
-    const f = fixture();
-    const s = await serveFixture(f.root);
-    const r = await raw(s.endpoint, {
-      method: "OPTIONS",
-      headers: {
-        origin: "https://example.com",
-        "access-control-request-method": "POST",
-        "access-control-request-private-network": "true",
-      },
-    });
-    expect(r.status).toBe(204);
-    expect(r.headers["access-control-allow-private-network"]).toBe("true");
-    expect(r.headers["access-control-allow-origin"]).toBe("https://example.com");
-  });
-
   it("se-07: describe.secrets is null, even with an old committed .deco/secrets.pub", async () => {
     const withKey = fixture();
     withKey.write(
@@ -1406,7 +1254,7 @@ describe("site-editor.mdx", () => {
 });
 
 // ===========================================================================
-// content-protocol.mdx (through deco serve)
+// content-protocol.mdx (over the fs storage)
 // ===========================================================================
 
 describe("content-protocol.mdx", () => {
@@ -1486,7 +1334,7 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/cp06.json")).toBe(false);
   });
 
-  it("cp-07 / cp-41: deco serve never answers 401; 413 for an oversized body, 200 for a conflict", async () => {
+  it("cp-07 / cp-41: the protocol handler never answers 401; 413 for an oversized body, 200 for a conflict", async () => {
     const noAuth = await raw(s.endpoint, {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "describe" }),
@@ -1827,10 +1675,10 @@ describe("content-protocol.mdx", () => {
     expect(app.exists(".deco/blocks/foo.ts.json")).toBe(false);
   });
 
-  it("cp-40: deco content, deco serve and the fs storage import the protocol's keys", () => {
+  it("cp-40: the content module, the CLI's local files and the fs storage import the protocol's keys", () => {
     const read = (p: string) => fs.readFileSync(path.join(PKG, "src", p), "utf8");
     expect(read("v8/cli/content.ts")).toMatch(/from "\.\.\/\.\.\/protocol\/keys\.ts"/);
-    expect(read("v8/cli/serve/server.ts")).toMatch(/protocol\/keys\.ts"/);
+    expect(read("v8/cli/remote/local.ts")).toMatch(/protocol\/keys\.ts"/);
     expect(read("protocol/storage/fs/index.ts")).toMatch(/from "\.\.\/\.\.\/keys\.ts"/);
   });
 
@@ -1865,9 +1713,16 @@ describe("content-protocol.mdx", () => {
       /from "[./]*protocol\//.test(fs.readFileSync(path.join(PKG, "src/v8", f), "utf8")),
     );
     expect(offenders).toEqual([]);
-    const SHARED_LEAVES = ["canonical"].map((m) => path.join(PKG, "src/v8", m));
+    const SHARED_LEAVES = ["canonical", "revisionId"].map((m) => path.join(PKG, "src/v8", m));
     for (const leaf of SHARED_LEAVES) {
       expect(fs.readFileSync(`${leaf}.ts`, "utf8"), leaf).not.toMatch(/^import /m);
+    }
+    // The index entry (blockMeta) is shared too; it imports only the leaves.
+    const SHARED = [...SHARED_LEAVES, path.join(PKG, "src/v8", "blockMeta")];
+    const blockMetaSrc = fs.readFileSync(path.join(PKG, "src/v8/blockMeta.ts"), "utf8");
+    for (const m of blockMetaSrc.matchAll(/^import [^"]*"([^"]+)"/gm)) {
+      const target = path.resolve(path.join(PKG, "src/v8"), m[1]!).replace(/\.tsx?$/, "");
+      expect(SHARED_LEAVES, `blockMeta imports ${m[1]}`).toContain(target);
     }
     const protocolFiles = fs
       .readdirSync(path.join(PKG, "src/protocol"), { recursive: true, encoding: "utf8" })
@@ -1883,10 +1738,10 @@ describe("content-protocol.mdx", () => {
           const target = path
             .resolve(path.dirname(path.join(PKG, "src/protocol", f)), spec)
             .replace(/\.tsx?$/, "");
-          // The canonical hash is the SDK's own dependency-free leaf module
-          // (no imports at all); the protocol re-exports it rather than keep
-          // a second copy.
-          if (SHARED_LEAVES.includes(target)) continue;
+          // The canonical hash and the revision id shape are the SDK's own
+          // dependency-free leaf modules (no imports at all); the protocol
+          // re-exports them rather than keep a second copy.
+          if (SHARED.includes(target)) continue;
           expect(target, `${f}: ${spec}`).toContain(path.join(PKG, "src/protocol"));
           continue;
         }
@@ -1921,7 +1776,7 @@ describe("content-protocol.mdx", () => {
     }
   });
 
-  it("cp-50: deco serve passes the conformance suite", async () => {
+  it("cp-50: the fs storage passes the conformance suite", async () => {
     const { runConformance } = await import("@decocms/blocks/protocol/conformance");
     const f = fixture();
     fs.copyFileSync(
@@ -2139,13 +1994,15 @@ export default { page, multivariate } satisfies Blocks;
       "website/loaders/redirect.ts": "redirect",
     };
     expect(meta.aliases).toEqual(documented);
+    // v8 routes only a block typed redirects: v7's list type is folded in by the migration.
+    expect(meta.aliases).not.toHaveProperty("website/loaders/redirects.ts");
     const keys = Object.values(groups()).flatMap((g: any) => Object.keys(g));
     for (const alias of Object.keys(documented)) expect(keys).toContain(alias);
   });
 
-  it("sc-14 / sc-15: deco content writes the aliases; createCMS resolves old names lazily", async () => {
+  it("sc-14 / sc-15: the content module writes the aliases; createCMS resolves old names lazily", async () => {
     const f = fixture({ ".deco/blocks/H.json": { __resolveType: "website/pages/Page.tsx" } });
-    await deco(["content"], f.root);
+    await writeContentModule({ cwd: f.root, reporter: recorder() });
     const mod = f.read(".deco/blocks.gen.ts");
     expect(mod).toContain('"website/pages/Page.tsx": "page"');
     expect(mod).toContain('"website/flags/multivariate.ts": "multivariate"');
@@ -2232,40 +2089,20 @@ describe("studio-implementation.mdx", () => {
     expect((await call(s, "describe")).result.pollIntervalMs).toBe(2000);
   });
   describe("si-08 / si-09 / si-10: the SDK's release pointer (latest.json)", () => {
-    const ORIGIN = "https://delivery.decocms.com";
-    const LATEST = `${ORIGIN}/sites/acme/latest.json`;
-    const SCHEMA = "5".repeat(64);
-    let latest: Json | undefined;
-    const assets = new Map<string, unknown>();
-    const gates = new Map<string, Promise<void>>();
+    let cdn: ReturnType<typeof fakeDelivery>;
 
     beforeEach(() => {
       resetForTests();
-      latest = undefined;
-      assets.clear();
-      gates.clear();
-      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-        const url = String(input);
-        if (url === LATEST)
-          return latest ? Response.json(latest) : new Response("", { status: 404 });
-        const p = url.slice(ORIGIN.length).split("?")[0];
-        await gates.get(p);
-        return assets.has(p) ? Response.json(assets.get(p)) : new Response("", { status: 404 });
-      });
+      cdn = fakeDelivery();
+      vi.stubGlobal("fetch", cdn.fetch);
     });
     afterAll(() => vi.unstubAllGlobals());
 
-    function snap(title: string, revision: string): Snapshot {
-      const blocks = { S: { __resolveType: "seo", title, description: "d" } };
-      return { revision, blocks, schemaHash: SCHEMA };
-    }
-    /** Studio's publish of commit `s.revision`: the revision object, then latest.json. */
-    function publish(s: Snapshot) {
-      const p = `/sites/acme/revisions/${s.revision}.json`;
-      assets.set(p, { revision: s.revision, schemaHash: SCHEMA, blocks: s.blocks });
-      latest = { revision: s.revision, schemaHash: SCHEMA, publishedAt: new Date().toISOString() };
-      return p;
-    }
+    const blocksOf = (title: string) => ({ S: { __resolveType: "seo", title, description: "d" } });
+    const title = async (cms: ReturnType<typeof createCMS>) => {
+      const [entry] = await cms.forRelease().resolve<{ title: string }>("S", { run: false });
+      return entry?.title;
+    };
 
     it("si-08: 60 s poll with up to 10 s jitter", () => {
       const src = fs.readFileSync(path.join(PKG, "src/v8/cms.ts"), "utf8");
@@ -2273,54 +2110,56 @@ describe("studio-implementation.mdx", () => {
       expect(src).toMatch(/JITTER = 10_000/);
     });
 
-    it("si-09: the SDK follows the revision latest.json names; a rollback (Make current) is accepted", async () => {
-      const fallback = snap("bundled", "rev-bundled");
-      const loader = remoteLoader(fallback, { site: "acme" }) as Loader;
-      const a = snap("A", "a".repeat(40));
-      const b = snap("B", "b".repeat(40));
-      publish(a);
-      expect(await loader.update!()).toEqual({ updated: true });
-      publish(b);
-      expect(await loader.update!()).toEqual({ updated: true });
-      expect((await loader.load()).revision).toBe(b.revision);
-      // Make current: latest.json names the older revision again; nothing else changes.
-      latest = { revision: a.revision, schemaHash: SCHEMA, publishedAt: new Date().toISOString() };
-      expect(await loader.update!()).toEqual({ updated: true });
-      expect((await loader.load()).revision).toBe(a.revision);
+    it("si-09: the SDK follows the index latest.json holds while its sequence grows, never back", async () => {
+      const cms = createCMS({ blocks: {}, site: "acme" });
+      const a = await cdn.publish(blocksOf("A"));
+      expect(await cms.forRelease().revision()).toBe(a.revision);
+      const b = await cdn.publish(blocksOf("B"));
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await cms.forRelease().revision()).toBe(b.revision);
+      // A rollback to A is a new revision with the next sequence: followed.
+      const rollback = await cdn.publish(blocksOf("A"));
+      expect(await cms.update()).toEqual({ updated: true });
+      expect(await cms.forRelease().revision()).toBe(rollback.revision);
+      expect(await title(cms)).toBe("A");
+      // A stale copy with a lower sequence: never.
+      await cdn.publish(blocksOf("B"), { sequence: b.sequence });
+      expect(await cms.update()).toEqual({ updated: false });
+      expect(await cms.forRelease().revision()).toBe(rollback.revision);
     });
 
-    it("si-09: the same revision as the one loaded is not an update", async () => {
-      const fallback = snap("bundled", "rev-bundled");
-      const loader = remoteLoader(fallback, { site: "acme" }) as Loader;
-      const a = snap("A", "a".repeat(40));
-      publish(a);
-      expect(await loader.update!()).toEqual({ updated: true });
-      publish(a); // republished: same commit, new publishedAt
-      expect(await loader.update!()).toEqual({ updated: false });
+    it("si-09: the same index as the one held is not an update (a 304)", async () => {
+      const cms = createCMS({ blocks: {}, site: "acme" });
+      await cdn.publish(blocksOf("A"));
+      await cms.forRelease().revision();
+      expect(await cms.update()).toEqual({ updated: false });
+      const last = cdn.requests.at(-1)!;
+      expect(last.key).toBe("latest.json");
+      expect(last.headers["if-none-match"]).toBeDefined();
     });
 
-    it("si-10: a draft's changes apply over the latest release, checked before the draft renders; no base matching the draft is fetched", async () => {
-      const fallback = snap("bundled", "rev-bundled");
-      const published = snap("published", "c".repeat(40));
-      publish(published);
-      const drafts = `${ORIGIN}/sites/acme/drafts/b.json`;
-      const fetch = globalThis.fetch;
+    it("si-10: a draft's changes apply over the latest index, checked before the draft renders; no base matching the draft is fetched", async () => {
+      const published = await cdn.publish(blocksOf("published"));
+      const studio = fakeStudio();
+      const pointer = studio.draft({ set: { New: { __resolveType: "seo" } } }, { slug: "b" });
       const urls: string[] = [];
-      vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-        urls.push(String(input));
-        return String(input).startsWith(drafts)
-          ? Response.json({ set: { New: { __resolveType: "seo" } }, delete: [] })
-          : fetch(input);
+      vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        urls.push(url);
+        return url.includes("/drafts/") ? studio.fetch(input, init) : cdn.fetch(input, init);
       });
-      const cms = createCMS({ blocks: {}, content: fallback, site: "acme" });
-      const draft = cms.forDraft("delivery.decocms.com/sites/acme/drafts/b.json@c1");
+      const cms = createCMS({ blocks: {}, site: "acme" });
+      const draft = cms.forDraft(pointer);
       const [entry] = await draft.resolve("S", { run: false });
-      expect(entry).toEqual(published.blocks.S); // the latest release, never the bundle it outlived
-      expect(urls.filter((url) => url.startsWith(drafts))).toHaveLength(1);
-      // Only the release latest.json names: the pointer names no base of its own.
-      expect(urls.filter((url) => url.includes("/revisions/"))).toEqual([
-        `${ORIGIN}/sites/acme/revisions/${published.revision}.json`,
+      expect(entry).toEqual(blocksOf("published").S); // the latest release
+      expect(urls.filter((url) => url.includes("/drafts/b/"))).toHaveLength(2); // index + New
+      // The index latest.json holds, and the bodies it names: the pointer names no base.
+      expect(urls.filter((url) => !url.includes("/drafts/"))).toEqual([
+        "https://delivery.decocms.com/sites/acme/latest.json",
+        `https://delivery.decocms.com/sites/acme/blocks/${cdn.hashOf("S")}.json`,
       ]);
+      expect(await draft.revision()).toContain(published.revision);
+      expect(urls.some((url) => url.includes("/revisions/"))).toBe(false);
     });
   });
 });

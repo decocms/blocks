@@ -1,6 +1,6 @@
 // The header matrix against the built app on workerd (`vite preview` runs the
 // Worker in Miniflare): run `bun run build && bun run smoke`. A local draft
-// server answers the draft pointer (a loopback host, which the CMS accepts by
+// server answers the draft pointer's folder (a loopback host, which the CMS accepts by
 // default); any other draft there is gone (404). Exits non-zero on the first
 // difference.
 import { spawn } from "node:child_process";
@@ -12,13 +12,14 @@ import { toJSONAsync } from "seroval";
 const PORT = Number(process.env.SMOKE_PORT ?? 8811);
 const DRAFT_PORT = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
-const POINTER = `127.0.0.1:${DRAFT_PORT}/draft@v1`;
-const GONE_POINTER = `127.0.0.1:${DRAFT_PORT}/gone@v1`;
+const POINTER = `127.0.0.1:${DRAFT_PORT}/drafts/main/index.json@v1`;
+const GONE_POINTER = `127.0.0.1:${DRAFT_PORT}/drafts/gone/index.json@v1`;
 
 const draftServer = createServer((req, res) => {
-  if (!req.url?.startsWith("/draft")) return void res.writeHead(404).end("not found");
-  res.writeHead(200, { "content-type": "application/json", etag: '"v1"' });
-  res.end(JSON.stringify({ set: {}, delete: [] }));
+  // The draft folder's index (an empty draft); any other draft is gone.
+  if (req.url !== "/drafts/main/index.json") return void res.writeHead(404).end("not found");
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ names: [] }));
 });
 await new Promise((resolve) => draftServer.listen(DRAFT_PORT, "127.0.0.1", resolve));
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
@@ -147,14 +148,16 @@ try {
   check("a draft is always revalidated", draft.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate");
   check("a draft link stores its cookie", (draft.headers.get("set-cookie") ?? "").startsWith("__deco_draft="));
   check("a preview never sends the visitor's cookie", visitorCookies(draft).length === 0, draft.headers.getSetCookie().join(" | "));
-  const oldRelease = await get(`/summer-shirt/p?__draft=${"0".repeat(40)}`);
+  // An old release is named by its revision id (`<inv>-<uuidv7>`, isRevisionId), not a git SHA.
+  const OLD_RELEASE = "fe6a4b87d3ff-019a52c0-1e2f-7a3b-8c4d-5e6f7a8b9c0d";
+  const oldRelease = await get(`/summer-shirt/p?__draft=${OLD_RELEASE}`);
   await oldRelease.text();
   check(
-    // This app has no hosted releases, so the SHA can't be read: the render fails, and a failed
-    // render never stores the link's cookie.
-    "an old release's SHA from a Studio link is a preview: always revalidated, its cookie only with a render below 500, no visitor cookie",
+    // This app has no hosted releases, so the revision can't be read: the render fails, and a
+    // failed render never stores the link's cookie.
+    "an old release's revision id from a Studio link is a preview: always revalidated, its cookie only with a render below 500, no visitor cookie",
     oldRelease.headers.get("cache-control") === "max-age=0, no-cache, must-revalidate" &&
-      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${"0".repeat(40)};`) ===
+      (oldRelease.headers.get("set-cookie") ?? "").startsWith(`__deco_draft=${OLD_RELEASE};`) ===
         oldRelease.status < 500 &&
       visitorCookies(oldRelease).length === 0,
     `${oldRelease.status} ${oldRelease.headers.get("cache-control")} ${oldRelease.headers.getSetCookie().join(" | ")}`,

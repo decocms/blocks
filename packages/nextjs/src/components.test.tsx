@@ -55,7 +55,12 @@ describe("StudioBridge", () => {
     const html = renderToStaticMarkup(<StudioBridge site="acme" />);
     expect(html).toMatch(/^<script[^>]*>/);
     expect(html).toBe(
-      renderToStaticMarkup(<preview.StudioBridge site="acme" trustedOrigins={STUDIO_ORIGINS} />),
+      renderToStaticMarkup(<preview.StudioBridge site="acme" trustedOrigins={STUDIO_ORIGINS} />) +
+        renderToStaticMarkup(
+          <preview.StudioChannel
+            studioOrigins={["https://studio.decocms.com", "https://studio-stg.decocms.com"]}
+          />,
+        ),
     );
     const host = document.body.appendChild(document.createElement("div"));
     host.innerHTML = html;
@@ -67,6 +72,41 @@ describe("StudioBridge", () => {
       "https://decocms.com",
       "https://*.decocms.com",
     ]);
+  });
+
+  it("mounts the Studio channel for Studio's production and staging origins, the option, or DECO_STUDIO_ORIGIN", () => {
+    const origins = (html: string) => {
+      const host = document.createElement("div");
+      host.innerHTML = html;
+      const script = host.querySelector("script[data-deco-studio-channel]");
+      return [
+        JSON.parse(script?.getAttribute("data-studio-origins") ?? "null"),
+        script?.getAttribute("nonce"),
+      ];
+    };
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    delete process.env.DECO_STUDIO_ORIGIN;
+    try {
+      expect(origins(renderToStaticMarkup(<StudioBridge site="acme" nonce="n1" />))).toEqual([
+        ["https://studio.decocms.com", "https://studio-stg.decocms.com"],
+        "n1",
+      ]);
+      process.env.DECO_STUDIO_ORIGIN = "http://localhost:3000, https://studio.example.com";
+      expect(origins(renderToStaticMarkup(<StudioBridge site="acme" />))[0]).toEqual([
+        "http://localhost:3000",
+        "https://studio.example.com",
+      ]);
+      expect(
+        origins(
+          renderToStaticMarkup(
+            <StudioBridge site="acme" studioOrigins={["https://studio-stg.decocms.com"]} />,
+          ),
+        )[0],
+      ).toEqual(["https://studio-stg.decocms.com"]);
+    } finally {
+      if (env === undefined) delete process.env.DECO_STUDIO_ORIGIN;
+      else process.env.DECO_STUDIO_ORIGIN = env;
+    }
   });
 
   it("passes the site's shortcut and nonce through", () => {

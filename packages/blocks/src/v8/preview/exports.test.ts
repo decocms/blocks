@@ -17,6 +17,7 @@ describe("the ./preview subpath", () => {
     expect(Object.keys(await import("@decocms/blocks/preview")).sort()).toEqual([
       "DraftBadge",
       "StudioBridge",
+      "StudioChannel",
       "StudioPage",
     ]);
   });
@@ -24,5 +25,6 @@ describe("the ./preview subpath", () => {
   it("the badge's module is a client module; the bridge's has no hooks, so a Server Component renders it", () => {
     expect(read("./DraftBadge.tsx").startsWith('"use client";')).toBe(true);
     expect(read("./StudioBridge.ts")).not.toMatch(/use client|useEffect|useState|useRef/);
+    expect(read("./StudioChannel.ts")).not.toMatch(/use client|useEffect|useState|useRef/);
   });
 });

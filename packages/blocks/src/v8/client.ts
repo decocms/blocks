@@ -1,13 +1,28 @@
 /**
- * A client: one revision, loaded on first use and read for the rest of its
- * life, plus a memo of block results, and the inputs it was created with
- * (the version, the visitor, the date, the tests and campaigns it was given).
- * Create one per request.
+ * A client: one request's reads. It pins one index on its first content
+ * access (see ./pin.ts) and reads it, with every body it fetched, for the rest
+ * of its life, plus a memo of block results, and the inputs it was created
+ * with (the version, the visitor, the date, the tests and campaigns it was
+ * given). Create one per request.
+ *
+ * The binding flow (see /next/routing): `routes()` → `matchRoute` →
+ * `prefetch(name)` → `redirects()` → `matchRoute` → `resolve(name)`. The
+ * page's subtree and the redirects block go out in one parallel wave.
  */
+import { keepAlive } from "./background.ts";
+import {
+  canonicalType,
+  namesOfType,
+  REDIRECTS_TYPE,
+  redirectsBlockOf,
+  routesOf,
+  walk,
+} from "./contentIndex.ts";
 import { CAMPAIGN_OVERRIDES, EXPERIMENT_OVERRIDES, type Overrides } from "./current.ts";
 import { errors, isResolutionError, ResolutionError } from "./errors.ts";
 import type { Visitor } from "./experiments.ts";
-import { isBlock } from "./json.ts";
+import { isPlainObject } from "./json.ts";
+import { choosePin, type Pin, rootsOf, type Selection } from "./pin.ts";
 import { Resolver } from "./resolver.ts";
 import type { ClientTelemetry } from "./telemetry.ts";
 import type {
@@ -15,15 +30,17 @@ import type {
   Blocks,
   Client,
   CMSError,
+  LegacyRedirect,
   ListOptions,
+  Redirect,
   ResolveOptions,
   Result,
-  Snapshot,
+  Route,
 } from "./types.ts";
 
 interface ClientOptions {
-  /** Loads this client's snapshot; called at most once. */
-  load: () => Promise<Snapshot>;
+  /** Loads what this client reads; called at most once. */
+  load: () => Promise<Selection>;
   blocks: Blocks;
   /** The built-in blocks. */
   builtIns: Readonly<Blocks>;
@@ -41,14 +58,20 @@ interface ClientOptions {
   telemetry?: ClientTelemetry;
 }
 
-type Loaded = { resolver: Resolver; snapshot: Snapshot } | { error: CMSError };
+type Selected = { selection: Selection } | { error: CMSError };
+type Pinned = { pin: Pin; resolver: Resolver } | { error: CMSError };
+
+/** Types `list()` warns about once per process: routing reads `routes()` and `redirects()`. */
+const ROUTED_TYPES = new Set(["page", "redirect", REDIRECTS_TYPE]);
+const LIST_WARNED = Symbol.for("decocms.blocks.listWarned");
 
 export class CMSClient implements Client {
   readonly #options: ClientOptions;
   readonly #reported = new WeakSet<CMSError>();
   readonly #visitor: Visitor | null;
-  #loaded: Promise<Loaded> | undefined;
-  /** The revision loaded, once it is. */
+  #selected: Promise<Selected> | undefined;
+  #pinned: Promise<Pinned> | undefined;
+  /** The revision pinned, once it is. */
   #revision: string | undefined;
 
   constructor(options: ClientOptions) {
@@ -78,20 +101,62 @@ export class CMSClient implements Client {
     return this.#options.campaigns;
   }
 
+  async routes(): Promise<Result<Route[]>> {
+    // A pinned client answers from its pin; otherwise the current index, without pinning.
+    const pinned = this.#pinned === undefined ? undefined : await this.#pinned;
+    if (pinned !== undefined) {
+      if ("error" in pinned) return this.#fail(pinned.error);
+      return [routesOf(pinned.pin.content), null];
+    }
+    const selected = await this.#select();
+    if ("error" in selected) return this.#fail(selected.error);
+    return [routesOf(selected.selection.current), null];
+  }
+
+  prefetch(name: string): void {
+    if (typeof name !== "string") return;
+    // Kept alive: a request may end (a redirect, a cached page) before its
+    // prefetch settles, and later requests share the fetches it started.
+    keepAlive(
+      this.#pin(name).then((pinned) => {
+        if ("error" in pinned) return;
+        return pinned.pin.wave(walk(pinned.pin.content, rootsOf(pinned.pin.content, name)));
+      }),
+    );
+  }
+
+  async redirects(): Promise<Result<Redirect[]>> {
+    const pinned = await this.#pin();
+    if ("error" in pinned) return this.#fail(pinned.error);
+    const { pin, resolver } = pinned;
+    const name = redirectsBlockOf(pin.content);
+    if (name === null) return [[], null];
+    try {
+      await pin.wave(walk(pin.content, [name]));
+      const value = await resolver.resolveEntry(name);
+      return [rulesOf(value), null];
+    } catch (error) {
+      return this.#fail(asCMSError(error));
+    }
+  }
+
   async resolve<T = unknown>(target: unknown, options: ResolveOptions = {}): Promise<Result<T>> {
-    const loaded = await this.#load();
-    if ("error" in loaded) return this.#fail(loaded.error);
-    const { resolver } = loaded;
+    const pinned = await this.#pin(typeof target === "string" ? target : undefined);
+    if ("error" in pinned) return this.#fail(pinned.error);
+    const { pin, resolver } = pinned;
     const run = options.run !== false;
     try {
       if (typeof target === "string") {
-        if (resolver.entry(target) === undefined) return this.#fail(errors.notFound(target));
-        const value = run ? await resolver.resolveEntry(target) : resolver.expandEntry(target);
+        if (!resolver.has(target)) return this.#fail(errors.notFound(target));
+        await pin.wave(walk(pin.content, [target]));
+        const value = run
+          ? await resolver.resolveEntry(target)
+          : await resolver.expandEntry(target);
         return [value as T, null];
       }
       const value = run
         ? await resolver.resolve(target, [], [], false)
-        : resolver.expand(target, [], [], false);
+        : await resolver.expand(target, [], [], false);
       return [value as T, null];
     } catch (error) {
       return this.#fail(asCMSError(error));
@@ -99,26 +164,22 @@ export class CMSClient implements Client {
   }
 
   async list<T = Block>(type: string, options: ListOptions<T> = {}): Promise<Result<T[]>> {
-    const loaded = await this.#load();
-    if ("error" in loaded) return this.#fail(loaded.error);
-    const { resolver, snapshot } = loaded;
-    const wanted = resolver.canonicalType(type);
-    const names = Object.keys(snapshot.blocks)
-      .sort(byCodeUnit)
-      .filter((name) => {
-        const entry = snapshot.blocks[name];
-        return isBlock(entry) && resolver.canonicalType(entry.__resolveType) === wanted;
-      });
+    const pinned = await this.#pin();
+    if ("error" in pinned) return this.#fail(pinned.error);
+    const { pin, resolver } = pinned;
+    warnRoutedList(canonicalType(pin.content, type));
+    const names = namesOfType(pin.content, type);
 
     let entries: T[];
     try {
+      await pin.wave(walk(pin.content, names));
       const values = await Promise.all(
         names.map((name) =>
-          options.run === true
-            ? resolver.resolveEntry(name).catch((error) => {
-                throw atEntry(name, error);
-              })
-            : resolver.expandEntry(name),
+          (options.run === true ? resolver.resolveEntry(name) : resolver.expandEntry(name)).catch(
+            (error) => {
+              throw atEntry(name, error);
+            },
+          ),
         ),
       );
       entries = values.filter((value) => value !== undefined) as T[];
@@ -135,34 +196,42 @@ export class CMSClient implements Client {
   }
 
   async revision(): Promise<string> {
-    const loaded = await this.#load();
-    if ("error" in loaded) throw loaded.error;
-    return loaded.snapshot.revision;
+    const pinned = await this.#pin();
+    if ("error" in pinned) throw pinned.error;
+    return pinned.pin.content.revision;
   }
 
-  #load(): Promise<Loaded> {
-    this.#loaded ??= this.#options.load().then(
-      (snapshot): Loaded => {
-        this.#revision = snapshot.revision;
-        return {
-          snapshot,
-          resolver: new Resolver({
-            snapshot,
-            blocks: this.#options.blocks,
-            builtIns: this.#options.builtIns,
-            client: this,
-            onCollision: this.#options.onCollision,
-            onBlock: this.#options.telemetry?.block,
-          }),
-        };
-      },
-      (error): Loaded => ({
+  #select(): Promise<Selected> {
+    this.#selected ??= this.#options.load().then(
+      (selection): Selected => ({ selection }),
+      (error): Selected => ({
         error: isResolutionError(error)
           ? error
           : errors.loaderFailed("the content loader failed", error),
       }),
     );
-    return this.#loaded;
+    return this.#selected;
+  }
+
+  /** Pins on the first content access; `name` is the page it will read, when known. */
+  #pin(name?: string): Promise<Pinned> {
+    this.#pinned ??= this.#select().then((selected): Pinned => {
+      if ("error" in selected) return selected;
+      const pin = choosePin(selected.selection, name);
+      this.#revision = pin.content.revision;
+      return {
+        pin,
+        resolver: new Resolver({
+          content: pin,
+          blocks: this.#options.blocks,
+          builtIns: this.#options.builtIns,
+          client: this,
+          onCollision: this.#options.onCollision,
+          onBlock: this.#options.telemetry?.block,
+        }),
+      };
+    });
+    return this.#pinned;
   }
 
   /** Returns the error result, reporting each error to telemetry once per client. */
@@ -173,6 +242,44 @@ export class CMSClient implements Client {
     }
     return [null, error];
   }
+}
+
+/** The redirects block's value: its rules, each an object (both shapes `matchRoute` reads). */
+function rulesOf(value: unknown): Redirect[] {
+  const list = Array.isArray(value)
+    ? value
+    : isPlainObject(value) && Array.isArray(value.redirects)
+      ? value.redirects
+      : [];
+  return list.filter((rule): rule is Redirect | LegacyRedirect =>
+    isPlainObject(rule),
+  ) as Redirect[];
+}
+
+/**
+ * `list("page")` and `list("redirect")` read every page or rule: routing reads
+ * `routes()` and `redirects()` from the index instead. Warns once per process
+ * and type, outside production.
+ */
+function warnRoutedList(type: string): void {
+  if (!ROUTED_TYPES.has(type)) return;
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+  if (env?.NODE_ENV === "production") return;
+  const store = globalThis as unknown as Record<symbol, Set<string> | undefined>;
+  const warned = store[LIST_WARNED] ?? new Set<string>();
+  store[LIST_WARNED] = warned;
+  if (warned.has(type)) return;
+  warned.add(type);
+  console.warn(
+    `[decocms/blocks] client.list("${type}") fetches every ${type} block; route with ` +
+      "client.routes() and client.redirects(), which read the index (see /next/routing).",
+  );
+}
+
+/** Forgets which list types warned, so a test starts clean. */
+export function resetListWarnings(): void {
+  delete (globalThis as unknown as Record<symbol, unknown>)[LIST_WARNED];
 }
 
 /**
@@ -195,11 +302,6 @@ function copyVisitor(visitor: Visitor | null | undefined): Visitor | null {
     copy.exp = Object.freeze(Object.assign(Object.create(null), visitor.exp));
   }
   return Object.freeze(copy);
-}
-
-/** Plain code-unit order, the same on every server and locale. */
-function byCodeUnit(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function asCMSError(error: unknown): CMSError {

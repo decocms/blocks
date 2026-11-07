@@ -9,7 +9,7 @@ const OBJECT_IDS = Symbol.for("decocms.blocks.cms-loader-ids");
 
 /**
  * `module:<root>` for a content module, which names the `.deco` folder it was
- * generated from in a `root` field `deco content` writes (not part of the
+ * generated from in a `root` field the content module writer adds (not part of the
  * documented `Snapshot`); `loader#<id>`/`module#<id>` otherwise.
  */
 export function contentIdentity(content: Snapshot | Loader): string {

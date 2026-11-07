@@ -6,7 +6,8 @@
  *    v7 async-rendering wrappers (Lazy, Deferred) unwrapped to their sections,
  *    legacy type names outside the alias table renamed, v7's random
  *    matchers and date rules holding their own dates reported (moved by
- *    hand into the saved blocks `experiments` and `campaigns`);
+ *    hand into the saved blocks `experiments` and `campaigns`), every v7
+ *    redirect block folded into the `Redirects` block (type `redirects`);
  *    then site settings folded into the `CMS` block (`.deco/blocks/CMS.json`);
  * 2. secrets: each v7 secret listed, to move to the deploy platform's
  *    secrets (content holds none);
@@ -47,6 +48,7 @@ import { siteFramework, V8_RANGE } from "./framework";
 import { rewriteImports } from "./imports";
 import { rewriteInvokes, vtexInvokeMapKeysUsed } from "./invoke";
 import { renameLegacyTypes } from "./legacyNames";
+import { foldRedirects } from "./redirects";
 import { createReport, type Report } from "./report";
 import { reportWorkerEntry, writeScaffold } from "./scaffold";
 import { listSecrets } from "./secrets";
@@ -149,6 +151,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
   moveContent(root, report, { decofile: options.decofile });
   unwrapAsyncRendering(root, report);
   renameLegacyTypes(root, report);
+  foldRedirects(root, report);
   reportTestsAndDates(root, report);
   const apps = writeAppClients(root, report);
   foldSiteSettings(root, report);

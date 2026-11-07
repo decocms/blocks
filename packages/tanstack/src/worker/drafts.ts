@@ -117,7 +117,8 @@ export interface DraftDecision {
  * request first checks for the latest release, once (`cms.checkRelease()`),
  * and the host check and every draft read share that check. A draft
  * pointer is read once before the page renders (`forDraft(...).revision()`,
- * the same read the page makes, shared while in flight): a draft that can't
+ * the same read the page makes: every draft read under the request's release
+ * check shares one read of the draft's files): a draft that can't
  * be read gives the release and `unavailable`, never an error page.
  */
 export async function decideDraft(
@@ -161,7 +162,7 @@ export async function decideDraft(
  */
 function isDraftGone(error: unknown): boolean {
   for (let e = error, depth = 0; e instanceof Error && depth < 5; e = e.cause, depth++) {
-    if (/draft changes: HTTP (404|410)\b/.test(e.message)) return true;
+    if (/draft (?:changes|index): HTTP (?:404|410)\b/.test(e.message)) return true;
   }
   return false;
 }

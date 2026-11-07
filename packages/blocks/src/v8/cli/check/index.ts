@@ -26,7 +26,7 @@ import {
   CAMPAIGNS_BLOCK,
   campaignTime,
 } from "../../builtins/campaigns.ts";
-import { SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
+import { REDIRECTS_TYPE, SETTINGS_BLOCK, SETTINGS_TYPE } from "../../builtins/data.ts";
 import {
   EXPERIMENT_RULE,
   EXPERIMENTS_BLOCK,
@@ -54,6 +54,20 @@ export interface Problem {
 
 type Json = any;
 const DOC_ID = "deco";
+/** The per-rule redirect type: it resolves, but routing reads only the redirects block. */
+const REDIRECT_TYPE = "redirect";
+/**
+ * v7's redirect block types, per-rule and list: v8 routes neither (only a
+ * block typed `redirects`), so their rules belong in the Redirects block.
+ * `website/loaders/redirect.ts` still resolves (an alias of `redirect`);
+ * `website/loaders/redirects.ts` has no alias.
+ */
+const V7_REDIRECT_TYPES: ReadonlySet<string> = new Set([
+  "website/loaders/redirect.ts",
+  "website/loaders/redirects.ts",
+]);
+/** The block routing reads its redirects from, canonically. */
+const REDIRECTS_BLOCK = "Redirects";
 
 /** JSON-parsed objects only, so any non-array object is a plain one. */
 function isObject(value: unknown): value is Record<string, Json> {
@@ -89,6 +103,16 @@ const FOLDED_BUILT_INS: Record<string, string> = {
   secret: SECRETS_MOVED,
   "website/loaders/secret.ts": SECRETS_MOVED,
 };
+
+/**
+ * A `__resolveType` that names no block type, built-in, alias or saved block:
+ * what a delete leaves behind (a section, banner or saved rule), or a block
+ * type the site doesn't export. Block types are bare keys too, so the check
+ * can't tell which and names both.
+ */
+function missingName(name: string): string {
+  return `no saved block or block type "${name}"`;
+}
 
 /** A `CMS` block saved with preview hosts, which Studio keeps now (in the release it publishes). */
 const PREVIEW_FIELD_GONE =
@@ -657,7 +681,7 @@ class Checker {
             ? oldDateRuleProblem(block)
             : Object.hasOwn(FOLDED_BUILT_INS, name)
               ? `unknown block type "${name}": ${FOLDED_BUILT_INS[name]}`
-              : `unknown block type "${name}"`,
+              : missingName(name),
         );
         return;
       }
@@ -726,7 +750,6 @@ class Checker {
             ctx,
             joinPath(path, "/name"),
             `no test "${name}" in the saved block "${EXPERIMENTS_BLOCK}": this rule is always false`,
-            "warning",
           );
         }
         return;
@@ -751,7 +774,6 @@ class Checker {
             ctx,
             joinPath(path, "/name"),
             `no campaign "${campaign}" in the saved block "${CAMPAIGNS_BLOCK}": this rule is always false`,
-            "warning",
           );
         }
         return;
@@ -913,10 +935,66 @@ class Checker {
         this.report(ctx, "preview", PREVIEW_FIELD_GONE, "warning");
         continue;
       }
+      // A v7 redirect block left over: redirectBlockProblems says to fold it into
+      // Redirects. With no alias its type is unknown here, which isn't an error.
+      if (V7_REDIRECT_TYPES.has(entry.__resolveType) && !this.canonicalType(entry.__resolveType)) {
+        continue;
+      }
       this.checkBlock(ctx, entry, "", null);
     }
     problems.push(...this.builtInOverrides());
     problems.push(...this.routeProblems());
+    problems.push(...this.redirectBlockProblems());
+    return problems;
+  }
+
+  /**
+   * Routing reads its redirects from one block: the first `redirects`-typed
+   * one in code-unit name order (see /next/routing). A per-rule `redirect`
+   * block still resolves but is never routed, and a second `redirects`
+   * block is ignored: both are warnings. So is a block under one of v7's
+   * redirect types, which v8 doesn't route: its rules belong in Redirects.
+   */
+  private redirectBlockProblems(): Problem[] {
+    const problems: Problem[] = [];
+    let routed: string | null = null;
+    const names = Object.keys(this.saved.blocks).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    for (const name of names) {
+      const entry = this.saved.blocks[name];
+      if (!isBlock(entry)) continue;
+      const file = `.deco/blocks/${this.saved.files[name]}`;
+      if (V7_REDIRECT_TYPES.has(entry.__resolveType)) {
+        problems.push({
+          file,
+          path: "",
+          severity: "warning",
+          message:
+            `v7 redirect block (type ${entry.__resolveType}) isn't routed: v8 routes only a block ` +
+            `typed "${REDIRECTS_TYPE}". Fold its rules into the "${REDIRECTS_BLOCK}" block ` +
+            `(type "${REDIRECTS_TYPE}"; v7's type permanent is permanent: true) and delete it`,
+        });
+        continue;
+      }
+      const { type } = this.underlyingType(entry.__resolveType);
+      if (type !== REDIRECT_TYPE && type !== REDIRECTS_TYPE) continue;
+      if (type === REDIRECT_TYPE) {
+        problems.push({
+          file,
+          path: "",
+          severity: "warning",
+          message: "not routed; move it into the redirects block",
+        });
+      } else if (routed === null) {
+        routed = name;
+      } else {
+        problems.push({
+          file,
+          path: "",
+          severity: "warning",
+          message: `another redirects block, "${routed}", is the one routed; this one is ignored. Move its rules there`,
+        });
+      }
+    }
     return problems;
   }
 
@@ -1031,7 +1109,7 @@ export interface CheckOptions {
   reporter?: Reporter;
 }
 
-function readSchemaFile(file: string): DecoMeta {
+export function readSchemaFile(file: string): DecoMeta {
   let text: string;
   try {
     text = fs.readFileSync(file, "utf8");
@@ -1073,7 +1151,19 @@ export function check(options: CheckOptions = {}): number {
   const reporter = options.reporter ?? consoleReporter;
   const paths = decoPaths(findDecoRoot(options));
   const meta = readSchemaFile(paths.schema);
-  const saved = readSavedBlocks(paths.blocks);
+  return reportCheck(meta, readSavedBlocks(paths.blocks), reporter).exitCode;
+}
+
+export interface CheckReport {
+  exitCode: number;
+  count: number;
+  errors: number;
+  warnings: number;
+  problems: Problem[];
+}
+
+/** Check saved blocks against the local schema and print the problems and a summary. */
+export function reportCheck(meta: DecoMeta, saved: SavedBlocks, reporter: Reporter): CheckReport {
   const problems = checkContent(meta, saved);
   const errors = problems.filter((p) => p.severity === "error").length;
   const warnings = problems.length - errors;
@@ -1086,7 +1176,7 @@ export function check(options: CheckOptions = {}): number {
   const summary = checkSummary(count, errors, warnings, reporter.color);
   if (errors > 0) reporter.error(summary);
   else reporter.info(summary);
-  return errors > 0 ? 1 : 0;
+  return { exitCode: errors > 0 ? 1 : 0, count, errors, warnings, problems };
 }
 
 /**
