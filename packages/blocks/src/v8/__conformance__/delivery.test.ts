@@ -35,7 +35,7 @@ import {
   fakeStudio,
   docsSnapshot as unhashedSnapshot,
 } from "../testFixtures";
-import type { CMSError, Loader, RequestLike, Snapshot } from "../types";
+import type { Client, CMSError, Loader, RequestLike, Snapshot } from "../types";
 
 /** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
 const helpers = () =>
@@ -472,6 +472,12 @@ describe("content-delivery", () => {
 // a draft pointer names Studio's API, which answers only the changes
 // ---------------------------------------------------------------------------
 
+/** The saved post `HelloWorld`'s `name`, as the client reads it (`[]` when it has none). */
+async function postNames(client: Client): Promise<string[]> {
+  const [post] = await client.resolve<{ name: string }>("HelloWorld", { run: false });
+  return post ? [post.name] : [];
+}
+
 describe("draft previews", () => {
   /** A CMS over the docs' content; with `site`, the same content from the fake CDN. */
   const cmsOf = (options: Partial<Parameters<typeof createCMS>[0]> = {}) =>
@@ -482,10 +488,15 @@ describe("draft previews", () => {
     });
   const failed = async (client: ReturnType<ReturnType<typeof createCMS>["forDraft"]>) => {
     const [value, error] = await client.resolve("SummerSEO");
-    const [list, listError] = await client.list("seo");
-    return { value, code: error?.code, list, listCode: listError?.code };
+    const [entries, entriesError] = await client.entries("seo");
+    return { value, code: error?.code, entries, entriesCode: entriesError?.code };
   };
-  const FAILED = { value: null, code: "LOADER_FAILED", list: null, listCode: "LOADER_FAILED" };
+  const FAILED = {
+    value: null,
+    code: "LOADER_FAILED",
+    entries: null,
+    entriesCode: "LOADER_FAILED",
+  };
 
   it("DP-1: GET the folder's index.json, then each file it names: forced variants removed, no cookies or credentials", async () => {
     const api = await deliveryApi();
@@ -534,12 +545,12 @@ describe("draft previews", () => {
       title: "Summer collection",
       product: { __resolveType: "catalog-product", slug: "summer-shirt" },
     });
-    // list: production's names plus set's, minus delete.
-    const [posts] = await draft.list<{ name: string }>("post");
-    expect(posts?.map((post) => post.name)).toEqual(["New"]);
-    expect(await draft.list("redirect")).toEqual([[], null]);
-    const [pages] = await draft.list<{ name: string }>("page");
-    expect(pages?.map((page) => page.name).sort()).toEqual(["Home", "Summer campaign"]);
+    // entries: production's names plus set's, minus delete.
+    const [posts] = await draft.entries("post");
+    expect(posts?.map((post) => [post.name, post.path])).toEqual([["NewPost", "/blog/new"]]);
+    expect(await draft.entries("redirect")).toEqual([[], null]);
+    const [pages] = await draft.entries("page");
+    expect(pages?.map((page) => page.name)).toEqual(["HomePage", "SummerPage"]);
     expect(JSON.stringify(production)).toBe(before); // never mutated
   });
 
@@ -555,12 +566,10 @@ describe("draft previews", () => {
       }),
     );
     await cms.update();
-    const [oldPosts] = await first.list<{ name: string }>("post");
-    expect(oldPosts?.map((p) => p.name)).toEqual(["Hello, world"]); // its captured base
+    expect(await postNames(first)).toEqual(["Hello, world"]); // its captured base
     const next = cms.forDraft(pointer);
     expect(await titleOf(next)).toBe("Draft");
-    const [newPosts] = await next.list<{ name: string }>("post");
-    expect(newPosts?.map((p) => p.name)).toEqual(["Republished"]);
+    expect(await postNames(next)).toEqual(["Republished"]);
     expect(api.draftFetches()).toHaveLength(4); // the index and its one file, per client
     expect(await next.revision()).not.toBe(await first.revision());
   });
@@ -935,15 +944,13 @@ describe("draft previews", () => {
     const pointer = api.draft({}, { slug: "not-saved-yet" });
     const cms = cmsOf();
     expect(await titleOf(cms.forDraft(pointer))).toBe("Sunny!");
-    const [pages] = await cms.forDraft(pointer).list("page");
+    const [pages] = await cms.forDraft(pointer).entries("page");
     expect(pages).toHaveLength(2);
   });
 
   const posted = (name: string) => ({
     HelloWorld: { __resolveType: "post", name, path: "/x", date: "2026-10-02" },
   });
-  const postNames = (read: readonly [{ name: string }[] | null, unknown]) =>
-    read[0]?.map((post) => post.name);
 
   it("DP-19: a draft read first checks for a new release and waits for it: an isolate holding release A whose latest.json moved to B renders the draft over B on the first request", async () => {
     const api = await deliveryApi();
@@ -957,7 +964,7 @@ describe("draft previews", () => {
     await api.publish(b); // Publish: latest.json names B; this isolate hasn't checked yet
     const draft = cms.forDraft(pointer);
     expect(await titleOf(draft)).toBe("Draft");
-    expect(postNames(await draft.list<{ name: string }>("post"))).toEqual(["B"]);
+    expect(await postNames(draft)).toEqual(["B"]);
     expect(await draft.revision()).toContain(b.revision);
     // Swapped in as the background check swaps a release: the next visitor gets B too.
     expect(await cms.forRelease().revision()).toBe(b.revision);
@@ -972,17 +979,17 @@ describe("draft previews", () => {
     const a = await hashed("Release A", posted("A"));
     await api.publish(a);
     const download = api.gate(LATEST_PATH); // the first check's answer (A) is slow to arrive
-    const first = cms.forDraft(pointer).list<{ name: string }>("post");
+    const first = postNames(cms.forDraft(pointer));
     await flush();
     expect(api.latestFetches() - before).toBe(1);
     const b = await hashed("Release B", posted("B"));
     await api.publish(b); // published while that check runs: it can't see B
-    const burst = [1, 2, 3].map(() => cms.forDraft(pointer).list<{ name: string }>("post"));
+    const burst = [1, 2, 3].map(() => postNames(cms.forDraft(pointer)));
     await flush();
     expect(api.latestFetches() - before).toBe(1); // the burst waits for the next check
     download.resolve();
-    expect(postNames(await first)).toEqual(["A"]);
-    for (const read of burst) expect(postNames(await read)).toEqual(["B"]);
+    expect(await first).toEqual(["A"]);
+    for (const read of burst) expect(await read).toEqual(["B"]);
     expect(api.latestFetches() - before).toBe(2); // one check for the whole burst
   });
 
@@ -997,7 +1004,7 @@ describe("draft previews", () => {
     api.setLatest(() => new Response("unavailable", { status: 503 }));
     const failing = cms.forDraft(pointer);
     expect(await titleOf(failing)).toBe("Draft");
-    expect(postNames(await failing.list<{ name: string }>("post"))).toEqual(["A"]);
+    expect(await postNames(failing)).toEqual(["A"]);
     // Hanging: the check waits until the loader's fetch timeout ends it.
     const timeouts: AbortController[] = [];
     vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
@@ -1007,14 +1014,14 @@ describe("draft previews", () => {
     });
     await api.publish(await hashed("Release B", posted("B")));
     api.gate("/sites/acme/latest.json"); // never answers
-    const read = cms.forDraft(pointer).list<{ name: string }>("post");
+    const read = postNames(cms.forDraft(pointer));
     expect(await Promise.race([read.then(() => "rendered"), flush(50).then(() => "waiting")])).toBe(
       "waiting",
     );
     for (const controller of timeouts) {
       controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
     }
-    expect(postNames(await read)).toEqual(["A"]);
+    expect(await read).toEqual(["A"]);
   });
 
   it("DP-19d: one draft request, one check: its host check, the binding's read of the draft and the render share cms.checkRelease()'s check, so the request reads latest.json once", async () => {
@@ -1034,7 +1041,7 @@ describe("draft previews", () => {
     expect((await cms.readVersion(request, { releaseCheck }))?.version).toBe(pointer);
     await cms.forDraft(pointer, { releaseCheck }).revision();
     const render = cms.client({ version: pointer, releaseCheck });
-    expect(postNames(await render.list<{ name: string }>("post"))).toEqual(["B"]);
+    expect(await postNames(render)).toEqual(["B"]);
     expect(await titleOf(cms.forDraft(pointer, { releaseCheck }))).toBe("Draft");
     expect(api.latestFetches() - before).toBe(1);
     // The next request checks again: no time-based throttle.
@@ -1109,12 +1116,12 @@ describe("releases-and-deployment", () => {
     const loader: Loader = { load: async () => docsSnapshot(`rev-${++n}`) };
     const cms = createCMS({ blocks: docsBlocks(), content: loader });
     const client = cms.forRelease();
-    await client.list("seo");
+    await client.entries("seo");
     await client.resolve("SummerSEO");
     expect(await client.revision()).toBe("rev-1");
     const fresh = cms.forRelease();
     const [, , r] = await Promise.all([
-      fresh.list("seo"),
+      fresh.entries("seo"),
       fresh.resolve("SummerSEO"),
       fresh.revision(),
     ]);
@@ -1164,8 +1171,8 @@ describe("hosted", () => {
     api.fail(true);
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     expect(await unavailableOf(cms.forRelease())).toEqual({ reason: "network", status: undefined });
-    const [list, error] = await cms.forRelease().list("seo");
-    expect(list).toBeNull();
+    const [entries, error] = await cms.forRelease().entries("seo");
+    expect(entries).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
     await expect(cms.forRelease().revision()).rejects.toMatchObject({ code: "LOADER_FAILED" });
     await expect(cms.update()).resolves.toEqual({ updated: false });
@@ -1200,7 +1207,7 @@ describe("hosted", () => {
     await cms.update();
     const client = cms.forRelease();
     await client.resolve("SummerPage");
-    await client.list("page", { run: true });
+    await client.resolve("HomePage");
     await flush(50);
     for (const { url } of api.requests) expect(url.startsWith(`${ORIGIN}/`)).toBe(true);
   });
@@ -1230,7 +1237,7 @@ describe("hosted-publishing", () => {
     const fetch = api.fetch;
     void cms.update(); // a check that never finishes
     const client = cms.forRelease();
-    const result = await Promise.race([client.list("seo"), flush(200).then(() => "timeout")]);
+    const result = await Promise.race([client.entries("seo"), flush(200).then(() => "timeout")]);
     expect(result).not.toBe("timeout");
     expect(fetch).toHaveBeenCalled();
   });
@@ -1409,12 +1416,12 @@ describe("hosted-publishing", () => {
       site: SITE,
     });
     const client = cms.forRelease();
-    const [first] = await client.list("seo");
+    const [first] = await client.entries("seo");
     await api.publish(
       await hashed("New", { Other: { __resolveType: "seo", title: "o", description: "o" } }),
     );
     await cms.update();
-    const [second] = await client.list("seo");
+    const [second] = await client.entries("seo");
     expect(second).toEqual(first);
     expect(await client.revision()).toBe(DOCS_REV);
   });
@@ -1500,13 +1507,14 @@ describe("hosted-drafts", () => {
     });
     const draft = cms.forDraft(pointer);
     expect(await titleOf(draft)).toBe("Draft");
-    const [pages] = await draft.list("page");
-    const [released] = await cms.forRelease().list("page");
-    const names = (list: unknown) => (list as { name: string }[]).map((page) => page.name);
+    const [pages] = await draft.entries("page");
+    const [released] = await cms.forRelease().entries("page");
+    const names = (list: readonly { name: string }[] | null) =>
+      (list ?? []).map((page) => page.name);
     expect(names(pages)).toEqual(names(released)); // inherited from production
     expect(names(pages).length).toBeGreaterThan(0);
     expect((await draft.resolve("HelloWorld"))[1]?.code).toBe("NOT_FOUND");
-    expect(await draft.list("post")).toEqual([[], null]);
+    expect(await draft.entries("post")).toEqual([[], null]);
   });
 
   it("HD-4: a draft that can't be fetched is an error, never published content", async () => {
@@ -1519,9 +1527,9 @@ describe("hosted-drafts", () => {
     const [value, error] = await client.resolve("SummerSEO");
     expect(value).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
-    const [list, listError] = await client.list("seo");
-    expect(list).toBeNull();
-    expect(listError?.code).toBe("LOADER_FAILED");
+    const [entries, entriesError] = await client.entries("seo");
+    expect(entries).toBeNull();
+    expect(entriesError?.code).toBe("LOADER_FAILED");
   });
 
   it("HD-5: draftPointer reads ?__draft= or the cookie; draftCookie only answers ?__draft=", async () => {
@@ -1650,7 +1658,7 @@ describe("hosted-drafts", () => {
       site: SITE,
     });
     for (const pointer of ["garbage", "https://x/y@1", "@1", `${DRAFT_HOST}/x@`]) {
-      const [value, error] = await cms.forDraft(pointer).list("seo");
+      const [value, error] = await cms.forDraft(pointer).entries("seo");
       expect(value).toBeNull();
       expect(error?.code).toBe("LOADER_FAILED");
     }

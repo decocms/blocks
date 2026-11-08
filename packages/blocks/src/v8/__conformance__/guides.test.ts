@@ -17,7 +17,6 @@ import {
   createCMS,
   type Loader,
   matchRoute,
-  type Redirect,
   remoteLoader,
   resetForTests,
   type Snapshot,
@@ -63,11 +62,12 @@ function experiments(input: Experiments) {
 }
 
 describe("quickstart", () => {
-  it("qs-12: forRelease() returns a client with resolve/list/revision; forDraft is a sibling", () => {
+  it("qs-12: forRelease() returns a client with resolve/entries/revision, and no list; forDraft is a sibling", () => {
     const cms = createCMS({ blocks: { experiments }, content: snap({}) });
     const client = cms.forRelease();
     expect(typeof client.resolve).toBe("function");
-    expect(typeof client.list).toBe("function");
+    expect(typeof client.entries).toBe("function");
+    expect("list" in client).toBe(false);
     expect(typeof client.revision).toBe("function");
     expect(typeof cms.forDraft).toBe("function");
   });
@@ -292,6 +292,14 @@ function nextContent(): Snapshot {
       permanent: true,
     },
     Moved: { __resolveType: "redirect", from: "/moved", to: "/new", permanent: false, status: 308 },
+    // The block routing reads (`redirects()`): the site's rules in one saved block.
+    Redirects: {
+      __resolveType: "redirects",
+      redirects: [
+        { from: "/old-products/:slug", to: "/:slug/p", permanent: true },
+        { from: "/moved", to: "/new", permanent: false, status: 308 },
+      ],
+    },
     HelloWorld: {
       __resolveType: "post",
       name: "Hello, world",
@@ -322,8 +330,8 @@ describe("nextjs guide", () => {
 
   it("nx-09/nx-10: matchRoute returns not-found, redirect with status and location, or a match with entry", async () => {
     const client = createCMS({ blocks: nextBlocks, content: nextContent() }).forRelease();
-    const [pages] = await client.list<Block & { name: string; path: string }>("page");
-    const [redirects] = await client.list<Redirect>("redirect");
+    const [pages] = await client.routes();
+    const [redirects] = await client.redirects();
     expect(matchRoute("/nope", { routes: pages!, redirects: redirects! })).toEqual({
       kind: "not-found",
     });
@@ -338,32 +346,35 @@ describe("nextjs guide", () => {
     if (match.kind === "match") expect(match.entry).toBe(pages![0]);
   });
 
-  it("nx-11/tr-09: list returns entries as saved (not run); { run: true } runs them", async () => {
+  it("nx-11/tr-09: entries names the pages from the index (nothing run); resolve reads one as saved or run", async () => {
     const hero = vi.fn(productHero);
     const client = createCMS({
       blocks: { ...nextBlocks, "product-hero": hero },
       content: nextContent(),
     }).forRelease();
-    const [pages, error] = await client.list<Block & { sections: Block[] }>("page");
+    const [pages, error] = await client.entries("page");
     expect(error).toBeNull();
-    expect(pages).toHaveLength(1);
-    expect(pages![0].sections[0].__resolveType).toBe("promo-banner");
-    expect(hero).not.toHaveBeenCalled();
-    const [viaResolve] = await client.resolve("ShirtPage", { run: false });
-    expect(viaResolve).toEqual(pages![0]);
-    const [run] = await client.list<{ sections: unknown[] }>("page", { run: true });
-    expect(run![0].sections).toEqual([
-      { promo: "Free shipping over $50" },
-      { hero: "Summer shirt" },
+    expect(pages).toEqual([
+      { name: "ShirtPage", type: "page", path: "/:slug/p", refs: [], noIndex: false },
     ]);
+    expect(hero).not.toHaveBeenCalled();
+    const [saved] = await client.resolve<Block & { sections: Block[] }>("ShirtPage", {
+      run: false,
+    });
+    expect(saved!.sections[0]!.__resolveType).toBe("promo-banner");
+    expect(hero).not.toHaveBeenCalled();
+    const [run] = await client.resolve<{ sections: unknown[] }>(pages![0]!.name);
+    expect(run!.sections).toEqual([{ promo: "Free shipping over $50" }, { hero: "Summer shirt" }]);
   });
 
-  it("nx-12: resolve(match.entry) on a listed page resolves seo and every section", async () => {
+  it("nx-12: resolve(match.entry.name) on a routed page resolves seo and every section", async () => {
     const client = createCMS({ blocks: nextBlocks, content: nextContent() }).forRelease();
-    const [pages] = await client.list<Block & { name: string; path: string }>("page");
-    const match = matchRoute("/shirt/p", { routes: pages! });
+    const [routes] = await client.routes();
+    const match = matchRoute("/shirt/p", { routes: routes! });
     if (match.kind !== "match") throw new Error("expected a match");
-    const [page, error] = await client.resolve<{ seo: unknown; sections: unknown[] }>(match.entry);
+    const [page, error] = await client.resolve<{ seo: unknown; sections: unknown[] }>(
+      match.entry.name,
+    );
     expect(error).toBeNull();
     expect(page?.seo).toEqual({ title: "Summer shirt", description: "Light cotton shirt." });
     expect(page?.sections).toEqual([{ promo: "Free shipping over $50" }, { hero: "Summer shirt" }]);
@@ -384,21 +395,21 @@ describe("nextjs guide", () => {
     expect(error?.code).toBe("BLOCK_FAILED");
   });
 
-  it("nx-16/nx-17: posts list and route by path; __resolveType identifies them; sort works", async () => {
+  it("nx-16/nx-17: posts come from the index with their paths and route by path; type identifies them", async () => {
     const client = createCMS({ blocks: nextBlocks, content: nextContent() }).forRelease();
-    const [pages] = await client.list<Block & { name: string; path: string }>("page");
-    const [posts] = await client.list<Block & { name: string; path: string; date: string }>(
-      "post",
-      { sort: (a, b) => b.date.localeCompare(a.date) },
-    );
-    expect(posts!.map((p) => p.name)).toEqual(["Hello, world", "Older"]);
-    const match = matchRoute("/blog/hello-world", { routes: [...pages!, ...posts!] });
+    const [pages] = await client.routes();
+    const [posts] = await client.entries("post");
+    expect(posts!.map((p) => [p.name, p.path])).toEqual([
+      ["HelloWorld", "/blog/hello-world"],
+      ["Older", "/blog/older"],
+    ]);
+    const postRoutes = posts!.map((p) => ({ name: p.name, path: p.path!, type: p.type }));
+    const match = matchRoute("/blog/hello-world", { routes: [...pages!, ...postRoutes] });
     expect(match.kind).toBe("match");
-    if (match.kind === "match") expect(match.entry.__resolveType).toBe("post");
-    const [asc] = await client.list<{ date: string }>("post", {
-      sort: (a, b) => a.date.localeCompare(b.date),
-    });
-    expect(asc!.map((p) => p.date)).toEqual(["2025-01-01", "2026-09-01"]);
+    if (match.kind === "match")
+      expect(match.entry).toMatchObject({ name: "HelloWorld", type: "post" });
+    const [post] = await client.resolve<{ date: string }>("HelloWorld", { run: false });
+    expect(post?.date).toBe("2026-09-01");
   });
 
   it("nx-19: resolve(undefined) (a page without seo) is [undefined, null]", async () => {
@@ -438,9 +449,9 @@ describe("nextjs guide", () => {
         },
       }),
     }).forRelease();
-    const [pages] = await client.list<{ sections: unknown }>("page");
-    expect(Array.isArray(pages![0].sections)).toBe(false);
-    const [list, error] = await client.resolve(pages![0].sections);
+    const [saved] = await client.resolve<{ sections: unknown }>("P", { run: false });
+    expect(Array.isArray(saved!.sections)).toBe(false);
+    const [list, error] = await client.resolve(saved!.sections);
     expect(error).toBeNull();
     expect(list).toEqual([{ hero: "B" }]);
     const [page] = await client.resolve<{ sections: unknown }>("P");
@@ -462,7 +473,7 @@ describe("nextjs guide", () => {
     expect(error).toBeNull();
   });
 
-  it("nx-28: list reads memory: one content load however many lists", async () => {
+  it("nx-28: entries reads memory: one content load however many reads", async () => {
     const load = vi.fn(async () => nextContent());
     const cms = createCMS({
       blocks: nextBlocks,
@@ -470,8 +481,8 @@ describe("nextjs guide", () => {
     });
     for (let i = 0; i < 5; i++) {
       const client = cms.forRelease();
-      await client.list("page");
-      await client.list("post");
+      await client.entries("page");
+      await client.entries("post");
     }
     expect(load).toHaveBeenCalledTimes(1);
   });
@@ -491,17 +502,17 @@ describe("tanstack-start guide", () => {
     const [resolved] = await client.resolve<{ custom: boolean }>("ShirtPage");
     expect(resolved?.custom).toBe(true);
     expect(page).toHaveBeenCalledTimes(1);
-    const [redirects, error] = await client.list<Redirect>("redirect");
+    const [rules, error] = await client.entries("redirect");
     expect(error).toBeNull();
-    expect(redirects).toHaveLength(2);
+    expect(rules?.map((r) => r.name)).toEqual(["LegacyProduct", "Moved"]);
     const [r] = await client.resolve("LegacyProduct");
     expect(r).toMatchObject({ from: "/old-products/:slug" });
   });
 
   it("ts-05: matchRoute accepts an href with a search string", async () => {
     const client = createCMS({ blocks: nextBlocks, content: nextContent() }).forRelease();
-    const [pages] = await client.list<Block & { name: string; path: string }>("page");
-    const [redirects] = await client.list<Redirect>("redirect");
+    const [pages] = await client.routes();
+    const [redirects] = await client.redirects();
     expect(matchRoute("/shirt/p?color=blue", { routes: pages!, redirects: redirects! }).kind).toBe(
       "match",
     );
@@ -562,7 +573,7 @@ describe("renames and migrations", () => {
       }),
     }).forRelease();
     expect(await client.resolve("Legacy")).toEqual([{ card: "Shirt" }, null]);
-    const [pages] = await client.list<Block & { name: string; path: string }>("page");
+    const [pages] = await client.routes();
     expect(pages).toHaveLength(1);
     const match = matchRoute("/old", { routes: pages! });
     expect(match.kind).toBe("match");

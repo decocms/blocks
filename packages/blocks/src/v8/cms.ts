@@ -9,7 +9,7 @@
 import { runInBackground } from "./background.ts";
 import { SETTINGS_BLOCK, SETTINGS_TYPE } from "./builtins/data.ts";
 import { builtIns } from "./builtins/index.ts";
-import { CMSClient, resetListWarnings } from "./client.ts";
+import { CMSClient } from "./client.ts";
 import { ContentStore, isLoader, isSnapshot } from "./content.ts";
 import type { IndexedContent } from "./contentIndex.ts";
 import type { Overrides } from "./current.ts";
@@ -485,7 +485,6 @@ function overridesOf(given: unknown): Overrides | undefined {
 export function resetForTests(): void {
   clearGlobals(INSTANCE_PREFIX);
   resetRemoteLoaders();
-  resetListWarnings();
   setCurrentTelemetry(undefined);
 }
 

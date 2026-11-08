@@ -278,6 +278,7 @@ describe("the previous-index rule", () => {
     const index = (version: string, path: string): IndexedContent => ({
       revision: version,
       sequence: 1,
+      metaVersion: 2,
       blocks: Object.assign(Object.create(null), {
         home: { version, meta: { type: "page", path } },
       }),
@@ -298,6 +299,7 @@ describe("the pin", () => {
     const content: IndexedContent = {
       revision: "r",
       sequence: 1,
+      metaVersion: 2,
       blocks: Object.assign(Object.create(null), { a: { version: "h1" } }),
       source,
     };
@@ -325,6 +327,7 @@ describe("the pin", () => {
     const content: IndexedContent = {
       revision: "r",
       sequence: 1,
+      metaVersion: 2,
       blocks: Object.assign(Object.create(null), {
         a: { version: "ha" },
         b: { version: "hb" },
@@ -340,18 +343,90 @@ describe("the pin", () => {
   });
 });
 
-describe("list()", () => {
-  it("reads entries of a type from the index, and warns once outside production for routed types", async () => {
+describe("entries()", () => {
+  it("answers from the index alone: every typed entry, or one type through its aliases, with zero block fetches", async () => {
     const api = cdn();
     await api.publish(site());
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cms = createCMS({ blocks: blocks(), site: SITE });
-    const [pages] = await cms.forRelease().list<{ path: string }>("page");
-    expect(pages?.map((p) => p.path)).toEqual(["/same", "/", "/same"]);
-    await cms.forRelease().list("page");
-    const routed = warn.mock.calls.filter(([m]) => String(m).includes('list("page")'));
-    expect(routed).toHaveLength(1);
-    const [texts] = await cms.forRelease().list("site/sections/Text.tsx");
-    expect(texts).toHaveLength(5);
+    const [pages, error] = await cms.forRelease().entries("page");
+    expect(error).toBeNull();
+    expect(pages).toEqual([
+      { name: "alpha", type: "page", path: "/same", refs: [], noIndex: false },
+      { name: "home", type: "page", path: "/", refs: ["footer", "header"], noIndex: false },
+      { name: "zeta", type: "page", path: "/same", refs: [], noIndex: false },
+    ]);
+    const [texts] = await cms.forRelease().entries("site/sections/Text.tsx");
+    expect(texts?.map((e) => e.name)).toEqual([
+      "footer",
+      "footer-a",
+      "footer-b",
+      "header",
+      "unrelated",
+    ]);
+    const [all] = await cms.forRelease().entries();
+    expect(all).toHaveLength(Object.keys(site()).length);
+    expect(api.blockFetches()).toBe(0);
+    expect(api.fetch.mock.calls.every(([url]) => !String(url).includes("/blocks/"))).toBe(true);
+  });
+
+  it("is the same frozen array for the same revision and type", async () => {
+    const api = cdn();
+    await api.publish(site());
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const [first] = await cms.forRelease().entries("page");
+    const [second] = await cms.forRelease().entries("website/pages/Page.tsx");
+    expect(second).toBe(first);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first?.[0])).toBe(true);
+  });
+
+  it("carries noIndex from the index: an inline seo and a saved SEO block, with no body fetched", async () => {
+    const api = cdn();
+    await api.publish({
+      ...site(),
+      hidden: {
+        __resolveType: "page",
+        path: "/hidden",
+        seo: { __resolveType: "website/sections/Seo/SeoV2.tsx", noIndexing: true },
+      },
+      staging: { __resolveType: "page", path: "/staging", seo: { __resolveType: "NoIndexSeo" } },
+      NoIndexSeo: { __resolveType: "website/sections/Seo/SeoV2.tsx", noIndexing: true },
+    });
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const [pages] = await cms.forRelease().entries("page");
+    expect(pages?.filter((p) => p.noIndex).map((p) => p.name)).toEqual(["hidden", "staging"]);
+    expect(api.blockFetches()).toBe(0);
+  });
+
+  it("leaves noIndex out on an index written before metaVersion 2", async () => {
+    const api = cdn();
+    await api.publish(
+      {
+        ...site(),
+        hidden: { __resolveType: "page", path: "/hidden", seo: { noIndexing: true } },
+      },
+      { metaVersion: 1 },
+    );
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const [pages] = await cms.forRelease().entries("page");
+    expect(pages?.map((p) => p.name)).toEqual(["alpha", "hidden", "home", "zeta"]);
+    for (const page of pages ?? []) expect(page).not.toHaveProperty("noIndex");
+  });
+
+  it("answers from the pin once the client pinned", async () => {
+    const api = cdn();
+    await api.publish(site());
+    const cms = createCMS({ blocks: blocks(), site: SITE });
+    const c = cms.forRelease();
+    await c.resolve("header");
+    await api.publish({
+      ...site(),
+      extra: { __resolveType: "page", path: "/extra", sections: [] },
+    });
+    await cms.update();
+    const [pinned] = await c.entries("page");
+    expect(pinned?.map((p) => p.name)).toEqual(["alpha", "home", "zeta"]);
+    const [fresh] = await cms.forRelease().entries("page");
+    expect(fresh?.map((p) => p.name)).toEqual(["alpha", "extra", "home", "zeta"]);
   });
 });

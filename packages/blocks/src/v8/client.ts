@@ -8,30 +8,30 @@
  * The binding flow (see /next/routing): `routes()` → `matchRoute` →
  * `prefetch(name)` → `redirects()` → `matchRoute` → `resolve(name)`. The
  * page's subtree and the redirects block go out in one parallel wave.
+ * `entries(type?)` answers from the index too: what a sitemap or a lookup by
+ * path needs, with no body fetched.
  */
 import { keepAlive } from "./background.ts";
 import {
-  canonicalType,
-  namesOfType,
-  REDIRECTS_TYPE,
+  entriesOf,
+  type IndexedContent,
   redirectsBlockOf,
   routesOf,
   walk,
 } from "./contentIndex.ts";
 import { CAMPAIGN_OVERRIDES, EXPERIMENT_OVERRIDES, type Overrides } from "./current.ts";
-import { errors, isResolutionError, ResolutionError } from "./errors.ts";
+import { errors, isResolutionError } from "./errors.ts";
 import type { Visitor } from "./experiments.ts";
 import { isPlainObject } from "./json.ts";
 import { choosePin, type Pin, rootsOf, type Selection } from "./pin.ts";
 import { Resolver } from "./resolver.ts";
 import type { ClientTelemetry } from "./telemetry.ts";
 import type {
-  Block,
   Blocks,
   Client,
   CMSError,
+  Entry,
   LegacyRedirect,
-  ListOptions,
   Redirect,
   ResolveOptions,
   Result,
@@ -60,10 +60,6 @@ interface ClientOptions {
 
 type Selected = { selection: Selection } | { error: CMSError };
 type Pinned = { pin: Pin; resolver: Resolver } | { error: CMSError };
-
-/** Types `list()` warns about once per process: routing reads `routes()` and `redirects()`. */
-const ROUTED_TYPES = new Set(["page", "redirect", REDIRECTS_TYPE]);
-const LIST_WARNED = Symbol.for("decocms.blocks.listWarned");
 
 export class CMSClient implements Client {
   readonly #options: ClientOptions;
@@ -102,15 +98,24 @@ export class CMSClient implements Client {
   }
 
   async routes(): Promise<Result<Route[]>> {
-    // A pinned client answers from its pin; otherwise the current index, without pinning.
+    const [content, error] = await this.#index();
+    return error === null ? [routesOf(content), null] : this.#fail(error);
+  }
+
+  async entries(type?: string): Promise<Result<readonly Entry[]>> {
+    if (type !== undefined && typeof type !== "string") return [[], null];
+    const [content, error] = await this.#index();
+    return error === null ? [entriesOf(content, type), null] : this.#fail(error);
+  }
+
+  /** The index it reads: a pinned client's pin; otherwise the current one, without pinning. */
+  async #index(): Promise<[IndexedContent, null] | [null, CMSError]> {
     const pinned = this.#pinned === undefined ? undefined : await this.#pinned;
     if (pinned !== undefined) {
-      if ("error" in pinned) return this.#fail(pinned.error);
-      return [routesOf(pinned.pin.content), null];
+      return "error" in pinned ? [null, pinned.error] : [pinned.pin.content, null];
     }
     const selected = await this.#select();
-    if ("error" in selected) return this.#fail(selected.error);
-    return [routesOf(selected.selection.current), null];
+    return "error" in selected ? [null, selected.error] : [selected.selection.current, null];
   }
 
   prefetch(name: string): void {
@@ -161,38 +166,6 @@ export class CMSClient implements Client {
     } catch (error) {
       return this.#fail(asCMSError(error));
     }
-  }
-
-  async list<T = Block>(type: string, options: ListOptions<T> = {}): Promise<Result<T[]>> {
-    const pinned = await this.#pin();
-    if ("error" in pinned) return this.#fail(pinned.error);
-    const { pin, resolver } = pinned;
-    warnRoutedList(canonicalType(pin.content, type));
-    const names = namesOfType(pin.content, type);
-
-    let entries: T[];
-    try {
-      await pin.wave(walk(pin.content, names));
-      const values = await Promise.all(
-        names.map((name) =>
-          (options.run === true ? resolver.resolveEntry(name) : resolver.expandEntry(name)).catch(
-            (error) => {
-              throw atEntry(name, error);
-            },
-          ),
-        ),
-      );
-      entries = values.filter((value) => value !== undefined) as T[];
-    } catch (error) {
-      return this.#fail(asCMSError(error));
-    }
-
-    if (options.where) entries = entries.filter(options.where);
-    if (options.sort) entries = [...entries].sort(options.sort);
-    if (typeof options.limit === "number" && options.limit >= 0) {
-      entries = entries.slice(0, Math.floor(options.limit));
-    }
-    return [entries, null];
   }
 
   async revision(): Promise<string> {
@@ -257,32 +230,6 @@ function rulesOf(value: unknown): Redirect[] {
 }
 
 /**
- * `list("page")` and `list("redirect")` read every page or rule: routing reads
- * `routes()` and `redirects()` from the index instead. Warns once per process
- * and type, outside production.
- */
-function warnRoutedList(type: string): void {
-  if (!ROUTED_TYPES.has(type)) return;
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-    ?.env;
-  if (env?.NODE_ENV === "production") return;
-  const store = globalThis as unknown as Record<symbol, Set<string> | undefined>;
-  const warned = store[LIST_WARNED] ?? new Set<string>();
-  store[LIST_WARNED] = warned;
-  if (warned.has(type)) return;
-  warned.add(type);
-  console.warn(
-    `[decocms/blocks] client.list("${type}") fetches every ${type} block; route with ` +
-      "client.routes() and client.redirects(), which read the index (see /next/routing).",
-  );
-}
-
-/** Forgets which list types warned, so a test starts clean. */
-export function resetListWarnings(): void {
-  delete (globalThis as unknown as Record<symbol, unknown>)[LIST_WARNED];
-}
-
-/**
  * The client's own frozen copy of a visitor, so a caller changing its object
  * later changes no client; `null` for anything that isn't one.
  */
@@ -306,10 +253,4 @@ function copyVisitor(visitor: Visitor | null | undefined): Visitor | null {
 
 function asCMSError(error: unknown): CMSError {
   return isResolutionError(error) ? error : errors.blockFailed("<unknown>", [], error);
-}
-
-/** Prefixes a failed list entry's path with the entry's name, so the log says which one. */
-function atEntry(name: string, error: unknown): unknown {
-  if (!isResolutionError(error) || error.code === "CYCLE") return error;
-  return new ResolutionError(error.code, error.message, [name, ...error.path], error.cause);
 }

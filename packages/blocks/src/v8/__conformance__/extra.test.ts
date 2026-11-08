@@ -396,7 +396,7 @@ describe("built-ins (built-in-blocks.mdx, lazy-blocks.mdx, matchers-and-variants
 });
 
 describe("clients and content (api-reference.mdx, content.mdx)", () => {
-  it("X20 api-reference › list: sorted by name in code-unit order; aliases match; where, sort and limit apply", async () => {
+  it("X20 api-reference › entries: sorted by name in code-unit order; aliases match; types come back mapped", async () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       content: snap(
@@ -410,14 +410,14 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
         { aliases: { "old-post": "post" } },
       ),
     });
-    const [all] = await cms.forRelease().list<{ n: number }>("post");
-    expect(all?.map((e) => e.n)).toEqual([1, 3, 2]);
-    const [some] = await cms
-      .forRelease()
-      .list<{ n: number }>("post", { where: (e) => e.n > 1, sort: (x, y) => y.n - x.n, limit: 1 });
-    expect(some?.map((e) => e.n)).toEqual([3]);
-    const [viaAlias] = await cms.forRelease().list<{ n: number }>("old-post");
-    expect(viaAlias).toHaveLength(3);
+    const [all] = await cms.forRelease().entries("post");
+    expect(all?.map((e) => [e.name, e.type])).toEqual([
+      ["B", "post"],
+      ["a", "post"],
+      ["b", "post"],
+    ]);
+    const [viaAlias] = await cms.forRelease().entries("old-post");
+    expect(viaAlias).toBe(all);
   });
 
   it("X22 api-reference › Loaders: a loader without update() is asked on every client; update() never throws", async () => {

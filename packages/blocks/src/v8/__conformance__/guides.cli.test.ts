@@ -380,30 +380,32 @@ export default {
   it(
     "nx-16/nx-24: the posts snippets typecheck once the entry is narrowed with `in` (as examples/nextjs-smoke does)",
     () => {
-      // The docs write `match.entry.__resolveType === "post"`, which fails tsc
-      // (TS2339: Property '__resolveType' does not exist on type 'Post |
-      // StoredPage'): list<T> returns T[], and neither type has the field.
-      // The example narrows with `"__resolveType" in match.entry` first.
+      // Pages come from routes(), posts from entries("post") (both the index
+      // alone); the example marks the post routes and narrows with
+      // `"post" in match.entry`, then reads the one body it needs.
       const p = project({ "tsconfig.json": TSCONFIG });
       p.write(
         "src/snippet.ts",
         `import type { ReactNode } from "react";
-import { matchRoute, type Route, type Redirect, type Block, type Seo, type Client } from "@decocms/blocks";
+import { matchRoute, type Route, type Block, type Seo, type Client } from "@decocms/blocks";
 interface Post extends Route { date: string; body: string }
 interface StoredPage extends Route { seo?: Seo | Block; sections: Block[] | Block }
 export async function openPage(c: Client, pathname: string) {
-  const [pages, pagesError] = await c.list<StoredPage>("page");
+  const [pages, pagesError] = await c.routes();
   if (pagesError) throw pagesError;
-  const [redirects, redirectsError] = await c.list<Redirect>("redirect");
+  const [redirects, redirectsError] = await c.redirects();
   if (redirectsError) throw redirectsError;
-  const [posts, postsError] = await c.list<Post>("post");
+  const [posts, postsError] = await c.entries("post");
   if (postsError) throw postsError;
-  const match = matchRoute(pathname, { routes: [...pages, ...posts], redirects });
+  const postRoutes = posts.flatMap((p) => (p.path ? [{ name: p.name, path: p.path, post: true }] : []));
+  const match = matchRoute(pathname, { routes: [...pages, ...postRoutes], redirects });
   if (match.kind !== "match") return null;
-  if ("__resolveType" in match.entry && match.entry.__resolveType === "post") {
-    return { post: match.entry as Post, blocks: [], seo: null };
+  if ("post" in match.entry) {
+    const [post] = await c.resolve<Post>(match.entry.name, { run: false });
+    return { post, blocks: [], seo: null };
   }
-  const page = match.entry as StoredPage;
+  const [page] = await c.resolve<StoredPage>(match.entry.name, { run: false });
+  if (!page) return null;
   const sections = Array.isArray(page.sections) ? page.sections : [page.sections];
   const blocks = sections.map((block, index) => ({
     key: \`\${pathname}:\${index}\`,

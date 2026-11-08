@@ -27,7 +27,7 @@ import {
 } from "../index";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "../telemetry";
 import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio, hero, seo } from "../testFixtures";
-import type { Blocks, CMS, Redirect, RequestLike, Route, Snapshot } from "../types";
+import type { Blocks, CMS, Redirect, RequestLike, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
 /** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
@@ -152,7 +152,7 @@ const DOCUMENTED_ROOT_TYPES = [
   "CMS",
   "Client",
   "ClientOptions",
-  "ListOptions",
+  "Entry",
   "TelemetryConfig",
 ];
 
@@ -222,7 +222,7 @@ describe("AR-04 / AR-10 / AR-14 / AR-48 / AR-57 / AR-58 / AR-62 documented signa
   it("createCMS takes only the documented options; CMS and Client have only the documented methods", () => {
     const errors = typecheck({
       "sig.ts": `
-import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type ListOptions,
+import { createCMS, type Blocks, type CMS, type Client, type Snapshot, type Loader, type Entry,
   type Result, type CMSError, type Block, type BlockFunction, type Route, type Seo, type Page,
   type Redirect, type Lazy, type Variant, type TelemetryConfig, type Telemetry, type Analytics,
   type CMSSettings, type EffectiveSettings, type RequestLike, type ClientOptions, type RequestVersion,
@@ -286,7 +286,7 @@ assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<
   keyof Client,
-  "resolve" | "list" | "revision" | "routes" | "redirects" | "prefetch" | "visitor" | "version" | "date"
+  "resolve" | "entries" | "revision" | "routes" | "redirects" | "prefetch" | "visitor" | "version" | "date"
 >>();
 assert<Equal<Client["routes"], () => Promise<Result<Route[]>>>>();
 assert<Equal<Client["redirects"], () => Promise<Result<Redirect[]>>>>();
@@ -298,8 +298,10 @@ assert<Equal<Client["revision"], () => Promise<string>>>();
 declare const client: Client;
 const r1: Promise<Result<unknown>> = client.resolve("x");
 const r2: Promise<Result<number>> = client.resolve<number>({}, { run: false });
-const r3: Promise<Result<Block[]>> = client.list("post");
-assert<Equal<ListOptions<number>, { where?: (entry: number) => boolean; sort?: (a: number, b: number) => number; limit?: number; run?: boolean }>>();
+assert<Equal<Client["entries"], (type?: string) => Promise<Result<readonly Entry[]>>>>();
+assert<Equal<Entry, { name: string; type: string; path?: string; refs: string[]; noIndex?: boolean }>>();
+// @ts-expect-error list() is gone: entries() reads the index, resolve(name) one body.
+client.list("post");
 
 assert<Equal<Block, { __resolveType: string; [input: string]: unknown }>>();
 assert<Equal<BlockFunction, (inputs: any) => unknown | Promise<unknown>>>();
@@ -318,7 +320,7 @@ assert<Equal<CMSError["code"], "NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_
 assert<Equal<CMSError, { code: CMSError["code"]; message: string; path: (string | number)[]; cause?: unknown }>>();
 assert<Equal<Result<number>, [number, null] | [null, CMSError]>>();
 assert<Equal<TelemetryConfig, { endpoint?: string; headers?: Record<string, string>; resource?: Record<string, string>; limits?: { errorSampleRate?: number; traceSampleRate?: number } }>>();
-export { r1, r2, r3 };
+export { r1, r2 };
 `,
     });
     expect(errors).toEqual([]);
@@ -467,9 +469,9 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     expect(value).toBeNull();
     expect(error?.code).toBe("LOADER_FAILED");
     expect(String((error?.cause as Error | undefined)?.message)).toContain("HTTP 502");
-    const [list, listError] = await client.list("page");
-    expect(list).toBeNull();
-    expect(listError?.code).toBe("LOADER_FAILED");
+    const [entries, entriesError] = await client.entries("page");
+    expect(entries).toBeNull();
+    expect(entriesError?.code).toBe("LOADER_FAILED");
   });
 
   it("a pointer that doesn't parse, or names a host outside the draft hosts, is LOADER_FAILED with no fetch", async () => {
@@ -478,7 +480,7 @@ describe("AR-11 / AR-20 / AR-26 / RD-03 / CT-09 drafts", () => {
     for (const pointer of ["garbage", "api.deco.example/drafts/acme/main@9f3c1a"]) {
       const client = cms.forDraft(pointer);
       expect((await client.resolve("SummerSEO"))[1]?.code).toBe("LOADER_FAILED");
-      expect((await client.list("page"))[1]?.code).toBe("LOADER_FAILED");
+      expect((await client.entries("page"))[1]?.code).toBe("LOADER_FAILED");
     }
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -614,7 +616,7 @@ describe("AR-15 one revision per client", () => {
     await client.resolve("SummerSEO");
     publish(docsSnapshot("rev-2"));
     expect(await cms.update()).toEqual({ updated: true });
-    const [pages] = await client.list("page");
+    const [pages] = await client.entries("page");
     expect(pages).toHaveLength(2);
     expect(await client.revision()).toBe("rev-1");
     expect(await cms.forRelease().revision()).toBe("rev-2");
@@ -945,7 +947,7 @@ describe("AR-39..AR-45 client.resolve", () => {
   });
 });
 
-describe("AR-46..AR-49 client.list", () => {
+describe("AR-46..AR-49 client.entries", () => {
   const content = (): Snapshot => ({
     revision: "r",
     blocks: {
@@ -958,45 +960,77 @@ describe("AR-46..AR-49 client.list", () => {
     aliases: { article: "post" },
   });
 
-  it("AR-46 lists the type and its aliases, sorted by name, without running", async () => {
+  it("AR-46 names the type and its aliases from the index, sorted by name, running nothing", async () => {
     const post = vi.fn((p: unknown) => p);
     const cms = createCMS({ blocks: { post }, content: content() });
-    const [entries] = await cms.forRelease().list<{ name: string }>("post");
-    expect(entries?.map((e) => e.name)).toEqual(["A", "F", "O", "Z"]);
+    const [entries] = await cms.forRelease().entries("post");
+    expect(entries?.map((e) => [e.name, e.type, e.path])).toEqual([
+      ["Alpha", "post", "/a"],
+      ["Future", "post", "/f"],
+      ["Old", "post", "/o"],
+      ["Zed", "post", "/z"],
+    ]);
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("AR-47 run: true resolves each entry; an unknown block type is UNKNOWN_BLOCK; list('page', { run: true }) returns ready pages", async () => {
-    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
-    const [pages] = await cms.forRelease().list<{ seo?: unknown }>("page", { run: true });
-    expect(pages?.find((p) => (p as { path: string }).path === "/summer")?.seo).toEqual(
-      seo({ title: "Sunny!", description: "Light layers for long days." }),
-    );
-    const bad: Snapshot = {
-      revision: "r",
-      blocks: {
-        P: { __resolveType: "page", name: "P", path: "/", sections: [{ __resolveType: "nope" }] },
-      },
-    };
-    resetForTests();
-    const [, error] = await createCMS({ blocks: {}, content: bad })
-      .forRelease()
-      .list("page", { run: true });
-    expect(error?.code).toBe("UNKNOWN_BLOCK");
+  it("AR-47 without a type: every typed entry; an unknown type: []", async () => {
+    const cms = createCMS({ blocks: {}, content: content() });
+    const [all] = await cms.forRelease().entries();
+    expect(all?.map((e) => e.name)).toEqual(["Alpha", "Future", "Old", "Other", "Zed"]);
+    expect(await cms.forRelease().entries("nope")).toEqual([[], null]);
   });
 
-  it("AR-48 / AR-49 where, sort and limit, as in the docs example", async () => {
-    interface Post extends Route {
-      date: string;
-    }
-    const cms = createCMS({ blocks: { post: (p: Post) => p }, content: content() });
-    const today = new Date().toISOString().slice(0, 10);
-    const [posts] = await cms.forRelease().list<Post>("post", {
-      where: (p) => p.date <= today,
-      sort: (a, b) => b.date.localeCompare(a.date),
-      limit: 2,
+  it("AR-48 noIndex: an inline seo, a saved SEO block it references, and false otherwise", async () => {
+    const cms = createCMS({
+      blocks: {},
+      content: {
+        revision: "r",
+        blocks: {
+          Open: { __resolveType: "page", path: "/", seo: { __resolveType: "seo", title: "t" } },
+          Inline: { __resolveType: "page", path: "/a", seo: { noIndexing: true } },
+          Saved: {
+            __resolveType: "website/pages/Page.tsx",
+            path: "/b",
+            seo: { __resolveType: "Hidden" },
+          },
+          Override: {
+            __resolveType: "page",
+            path: "/c",
+            seo: { __resolveType: "Hidden", noIndexing: false },
+          },
+          Hidden: { __resolveType: "website/sections/Seo/SeoV2.tsx", noIndexing: true },
+        },
+      },
     });
-    expect(posts?.map((p) => p.name)).toEqual(["Z", "O"]);
+    const [pages] = await cms.forRelease().entries("page");
+    expect(pages?.map((p) => [p.name, p.noIndex])).toEqual([
+      ["Inline", true],
+      ["Open", false],
+      ["Override", false],
+      ["Saved", true],
+    ]);
+  });
+
+  it("AR-49 a sitemap from the index: page paths without parameters, a splat or noIndex", async () => {
+    const cms = createCMS({
+      blocks: {},
+      content: {
+        revision: "r",
+        blocks: {
+          Home: { __resolveType: "page", path: "/" },
+          About: { __resolveType: "page", path: "/about" },
+          Product: { __resolveType: "page", path: "/:slug/p" },
+          Category: { __resolveType: "page", path: "/*" },
+          Staging: { __resolveType: "page", path: "/staging", seo: { noIndexing: true } },
+        },
+      },
+    });
+    const [pages] = await cms.forRelease().entries("page");
+    const sitemap = (pages ?? [])
+      .filter((p) => p.path !== undefined && !p.noIndex)
+      .map((p) => p.path!)
+      .filter((path) => !path.split("/").some((s) => s.startsWith(":") || s === "*"));
+    expect(sitemap.sort()).toEqual(["/", "/about"]);
   });
 });
 
@@ -1503,8 +1537,8 @@ import type { Post } from "./post";
 declare const client: Client;
 declare function link(path: string, name: string): void;
 export async function index() {
-  const [posts] = await client.list<Post>("post", { sort: (a, b) => b.date.localeCompare(a.date) });
-  for (const post of posts!) link(post.path, post.name);
+  const [posts] = await client.entries("post");
+  for (const post of posts!) if (post.path !== undefined) link(post.path, post.name);
 }
 `,
     });
@@ -1528,11 +1562,12 @@ declare function renderPost(post: Post): Response;
 
 export async function handle(request: Request): Promise<Response | undefined> {
   const client = cms.forRelease();
-  const [pages]     = await client.list<StoredPage>("page");
-  const [posts]     = await client.list<Post>("post");
-  const [redirects] = await client.list<Redirect>("redirect");
+  const [pages]     = await client.routes();
+  const [posts]     = await client.entries("post");
+  const [redirects] = await client.redirects();
+  const postRoutes  = posts!.flatMap((p) => (p.path ? [{ name: p.name, path: p.path, post: true }] : []));
 
-  const match = matchRoute(request, { routes: [...pages!, ...posts!], redirects: redirects! });
+  const match = matchRoute(request, { routes: [...pages!, ...postRoutes], redirects: redirects! });
 
   switch (match.kind) {
     case "not-found":
@@ -1540,11 +1575,11 @@ export async function handle(request: Request): Promise<Response | undefined> {
     case "redirect":
       return Response.redirect(new URL(match.location, request.url), match.status);
     case "match": {
-      const entry = match.entry;
-      if ("__resolveType" in entry && entry.__resolveType === "post") {
-        return renderPost(entry as Post);
+      if ("post" in match.entry) {
+        const [post] = await client.resolve<Post>(match.entry.name);
+        return renderPost(post!);
       }
-      const [page] = await client.resolve<ResolvedPage<ReactNode>>(entry);
+      const [page] = await client.resolve<ResolvedPage<ReactNode>>(match.entry.name);
       return render(page!.seo, page!.sections);
     }
   }
@@ -1556,30 +1591,36 @@ export async function handle(request: Request): Promise<Response | undefined> {
 
   it("works end to end against the docs fixtures", async () => {
     const content = docsSnapshot();
-    content.blocks.LegacyProduct = {
-      __resolveType: "redirect",
-      from: "/old-products/:slug",
-      to: "/:slug/p",
-      permanent: true,
+    content.blocks.Redirects = {
+      __resolveType: "redirects",
+      redirects: [
+        { from: "/campaigns/summer", to: "/summer", permanent: true },
+        { from: "/old-products/:slug", to: "/:slug/p", permanent: true },
+      ],
     };
     const cms = createCMS({ blocks: docsBlocks(), content });
     const handle = async (request: Request) => {
       const client = cms.forRelease();
-      const [pages] = await client.list<Route & { __resolveType: string }>("page");
-      const [posts] = await client.list<Route & { __resolveType: string }>("post");
-      const [redirects] = await client.list<Redirect>("redirect");
-      const match = matchRoute(request, { routes: [...pages!, ...posts!], redirects: redirects! });
+      const [pages] = await client.routes();
+      const [posts] = await client.entries("post");
+      const [redirects] = await client.redirects();
+      const postRoutes = posts!.flatMap((p) =>
+        p.path === undefined ? [] : [{ name: p.name, path: p.path, post: true }],
+      );
+      const match = matchRoute(request, {
+        routes: [...pages!, ...postRoutes],
+        redirects: redirects!,
+      });
       switch (match.kind) {
         case "not-found":
           return { status: 404 };
         case "redirect":
           return { status: match.status, location: new URL(match.location, request.url).href };
-        case "match":
-          if (match.entry.__resolveType === "page") {
-            const [page] = await client.resolve(match.entry);
-            return { page };
-          }
-          return { post: match.entry };
+        case "match": {
+          const post = "post" in match.entry;
+          const [value] = await client.resolve(match.entry.name, { run: !post });
+          return post ? { post: value } : { page: value };
+        }
       }
     };
     expect(await handle(new Request("https://s/campaigns/summer"))).toEqual({
@@ -1626,7 +1667,7 @@ describe("RT-02 / RT-12 / RT-15 / RT-18 pages, data-only blocks", () => {
     expect(await c.resolve("MainMenu")).toEqual([{ items: ["a", "b"] }, null]);
   });
 
-  it("list('page') returns a whole-list multivariate sections block unrun", async () => {
+  it("resolve(name, { run: false }) returns a whole-list multivariate sections block unrun", async () => {
     const sections = {
       __resolveType: "multivariate",
       variants: [
@@ -1640,8 +1681,8 @@ describe("RT-02 / RT-12 / RT-15 / RT-18 pages, data-only blocks", () => {
         blocks: { P: { __resolveType: "page", name: "P", path: "/", sections } },
       },
     });
-    const [pages] = await cms.forRelease().list<{ sections: unknown }>("page");
-    expect(pages?.[0]?.sections).toEqual(sections);
+    const [page] = await cms.forRelease().resolve<{ sections: unknown }>("P", { run: false });
+    expect(page?.sections).toEqual(sections);
   });
 });
 

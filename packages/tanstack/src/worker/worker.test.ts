@@ -1094,8 +1094,8 @@ describe("http.server.request.duration", () => {
     ]);
   });
 
-  /** The CMS with its release clients' `routes()` and `list()` observed. */
-  function observed(onRoutes: () => void, onList: (type: string) => void = () => {}) {
+  /** The CMS with its release clients' `routes()` and `entries()` observed. */
+  function observed(onRoutes: () => void, onEntries: (type?: string) => void = () => {}) {
     const cms = storeCMS();
     const forRelease = cms.forRelease.bind(cms);
     cms.forRelease = () => {
@@ -1109,19 +1109,19 @@ describe("http.server.request.duration", () => {
           onRoutes();
           return client.routes();
         },
-        list: (type: string, options?: object) => {
-          onList(type);
-          return client.list(type, options);
+        entries: (type?: string) => {
+          onEntries(type);
+          return client.entries(type);
         },
       } as unknown as ReturnType<typeof forRelease>;
     };
     return cms;
   }
 
-  it("reads the route templates from the release's index, never by listing pages", async () => {
+  it("reads the route templates from the release's index with routes() alone", async () => {
     recordMetrics();
     let routeReads = 0;
-    const listed: string[] = [];
+    const listed: (string | undefined)[] = [];
     const cms = observed(
       () => routeReads++,
       (type) => listed.push(type),

@@ -182,6 +182,37 @@ describe("the index", () => {
     expect(index.blocks.CMS).toEqual({ version: hash, data: { __resolveType: "cms-settings" } });
     expect(index.blocks.Home).toEqual({ version: hash, meta: { type: "page", path: "/" } });
   });
+
+  it("reads metaVersion (absent or unreadable: 1) and keeps noIndex only when true", async () => {
+    const hash = "A".repeat(22);
+    const index = (metaVersion: unknown) => ({
+      revision: revisionId(1),
+      sequence: 1,
+      ...(metaVersion === undefined ? {} : { metaVersion }),
+      blocks: {
+        Hidden: { version: hash, meta: { type: "page", path: "/h", noIndex: true } },
+        Open: { version: hash, meta: { type: "page", path: "/", noIndex: false } },
+        Odd: { version: hash, meta: { type: "page", path: "/o", noIndex: "yes" } },
+      },
+    });
+    for (const [written, read] of [
+      [2, 2],
+      [3, 3],
+      [undefined, 1],
+      [0, 1],
+      [1.5, 1],
+      ["2", 1],
+    ] as const) {
+      resetForTests();
+      const api = cdn();
+      api.put("latest.json", index(written));
+      const held = await hosted().current();
+      expect(held.metaVersion, String(written)).toBe(read);
+      expect(held.blocks.Hidden?.meta).toEqual({ type: "page", path: "/h", noIndex: true });
+      expect(held.blocks.Open?.meta).toEqual({ type: "page", path: "/" });
+      expect(held.blocks.Odd?.meta).toEqual({ type: "page", path: "/o" });
+    }
+  });
 });
 
 describe("polls", () => {

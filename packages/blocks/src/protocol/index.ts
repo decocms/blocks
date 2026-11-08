@@ -19,7 +19,10 @@
  * the page's bootstrap is `StudioChannel` in `@decocms/blocks/preview`.
  *
  * `blockMeta`/`indexEntry` compute a hosted revision index's entries (the
- * SDK's own browser-safe module, shared with Studio and the CLI).
+ * SDK's own browser-safe module, shared with Studio and the CLI);
+ * `META_VERSION` is the `metaVersion` an index they computed carries, and
+ * `seoNoIndex`/`pageNoIndex` are the `noIndex` rule, a page's saved SEO block
+ * resolved through `bodyOf`.
  *
  * The SDK's runtime never imports the protocol, so it never reaches an app
  * bundle. The canonical hash it re-exports is the SDK's own dependency-free
@@ -30,9 +33,13 @@
 export {
   type BlockIndex,
   type BlockMeta,
+  type BodyOf,
   blockMeta,
   type IndexEntry,
   indexEntry,
+  META_VERSION,
+  pageNoIndex,
+  seoNoIndex,
 } from "../v8/blockMeta.ts";
 export { isRevisionId, REVISION_ID_RE } from "../v8/revisionId.ts";
 export {

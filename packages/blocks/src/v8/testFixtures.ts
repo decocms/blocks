@@ -2,7 +2,7 @@
  * The docs' running examples (blocks, saved blocks, how resolution works,
  * routing), as one block map and one content module, shared by the v8 tests.
  */
-import { indexEntry } from "./blockMeta";
+import { indexEntry, META_VERSION } from "./blockMeta";
 import type { Blocks, Snapshot } from "./types";
 
 export const seo = (props: { title: string; description: string }) => ({ ...props });
@@ -225,21 +225,33 @@ export function fakeDelivery(site = "acme", origin = "https://delivery.decocms.c
     keys: () => requests.map((r) => r.key),
     /** How many requests went to `blocks/`. */
     blockFetches: () => requests.filter((r) => r.key.startsWith("blocks/")).length,
-    /** Studio's publish: block objects, the revision index, then latest.json. */
+    /**
+     * Studio's publish: block objects, the revision index, then latest.json.
+     * `metaVersion: 1` writes an index as Studio did before `noIndex` (no
+     * `metaVersion`, no `noIndex`).
+     */
     async publish(
       blocks: Record<string, unknown>,
-      options: { previewHosts?: string[]; sequence?: number } = {},
+      options: { previewHosts?: string[]; sequence?: number; metaVersion?: 1 } = {},
     ) {
       sequence = options.sequence ?? sequence + 1;
       const revision = revisionId(sequence);
       const names = Object.keys(blocks);
+      const bodyOf = (name: string) => (Object.hasOwn(blocks, name) ? blocks[name] : undefined);
+      const legacy = options.metaVersion === 1;
       const index: Record<string, unknown> = {};
       for (const name of names) {
-        const entry = await indexEntry(name, blocks[name], names);
+        const entry = await indexEntry(name, blocks[name], names, bodyOf);
+        if (legacy && entry.meta) {
+          delete entry.meta.noIndex;
+          if (Object.keys(entry.meta).length === 0) delete entry.meta;
+        }
         index[name] = entry;
         put(`blocks/${entry.version}.json`, blocks[name]);
       }
-      const body = { revision, sequence, blocks: index };
+      const body: Record<string, unknown> = legacy
+        ? { revision, sequence, blocks: index }
+        : { revision, sequence, metaVersion: META_VERSION, blocks: index };
       put(`revisions/${revision}/index.json`, body);
       put("latest.json", { ...body, previewHosts: options.previewHosts ?? ["*.example.com"] });
       published = { revision, sequence, blocks: index };

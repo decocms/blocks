@@ -65,8 +65,11 @@ describe("the built-in legacy alias table", () => {
       { name: "Home", path: "/", sections: [{ hero: "Hi" }] },
       null,
     ]);
-    const [pages] = await c.list<Block>("page");
-    expect(pages?.map((p) => p.name)).toEqual(["Home", "Old"]);
+    const [pages] = await c.entries("page");
+    expect(pages?.map((p) => [p.name, p.type])).toEqual([
+      ["Home", "page"],
+      ["Old", "page"],
+    ]);
   });
 
   it("wraps legacy variants in lazy, so only the chosen one runs", async () => {
@@ -155,7 +158,13 @@ describe("the built-in legacy alias table", () => {
     };
     const flat: Block = { __resolveType: "redirect", from: "/old", to: "/new", permanent: true };
     const c = client({}, { Legacy: legacy, Flat: flat });
-    const [redirects] = await c.list<Redirect | LegacyRedirect>("redirect");
+    const [found] = await c.entries("redirect");
+    expect(found?.map((e) => e.name)).toEqual(["Flat", "Legacy"]);
+    const redirects = await Promise.all(
+      found!.map(
+        async (e) => (await c.resolve<Redirect | LegacyRedirect>(e.name, { run: false }))[0],
+      ),
+    );
     expect(redirects).toEqual([flat, legacy]);
     expect(
       matchRoute("https://x.test/campaigns/summer?utm=1", {
@@ -291,7 +300,7 @@ describe("real v7 content", () => {
       const failures = errorsIn(results);
       expect(failures.map((e) => [e.code, e.path])).toEqual([]);
 
-      const [pages] = await c.list<Block>("page");
+      const [pages] = await c.entries("page");
       const legacyPages = Object.values(content).filter(
         (entry) => (entry as Block).__resolveType === "website/pages/Page.tsx",
       );
@@ -306,11 +315,11 @@ describe("real v7 content", () => {
       blocks: siteBlocks(content).blocks,
       content: { revision: "v7", blocks: content },
     }).forRelease();
-    const [pages] = await c.list<Block & { name: string; path: string }>("page");
-    const match = matchRoute("https://blog.test/web-performance-guide", { routes: pages! });
+    const [routes] = await c.routes();
+    const match = matchRoute("https://blog.test/web-performance-guide", { routes: routes! });
     expect(match).toMatchObject({
       kind: "match",
-      entry: { name: "Blog Post" },
+      entry: { name: "pages-blog-post" }, // the saved block's name
       params: { slug: "web-performance-guide" },
     });
   });

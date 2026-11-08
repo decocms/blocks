@@ -245,9 +245,12 @@ export function overlayDraft(
     }
   }
   const blocks = Object.create(null) as BlockIndex;
+  // A page's saved SEO block: the draft's own body, else one the base holds.
+  const bodyOf = (name: string): unknown =>
+    bodies.has(name) ? bodies.get(name) : states.has(name) ? undefined : base.held?.get(name);
   for (const name of names) {
     if (bodies.has(name)) {
-      const meta = blockMeta(bodies.get(name), names);
+      const meta = blockMeta(bodies.get(name), names, bodyOf);
       const entry: IndexEntry = { version: "" };
       if (Object.keys(meta).length > 0) entry.meta = meta;
       blocks[name] = entry;
@@ -264,6 +267,7 @@ export function overlayDraft(
   const content: IndexedContent = {
     revision: `${base.revision}~${view}`,
     sequence: base.sequence,
+    metaVersion: base.metaVersion,
     blocks,
     held,
     draft: true,
