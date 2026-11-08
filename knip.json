@@ -5,6 +5,7 @@
       "entry": [
         "scripts/*.mjs",
         ".agents/skills/*/scripts/main.ts",
+        ".agents/skills/*/scripts/checkContentReads.ts",
         "tests/**/*.test.ts",
         ".agents/skills/*/scripts/**/*.test.ts"
       ],
