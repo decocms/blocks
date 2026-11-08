@@ -1,5 +1,5 @@
 /**
- * Reads of the whole content, which the next major doesn't do: a site reads
+ * Reads of the whole content, which v8 sites don't do (8.11 on): a site reads
  * the index (`client.routes()`, `client.redirects()`, `client.entries(type?)`:
  * names, types, paths, references and `noIndex`, never a body) and one named
  * block at a time (`client.resolve(name)`). Since 8.11 there is no

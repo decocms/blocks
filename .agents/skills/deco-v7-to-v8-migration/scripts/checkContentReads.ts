@@ -1,7 +1,7 @@
 /**
  * `bun scripts/checkContentReads.ts [--root <dir>]`: fails (exit 1) when the
- * site's code still calls `client.list(…)`, which the next major removed
- * (8.11); prints every `.deco/blocks` scan too, without failing on it (see
+ * site's code still calls `client.list(…)`, which 8.11 removed; prints
+ * every `.deco/blocks` scan too, without failing on it (see
  * ./contentReads.ts). Run it from the skill's verify step, after the
  * migration and before review.
  */
