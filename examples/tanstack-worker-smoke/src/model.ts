@@ -8,7 +8,7 @@ export type BlockDescriptor =
   | { component: "promo-banner"; props: PromoBannerProps }
   | { component: "product-hero"; props: ProductHeroProps };
 
-// A saved page, as client.list returns it by default (nothing run): seo and sections are still JSON.
+// A saved page, as resolve(name, { run: false }) returns it: seo and sections are still JSON.
 export interface StoredPage extends Route {
   seo?: Seo | Block;
   sections: Block[] | Block;   // a list of blocks, or one multivariate block that picks a whole list
