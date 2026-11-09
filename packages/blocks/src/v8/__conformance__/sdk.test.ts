@@ -286,7 +286,7 @@ assert<Equal<typeof currentClient, () => Client>>();
 assert<Equal<CMS["update"], () => Promise<{ updated: boolean }>>>();
 assert<Equal<
   keyof Client,
-  "resolve" | "entries" | "revision" | "routes" | "redirects" | "prefetch" | "visitor" | "version" | "date"
+  "resolve" | "entries" | "list" | "revision" | "routes" | "redirects" | "prefetch" | "visitor" | "version" | "date"
 >>();
 assert<Equal<Client["routes"], () => Promise<Result<Route[]>>>>();
 assert<Equal<Client["redirects"], () => Promise<Result<Redirect[]>>>>();
@@ -300,8 +300,9 @@ const r1: Promise<Result<unknown>> = client.resolve("x");
 const r2: Promise<Result<number>> = client.resolve<number>({}, { run: false });
 assert<Equal<Client["entries"], (type?: string) => Promise<Result<readonly Entry[]>>>>();
 assert<Equal<Entry, { name: string; type: string; path?: string; refs: string[]; noIndex?: boolean }>>();
-// @ts-expect-error list() is gone: entries() reads the index, resolve(name) one body.
-client.list("post");
+// list() was removed: it keeps its (deprecated) signature so old code compiles, and throws.
+assert<Equal<Parameters<Client["list"]>[0], string>>();
+assert<Equal<ReturnType<Client["list"]>, Promise<Result<unknown[]>>>>();
 
 assert<Equal<Block, { __resolveType: string; [input: string]: unknown }>>();
 assert<Equal<BlockFunction, (inputs: any) => unknown | Promise<unknown>>>();

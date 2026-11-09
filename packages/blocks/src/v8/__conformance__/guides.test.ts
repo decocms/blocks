@@ -62,12 +62,12 @@ function experiments(input: Experiments) {
 }
 
 describe("quickstart", () => {
-  it("qs-12: forRelease() returns a client with resolve/entries/revision, and no list; forDraft is a sibling", () => {
+  it("qs-12: forRelease() returns a client with resolve/entries/revision, and a list() that throws; forDraft is a sibling", () => {
     const cms = createCMS({ blocks: { experiments }, content: snap({}) });
     const client = cms.forRelease();
     expect(typeof client.resolve).toBe("function");
     expect(typeof client.entries).toBe("function");
-    expect("list" in client).toBe(false);
+    expect(() => client.list("page")).toThrow(/client\.list\(\) was removed/);
     expect(typeof client.revision).toBe("function");
     expect(typeof cms.forDraft).toBe("function");
   });

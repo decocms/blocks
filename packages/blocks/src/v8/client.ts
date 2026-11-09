@@ -27,11 +27,13 @@ import { choosePin, type Pin, rootsOf, type Selection } from "./pin.ts";
 import { Resolver } from "./resolver.ts";
 import type { ClientTelemetry } from "./telemetry.ts";
 import type {
+  Block,
   Blocks,
   Client,
   CMSError,
   Entry,
   LegacyRedirect,
+  ListOptions,
   Redirect,
   ResolveOptions,
   Result,
@@ -57,6 +59,13 @@ interface ClientOptions {
   onCollision?: (name: string) => void;
   telemetry?: ClientTelemetry;
 }
+
+/** What `client.list()` throws: it was removed, and what to read instead. */
+export const LIST_REMOVED =
+  "[decocms/blocks] client.list() was removed in this version of @decocms/blocks: it fetched the " +
+  "body of every block of a type. Route with client.routes() and client.redirects() (index only); " +
+  "read a type's names, paths, refs and noIndex with client.entries(type) (index only); read a " +
+  "block's body with client.resolve(name).";
 
 type Selected = { selection: Selection } | { error: CMSError };
 type Pinned = { pin: Pin; resolver: Resolver } | { error: CMSError };
@@ -106,6 +115,11 @@ export class CMSClient implements Client {
     if (type !== undefined && typeof type !== "string") return [[], null];
     const [content, error] = await this.#index();
     return error === null ? [entriesOf(content, type), null] : this.#fail(error);
+  }
+
+  /** Removed: throws {@link LIST_REMOVED} before reading anything. */
+  list<T = Block>(_type: string, _options?: ListOptions<T>): Promise<Result<T[]>> {
+    throw new Error(LIST_REMOVED);
   }
 
   /** The index it reads: a pinned client's pin; otherwise the current one, without pinning. */

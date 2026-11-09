@@ -114,7 +114,7 @@ export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
 const [props, error] = await cms.forRelease().resolve("Home Hero");
 ```
 
-A client reads one block at a time. What a site needs about all of them comes from the release's index, with no block fetched: `routes()` and `redirects()` for routing, and `entries(type?)` for the rest (`{ name, type, path?, refs, noIndex? }` per saved block; a sitemap is the `page` entries' paths without `:param` or `*` segments and without `noIndex`). There is no `list()` (removed in 8.11): it fetched every block of a type.
+A client reads one block at a time. What a site needs about all of them comes from the release's index, with no block fetched: `routes()` and `redirects()` for routing, and `entries(type?)` for the rest (`{ name, type, path?, refs, noIndex? }` per saved block; a sitemap is the `page` entries' paths without `:param` or `*` segments and without `noIndex`). `list()` was removed in 8.12 (it fetched every block of a type): it stays on `Client`, deprecated, so old code compiles, and throws at once, before reading anything, with an error that names these replacements (and `resolve(name)` for one body).
 
 ```ts
 const [pages] = await cms.forRelease().entries("page");

@@ -303,6 +303,19 @@ export interface ResolveOptions {
 }
 
 /**
+ * @deprecated `client.list()` was removed and throws. Route with `routes()`
+ * and `redirects()`, read a type's names, paths and meta with
+ * `entries(type)` (both from the index alone), and a block's body with
+ * `resolve(name)`.
+ */
+export interface ListOptions<T> {
+  where?: (entry: T) => boolean;
+  sort?: (a: T, b: T) => number;
+  limit?: number;
+  run?: boolean;
+}
+
+/**
  * One saved block as the content's index describes it (`client.entries()`):
  * no body is read to answer.
  */
@@ -346,6 +359,15 @@ export interface Client {
    * type.
    */
   entries(type?: string): Promise<Result<readonly Entry[]>>;
+  /**
+   * @deprecated Removed: throws at once, before reading anything (it fetched
+   * the body of every block of a type, one CDN request per block on a hosted
+   * release). Route with `routes()` and `redirects()` (index only); read a
+   * type's names, paths, refs and `noIndex` with `entries(type)` (index
+   * only); read a block's body with `resolve(name)`. The signature stays so
+   * old code compiles and fails with that guidance at runtime.
+   */
+  list<T = Block>(type: string, options?: ListOptions<T>): Promise<Result<T[]>>;
   /**
    * `{ name, path }` of every page (a saved block whose type is `page`, or an
    * alias of it, with a `path`), from the index alone, in code-unit order of
