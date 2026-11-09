@@ -54,7 +54,7 @@ Symptom: a 524 after about 100 s with ~1 ms of CPU (`outcome=canceled`).
 
 | Cause | Fix |
 |---|---|
-| upstream fetch without a deadline | `createInstrumentedFetch` from `@decocms/blocks/fetch` retries and breaks circuits (`retry`, `circuitBreaker`), but has no timeout of its own: pass `signal: AbortSignal.timeout(…)` per call (for example 20 s for data, longer for a proxied checkout) |
+| upstream fetch without a deadline | `createInstrumentedFetch` from `@decocms/blocks/fetch` can retry and break circuits (`retry`, `circuitBreaker`, both off unless set), but has no timeout of its own: pass `signal: AbortSignal.timeout(…)` per call (for example 20 s for data, longer for a proxied checkout) |
 | site cache or KV read that stalls | race it against a short deadline; a timeout is a miss |
 | a module-level single-flight map whose owner request went away | give joiners a deadline and drop the entry past it; keep the owner's work alive with `ctx.waitUntil` |
 | background work that needs `env` | capture what it needs during the request |
@@ -62,10 +62,9 @@ Symptom: a 524 after about 100 s with ~1 ms of CPU (`outcome=canceled`).
 The framework's own shared content fetches follow these rules: each has 10 s,
 stays alive through the platform's `waitUntil` whoever started it, and a
 request that joins one waits no longer than its deadline (then the next
-request fetches again). The v8 guide's `wrangler.jsonc` sets
-`no_handle_cross_request_promise_resolution`; with that flag, a promise one
-request awaits from another request's work can hang, so your own shared maps
-need the same deadlines.
+request fetches again). The framework does this because on Workers a
+request's I/O can stop with its response, so a fetch another request started
+may never settle. Your own shared maps need the same deadlines.
 
 ```bash
 grep -n "compatibility_date\|compatibility_flags" wrangler.jsonc

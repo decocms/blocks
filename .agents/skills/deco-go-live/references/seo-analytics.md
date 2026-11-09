@@ -48,7 +48,7 @@ last week.
 - **At ratio 0 the public host served `noindex` and `Disallow: /`** because the old site decided indexability from its own hostname. The v8 split handler sends `x-forwarded-host`; confirm the old site reads it. Check this **before** creating the route ([traffic-ramp.md](./traffic-ramp.md#traps)).
 - Previews are `noindex` on purpose: any request with `?__draft=` (`off` included) or the draft cookie answers `X-Robots-Tag: noindex, nofollow`. A crawler never has the cookie, but a shared preview link does carry `?__draft=`.
 - Soft 404s: a catch-all that renders "not found" with HTTP 200. On TanStack, a route sets the response's status with the `x-page-status` header (`PAGE_STATUS_HEADER`), which the worker turns into the status. A status set while rendering does not reach the response.
-- A loader failure must not be cached as "not found": a page whose loader failed sets `x-deco-degraded` (`DEGRADED_HEADER`) and a page cache never stores it (**deco-storefront-caching**).
+- A loader failure must not be cached as "not found": a page whose loader failed sets `x-deco-degraded` (`DEGRADED_HEADER`), and the example `pageCache` never stores it (**deco-storefront-caching**). Check that yours does the same.
 - Pagination `rel=next/prev` and canonical lost in the port: compare the head of a listing's page 2 on both sides.
 
 ```bash
@@ -65,7 +65,7 @@ On v8 the routed redirects are the rules of the one saved block of type
 `redirects` (`Redirects` by convention). The worker answers them before any
 route. Rules from the old site behave differently in a few places:
 
-- **Earlier rule wins.** Two rules for the same path (or two templates of one shape) are a conflict: `deco check` reports each pair as an error, and routing keeps the earlier one. A CSV that relied on "last one wins" changes destinations; on one store reordering changed 88 of them.
+- **Earlier rule wins.** For two rules with the same `from` (or two templates of one shape), routing keeps the earlier one. `deco check` does not flag duplicates inside the redirects block (it reports conflicts only between separate `redirect` blocks), so dedupe the list yourself. A CSV that relied on "last one wins" changes destinations; on one store reordering changed 88 of them.
 - **Self-loops are dropped.** A rule whose `to` is the path its `from` matches is ignored.
 - **Query-scoped sources match exactly.** `from: "/shoes?map=c"` matches only that exact query string and wins over a path-only `/shoes`.
 - **The visitor's query string is carried over** unless the rule sets `discardQueryParameters`, so `gclid` survives.
@@ -74,7 +74,8 @@ route. Rules from the old site behave differently in a few places:
 - **Old block types are not routed.** `deco check` warns about v7 redirect blocks (`website/loaders/redirect.ts`, `website/loaders/redirects.ts`), per-rule `redirect` blocks and a second `redirects` block. Fold them into the one block.
 
 ```bash
-deco check 2>&1 | grep -iE "redirect|matches the same URLs|is also the"
+deco check 2>&1 | grep -iE "redirect"     # leftover v7 or extra redirect blocks
+jq -r '.redirects[] | (.from // .redirect.from)' .deco/blocks/Redirects.json | sort | uniq -d   # duplicate sources
 ```
 
 Then sweep **every** rule against the old site in production (status and

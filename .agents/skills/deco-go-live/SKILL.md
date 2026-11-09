@@ -5,7 +5,7 @@ description: "Go-live and the first 72 hours for a site on @decocms/blocks 8 (ma
 
 # Go-live check for a v8 site
 
-Every item below cost a real incident on a store that already went live. Walk
+Most items below come from a real incident on a store that already went live. Walk
 it on the candidate (and on the real host) before the first byte of
 production traffic, again on cutover day, and once more 24 to 72 hours later.
 It is a double check, not a setup guide: wiring is in **deco-tanstack-site**
@@ -51,7 +51,7 @@ or curl-able.
 ## 1. Process (→ [process.md](./references/process.md))
 
 - [ ] 🔴 **Code freeze on the old repo** with a date and a recorded `FREEZE_SHA`; every commit since the migration cut reconciled.
-- [ ] 🔴 **Content freeze on the old CMS**; last import after the last edit, pushed as a draft, `deco check --draft` clean, then `deco publish`.
+- [ ] 🔴 **Content freeze on the old CMS**; last import after the last edit, pushed as a draft, `deco check --draft=<name>` clean, then `deco publish`.
 - [ ] 🔴 **Schemas match production**: same props and defaults; five-criteria parity.
 - [ ] 🟡 **CMS pass** with the editors before go-live; draft preview works on their hosts.
 - [ ] 🟡 **Inventory** of integrations not ported and of A/B tests whose variant code was never ported.
@@ -107,7 +107,7 @@ or curl-able.
 - [ ] 🔴 **Tag manager loads from `<head>` without a gesture gate**; checkout cookies match the old site.
 - [ ] 🔴 On the real host at 0%: **no `noindex`, no `Disallow: /`**; real 404 status codes.
 - [ ] 🟡 Every analytics vendor mounted and receiving events the next day.
-- [ ] 🟡 `deco check` clean on redirects, and a **sweep of every rule** against the old site.
+- [ ] 🟡 No duplicate `from` in the redirects block (`deco check` does not catch them), and a **sweep of every rule** against the old site.
 - [ ] 🟡 Sitemap served by a real route and streamed.
 - [ ] 🟡 Facet change resets `page`; autocomplete uses the typed term.
 
@@ -124,4 +124,4 @@ or curl-able.
 - **deco-site-workflow**: `deco pull`, `push`, `drafts`, `publish`, `releases`, `schema push`.
 - **deco-variants**: tests and campaigns, preview links with `__test` / `__campaign`.
 - **ecommerce-qa** (decocms/storefront-skills): end-to-end purchase tests with `@decocms/qa`.
-- **tools-reconcile-snapshot** (decocms/migrations): old-repo drift since the cut.
+- **tools-reconcile-snapshot** (decocms/migrations; planned to move to the blocks 7.x branch as **deco-reconcile-snapshot**): old-repo drift since the cut.

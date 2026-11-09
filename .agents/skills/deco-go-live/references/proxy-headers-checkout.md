@@ -9,7 +9,7 @@ On v8 the framework ships no commerce proxy. A proxied checkout is the site's
 own code in `createDecoWorker({ routes })`. What the worker does to every
 response on the way out still applies to it:
 
-- On an HTML response, it sets each of its security headers **only when the response has none**: `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `X-XSS-Protection`, `Strict-Transport-Security`, `Cross-Origin-Opener-Policy: same-origin-allow-popups`, and a `Content-Security-Policy` with Studio's origins in `frame-ancestors` and `script-src` (no `X-Frame-Options`).
+- On an HTML response, it sets each of its security headers **only when the response has none**: `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `X-XSS-Protection`, `Strict-Transport-Security`, `Cross-Origin-Opener-Policy: same-origin-allow-popups`, and a `Content-Security-Policy`: the site's `csp` option with Studio's origins added, or, with no `csp`, only a `frame-ancestors` listing Studio's origins. So a proxied page that sends no CSP of its own can then be framed only by Studio (no `X-Frame-Options` is sent).
 - It sets `CDN-Cache-Control: no-store` on any response that names none.
 - It keeps one `Set-Cookie` per cookie (name, Domain and Path).
 - A `routes` response gets no `preload` hints.
@@ -104,7 +104,7 @@ Previews on a `workers.dev` or preview domain miss them.
 |---|---|
 | server-side calls to `https://www.<domain>` hit the old site | a Worker's fetch to its own public hostname does not run the Worker again; it goes to the zone's origin |
 | tags or analytics behave differently in production | tags gated on the hostname |
-| a Studio draft link shows the release on the real host | drafts preview only on the hosts in the release's `previewHosts` (Studio writes them) plus `createCMS({ preview: { hosts } })`; any other host gets the release |
+| a Studio draft link shows the release on the real host | once a release carries `previewHosts` (Studio writes them), drafts preview only on those hosts plus `createCMS({ preview: { hosts } })`; any other host gets the release |
 
 ```bash
 grep -rn "https://www\.<domain>" src        # server-side self-fetch, host checks
