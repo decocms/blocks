@@ -23,10 +23,11 @@ TanStack Start site with `src/cms.ts` exporting `cms` from `createCMS`, as in
 ## Sections: JSX or descriptors
 
 A block function that returns JSX, or a `{ component, props }` object, is a
-section: Studio offers it wherever a section fits. The TanStack examples in
-this repo return descriptors, because a server function's result must be
-serialized; the site maps each descriptor to its component when it renders.
-The Next.js examples return JSX from the block map (`.deco/index.tsx`).
+section: Studio offers it wherever a section fits. `tanstack-smoke` and
+`tanstack-worker-smoke` in `examples/` return descriptors, because a server
+function's result must be serialized; the site maps each descriptor to its
+component when it renders. The Next.js examples and `tanstack-rsc-smoke`
+(server components) return JSX from the block map (`.deco/index.tsx`).
 
 ```ts
 // .deco/index.ts
@@ -172,9 +173,14 @@ export interface Post extends Route {
 post: (input: Post) => input,
 ```
 
-Because `Post` extends `Route` (`name` and `path`), each post is routed like a
-page: `client.routes()` finds it by path. A type without `path` is plain
-content that only the site's code reads.
+Because `Post` extends `Route` (`name` and `path`), `deco schema` puts the
+type in the `pages` group and `deco check` reports two posts with conflicting
+paths. A type without `path` is plain content that only the site's code reads.
+
+`client.routes()` lists only blocks of type `page`, not posts. To give each
+post its own URL, list the posts and match them together with the pages, as
+`examples/nextjs-binding-smoke/src/open-page.server.ts` does:
+`matchRoute(href, { routes: [...routes, ...posts] })`.
 
 List them with `client.list`:
 
@@ -186,7 +192,7 @@ const [posts, error] = await client.list<Post>("post", {
 ```
 
 `list` reads every saved block of that type whole. That is fine for an index
-of tens of documents. For routing, use `client.routes()`, which reads only the
-index: `list("page")` warns outside production for that reason.
+of tens of documents. For pages, route with `client.routes()`, which reads
+only the index: `list("page")` warns outside production for that reason.
 
 See `examples/nextjs-binding-smoke/src/app/blog/page.tsx` for a list page.
