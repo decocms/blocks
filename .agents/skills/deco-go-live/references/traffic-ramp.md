@@ -26,7 +26,7 @@ export default worker;
 
 - The config is a KV entry under the request's **hostname**: `{ workerName, fallbackOrigin, abTest: { ratio } }`, with `ratio` from 0 to 1. Without the binding, without an entry for the host, or without `fallbackOrigin`, the handler returns `null` and the worker serves everyone.
 - The bucket comes from, in order: the `?_deco_bucket=worker|fallback` override; the `_deco_bucket=<bucket>:<ratio %>` cookie, if it was set under the current ratio; the FNV-1a hash of `cf-connecting-ip` against the ratio (a random draw without that header).
-- Every answer carries `x-deco-bucket`. The cookie is set again when the bucket or the ratio changed, so changing the ratio re-draws everyone.
+- Every answer that goes through the split carries `x-deco-bucket` (a bypassed request does not). The cookie is set again when the bucket or the ratio changed, so changing the ratio re-draws everyone.
 - The "worker" bucket is the worker called back, so it goes on to the site's other routes, its page cache and the page. If that call throws and `circuitBreaker` is on (the default), the visitor gets the old origin, tagged `fallback`.
 - The "fallback" bucket gets `proxyToFallback`: the request goes to `fallbackOrigin` with `x-forwarded-host` set to the public host, redirects are not followed, and the old hostname is rewritten back to the public one in `Set-Cookie` domains, `Location`, and the text of 2xx bodies (streamed).
 
@@ -46,9 +46,10 @@ site owns). Leave shared proxies (checkout, `/api`) in the draw unless both
 buckets can use the new site's proxy.
 
 **Old-site responses leave like any route response.** The worker adds
-`CDN-Cache-Control: no-store` when the old origin sets none, and its security
-headers when the old origin sets none, including `Cross-Origin-Opener-Policy:
-same-origin-allow-popups`. Diff the old site's headers through the worker
+`CDN-Cache-Control: no-store` when the old origin sets none. On an HTML
+response it also adds each of its security headers the old origin did not
+set, including `Cross-Origin-Opener-Policy: same-origin-allow-popups` and a
+`Content-Security-Policy` with a `frame-ancestors` list. Diff the old site's headers through the worker
 against the old site direct ([proxy-headers-checkout.md](./proxy-headers-checkout.md#header-diff-against-the-old-site)).
 
 **Indexing at 0%.** The old site may decide `noindex` from its own hostname.
