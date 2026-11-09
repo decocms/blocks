@@ -53,8 +53,8 @@ it rendered first, forever.
 Any of these anywhere in the route, its layouts included:
 
 - `headers()`, `cookies()` or `searchParams`;
-- `bindDraft` (it reads `headers()`);
-- `contentClient(cms)` after `bindDraft` (use `assignedClient` here);
+- `bindDraft` (it reads `headers()`), so the `contentClient(cms)` pattern
+  that needs it (use `assignedClient` here);
 - `export const dynamic = "force-dynamic"`.
 
 A client component calling `useSearchParams()` does not stop the cache, but
