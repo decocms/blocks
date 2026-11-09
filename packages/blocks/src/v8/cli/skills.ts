@@ -49,6 +49,15 @@ function listSkills(from: string): string[] {
     .sort();
 }
 
+/** A path with its symlinks resolved; the path itself when it doesn't exist yet. */
+function realPath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 /**
  * Copy every shipped skill into `<root>/<dir>/<skill>/`. A skill's folder is
  * replaced as a whole, so a file an older version shipped doesn't linger;
@@ -63,6 +72,11 @@ export function installSkills(options: InstallSkillsOptions): InstalledSkills {
     );
   }
   const dir = path.resolve(options.root, options.dir ?? DEFAULT_SKILLS_DIR);
+  // Replacing a skill deletes its folder first: never when that folder is (or,
+  // through a symlink, leads to) the copy the package ships.
+  if (realPath(dir) === realPath(from)) {
+    throw new CliError(`${dir} is where @decocms/blocks keeps its skills; pass another --dir`);
+  }
   try {
     fs.mkdirSync(dir, { recursive: true });
     for (const name of skills) {

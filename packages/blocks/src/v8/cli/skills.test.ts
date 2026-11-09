@@ -142,6 +142,56 @@ describe("deco skills install", () => {
     );
   });
 
+  it("installs into an empty site, then again, with the same result", async () => {
+    const s = site();
+    fixture = s.fixture;
+    for (let i = 0; i < 2; i++) {
+      expect(
+        await runCli(["skills", "install"], {
+          cwd: fixture.root,
+          reporter: recorder(),
+          skillsDir: s.from,
+        }),
+      ).toBe(0);
+      expect(fs.readdirSync(path.join(fixture.root, ".claude/skills")).sort()).toEqual([
+        "alpha",
+        "beta",
+      ]);
+      expect(fixture.read(".claude/skills/alpha/references/a.md")).toBe("a v2");
+    }
+  });
+
+  it("replaces a symlinked skill folder with a copy and keeps what the link pointed to", () => {
+    const s = site();
+    fixture = s.fixture;
+    fixture.write("mine/alpha/SKILL.md", "the team's alpha");
+    fs.mkdirSync(path.join(fixture.root, ".claude/skills"), { recursive: true });
+    fs.symlinkSync(
+      path.join(fixture.root, "mine/alpha"),
+      path.join(fixture.root, ".claude/skills/alpha"),
+    );
+    installSkills({ root: fixture.root, from: s.from });
+    expect(fs.lstatSync(path.join(fixture.root, ".claude/skills/alpha")).isSymbolicLink()).toBe(
+      false,
+    );
+    expect(fixture.read(".claude/skills/alpha/SKILL.md")).toContain("v2");
+    expect(fixture.read("mine/alpha/SKILL.md")).toBe("the team's alpha");
+  });
+
+  it("refuses to install into the folder it copies from, even through a symlink", () => {
+    const s = site();
+    fixture = s.fixture;
+    fs.mkdirSync(path.join(fixture.root, ".claude"), { recursive: true });
+    fs.symlinkSync(s.from, path.join(fixture.root, ".claude/skills"));
+    expect(() => installSkills({ root: fixture.root, from: s.from })).toThrow(
+      /is where @decocms\/blocks keeps its skills/,
+    );
+    expect(() => installSkills({ root: fixture.root, dir: "shipped", from: s.from })).toThrow(
+      /is where @decocms\/blocks keeps its skills/,
+    );
+    expect(fixture.read("shipped/alpha/references/a.md")).toBe("a v2");
+  });
+
   it.each([
     [[], /deco skills needs a subcommand/],
     [["list"], /unexpected argument "list"/],
