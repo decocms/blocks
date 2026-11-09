@@ -46,7 +46,11 @@
       ],
       "entry": [
         "src/v8/cli/main.ts",
-        "src/v8/cli/__tests__/folderCdn.ts"
+        "src/v8/cli/__tests__/folderCdn.ts",
+        "src/v8/analytics/runtime/src/index.ts",
+        "src/v8/analytics/runtime/modules/*.ts",
+        "src/v8/analytics/runtime/view/*.ts",
+        "src/v8/analytics/shared/*.ts"
       ]
     },
     "packages/compat-v7": {

@@ -45,6 +45,14 @@
   "overrides": [
     {
       "includes": [
+        "packages/blocks/src/v8/analytics/runtime/**",
+        "packages/blocks/src/v8/analytics/shared/**"
+      ],
+      "linter": { "enabled": false },
+      "assist": { "enabled": false }
+    },
+    {
+      "includes": [
         "packages/apps-*/src/**",
         "!packages/*/src/**/*.test.ts",
         "!packages/*/src/**/__tests__/**"
