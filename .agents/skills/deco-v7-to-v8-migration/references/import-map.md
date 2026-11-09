@@ -35,7 +35,7 @@ An import that mixes moved and other names is split; the rest is reported.
 |---|---|
 | `@decocms/start`, `@decocms/start/*` | a 6.x import: upgrade the site to 7.x first |
 | `@decocms/blocks/sdk/cachedLoader` | gone: an upstream cache is your own `fetch`, passed to `createInstrumentedFetch` (`/next/caching#upstream-data`) |
-| `…/invoke`, `createInvoke`, `@decocms/blocks/sdk/invoke` | `/deco/invoke` is gone: the script writes one server function per key and imports it at each call site (`reference/server-functions.md`), never a rebuilt invoke tree (`/next/renames-and-migrations#loaders-actions-and-invoke`) |
+| `…/invoke`, `createInvoke`, `@decocms/blocks/sdk/invoke` | `/deco/invoke` is gone: the script writes one server function per key and imports it at each call site (`references/server-functions.md`), never a rebuilt invoke tree (`/next/renames-and-migrations#loaders-actions-and-invoke`) |
 | `@decocms/blocks-admin/*` | v8 sites serve no admin endpoints; the site editor uses the content protocol (`/next/studio-compatibility`) |
 | `@decocms/blocks-cli/*` | codegen is the `deco` CLI in `@decocms/blocks`: `deco schema`, `deco content`, `deco check` (`/next/cli`) |
 | `@decocms/blocks/setup`, `@decocms/blocks/cms/*` | `createCMS` from `@decocms/blocks`, with the block map in `.deco/index.ts` (`/next/content#create-the-cms`) |
@@ -47,11 +47,11 @@ An import that mixes moved and other names is split; the rest is reported.
 | any other `@decocms/apps-<x>`, `@decocms/apps/<x>` | apps are thin upstream clients: call `create<X>Client` from your own code (`/next/upstream-clients`) |
 | `@decocms/blocks/sdk/cacheHeaders`, `/responseCache`, `/cacheStorage`, `/mergeCacheControl` | on TanStack, the page cache in the site's worker entry (the example worker entry you copy: `PROFILES` are v7's); a Next.js site keeps its own |
 | `@decocms/blocks/sdk/csp`, `/sdk/redirects` | `createDecoWorker`'s `csp` option; the worker applies CMS redirects |
-| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, pageCache })` from `@decocms/tanstack/worker`, behind the site's own page cache: copy the example worker entry and carry v7's `buildSegment` and `csp` over by hand, as the report lists (`reference/framework-code.md`) |
+| `createDecoWorkerEntry` (`@decocms/tanstack`) | `createDecoWorker({ serverEntry, cms, pageCache })` from `@decocms/tanstack/worker`, behind the site's own page cache: copy the example worker entry and carry v7's `buildSegment` and `csp` over by hand, as the report lists (`references/framework-code.md`) |
 | `DecoRootLayout`, `PreviewProviders`, `DraftPreviewIndicator` (`@decocms/tanstack`) | `DecoDocument` from `@decocms/tanstack/react` |
 | `cmsRouteConfig`, `loadCmsPage`, `DecoPageRenderer`, … (`@decocms/tanstack`) | `createCMS` and `matchRoute` (`/next/tanstack-start-descriptors`), the draft from `contentClient(cms)` (`@decocms/tanstack/server`) |
 | `decoInvokeRouteConfig`, `decoMetaRouteConfig`, `decoRenderRouteConfig` | delete: the worker answers 404 on v7's admin paths |
-| `setupTanstackFastDeploy`, `kvLoader` | `createCMS({ site, token })` (`reference/hosted-releases.md`) |
+| `setupTanstackFastDeploy`, `kvLoader` | `createCMS({ site, token })` (`references/hosted-releases.md`) |
 | `@decocms/tanstack/vite` (`decoVitePlugin`) | `decoTanstack({ buildHash })` from `@decocms/tanstack/vite` |
 | `@decocms/tanstack/sdk/startEntry`, `/sdk/cdnSegment`, `/sdk/cookiePassthrough` | `decoServerFnFetch` in `createStart`; `buildSegment` in the worker entry's page cache; the worker's Set-Cookie handling |
 | `createDecoPage`, `DecoPageRenderer`, `DecoRootLayout`, … (`@decocms/nextjs`) | `createCMS` (`/next/nextjs`); `bindDraft` and `contentClient` from `@decocms/nextjs/server`; `StudioBridge` in the root layout |
@@ -62,7 +62,7 @@ An import that mixes moved and other names is split; the rest is reported.
 | `DraftPreviewBadge` (`@decocms/blocks/preview`, `@decocms/nextjs`) | `DraftBadge` from `@decocms/blocks/preview` |
 | `registerImageCdnDomain`, `registerImageQuality`, `getOptimizedMediaUrl`, `getSrcSet` | `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ domain, quality, sources: "all", ...byRelease })] })` (`byRelease` by the site's 7.x release, or read from the site's own copy of the helper: `framework-code.md`): `createImageUrl`, `decoCdn` from `@decocms/blocks/image`, `vtexCatalog` from `@decocms/apps-vtex/image`, `shopifyCdn` from `@decocms/apps-shopify/image`; `url(src, opts)` and `srcSet(url, src, opts)`; on TanStack, `ImageUrlProvider` |
 | `Image`, `Picture` on a Next.js site | next/image with `createDecoImageLoader` from `@decocms/nextjs/image-loader` |
-| other v7 names under `@decocms/tanstack`, `@decocms/nextjs` | the v8 binding has no such name; see the rows above and `reference/framework-code.md` |
+| other v7 names under `@decocms/tanstack`, `@decocms/nextjs` | the v8 binding has no such name; see the rows above and `references/framework-code.md` |
 | anything else under `@decocms/*` | no v8 equivalent (several have a site-code replacement: the next table) |
 
 ## What sites ended up writing themselves
@@ -73,7 +73,7 @@ From the storefront and blog migrations, the reported imports with no binding eq
 |---|---|
 | `BreadcrumbJsonLd`, `PLPJsonLd`, `ProductJsonLd` (`@decocms/blocks/hooks`) | `src/vendor/blocks/JsonLd.tsx` |
 | `ANALYTICS_SCRIPT` (`@decocms/blocks/sdk/analytics`) on a site with no analytics SDK | on TanStack, nothing: `DecoDocument` renders the `data-event` observer; elsewhere the same observer string in the site's root document, copied from the installed version (7.6x defers it until a Speculation Rules prerender activates) |
-| `withABTesting` (`@decocms/blocks/sdk/abTesting`), or a vendored copy | on TanStack Start, `abTestingRoutes({ worker: () => worker, kvBinding, shouldBypassAB, preHandler })` from `@decocms/compat-v7/tanstack/worker`, run first in `createDecoWorker`'s `routes`; the script reports the import (a wrapper becomes a routes handler, so it isn't rewritten). If the KV holds no config for the site's hosts, nothing was split: delete it and the binding instead (`reference/framework-code.md`) |
+| `withABTesting` (`@decocms/blocks/sdk/abTesting`), or a vendored copy | on TanStack Start, `abTestingRoutes({ worker: () => worker, kvBinding, shouldBypassAB, preHandler })` from `@decocms/compat-v7/tanstack/worker`, run first in `createDecoWorker`'s `routes`; the script reports the import (a wrapper becomes a routes handler, so it isn't rewritten). If the KV holds no config for the site's hosts, nothing was split: delete it and the binding instead (`references/framework-code.md`) |
 | `signal` (`@decocms/blocks/sdk/signal`) | delete it when nothing imports the site's re-export; otherwise a local signal |
 | `withFetchTimeout`, `FetchFn` (`@decocms/blocks/sdk/fetchTimeout`, 7.6x) in vendored loaders | a local `fetch(url, { ...init, signal: AbortSignal.timeout(10_000) })` (v7's default), or the v8 client's own fetch |
 | `getCookies`/`setCookie`, `RequestContext` | read the request and write response headers explicitly, or a site-owned `AsyncLocalStorage` (`src/request-state.server.ts`) |

@@ -43,7 +43,7 @@ export class VtexInvokeChoiceNeeded extends Error {
         "  --vtex-invoke keep  copy v7's handlers into src/vendor, so each call works as it did",
         "  --vtex-invoke v8    no v7 code: @decocms/apps-vtex's client where it has the operation",
         "                      (the cart, simulation, sellers), else a stub that rejects, listed in the report",
-        "Either way the report lists every key and what it became (reference/server-functions.md).",
+        "Either way the report lists every key and what it became (references/server-functions.md).",
       ].join("\n"),
     );
     this.name = "VtexInvokeChoiceNeeded";

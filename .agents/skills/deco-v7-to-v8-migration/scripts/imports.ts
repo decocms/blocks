@@ -273,13 +273,13 @@ export function v7ImageUrl(version: string | undefined): string {
   const [major, minor, patch] = (version ?? "").split(".").map(Number);
   const at = (m: number, p: number) => major === 7 && (minor > m || (minor === m && patch >= p));
   const nuvemshop =
-    "; a store with Nuvemshop images lists its own provider before decoCdn (reference/framework-code.md)";
+    "; a store with Nuvemshop images lists its own provider before decoCdn (references/framework-code.md)";
   const providers = (deco: string) =>
     `createImageUrl({ providers: [vtexCatalog(), shopifyCdn(), decoCdn({ ${deco} })] })`;
   const registered =
     "domain and quality as the site registered them with registerImageCdnDomain/registerImageQuality, else leave them out";
   if (major !== 7 || Number.isNaN(minor)) {
-    return `${providers('domain, quality, sources: "all"')} (${IMAGE_HELPERS}; ${registered}; that is the latest 7.x, and reference/framework-code.md lists the decoCdn options for older 7.x releases${nuvemshop})`;
+    return `${providers('domain, quality, sources: "all"')} (${IMAGE_HELPERS}; ${registered}; that is the latest 7.x, and references/framework-code.md lists the decoCdn options for older 7.x releases${nuvemshop})`;
   }
   if (!at(71, 0)) {
     return `${providers('domain, quality, sources: "all", legacyHosts: []')} (${IMAGE_HELPERS}; domain as the site registered it with registerImageCdnDomain, else "decoims.com", the default before 7.71.0; quality as registered with registerImageQuality, else leave it out)`;
@@ -322,7 +322,7 @@ export function copyImageUrl(
     rules.vtex ? "vtexCatalog from @decocms/apps-vtex/image" : "",
     rules.shopify ? "shopifyCdn from @decocms/apps-shopify/image" : "",
     rules.nuvemshop
-      ? "nuvemshop: the store's own provider for v7's Nuvemshop rule (reference/framework-code.md)"
+      ? "nuvemshop: the store's own provider for v7's Nuvemshop rule (references/framework-code.md)"
       : "",
   ].filter(Boolean);
   return `createImageUrl({ providers: [${providers.join(", ")}] }) (${helpers.join(", ")}; read from the site's copy of v7's image helper, ${copy.file}: these options reproduce its URLs, which win over its 7.x release's where they differ)`;
@@ -507,7 +507,7 @@ const HINTS: [RegExp, string][] = [
   ],
   [
     /^@decocms\/blocks\/sdk\/abTesting$/,
-    "withABTesting is abTestingRoutes({ worker: () => worker, ...the same options }) from @decocms/compat-v7/tanstack/worker, a handler run first in createDecoWorker's routes (not a wrapper around the worker): same KV entry, buckets, cookie and fallback proxy (reference/framework-code.md)",
+    "withABTesting is abTestingRoutes({ worker: () => worker, ...the same options }) from @decocms/compat-v7/tanstack/worker, a handler run first in createDecoWorker's routes (not a wrapper around the worker): same KV entry, buckets, cookie and fallback proxy (references/site-code.md)",
   ],
   [
     /^@decocms\/tanstack\/vite$/,
@@ -922,7 +922,7 @@ export function rewriteImports(root: string, report: Report, vendored: Map<strin
       subject: copy.file,
       message: url
         ? `a copy of v7's image helper (getOptimizedMediaUrl): on v8, imageUrl = ${url}. url(src, { width, height, fit }) and srcSet(url, src, …) from @decocms/blocks/image replace its getOptimizedMediaUrl and getSrcSet, and on TanStack Start its Image, Picture and Source are @decocms/tanstack/react's under <ImageUrlProvider value={imageUrl}>. One difference, approved: an already-resized Deco CDN URL in the content (https://assets.decocms.com/image?…&src=…) is re-resized from its src, where the copy wrote src=image`
-        : "a copy of v7's image helper (getOptimizedMediaUrl) whose URL rules the script can't read (it was edited): compare its URLs with createImageUrl's before replacing it, and pick the decoCdn options that reproduce them (reference/framework-code.md)",
+        : "a copy of v7's image helper (getOptimizedMediaUrl) whose URL rules the script can't read (it was edited): compare its URLs with createImageUrl's before replacing it, and pick the decoCdn options that reproduce them (references/framework-code.md)",
     });
   }
   if (stripsAnywhere) reportLeadingStrip(root, report, readCopy?.file);

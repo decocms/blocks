@@ -845,7 +845,7 @@ function findCatchAll(dir: string): { file: string; param: string } | undefined 
  * Moves a router's module-scope `new QueryClient(…)` into `getRouter`. The server creates a router per
  * request, so a client at module scope is shared by every visitor (one visitor's cart or user in
  * another's render); in the browser `getRouter` runs once, so it still keeps one client
- * (reference/caching-and-privacy.md).
+ * (references/caching-and-privacy.md).
  */
 export function scopeQueryClient(root: string, report: Report): void {
   const file = ["router.tsx", "router.ts"]
@@ -893,7 +893,7 @@ export function scopeQueryClient(root: string, report: Report): void {
     report.manual.push({
       step: "scaffold",
       subject: rel,
-      message: `the QueryClient "${name}" is created once at module scope and shared by every request on the server: create it inside getRouter, one per request (reference/caching-and-privacy.md)`,
+      message: `the QueryClient "${name}" is created once at module scope and shared by every request on the server: create it inside getRouter, one per request (references/caching-and-privacy.md)`,
     });
     return;
   }
