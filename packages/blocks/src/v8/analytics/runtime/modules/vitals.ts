@@ -124,3 +124,5 @@ window.__dqRegister?.((enqueue, _api: Record<string, unknown>, onFinal) => {
   // Every vital is only final when the page is, so this rides out on core's last flush.
   onFinal(send);
 });
+
+export {};

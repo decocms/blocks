@@ -69,3 +69,5 @@ window.__dqRegister?.((enqueue, api: Record<string, unknown>) => {
       true,
     );
 });
+
+export {};
