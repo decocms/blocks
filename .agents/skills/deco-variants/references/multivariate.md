@@ -69,7 +69,7 @@ The well-known legacy names resolve without a block-map entry (`packages/blocks/
 
 Under a legacy name, values are saved plain, and the runtime wraps each in `lazy` on the way in, so only the winner runs there too.
 
-The other per-kind flag types (image, message, page and so on), the `$live/…` names and v7's date matcher have no alias. The one-time migration rewrites them (the `deco-v7-to-v8-migration` skill). v7's other matchers are in [`v7-matchers.md`](./v7-matchers.md).
+The other per-kind flag types (`image`, `message`, `page`), `$live/flags/multivariate.ts`, `$live/matchers/MatchAlways.ts` and v7's date matcher have no alias. The one-time migration (the `deco-v7-to-v8-migration` skill) renames the flag and always types to the names above, and renames the date matcher to `date`, which `deco check` then reports with how to move it into `campaigns`. v7's other matchers are in [`v7-matchers.md`](./v7-matchers.md).
 
 In v7 a "custom flag type" was a file per value type. v8 has no such files: `multivariate` is generic over its value, so there is nothing to write per type.
 

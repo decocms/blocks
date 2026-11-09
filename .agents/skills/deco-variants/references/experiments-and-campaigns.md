@@ -77,7 +77,7 @@ In `.deco/blocks/campaigns.json`:
 - A bound must be an ISO 8601 date-time with an offset (`Z` or `±hh:mm`). A date alone, a date-time without an offset, a day the calendar does not have or a free-text date reads as "never". `deco check` reports such a bound as an error and suggests a fix. Write the store's own offset.
 - The moment checked is the client's `date`: `cms.client({ date })`, or when the client was created. A preview can set it with `__at` (see [`draft-preview.md`](./draft-preview.md)).
 - `cms.client({ campaigns: { "black-friday": true } })` forces a campaign on or off, like a test.
-- There are no inline dates on a rule. A `campaign` rule always names a campaign, so all date logic lives in one block. v7's date matcher and the prerelease `date` rule have no alias; `deco check` says how to move each one.
+- There are no inline dates on a rule. A `campaign` rule always names a campaign, so all date logic lives in one block. v7's date matcher has no alias: the migration renames it to `date`, and `deco check` reports every `date` rule with how to move it into `campaigns`.
 
 ### Recurring schedules
 
@@ -90,14 +90,15 @@ v7's cron matcher has no v8 counterpart. Write each occurrence as its own window
 | `no test "<name>" in the saved block "experiments": this rule is always false` | Add the test to `experiments`, or fix the name |
 | `no campaign "<name>" in the saved block "campaigns": this rule is always false` | Add the campaign, or fix the name |
 | `this campaign rule names no campaign, so it is always false` | Set `name` |
-| `the campaign "<name>" starts at "…", which isn't written as a campaign reads it, so it never runs` (or `ends at`) | Write the bound with a time and an offset |
+| `the campaign "<name>" starts at "…"` (or `ends at`), followed by `a date without a time or offset`, `which has no offset` or `which isn't written as a campaign reads it`, then `so it never runs` | Write the bound as the message suggests: date, `T`, time and offset |
+| `unknown block type "date"` | Move the rule to `campaign` as the message says |
 
 ## Reading the results
 
 v8 decides who sees what. It does not record conversions, and its analytics module does not add the test arm to events. Send the arm yourself:
 
 - On TanStack, `requestAssignments()` from `@decocms/tanstack/server` returns each test on or off for the request, as the worker decided it. Pass the arms the page rendered to your analytics events.
-- On Next.js, the assignments route's segment names the tests the page rendered.
+- On any binding, the page's own client gives the same answer: `const [tests] = await client.resolve("experiments")` gives each test's name and `true` or `false`, never a percentage.
 - In the browser, the `deco_segment` cookie holds the visitor; `parseVisitor` and `assign` from `@decocms/blocks/experiments` give the same answer as the server for a given `experiments` block.
 
 Count users, not sessions: the id is per visitor. Then use the `ab-testing` skill in decocms/skills to plan the sample size, check the sample ratio and read significance.
