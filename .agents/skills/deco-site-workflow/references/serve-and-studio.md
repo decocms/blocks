@@ -5,8 +5,8 @@ it, and publish it", with nothing else to read.
 
 ## If Studio asks you to connect `deco serve`
 
-`deco serve` served `.deco/` from your working tree to Studio over a local endpoint. It existed in
-`@decocms/blocks` 8.9.x and earlier. **It was removed in 8.10.0**, when content moved to Studio's
+`deco serve` served `.deco/` from your working tree to Studio over a local endpoint. It shipped in
+`@decocms/blocks` 8.1 through 8.9.x. **It was removed in 8.10.0**, when content moved to Studio's
 hosted CMS on the CDN. On 8.10+:
 
 ```text
@@ -23,9 +23,9 @@ commands this version has.
 - **On 8.9.x or older:** upgrade `@decocms/blocks` (and the binding, `@decocms/tanstack` or
   `@decocms/nextjs`, at the same version), then do Steps 1 to 5. This skill doesn't document the old
   `deco serve` flags.
-- Studio showing `the endpoint speaks an older deco-content than this client needs (1.1 or newer):
-  update @decocms/blocks (8.2.0 or newer) where the endpoint runs` means it reached an 8.1.x
-  `deco serve`. Same fix: upgrade.
+- The error `the endpoint speaks an older deco-content than this client needs (… or newer): update
+  @decocms/blocks (8.2.0 or newer) where the endpoint runs` comes from the content protocol client
+  when it reaches an older endpoint, such as an 8.1.x `deco serve`. Same fix: upgrade.
 
 ## Step 1: the site reads hosted content
 
@@ -34,12 +34,12 @@ commands this version has.
 import { createCMS } from "@decocms/blocks";
 import blocks from "../.deco";
 
-export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
+export const cms = createCMS({ blocks, site: "my-store" });
 ```
 
 - `site` is Studio's site name. `@decocms/blocks` reads no environment variable: the site passes the
-  value. On Workers, put `DECO_SITE` in `wrangler.jsonc` `vars`. The CLI reads the same var (see
-  [schema.md](./schema.md), Step 2).
+  value, as a literal or from its own config. The CLI finds the same name in `DECO_SITE` (see
+  [schema.md](./schema.md), Step 2), so keep the two equal.
 - Leave `content` out. Passing both `site` and `content` is a `TypeError`.
 - A site moving from bundled content (`createCMS({ blocks, content })` with `.deco/blocks.gen.ts`)
   drops `content`, the import of the generated module, and `deco content` from its scripts.
@@ -112,7 +112,7 @@ silently renders the published release. That is the usual reason a draft "shows 
 ```ts
 createCMS({
   blocks,
-  site: process.env.DECO_SITE!,
+  site: "my-store",
   // Vite dev; on Next.js test process.env.NODE_ENV === "development"
   ...(import.meta.env.DEV ? { preview: { hosts: ["localhost"] } } : {}),
 });

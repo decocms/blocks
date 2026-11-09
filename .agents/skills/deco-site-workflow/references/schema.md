@@ -72,9 +72,8 @@ The CLI reads `DECO_SITE`, first match wins:
    a top-level inline `vars = { … }`), same folder.
 
 The value is Studio's site name: letters, digits, `.`, `_`, `-`, starting with a letter or digit.
-Studio finds the organization from the site; the CLI never takes one. A site on Workers usually
-already has `DECO_SITE` in `wrangler.jsonc` `vars`, because its code passes it to
-`createCMS({ blocks, site })`. That also covers CI.
+Studio finds the organization from the site; the CLI never takes one. A `DECO_SITE` committed in
+`wrangler.jsonc` `vars` (or another file in the list) is found in CI too, with no extra setup.
 
 Missing everywhere: exit 64 with
 `no Studio site: set DECO_SITE in the environment, or in <root>'s .env, .dev.vars, or vars.DECO_SITE of wrangler.jsonc, wrangler.json or wrangler.toml (looked in that order)`.
@@ -90,7 +89,7 @@ The CLI sends `Authorization: Bearer <token>` to Studio. It takes the token from
 
 No token: exit 3, `not logged in to https://studio.decocms.com; run: npx decocms auth login --target=https://studio.decocms.com`.
 A token Studio rejects: exit 3, `Studio answered 401: … (check DECO_TOKEN, or log in again with npx decocms auth login)`.
-A 403 is also exit 3: the token's user can't reach this site.
+A 403 is also exit 3: Studio refused the token for this site.
 
 `DECO_STUDIO_URL` changes the Studio API base (default `https://studio.decocms.com`). Leave it unset
 unless you run a local or staging Studio.

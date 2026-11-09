@@ -25,7 +25,8 @@ laptop after `npx decocms auth login` but not in CI.
 | Command | `DECO_SITE` | Token |
 |---|---|---|
 | `deco schema`, `deco schema --check`, `deco content` | no | no |
-| `deco check` (production), `deco check --revision` | yes (else it checks local files) | no |
+| `deco check` (production) | yes (else it checks local `.deco/blocks`) | no |
+| `deco check --revision` | yes | no |
 | `deco pull`, `deco diff` (production) | yes | no |
 | `deco pull --draft`, `deco diff --draft`, `deco check --draft`, `deco push`, `deco publish`, `deco drafts`, `deco releases`, `deco schema push` | yes | yes |
 
@@ -75,7 +76,8 @@ every page fails with `LOADER_FAILED`. See [serve-and-studio.md](./serve-and-stu
 
 - Code: redeploy the previous build. Then run `deco schema && deco schema push` from that commit so
   Studio's forms match it again.
-- Content: roll back in Studio, after `deco check --revision=<id>` against the code that is live.
+- Content: the CLI has no rollback command; roll back in Studio. First run `deco check --revision=<id>`
+  against the code that is live.
   See [content-sync.md](./content-sync.md#releases-and-rollback).
 
 ## Page caches
