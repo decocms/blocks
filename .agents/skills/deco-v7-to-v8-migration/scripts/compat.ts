@@ -126,7 +126,7 @@ export const COMPAT_NAME_HINTS: { specifier: RegExp; names: string[]; hint: stri
   {
     specifier: /^@decocms\/blocks\/sdk(\/useScript)?$/,
     names: ["useSection", "usePartialSection", "HTMX_LEGACY_URL"],
-    hint: "v7's partial sections (HTMX) have no v8 equivalent; v7 7.x's own useSection only returned a placeholder URL (the script points named imports at src/migration-stubs.ts, which keeps it): render the section on the server and fetch it with a server function (reference/server-functions.md)",
+    hint: "v7's partial sections (HTMX) have no v8 equivalent; v7 7.x's own useSection only returned a placeholder URL (the script points named imports at src/migration-stubs.ts, which keeps it): render the section on the server and fetch it with a server function (references/server-functions.md)",
   },
   {
     specifier: /^@decocms\/blocks(\/types)?$/,

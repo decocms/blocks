@@ -36,7 +36,7 @@ There's no SSR HTML to compare. A static harness covers what changes (Tier 0, no
 
 Record the baseline on the last v7 commit, before the script runs. Add device screenshots (Tier 1) once a device or emulator build is available. Until then, rendering parity rests on the bundle check showing the packed files didn't change: say that in the PR.
 
-Most form differences are expected. Sort them with `reference/parity.md` ("Editor-form differences") before you approve or fix anything.
+Most form differences are expected. Sort them with [`editor-forms.md`](./editor-forms.md) before you approve or fix anything.
 
 ## Before merging
 

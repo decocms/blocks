@@ -12,6 +12,17 @@ From the site migrations; the sites and what the commit hashes refer to are list
 - **Don't reformat vendored request documents.** Running Prettier over `src/` reflows the GraphQL documents in a vendored `queries.ts`, which changes every request body sent upstream: a replaying parity harness then misses every call. Keep such files out of the formatter (`.prettierignore`).
 - **Two lockfiles.** A stale `package-lock.json` next to the `bun.lock` the site really installs from (different `@decocms/*` versions) is a trap for CI and deploy tooling that picks the npm lock: delete the stale one in the dependency commit and say so.
 
+## From an installed copy of the skill
+
+The script resolves `@decocms/blocks` relative to its own files. From outside a `decocms/blocks` checkout, copy `scripts/` into the site so it resolves the site's `@decocms/blocks@8`, run it, then delete the copy:
+
+```bash
+cd <site> && bun add @decocms/blocks@^8.4
+cp -R <skill>/scripts .deco-migrate
+bun .deco-migrate/main.ts --root .
+rm -rf .deco-migrate
+```
+
 ## Dependencies
 
 - `bun.lock`: don't commit a lock produced by `bun link`; regenerate once the v8 packages resolve from npm.

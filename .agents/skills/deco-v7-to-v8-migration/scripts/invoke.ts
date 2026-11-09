@@ -269,7 +269,7 @@ export function rewriteInvokes(
       step: "invoke",
       subject: `/deco/invoke calls (${where.slice(0, 3).join(", ")}${where.length > 3 ? `, +${where.length - 3} more` : ""})`,
       message:
-        "the site runs on no v8 binding the script knows, so they were left: make each key a server function or route handler of your framework that calls its handler with (props, request), and import it at the call site (reference/server-functions.md)",
+        "the site runs on no v8 binding the script knows, so they were left: make each key a server function or route handler of your framework that calls its handler with (props, request), and import it at the call site (references/server-functions.md)",
     });
     return stubs;
   }
@@ -449,7 +449,7 @@ export function rewriteInvokes(
         step: "invoke",
         subject: `${rel(file)}:${dynamic.join(", ")}`,
         message:
-          "an invoke call whose key the script can't read (a computed property or key): give it a server function by hand that calls its handler with (props, request), and import it here (reference/server-functions.md)",
+          "an invoke call whose key the script can't read (a computed property or key): give it a server function by hand that calls its handler with (props, request), and import it here (references/server-functions.md)",
       });
     }
   }
@@ -494,7 +494,7 @@ export function rewriteInvokes(
       step: "invoke",
       subject: rel(functionsFile),
       message:
-        "these are public endpoints, as /deco/invoke was: validate each input (a zod schema in inputValidator, or in the action), and set the cookies a handler needs with the framework's own API (v7 forwarded RequestContext.responseHeaders, which v8 doesn't have) (reference/server-functions.md)",
+        "these are public endpoints, as /deco/invoke was: validate each input (a zod schema in inputValidator, or in the action), and set the cookies a handler needs with the framework's own API (v7 forwarded RequestContext.responseHeaders, which v8 doesn't have) (references/server-functions.md)",
     });
   }
   for (const [key, where] of missing) {

@@ -167,7 +167,7 @@ export function writeImageUrl(
       step: "imports",
       subject: "src/imageUrl.ts",
       message:
-        "v7 also gave Nuvemshop product images (*.mitiendanube.com) the CDN's fixed sizes, which no @decocms/apps-* package covers: a store with such images lists its own provider before decoCdn (reference/framework-code.md)",
+        "v7 also gave Nuvemshop product images (*.mitiendanube.com) the CDN's fixed sizes, which no @decocms/apps-* package covers: a store with such images lists its own provider before decoCdn (references/framework-code.md)",
     });
   }
   wireImageUrlProvider(root, file, report);
