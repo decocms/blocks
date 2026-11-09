@@ -67,9 +67,18 @@ takes `--json`.
 
 ## Get these skills into a site
 
-These skills live in the `decocms/blocks` repository, under `.agents/skills/` on `main`. The
-`@decocms/blocks` package doesn't ship them and the `deco` CLI has no command that installs them.
-Copy or link the folders you need into the site's `.claude/skills`.
+From 8.11.0, `@decocms/blocks` ships the skills of `.agents/skills/` and the CLI copies them into the
+site, offline:
+
+```bash
+npx deco skills install                       # into .claude/skills/<skill>/
+npx deco skills install --dir=.agents/skills  # elsewhere; relative to the folder that contains .deco/
+```
+
+It finds `.deco/` like every command (walk up, or `--root`; none found exits 1) and takes `--json`
+(`{ ok, dir, version, skills }`). Each shipped skill's folder is deleted and copied again, so files
+from an older version go away; folders of skills it doesn't ship are left alone. Run it again after
+upgrading `@decocms/blocks`. On 8.10 or older, copy the folders from `.agents/skills/` on `main`.
 
 ## Related skills
 
