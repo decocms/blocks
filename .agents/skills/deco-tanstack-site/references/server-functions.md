@@ -65,7 +65,7 @@ function per action.
 
 **Check it.** In the browser's network panel, the call must go to `/_serverFn/...` on your own
 origin, not to the upstream API. After `vite build`, search the client JavaScript (not the source
-maps) for secret names and for `node:async_hooks`: neither should be there.
+maps) for secret names and for the upstream API's host: neither should be there.
 
 ## Per-visitor responses
 
@@ -100,7 +100,8 @@ if (cookies.length) setResponseHeader("set-cookie", cookies);
 ```
 
 - **Read with `getSetCookie()`.** `headers.get("set-cookie")` returns every cookie joined by
-  `, ` into one string. Sent on as one header, the browser rejects it. The usual symptom: the
+  `, ` into one string. Sent on as one header, the browser reads it as a single cookie
+  and the others are lost. The usual symptom: the
   action succeeds, then the next page shows an empty cart.
 - **`setResponseHeader` replaces.** With an array it deletes every `Set-Cookie` set earlier in this
   response, then appends each value; with a string it overwrites. Collect all the cookies, then

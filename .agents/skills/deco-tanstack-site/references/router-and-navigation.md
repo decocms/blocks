@@ -123,9 +123,9 @@ returns them all. Keep the selected SKU in component state and render from it. N
 needed.
 
 If the URL must also change (so a shared link opens that SKU), measure before you rely on it. v7
-storefronts called `window.history.replaceState` because the router didn't see it. The
-`@tanstack/history` this repo installs (1.162) wraps `pushState` and `replaceState` and notifies the
-router, which then starts a load. Whether that load calls the page server function depends on
+storefronts called `window.history.replaceState` on the claim that the router didn't see it. That
+is no longer true: `@tanstack/history` 1.162 (what `@tanstack/react-router` 1.170 depends on) wraps
+`pushState` and `replaceState` and notifies the router, which then starts a load. Whether that load calls the page server function depends on
 `loaderDeps` and `staleTime`. Keep the SKU param out of `loaderDeps` and out of the href, then
 check the network panel: a SKU click should make zero `/_serverFn/` calls.
 

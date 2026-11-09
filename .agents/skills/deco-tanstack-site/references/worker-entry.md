@@ -32,15 +32,16 @@ No option turns these off.
 - **Drafts.** `?__draft=<pointer>` or the `__deco_draft` cookie previews a draft, on the hosts the
   CMS allows (`createCMS` `preview.hosts`, plus the ones Studio writes into the release). Any request
   with a draft signal (`?__draft=off` too) is a preview: it never reaches `pageCache` and answers
-  `Cache-Control: max-age=0, no-cache, must-revalidate`, `Vary: Cookie` and `noindex`. A link to a
+  `Cache-Control: max-age=0, no-cache, must-revalidate`, `Vary: Cookie` and
+  `X-Robots-Tag: noindex, nofollow`. A link to a
   draft that can't be read renders the release, never a 500. A link on another host gets the
   release.
 - **The CMS redirects**, for `GET`/`HEAD` page requests, before anything else. Server-function
   calls, assets and `/_build` are not redirected.
 - **The visitor and the tests.** It reads the visitor (`deco_segment` cookie, or a new one) and
   decides each test and campaign once, then hands them to the app on request headers it strips
-  from incoming requests (below). The visitor cookie goes out on a first visit only, never from a
-  preview.
+  from incoming requests (below). The visitor cookie goes out on a first visit only, and never on a request that renders a draft
+  or an old release.
 - **Headers on the way out**: the security headers and Studio's CSP on HTML
   ([`document-and-security.md`](./document-and-security.md)); `Cache-Control: public,
   max-age=31536000, immutable` on fingerprinted assets; one `Set-Cookie` per cookie (the last one
