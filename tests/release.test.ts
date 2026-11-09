@@ -15,6 +15,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -262,6 +263,78 @@ describe("release: what each tarball ships", () => {
     ).toEqual([]);
     expect(files.has("package.json")).toBe(true);
   }, 30_000);
+});
+
+/** The repo's agent skills: the folders of .agents/skills with a SKILL.md. */
+const repoSkills = readdirSync(join(repo, ".agents", "skills"), { withFileTypes: true })
+  .filter((e) => e.isDirectory() && existsSync(join(repo, ".agents", "skills", e.name, "SKILL.md")))
+  .map((e) => e.name);
+
+describe("release: @decocms/blocks ships the agent skills (deco skills install)", () => {
+  it("builds them in: the build runs scripts/pack-skills.mjs and files lists skills", () => {
+    const m = readManifest("blocks") as Manifest & {
+      scripts: Record<string, string>;
+      files: string[];
+    };
+    expect(m.scripts.build).toContain("node ../../scripts/pack-skills.mjs");
+    // npm publish runs prepack, and the release's prepareCmd builds the workspace.
+    expect(m.scripts.prepack).toBe("npm run build");
+    expect(exec.prepareCmd).toContain("bun run build");
+    expect(m.files).toContain("skills");
+  });
+
+  it("the tarball holds every skill's SKILL.md", () => {
+    expect(repoSkills.length).toBeGreaterThan(0);
+    const files = packedFiles("blocks");
+    // skills/ comes from `bun run build`, like dist/.
+    expect(
+      repoSkills.filter((name) => !files.has(`skills/${name}/SKILL.md`)),
+      "missing from the tarball (is the package built?)",
+    ).toEqual([]);
+  }, 30_000);
+});
+
+describe("scripts/pack-skills.mjs", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("copies the folders with a SKILL.md, without tests, fixtures or node_modules, over a clean target", () => {
+    const root = mkdtempSync(join(tmpdir(), "pack-skills-"));
+    dirs.push(root);
+    const write = (file: string, text = "x") => {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), text);
+    };
+    write("from/README.md");
+    write("from/one/SKILL.md");
+    write("from/one/references/a.md");
+    write("from/one/scripts/main.ts");
+    write("from/one/scripts/main.test.ts");
+    write("from/one/scripts/__fixtures__/site/a.json");
+    write("from/one/scripts/__conformance__/c.test.ts");
+    write("from/one/scripts/node_modules/dep/index.js");
+    write("from/drafts/notes.md");
+    write("to/stale/SKILL.md");
+    const r = spawnSync(
+      "node",
+      [
+        join(repo, "scripts", "pack-skills.mjs"),
+        "--from",
+        join(root, "from"),
+        "--to",
+        join(root, "to"),
+      ],
+      { encoding: "utf8" },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    const files = (readdirSync(join(root, "to"), { recursive: true }) as string[])
+      .filter((f) => !statSync(join(root, "to", f)).isDirectory())
+      .sort();
+    expect(files).toEqual(["one/SKILL.md", "one/references/a.md", "one/scripts/main.ts"]);
+  });
 });
 
 describe("scripts/sync-versions.mjs", () => {

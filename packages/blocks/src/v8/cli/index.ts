@@ -15,3 +15,4 @@ export { type ContentOptions, content, readSavedBlocks, type SavedBlocks } from 
 export { type Reporter, silentReporter } from "./log.ts";
 export { runCli } from "./run.ts";
 export { type SchemaOptions, schema } from "./schema/index.ts";
+export { type InstalledSkills, type InstallSkillsOptions, installSkills } from "./skills.ts";

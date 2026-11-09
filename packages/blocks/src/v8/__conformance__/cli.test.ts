@@ -414,6 +414,8 @@ describe("cli.mdx", () => {
       // Kept for content without a site (git-backed .deco/blocks, what the v7 migration writes).
       "content",
       "schema",
+      // Copies the skills the package ships into the site (offline).
+      "skills",
     ]);
     for (const unknown of ["dev", "build", "serve", "generate", "migrate"]) {
       const r = await deco([unknown], tmpDir());
