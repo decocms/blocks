@@ -48,6 +48,8 @@ the spec follows a TTL change instead of failing on it.
 import { expect, test } from "@playwright/test";
 
 const LISTING = "/some-category";
+// Set from what you measure (see "Cache probe" below).
+const BUDGET = { listingRawBytes: 800_000, priceSpecs: 200 };
 const get = (request, path, headers = {}) =>
   request.get(path, { headers, maxRedirects: 0 });
 
@@ -87,8 +89,8 @@ test("listing HTML stays under budget", async ({ request }) => {
 });
 ```
 
-`x-cache` is per data center on a real deployment and per process on `vite preview`. Run the
-warm-up request and the assertion from the same runner.
+The cache is per data center on a real deployment and local to the machine on `vite preview`.
+Run the warm-up request and the assertion from the same runner.
 
 ## Probes worth keeping as scripts
 
@@ -111,11 +113,11 @@ listings should be within a few percent of each other.
 ## Static checks
 
 Grep the content for blocks that point at loaders you know bypass your trimming or caching (for
-example a raw upstream search loader instead of the site's trimmed one). The content lives in
-`.deco/blocks`; a test that greps it fails the PR before any request is made.
+example a raw upstream search loader instead of the site's trimmed one). The saved blocks are
+the JSON files in `.deco/blocks` (on a site that reads content at runtime, what `deco pull`
+wrote); a test that greps them fails the PR before any request is made.
 
 ## CI
 
 Run `e2e:perf` and the probes on every PR that touches the worker entry, a loader, a section on a
-cacheable page, or the segment. A full run of about twenty tests takes seconds against a local
-preview.
+cacheable page, or the segment.

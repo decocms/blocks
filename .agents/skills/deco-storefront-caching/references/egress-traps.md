@@ -69,8 +69,10 @@ ETag, which defeats a year-long TTL.
 
 The example sets `Vary: Accept-Encoding` on the answers it gives from its cache or a fresh store,
 replacing what the app sent. A `BYPASS` answer keeps the app's `Vary`, and so do your `routes`
-answers and static files. Previews get `Vary: Cookie`, which is correct for them. Probe public
-URLs and static files for any other token.
+answers. The worker sets `Vary: Accept-Encoding` on fingerprinted assets and on `/fonts/`. Any
+other file (a sprite or icon in `public/` without a hash in its name) is not an asset to the worker:
+it goes through `pageCache` like a page. Previews get `Vary: Cookie`, which is correct for them.
+Probe public URLs and static files for any other token.
 
 ## 5. Redirects
 
