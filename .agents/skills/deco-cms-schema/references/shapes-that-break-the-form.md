@@ -69,10 +69,9 @@ The type says `T[]`. At runtime an entry can still be:
 - an object with fields missing: an empty row an editor saved, or content
   written before a field was added.
 
-What changed in v8: when a block inside an array resolves to `undefined` (for
+In v8, when a block inside an array resolves to `undefined` (for
 example a `multivariate` with no matching rule), the resolver drops that entry
-and the array gets shorter. v7 left a `null` in the slot. `null` values are
-still kept.
+and the array gets shorter. `null` values are still kept.
 
 `deco check` reports a `null` where the item type is not nullable, and missing
 required fields. Run it, but do not count on it: content changes after deploy.
