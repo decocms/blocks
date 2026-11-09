@@ -47,8 +47,8 @@ landings). Each PR goes through the same loop:
 3. **Type** the props and add the block to the block map (`.deco/index.ts`, or
    `.deco/index.tsx` when it holds JSX). Run `deco schema`.
 4. **Seed** `.deco/blocks` from the current code, never by retyping.
-5. **Check** with `deco check` (local content) or `deco push --draft=<name>`
-   then `deco check --draft=<name>` (a hosted site).
+5. **Check** with `deco check` (content in git, no `DECO_SITE`) or
+   `deco push --draft=<name>` then `deco check --draft=<name>` (a hosted site).
 6. **Prove parity**: the page on the branch and on `main` render the same
    HTML and the same pixels, at desktop and mobile widths, in every language.
 7. **Live edit**: change the content and see the change land on the right
@@ -70,10 +70,11 @@ this method worked.
   first parameter's type of each function in the map and writes
   `.deco/schema.gen.json`. A function that returns JSX or a
   `{ component, props }` descriptor is a section; one that returns its own
-  input is content (or a page, when the type extends `Route`).
-- **Block functions get only their saved input.** Anything that depends on the
-  request (the language, the path) is added by the site's code that renders
-  the result, not by the block function.
+  input is content (grouped with pages when the type extends `Route`).
+- **Block functions get only their saved input.** `currentClient()` inside one
+  knows the visitor and the version, not the URL. Anything that depends on the
+  path (such as the language) is added by the site's code that renders the
+  result, not by the block function.
 - **Results are read-only.** A client runs each block function once per
   distinct input and hands the same object to every place that uses it. Copy
   before you change a result (the `localize` helper in

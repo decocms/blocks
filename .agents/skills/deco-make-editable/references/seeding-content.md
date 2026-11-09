@@ -48,7 +48,7 @@ content module, `.deco/blocks.gen.ts`, bundled with the build.
 ```sh
 deco schema              # .deco/index.ts → .deco/schema.gen.json
 deco content             # .deco/blocks → .deco/blocks.gen.ts
-deco check               # every saved block against the schema
+deco check               # every saved block against the schema (no DECO_SITE set)
 ```
 
 During `vite dev`, `deco content --watch` rewrites the module on each save,
@@ -79,9 +79,10 @@ deco drafts url header-menu        # the preview link again
 - `deco check --draft` validates the draft against the schema on disk, so it
   checks the branch's new types before anything is deployed.
 - Open the preview link on a local dev server of the branch to see the seeded
-  content with the new code. If the link renders the release instead of the
-  draft, the host is not allowed to preview: see "Draft hosts" in the
-  `@decocms/tanstack` README, and `deco-site-workflow`.
+  content with the new code. A draft page shows a "Preview mode" badge. With
+  no badge, the page rendered the release: either the host is not allowed to
+  preview (no notice; see "Draft hosts" in the `@decocms/tanstack` README, and
+  `deco-site-workflow`), or the draft could not be read (a notice says so).
 
 The full set of content commands (`drafts`, `publish`, `releases`, rollback)
 is in `deco-site-workflow`.

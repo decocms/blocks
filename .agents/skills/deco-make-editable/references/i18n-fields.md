@@ -11,7 +11,7 @@ language.
 |---|---|
 | One block per language (`Header menu`, `Header menu PT`) | Every change is made twice, and the two drift. The editors who tried it rejected it. |
 | Variants that pick a language by path | Every block holds two full copies of its content, and the language rule repeats in every block. |
-| An object per field (`title: { en, pt }`) | Form tools that name a string field, such as a list item's title (`@titleBy`), stop working on nested objects. |
+| An object per field (`title: { en, pt }`) | Form tags that name a string field, such as `@titleBy` for a list item's title, have no flat string to point at. |
 | **A sibling field: `title` and `titlePt`** | Fields stay flat. One block, both languages side by side in the form. |
 
 ## The convention

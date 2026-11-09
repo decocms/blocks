@@ -17,13 +17,18 @@ npx vite dev --port 5191 &
 On a hosted site the branch reads its new blocks from a draft (see
 [seeding-content.md](./seeding-content.md#a-hosted-site-site-set)). Add the
 `__draft` value from `deco drafts url <name>` to every branch URL
-(`?__draft=…`). Two things to know about draft pages:
+(`?__draft=…`). Three things to know about draft pages on a site whose
+document is `DecoDocument` (`@decocms/tanstack/react`):
 
-- Once hydrated, they show a draft badge, fixed at the bottom left
+- Once hydrated, a draft page shows a badge, fixed at the bottom left
   (`[data-deco-preview-badge]`). Hide it before taking screenshots.
-- If the draft cannot be read on that host, the page renders the release and
-  shows a notice (`[data-deco-preview-unavailable]`). A screenshot with that
-  notice compared the wrong content: stop and fix the host first.
+- If the link names a draft that cannot be read (deleted, or its host
+  failing), the page renders the release and shows a notice
+  (`[data-deco-preview-unavailable]`) instead of the badge.
+- If the host is not allowed to preview, the page renders the release with
+  no badge and no notice (see "Draft hosts" in the `@decocms/tanstack`
+  README). So check that the badge is there: without it, the screenshot
+  compared the wrong content.
 
 ## HTML parity
 
@@ -78,8 +83,9 @@ for (const [w, h] of [[1440, 900], [390, 844]])
       const page = await browser.newPage({ viewport: { width: w, height: h } });
       page.on("pageerror", (e) => console.error(name, path, String(e)));
       await page.goto(`http://localhost:${port}${path}${query}`, { waitUntil: "load" });
+      // The badge mounts after hydration; no badge means the release rendered, not the draft.
+      if (query) await page.waitForSelector("[data-deco-preview-badge]", { timeout: 10_000 });
       await page.addStyleTag({ content: "[data-deco-preview-badge]{display:none!important}" });
-      if (await page.locator("[data-deco-preview-unavailable]").count()) throw new Error(`${path}: draft not read`);
       // Scroll once so reveal-on-scroll animations and lazy images run.
       await page.evaluate(async () => {
         for (let y = 0; y < document.body.scrollHeight; y += 400) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 50)); }
@@ -157,7 +163,8 @@ With the branch running, change the content and watch it land:
   pages only;
 - empty a `fooPt` and confirm the secondary language falls back to `foo`;
 - remove and reorder sections of a page and confirm the rendered order follows;
-- break a required field and confirm `deco check` names it.
+- break a required field and confirm `deco check` names it (`deco check
+  --draft=<name>` on a hosted site: without a flag it checks production).
 
 With content in git, edit the block files (`deco content --watch` reloads the
 page). On a hosted site, make the same edits in the draft, from Studio or with

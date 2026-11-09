@@ -8,8 +8,6 @@ Deeper checklists live in other skills; this file lists what a conversion or a
 Figma build must not skip:
 
 - `deco-go-live`: a QA checklist built from the site's blocks and routes.
-- `ecommerce-qa` (decocms/skills): the storefront flows (search, product,
-  cart, checkout).
 - `deco-images-media` and `deco-storefront-performance`: images, LCP, CLS,
   heavy HTML.
 
