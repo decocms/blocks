@@ -15,11 +15,15 @@ changing the import.
 ### Wire the site's `ImageUrl` once
 
 ```tsx
+// src/router.tsx
 import { ImageUrlProvider } from "@decocms/tanstack/react";
-import { imageUrl } from "~/imageUrl";
+import { createDecoRouter } from "@decocms/tanstack/router";
+import { imageUrl } from "./imageUrl";
 
-// in the root route component, inside DecoDocument
-<ImageUrlProvider value={imageUrl}>{children}</ImageUrlProvider>
+createDecoRouter({
+  routeTree,
+  Wrap: ({ children }) => <ImageUrlProvider value={imageUrl}>{children}</ImageUrlProvider>,
+});
 ```
 
 Without a provider, components use `DECO_IMAGE_URL`:
@@ -110,8 +114,9 @@ export default createDecoImageLoader(imageUrl, { fallback: nextImageOptimizer })
 60/70/80/100. The host still has to be allowed in `images.remotePatterns`.
 
 Quality: next/image's `quality` prop is a number. `decoCdn` ignores numbers, so
-on Deco-CDN images the tier set in `decoCdn({ quality })` decides. The VTEX
-providers do read numbers.
+on Deco-CDN images the tier set in `decoCdn({ quality })` decides.
+`vtexCatalogWebp` and `vtexFileManager` do read numbers; `vtexCatalog`,
+`vtexCatalogFrame` and `shopifyCdn` ignore quality.
 
 `sizes`, priority and preload are next/image's own props; follow the Next.js
 docs for your version. Wiring `next.config` is covered in `deco-nextjs-site`.

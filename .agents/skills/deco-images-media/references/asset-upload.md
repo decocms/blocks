@@ -150,7 +150,8 @@ console.log(`replaced ${total} references`);
 ```
 
 Write the file back byte for byte apart from the URLs: do not re-serialize
-the JSON, or every block shows up as changed in `deco diff`.
+the JSON, so the git diff shows only the URL lines. (`deco diff` compares a
+hash of each block's canonical JSON, so formatting alone does not show there.)
 
 ### 5. Verify
 
@@ -164,7 +165,8 @@ needed.
 
 Then:
 
-- `deco diff`: only URL changes, in the blocks you expect.
+- `deco diff` lists changed blocks by name: only the blocks you expect
+  should be there. `git diff .deco/blocks` shows the lines.
 - Open a few changed pages locally and check the images load.
 - `deco push --draft=<name>`, then `deco check --draft=<name>` and preview the
   draft. Nothing goes live until `deco publish --draft=<name>`.
