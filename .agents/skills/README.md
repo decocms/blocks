@@ -3,6 +3,11 @@
 Agent skills for the packages in this repo (`@decocms/blocks` 8 and the thin `@decocms/apps-*`
 clients). Claude Code discovers them through the `.claude/skills` symlink, which points here.
 
+They ship inside `@decocms/blocks`: its build (`scripts/pack-skills.mjs`) copies every folder here
+that has a `SKILL.md` into `packages/blocks/skills/`, without tests and fixtures. A site runs
+`deco skills install` to copy the skills of its installed version into `.claude/skills/<name>/` (or
+`--dir`). It replaces the folders of the skills it ships and leaves other skills alone.
+
 Scope: how *these packages* work and how a site uses them. Knowledge that lives elsewhere is referred
 to by name instead of copied:
 

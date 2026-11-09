@@ -780,8 +780,10 @@ export default { real: (input: { zzRealField: string }) => input } satisfies Blo
         "push",
         "releases",
         "schema",
+        "skills",
       ].sort(),
     );
+    expect(help).toMatch(/deco skills install \[--dir=<path>\]/);
     expect(help).toMatch(/deco schema\s+\[--watch \| --check\]/);
     expect(help).toMatch(/deco schema push/);
     expect(help).toMatch(/deco check\s+\[--draft=<name> \| --revision=<id>\]/);

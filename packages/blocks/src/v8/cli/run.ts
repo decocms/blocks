@@ -5,6 +5,7 @@
  * usage. Every command takes `--json`: stdout then carries exactly one JSON
  * object, and what a person reads goes to stderr.
  */
+import path from "node:path";
 import { readSchemaFile, reportCheck } from "./check/index.ts";
 import { content, readSavedBlocks, savedBlocksFromMap, writeContent } from "./content.ts";
 import { consoleReporter, type Reporter, withColor } from "./log.ts";
@@ -24,8 +25,9 @@ import {
 import type { CommandRunner, Env } from "./remote/env.ts";
 import type { Fetch } from "./remote/http.ts";
 import { checkDraftName, findSite, requireDraftName } from "./remote/local.ts";
-import { CliError, decoPaths, EXIT, findDecoRoot, usageError } from "./root.ts";
+import { CliError, decoPaths, EXIT, findDecoRoot, packageVersion, usageError } from "./root.ts";
 import { reportSchema, schema, writeSchema } from "./schema/index.ts";
+import { installSkills } from "./skills.ts";
 import { watchFiles, watchTree } from "./watch.ts";
 
 type FlagKind = "string" | "boolean";
@@ -73,6 +75,11 @@ const COMMANDS: Record<string, CommandSpec> = {
     flags: { watch: "boolean", check: "boolean" },
     positionals: 1,
   },
+  skills: {
+    usage: "deco skills install [--dir=<path>]",
+    flags: { dir: "string" },
+    positionals: 1,
+  },
 };
 
 /** Flags every command takes. */
@@ -96,6 +103,9 @@ Commands:
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
             (--check: write nothing, fail when the file is out of date; for CI)
             schema push: upload it so Studio can draw forms (CI, on production deploys)
+  skills    skills install: copy the agent skills of this @decocms/blocks into the site,
+            one folder per skill in .claude/skills (or --dir, relative to the folder that
+            contains .deco/); replaces those folders, leaves other skills alone; offline
 
 ${Object.values(COMMANDS)
   .map((c) => `  ${c.usage}`)
@@ -167,6 +177,8 @@ export interface RunOptions {
   runCommand?: CommandRunner;
   /** Where `--json` writes its object; defaults to stdout. */
   stdout?: (text: string) => void;
+  /** The skills `deco skills install` copies; defaults to the package's `skills/` (tests replace it). */
+  skillsDir?: string;
 }
 
 function stopSignal(): Promise<void> {
@@ -425,6 +437,28 @@ async function runCommand(
       external.close();
       await running;
       return { exitCode: EXIT.ok, result: {} };
+    }
+    case "skills": {
+      if (positionals[0] !== "install") {
+        throw usageError(
+          positionals.length === 0
+            ? `deco skills needs a subcommand\n${COMMANDS.skills!.usage}`
+            : `unexpected argument "${positionals[0]}"\n${COMMANDS.skills!.usage}`,
+        );
+      }
+      const dir = stringFlag(flags, "dir") ?? undefined;
+      const paths = decoPaths(findDecoRoot(base));
+      const installed = installSkills({ root: paths.root, dir, from: options.skillsDir });
+      const shown = path.relative(paths.root, installed.dir) || ".";
+      const where = shown.startsWith("..") || path.isAbsolute(shown) ? installed.dir : shown;
+      for (const name of installed.skills) reporter.info(`installed ${path.join(where, name)}/`);
+      reporter.info(
+        `${installed.skills.length} skill(s) from @decocms/blocks ${packageVersion()} in ${where}`,
+      );
+      return {
+        exitCode: EXIT.ok,
+        result: { dir: installed.dir, version: packageVersion(), skills: installed.skills },
+      };
     }
   }
   throw usageError(`unknown command "${command}"`);
