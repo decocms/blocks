@@ -1,6 +1,6 @@
 # v7's matchers on v8
 
-`@decocms/compat-v7/matchers` has v7's website matchers with v7's results, byte for byte (`packages/compat-v7/src/matchers/`). They are not registered for you. A site that keeps content with v7 matcher types registers each one in its block map under v7's name. Without that, the rule fails with `UNKNOWN_BLOCK`.
+`@decocms/compat-v7/matchers` has v7's website matchers with v7's results (`packages/compat-v7/src/matchers/`). They are not registered for you. A site that keeps content with v7 matcher types registers each one in its block map under v7's name. Without that, the rule fails with `UNKNOWN_BLOCK`.
 
 Use them for content migrated from v7. For new A/B tests and dates, prefer the built-in `experiment` and `campaign` (see [`experiments-and-campaigns.md`](./experiments-and-campaigns.md)): they are decided at the edge and the page cache keys on them.
 
@@ -12,17 +12,17 @@ Use them for content migrated from v7. For new A/B tests and dates, prefer the b
 | `cookie` | `website/matchers/cookie.ts` | A cookie `name`, with `value` or any value |
 | `host` | `website/matchers/host.ts` | The host (`includes`, `match`, or the older `host`) |
 | `pathname` | `website/matchers/pathname.ts` | The page's path (`case`, `pattern`, `includes`, `excludes`) |
-| `queryString` | `website/matchers/queryString.ts` | Query parameters, with `Equals`, `Greater`, `GreaterOrEquals`, `Lesser`, `LesserOrEquals`, `Includes` |
+| `queryString` | `website/matchers/queryString.ts` | Query parameters, with `Exists`, `Equals`, `Greater`, `GreaterOrEquals`, `Lesser`, `LesserOrEquals`, `Includes` |
 | `location` | `website/matchers/location.ts` | Country, region, city or coordinates, included or excluded. Reads the `cf-*` headers, then the Workers `request.cf`, then the `__cf_geo_*` cookies |
 | `multi` | `website/matchers/multi.ts` | `op: "and"` or `"or"` over its `matchers`. No rules matches everyone |
 | `random` | `website/matchers/random.ts` | v7's sticky random: a `traffic` share (0 to 1, default 0.5) keyed on a `cohort` |
 | `environment` | `website/matchers/environment.ts` | Always throws: it read the process environment, which no v8 package does. Register your own rule under that name |
 
-`always` and `never` are v8 built-ins, and v7's names for them are aliases (see [`multivariate.md`](./multivariate.md)). v7's date matcher became the saved block `campaigns`.
+`always` and `never` are v8 built-ins, and v7's names for them are aliases (see [`multivariate.md`](./multivariate.md)). v7's date matcher became the `campaign` rule and the saved block `campaigns`.
 
 Not in v8 at all: v7's `cron`, `userAgent`, `site` and `negate` matchers. Write a custom rule if you need one (see [`custom-matchers.md`](./custom-matchers.md)).
 
-Every matcher except `multi` takes the request as a second argument, because a v8 block function gets only its inputs. A matcher that throws counts as not matched, as in v7. `multi` gets its inner rules' results, since v8 resolves them before it runs.
+Every matcher except `multi` and `environment` takes the request as a second argument, because a v8 block function gets only its inputs. A matcher that throws counts as not matched, as in v7. `multi` gets its inner rules' results, since v8 resolves them before it runs.
 
 ## Wiring on TanStack Start
 
@@ -58,7 +58,7 @@ import { matcherContext } from "@decocms/compat-v7/nextjs/server";
 ## The sticky `random`
 
 - A visitor keeps their group through `deco_segment` until the traffic share changes, then is drawn again once. The draw is `Math.random()`, as in v7.
-- The cookie is keyed on the **cohort**: in v7, the name of the saved matcher block. A v8 block does not know its own name, so the name travels in the `cohort` prop. The migration copies it. A random rule written inline uses `website/matchers/random.ts` as its cohort, as v7 did.
+- The cookie is keyed on the **cohort**: in v7, the name of the saved matcher block. A v8 block does not know its own name, so the name travels in the `cohort` prop. Set it to the v7 saved block's name. The migration script does not register `random` or fill `cohort`: it reports each random test to move into `experiments`. A random rule written inline uses `website/matchers/random.ts` as its cohort, as v7 did.
 - Keep the cohort when changing the share. Renaming it puts every visitor in a new test.
 - `decideRandom(props, request)` returns `{ value, isFresh, setCookie }` when you need the decision and the cookie together.
 - A response that sets `deco_segment` must not be cached for other visitors.

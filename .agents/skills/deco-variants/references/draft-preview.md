@@ -14,9 +14,9 @@ A preview link is `?__draft=<value>`. The value is a version plus preview parame
 - **Tests**: `__test=<name>=on|off`, which becomes the client's `experiments`.
 - **Campaigns**: `__campaign=<name>=on|off`, which becomes the client's `campaigns`.
 
-Each parameter value is URL-encoded as a whole. The last `__test` or `__campaign` for a name wins. After a revision id (Studio's "preview this version"), only `__at`, `__test` and `__campaign` are allowed: `<id>?__at=…&__test=…`. Forced variants need a draft pointer.
+Each parameter value is URL-encoded as a whole. The last `__test` or `__campaign` for a name wins. After a revision id, only `__at`, `__test` and `__campaign` are allowed: `<id>?__at=…&__test=…`. Forced variants need a draft pointer.
 
-The binding reads the link with `cms.readVersion(request)`. It answers `{ version, date?, experiments?, campaigns? }`, shaped to spread into `cms.client()`, and `null` for a value that does not parse. `parseVersion(value)` from `@decocms/blocks` does the same for a raw value. Both pass the CMS's preview-host check, so a visitor on the live site never picks a version or switches a test.
+The binding reads the link with `cms.readVersion(request)`. It answers `{ version, date?, experiments?, campaigns? }`, shaped to spread into `cms.client()`, and `null` for a value that does not parse. `parseVersion(value)` from `@decocms/blocks` parses a raw value the same way, with no host check. Only `cms.readVersion` checks the request's host against the preview hosts, so a visitor on the live site never picks a version or switches a test. Build on `cms.readVersion`, not on `parseVersion`, when the value comes from a request.
 
 ## Forcing a variant
 

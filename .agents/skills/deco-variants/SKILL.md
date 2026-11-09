@@ -51,7 +51,7 @@ v8 decides who is in a test. It does not count conversions. Send the arm with yo
 
 ## Related skills
 
-- `deco-v7-to-v8-migration`: moves v7 matchers and flags, rewrites per-kind multivariate types, and reports random matchers to move into `experiments`.
+- `deco-v7-to-v8-migration`: registers v7's matchers in the block map, renames legacy flag types, and reports random tests and date rules to move by hand into `experiments` and `campaigns`.
 - `deco-storefront-caching`: the site's `pageCache` and its key in full.
 - `deco-tanstack-site` and `deco-nextjs-site`: where the worker or proxy that decides assignments is wired.
 - `deco-cms-schema`: how a rule's props become its Studio form.

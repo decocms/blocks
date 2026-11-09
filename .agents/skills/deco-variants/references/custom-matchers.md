@@ -34,7 +34,7 @@ Content uses it like any rule: `{ "__resolveType": "weekday", "days": [0, 6] }`.
 
 - Declare the return type. A function typed as returning `any` gets the warning "returns any, so it isn't offered for any field".
 - The props type becomes the rule's form. The JSDoc on the function and its props sets titles and descriptions. The `deco-cms-schema` skill covers the tags and the shapes that break a form.
-- Run `deco schema` (and send it to Studio) after adding a rule, or the picker will not show it.
+- Run `deco schema` after adding a rule. The picker offers only what the generated schema lists.
 
 ## What a rule can read
 

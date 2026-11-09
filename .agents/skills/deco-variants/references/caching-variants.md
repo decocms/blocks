@@ -39,7 +39,7 @@ v7's sticky `random` from `@decocms/compat-v7` still decides during render. A re
 | `device` (compat) | Only if your key has the device | The worker-entry example keys on `detectDevice`; keep it |
 | `pathname` (compat) | The path is in the key | Nothing |
 | `queryString` (compat) | Depends on your key | The example drops tracking parameters (`utm_*` and the like) from the key, so a rule on them shows one visitor's variant to another |
-| `host` (compat) | Depends on your key | Safe only when the key includes the host |
+| `host` (compat) | Depends on your key | The example keys on the full URL, host included. Safe only when your key does too |
 | `cookie`, `location` (compat) | No | Add the value to the key, skip caching for those pages, or personalize in the browser |
 | `random` (compat) | Through `cohortSegment` | See above; prefer `experiments` |
 | A custom rule that reads the request | No | Same as `cookie` |
@@ -56,7 +56,7 @@ Signed-in, cart and account content belongs in option 3 or uncached. Never put a
 ## Checklist: a variant page misses the cache or shows the wrong arm
 
 1. **Is it a preview?** A `?__draft=` link or the draft cookie never reaches `pageCache` (see [`draft-preview.md`](./draft-preview.md)).
-2. **Does the response set a cookie other than the visitor's?** The worker-entry recipe never stores a response that sets one. v7's `deco_segment` writer from compat is one of those.
+2. **Does the response set a cookie?** The worker-entry example never stores a response that sets one (other than `_deco_bucket`). The worker adds the visitor's own cookie after `pageCache`, so that one does not count. v7's `deco_segment` writer from compat does count.
 3. **Does a rule read the request?** List the rules on the page (follow saved rule blocks too) and check each against the table above.
 4. **How many tests are running?** `2^n` entries per page split the hits.
 5. **Is the wrong arm stable for one URL?** A rule reads something that is not in the key. Compare the same URL with two different values of the suspect cookie or header.
