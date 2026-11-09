@@ -41,7 +41,7 @@ export default defineConfig({
 - A browser stub for `node:async_hooks`, so server state never breaks the client build.
 - `resolve.dedupe` for React and the TanStack packages, so there is one copy of each.
 
-The package reads no environment variable itself: pass the CI's commit SHA.
+The plugin reads no environment variable itself: pass the CI's commit SHA.
 
 ## `wrangler.jsonc`
 
@@ -56,7 +56,8 @@ The package reads no environment variable itself: pass the CI's commit SHA.
 
 `main` is the worker entry, not TanStack's server entry ([`worker-entry.md`](./worker-entry.md)).
 `nodejs_compat` is needed: the worker hands values to the render through `AsyncLocalStorage`.
-The `deco` CLI also reads `vars.DECO_SITE` from this file when the environment has no `DECO_SITE`.
+The `deco` CLI finds the site in `DECO_SITE`: the environment, else `.env`, `.dev.vars`, then
+`vars.DECO_SITE` in this file.
 
 ## The block map: `.deco/index.ts`
 

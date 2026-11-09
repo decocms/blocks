@@ -98,8 +98,9 @@ from `@decocms/tanstack`). Each entry must be an exact `http(s)` origin; anythin
 The worker puts the same list into the CSP. If you set `studioOrigins` on `DecoDocument`, set the
 same list on `createDecoWorker`; `DECO_STUDIO_ORIGIN` sets both.
 
-Studio's editor finds sections by their wrapper: `<section id data-manifest-key={component}>`
-around each top-level section. How to render sections: `deco-site-authoring`.
+When Studio asks the page to scroll to a section, `StudioBridge` looks for the element whose
+`data-manifest-key` equals the id Studio sends, else the element with that `id`. How to render
+sections: `deco-site-authoring`.
 
 ## Security headers
 

@@ -173,7 +173,7 @@ array is the chosen variant of a whole section list. `undefined` means an editor
   The worker turns it into the response status and removes the header. A status set while
   rendering does not reach the response; a route's `headers` do.
 - A page whose loader failed but still rendered: set `DEGRADED_HEADER` (`x-deco-degraded`, from
-  `@decocms/tanstack/server`) with `setResponseHeader` while the server function runs. The
+  `@decocms/tanstack/server`) to `"true"` with `setResponseHeader` while the server function runs. The
   example page cache never stores such a response. Caching: `deco-storefront-caching`.
 
 ## Head and SEO
