@@ -23,6 +23,10 @@ The free text at the top of a JSDoc block becomes `description`. An explicit
 A tag followed directly by punctuation (`@description: text`) is skipped. Write
 `@description text`.
 
+Put each prop's JSDoc on its own line, above the prop. A one-line type such
+as `{ /** @title Ratio */ ratio: string }` loses the tag: the generator does
+not read a JSDoc that sits on the same line, right after the opening brace.
+
 ## Tag table
 
 | Tag | What lands in the schema |
@@ -49,7 +53,8 @@ standard JSON Schema keywords above (`minimum`, `maxLength`, `pattern`,
 ## Coercion
 
 - **Numeric tags** become `Number(value)`. Always give a value: a bare
-  `@minimum` is `Number("true")`, which is `NaN`.
+  `@minimum` is `Number("true")`, which is `NaN` and is written to
+  `.deco/schema.gen.json` as `null`.
 - **Boolean tags** are `true` when the value is `true` or missing. A bare
   `@deprecated` or `@uniqueItems` works. Anything else, including `yes`, is
   `false`.
@@ -102,9 +107,8 @@ What does not work in v8:
   name, so only the last line survives. A single object is not an array, so it
   is dropped and the field is plain text.
 - **A loader path** (`@options site/loaders/x.ts`, often with
-  `@format dynamic-options`). v7 called the loader while the editor typed. The
-  v8 site editor never runs site code, so the list is dropped and the field is
-  a text field. Make sure the field still accepts what an editor would type,
+  `@format dynamic-options`). The v8 site editor never runs site code, so the
+  list is dropped and the field is a text field. Make sure the field still accepts what an editor would type,
   and rewrite any `@description` that promises suggestions.
 
 A string-literal union needs no `@options`: `align: "left" | "center"` is
@@ -133,7 +137,10 @@ it. This is how a union member gets its name in a variant picker:
 
 ```ts
 /** @title Wide */
-export interface WideLayout { /** @title Aspect ratio */ aspectRatio: string }
+export interface WideLayout {
+  /** @title Aspect ratio */
+  aspectRatio: string;
+}
 ```
 
 `@format` on a type alias reaches every field of that type. See

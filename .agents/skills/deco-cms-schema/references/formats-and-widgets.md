@@ -40,8 +40,8 @@ The alias also works inside the annotation: `ImageWidget[]` sets the format on
 the items, and `ImageWidget | null` or an optional field works too. The match is a whole
 word, so `BrandColor` does not count as `Color`.
 
-v7 also gave the color widget to any type whose name contained `Color`. v8
-does not guess from names. Put `@format color` on the alias or on the field.
+Other names are not guessed from. For a `BrandColor` alias, put
+`@format color` on the alias or on the field.
 
 `Secret` is a masked text box, nothing more. The value is a plain string saved
 in content. Real credentials belong in the deploy platform's secrets, read by

@@ -20,8 +20,9 @@ entry in `.deco/schema.gen.json` to confirm.
 | `string & { brand }` | The primitive (`string`) |
 | `any`, `unknown` | An empty schema: no usable field |
 
-Enum order comes from the declaration, not from the checker, so the select
-lists choices as you wrote them.
+A literal union, written inline or through a type alias, lists its choices
+in the order you wrote them, even when the checker met the literals in
+another order.
 
 ## Objects, lists and maps
 
@@ -61,11 +62,16 @@ A union that mixes primitives and objects (`string | Banner`) is also an
 | `Lazy<T>` | A `lazy` block whose `value` has the form of `T` |
 
 An object or list field that a block can fill gets three kinds of choice:
-a saved block, "Inline data" (the plain form), and every block whose
-function's awaited return type fits the field. "Fits" is TypeScript
-assignability, not the type's name. So a `products: Product[]` field offers
-every loader that returns `Product[]`. A `Record<string, any>` field does not,
-because every block would fit.
+a saved block ("Select from saved"), "Inline data" (the plain form), and every
+block whose function's awaited return type fits the field. Sections and
+matchers are never offered here. "Fits" is TypeScript assignability, not the
+type's name. So a `products: Product[]` field offers every loader that returns
+`Product[]`. Two exceptions:
+
+- A type whose fields are all optional (`{ size?: number }`) would accept
+  almost any object. For such a type a block must return the same named type.
+- A `Record<string, any>` field offers no blocks, because every block would
+  fit.
 
 How to write lazy blocks and sections is in the `deco-site-authoring` skill.
 
