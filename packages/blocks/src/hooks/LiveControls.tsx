@@ -13,7 +13,10 @@ interface LiveControlsProps {
  * Mirrors production behavior (apps/website/components/_Controls.tsx):
  * 1. Injects __DECO_STATE for the admin to read
  * 2. Listens for postMessage events from the admin (inject scripts, scroll, rerender)
- * 3. "." opens admin in same tab, Ctrl/Cmd+"." opens in new tab, Ctrl+Shift+E also works
+ * 3. "." opens admin in same tab, Ctrl/Cmd+"." opens in new tab, Ctrl+Shift+E also works.
+ *    Keys typed in a field are left alone, also in a field inside a shadow root
+ *    (a third-party widget's form): its events reach the document with the host
+ *    as their target, so the field is read from the event's composed path.
  */
 export function LiveControls({ site, page, flags }: LiveControlsProps) {
   // Keep `window.LIVE.page` in sync with the CURRENT page across SPA
@@ -103,7 +106,7 @@ function LiveControlsScript() {
 
       if (window.self === window.top) {
         document.addEventListener("keydown", function(e) {
-          var t = e.target;
+          var t = e.composedPath ? e.composedPath()[0] : e.target;
           if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
           if (e.defaultPrevented) return;
 
