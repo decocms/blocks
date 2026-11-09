@@ -88,7 +88,7 @@ Adding a page, as an example: pull, copy an existing page's file (it already ref
 | Command | Does |
 |---|---|
 | `deco drafts list` | Each draft: name, who created it, via what, when (`no drafts` when none) |
-| `deco drafts new <name>` | Creates it (`draft <name> already exists` if it does) and prints its preview link |
+| `deco drafts new <name>` | Creates it (`draft <name> already exists` if it does) and prints its preview link, when Studio has one |
 | `deco drafts discard <name>` | Deletes the draft and its changes |
 | `deco drafts url <name>` | Prints the preview URL; or the pointer, to open as `?__draft=<pointer>` on the site; or `draft <name> has no object yet: push to it first` |
 
@@ -121,8 +121,8 @@ more: deco releases --cursor=<cursor>
 
 `current` marks the revision `latest.json` names.
 
-There is no rollback command in the CLI. Roll back from Studio. A rollback publishes a new revision
-that re-applies an old one, and shows in `deco releases` as `rollback to <id>`. Before you roll back,
+There is no rollback command in the CLI; rollbacks are made in Studio. A rollback publishes a new
+revision that re-applies an old one, and `deco releases` shows it as `rollback to <id>`. Before you roll back,
 check that the old content still fits the code that is deployed now:
 
 ```bash

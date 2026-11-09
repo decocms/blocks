@@ -72,7 +72,8 @@ How types and JSDoc tags turn into these rules is the `deco-cms-schema` skill.
 | `saved block "<name>" (a "<type>") doesn't fit here: …` | A reference to a saved block of the wrong kind | Reference another block |
 | `this field is Lazy<T>: wrap the value in a lazy block` / `a lazy block only fits a Lazy<T> field` | Lazy fields need `{ "__resolveType": "lazy", "value": … }`, and only they take one | Wrap or unwrap |
 | `references form a cycle: A → B → A` | Saved blocks that reference each other | Break the loop |
-| `saved block "<name>" has the name of an alias` | A saved block named like a v7 alias | Rename it |
+| `saved block "<name>" has the name of an alias` (or `of a built-in block`, `of a block type`) | Saved block names share one namespace with block types, built-ins and v7 aliases | Rename it |
+| `missing __resolveType: a saved block names the function it calls` | The file has no `__resolveType` | Add it |
 | `"<path>" is also the path of "<other>"` / `matches the same URLs as …` | Two pages (or two redirect `from`s) route the same URLs | Change one path |
 | `a rule must be a block whose function returns a boolean` | A variant `rule` that isn't a matcher | |
 | `a variant's value must be a lazy block` | Variant values are wrapped in `lazy` | |
@@ -111,5 +112,5 @@ A file error also stops `deco push` and `deco diff` before they send or compare 
 
 | Message | Fix |
 |---|---|
-| `no .deco/schema.gen.json; run deco schema first` | `deco schema` |
+| `no <root>/.deco/schema.gen.json; run deco schema first` | `deco schema` |
 | `… has no top-level "blocksMajor"; expected "blocksMajor": 8. …` | Regenerate with the v8 CLI, commit |

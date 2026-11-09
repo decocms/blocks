@@ -1,6 +1,6 @@
 ---
 name: deco-site-workflow
-description: "End-to-end workflow for a site on @decocms/blocks 8 with the `deco` CLI it ships. Covers where content lives (.deco/index.ts, .deco/schema.gen.json, .deco/blocks, block names and files), generating the schema (`deco schema`, `--check`, `--watch`) and sending it to Studio (`deco schema push`, run on every production deploy with a DECO_TOKEN), validating content (`deco check` against production, a draft or a revision), syncing content (`pull`, `diff`, `push --draft`, `drafts`, `publish`, `releases`, rollback), editing a site in deco Studio now that `deco serve` is gone (8.10+), how published releases reach the site from the CDN, every command, flag, env var (DECO_SITE, DECO_TOKEN, DECO_STUDIO_URL, DECO_STUDIO_ORIGIN) and exit code, and `deco skills install`. Load it when setting up or deploying a v8 site, when Studio asks you to send the schema or connect deco serve, when a deco command fails or exits non-zero, when `deco check` fails, or when content differs between Studio, a draft, local dev and production."
+description: "End-to-end workflow for a site on @decocms/blocks 8 with the `deco` CLI it ships. Covers where content lives (.deco/index.ts, .deco/schema.gen.json, .deco/blocks, block names and files), generating the schema (`deco schema`, `--check`, `--watch`) and sending it to Studio (`deco schema push`, run on every production deploy with a DECO_TOKEN), validating content (`deco check` against production, a draft or a revision), syncing content (`pull`, `diff`, `push --draft`, `drafts`, `publish`, `releases`, rollback), editing a site in deco Studio now that `deco serve` is gone (8.10+), how published releases reach the site from the CDN, every command, flag, env var (DECO_SITE, DECO_TOKEN, DECO_STUDIO_URL, DECO_STUDIO_ORIGIN) and exit code. Load it when setting up or deploying a v8 site, when Studio asks you to send the schema or connect deco serve, when a deco command fails or exits non-zero, when `deco check` fails, or when content differs between Studio, a draft, local dev and production."
 ---
 
 # Deco site workflow (@decocms/blocks 8)
@@ -16,8 +16,8 @@ A v8 site has two things that change on different schedules:
 The `deco` CLI is the `bin` of `@decocms/blocks`. It connects the two: it sends the schema to Studio,
 checks content against the code, and moves content between `.deco/blocks` and Studio.
 
-This skill covers the 8.10+ CLI (content on the CDN). `deco serve` and the git-backed content flow it
-served were removed in 8.10.0. See [serve-and-studio.md](./references/serve-and-studio.md).
+This skill covers the 8.10+ CLI (content on the CDN). `deco serve` was removed in 8.10.0. See
+[serve-and-studio.md](./references/serve-and-studio.md).
 
 ## When to load what
 
@@ -67,10 +67,9 @@ takes `--json`.
 
 ## Get these skills into a site
 
-`deco skills install` copies the skills shipped in `@decocms/blocks` into the site's
-`.claude/skills`, so an agent working in the site finds them. It ships separately from the commands
-above: if `deco --help` doesn't list `skills`, update `@decocms/blocks`. Run it again after an
-upgrade so the copies match the installed version.
+These skills live in the `decocms/blocks` repository, under `.agents/skills/` on `main`. The
+`@decocms/blocks` package doesn't ship them and the `deco` CLI has no command that installs them.
+Copy or link the folders you need into the site's `.claude/skills`.
 
 ## Related skills
 

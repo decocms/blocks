@@ -8,7 +8,7 @@ The same commands are importable from `@decocms/blocks/cli` (`runCli`, `schema`,
 
 | Command | Flags | Does |
 |---|---|---|
-| `deco login` | | Prints how to log in: `npx decocms auth login --target=<studio>`, or set `DECO_TOKEN` in CI. Logs nothing in itself |
+| `deco login` | | Prints how to log in: `npx decocms auth login --target=<studio>`, or set `DECO_TOKEN` to a Studio API key in CI. It doesn't log you in |
 | `deco pull` | `--draft=<name>`, `--force` | Production, or production plus a draft, into `.deco/blocks` |
 | `deco diff` | `--draft=<name>` | `.deco/blocks` against what was pulled, or against a draft |
 | `deco push` | `--draft=<name>` (required), `--ours` \| `--theirs`, `--prune` | Changed blocks into a draft, as one save; deletes only with `--prune` |
@@ -26,10 +26,6 @@ Details: [content-sync.md](./content-sync.md) (pull, diff, push, drafts, publish
 
 `deco serve` (removed in 8.10.0), `deco dev`, `deco build`, `deco generate` and `deco migrate` are not
 commands: `unknown command "<name>"`, exit 64. See [serve-and-studio.md](./serve-and-studio.md).
-
-`deco skills install` copies the skills shipped in `@decocms/blocks` into the site's `.claude/skills`.
-It is added separately from the commands above; if `deco --help` doesn't list it, your version
-doesn't have it.
 
 ## Flags every command takes
 
@@ -58,7 +54,7 @@ are resolved through Studio, so they need one.
 | Code | Name | When |
 |---|---|---|
 | 0 | ok | |
-| 1 | failed | `deco check` found errors; `deco schema` had errors or `--check` found the file stale; a bad local file; the CDN answered 4xx; Studio answered another 4xx; any other failure |
+| 1 | failed | `deco check` found errors; `deco schema` had errors or `--check` found the file missing or stale; a bad local file; the CDN answered 4xx; Studio answered another 4xx; any other failure |
 | 2 | conflict | `deco push`: a block changed in the draft since your pull |
 | 3 | auth | No token; Studio answered 401 or 403; a save refused as unauthorized |
 | 4 | network | Studio or the CDN unreachable or timed out (Studio 120 s, CDN 10 s); a 5xx |

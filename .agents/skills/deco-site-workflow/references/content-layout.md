@@ -15,8 +15,8 @@ or takes `--root <dir>`. That folder is the **root**: the CLI also reads `.env`,
 | `.deco/blocks.gen.ts` | `deco content` | no (generate it in `predev`/`prebuild`) | The content module, only for content without a site. |
 
 A **hosted** site (`createCMS({ blocks, site })`) reads content from the CDN, so `.deco/blocks` is a
-working copy that `deco pull` fills. A **bundled** site (`createCMS({ blocks, content })`, what the
-v7 migration writes and what the repo's examples use) commits `.deco/blocks`, turns it into
+working copy that `deco pull` fills. A **bundled** site (`createCMS({ blocks, content })`, as in the
+repo's examples and in a site still moving off v7) commits `.deco/blocks`, turns it into
 `.deco/blocks.gen.ts` with `deco content`, and needs a deploy for every content change. Moving from
 bundled to hosted: [serve-and-studio.md](./serve-and-studio.md), Steps 1 and 3.
 
@@ -70,7 +70,7 @@ This is usually a deleted block that something still references.
 | Saved block | Type | Role |
 |---|---|---|
 | any name, with `path` | `page` | A routed page: `name`, `path`, `sections`, optional `seo` |
-| `Redirects` | `redirects` | The site's one list of redirect rules. Only a block of this type is routed |
+| `Redirects` (by convention) | `redirects` | The site's one list of redirect rules. Only one `redirects` block is routed: the first by name |
 | `CMS` | `cms-settings` | CMS settings (telemetry, analytics). Studio edits it. Its body is inline in the release index |
 | `experiments` | `split-traffic` | A/B tests. Every `experiment` rule reads it |
 | `campaigns` | `calendar` | Scheduled campaigns. Every `campaign` rule reads it |
@@ -87,7 +87,7 @@ What `deco publish` creates, under `https://delivery.decocms.com/sites/<site>/`:
 - `revisions/<id>/index.json`: a release. It maps each name to its hash, plus `type`, `path` and
   `refs` (the names it references), so routing and the reference walk need no body.
 - `latest.json`: a copy of the current release's index, plus `previewHosts`.
-- `drafts/<draft>/…`: one file per changed block of a draft.
+- `drafts/<slug>/…`: a draft's `index.json` (the names it holds) and one file per changed block.
 
 Revision ids look like `<12 hex>-<uuidv7>`. `deco releases` lists them. How the site reads all this:
 [delivery.md](./delivery.md).
