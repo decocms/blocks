@@ -85,7 +85,9 @@ Move the long tail to Workers KV and look it up per request by key:
 export default createDecoWorker<Env>({
   serverEntry, cms, dev: import.meta.env.DEV,
   routes: async (request, env) => {
+    if (request.method !== "GET") return null;
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/_serverFn/")) return null;
     const key = `redir:${normalize(url.pathname)}`; // the same normalisation as the upload script
     const hit = await withDeadline(env.REDIRECTS.get(key), 50); // fail open
     if (!hit) return null;
@@ -99,6 +101,9 @@ export default createDecoWorker<Env>({
 - Upload with the exact normalisation the lookup uses. A mismatch is a silent 100% miss.
   Wire the upload into the deploy script so KV is never behind the code.
 - Point reads only. Never `list()` on a request path.
+- `routes` runs for every request that gets past the CMS redirects, assets and server
+  functions included. Return `null` early for paths that are never redirected, so they
+  pay no KV read.
 - Fail open: race the read against a short deadline and treat a timeout as "no redirect".
 - Keep the editor-managed redirects in the `Redirects` block. They are few, and Studio
   edits them. The CMS redirects run before `routes`, so they win.

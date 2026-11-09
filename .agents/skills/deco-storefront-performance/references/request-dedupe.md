@@ -103,7 +103,9 @@ const logged: typeof fetch = async (input, init) => {
 export const vtex = createVtexClient({ account: "mystore", fetch: import.meta.env.DEV ? logged : undefined });
 ```
 
-Load one page and sort the lines: `sort | uniq -c | sort -rn`. One line per operation is
+The option is documented as the fetch underneath, for tests. It sits below the client's
+retry, so a retried call logs one line per attempt. Load one page and sort the lines:
+`sort | uniq -c | sort -rn`. One line per operation is
 the goal. Several lines with the same path is a duplicate; one line per product is an N+1
 ([`loaders-n-plus-1.md`](./loaders-n-plus-1.md)). Never log query strings or cookies to a
 shared log.

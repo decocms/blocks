@@ -82,8 +82,8 @@ for writing lazy props with Suspense and skeletons.
 Two more shapes with the same cost:
 
 - **Blocks that render nothing** (theme fonts, an SEO section's JSON-LD input) still run
-  their data blocks. Wrap the data argument in `lazy` in content so nothing is fetched
-  until it is used.
+  their data blocks. Type that prop `Lazy<T>` and wrap it in `lazy` in content, so
+  nothing is fetched until the function calls it.
 - **Variants.** The built-in `multivariate` resolves rules in order, stops at the first
   true one, and runs only that variant's `value`, which is a `Lazy`. A variant saved
   without the `lazy` wrapper (`deco check` flags it) resolves eagerly when it comes
@@ -97,7 +97,7 @@ in afterwards. Check what your site does:
 
 | Your route | TTFB is | Use it when |
 |---|---|---|
-| Awaits only routing and SEO | the slower of the two | the default |
+| Awaits only routing and SEO | routing plus the SEO block | the default |
 | Awaits every block | the slowest block | blocks read only in-memory content, or response headers depend on how blocks resolved |
 | Awaits one block before starting the others | that block plus the rest | never: start every block first, then await |
 
@@ -111,7 +111,7 @@ The check and the fix are in [`hydration.md`](./hydration.md).
 
 ## 4. A large Redirects block is paid on every request
 
-`createDecoWorker` checks the CMS redirects on every non-asset `GET` that is not a
+`createDecoWorker` checks the CMS redirects on every non-asset `GET` or `HEAD` that is not a
 server-function call. The check runs before `routes` and before your `pageCache`, so a
 cache hit pays it too. Each check builds a new client, reads the `redirects` block
 (a fresh copy of its rules), and `matchRoute` compiles the rules into a trie. The trie is
