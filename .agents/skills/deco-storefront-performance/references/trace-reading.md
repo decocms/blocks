@@ -59,7 +59,8 @@ These produced false conclusions on real storefronts.
   instead of 57 KB. Compare local against local.
 - **A local build of `main` is not the deployed build.** A stale generated file made a
   local chunk 1,215 kB against the deployed 908 kB: 307 kB of difference that did not exist.
-  Run the repo's codegen (`deco schema`, the content module) before the control build,
+  Run the repo's codegen (`deco schema`, and `deco content` if the site bundles its
+  content) before the control build,
   and check that the local asset hashes match the deployed ones.
 - **Warm the cache for the right segment.** When the page cache keys by device, the first
   hit with a mismatched User-Agent measures a cold render for the wrong segment. That

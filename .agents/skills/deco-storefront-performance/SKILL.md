@@ -56,7 +56,7 @@ before you optimise anything.
 
 ## How v8 runs a page, in one paragraph
 
-The worker (`createDecoWorker`) checks the CMS redirects on every `GET` that is not an
+The worker (`createDecoWorker`) checks the CMS redirects on every `GET` or `HEAD` that is not an
 asset or a server-function call, then calls the site's `pageCache` if it has one, then
 renders. The page route of the example app (`examples/tanstack-worker-smoke`; wiring in
 `deco-tanstack-site`) asks

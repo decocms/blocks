@@ -20,9 +20,10 @@ export async function productShelf(props: { products: Product[] }) {
 }
 ```
 
-A 24-product shelf is 24 extra round trips before the section can render. At ~370 ms
-per VTEX call that is seconds even in parallel, because VTEX rate-limits bursts and
-serialises the rest. A home page with several shelves multiplies it.
+A 24-product shelf is 24 extra round trips before the section can render. A burst like
+that can draw 429s from VTEX, and the VTEX client retries a 429 on idempotent requests
+(2 retries with backoff by default), which adds more wait. A home page with several
+shelves multiplies it.
 
 | Pattern | Severity | Example |
 |---|---|---|
