@@ -15,7 +15,8 @@ const { data: orderForm, setCookies } = await vtex.checkout.orderForm({ cookie }
 ```
 
 - A call with `cookie` goes out **as the shopper**: the client leaves the app key and
-  token off. A cart call without `cookie` goes out as the app and gets a new cart.
+  token off. A cart call without `cookie` carries no `checkout.vtex.com` cookie, so
+  VTEX starts a new cart (and the client sends the app key and token, when configured).
 - The client cleans the header first. It drops pairs without `=`, pairs whose name
   isn't a valid token, and pairs whose value has non-ASCII bytes. VTEX's gateway
   answers `503` with an empty body to a cookie with non-ASCII bytes, before the request
@@ -93,7 +94,8 @@ percent-encodes the value. `checkout.vtex.com=__ofid=…` would reach VTEX as
 
 v7's middleware created `vtex_is_session` and `vtex_is_anonymous` (random UUIDs) when
 the request had none, and sent them on Intelligent Search calls. v8 does neither: the
-client sends exactly the `cookie` you pass, and nothing when you pass none.
+client sends only the `cookie` you pass (after the cleanup above), and no cookie when
+you pass none.
 
 If the store relies on those cookies, set them in the site and include them in the
 search's `cookie`. That makes the search shopper-scoped: don't put it in a shared
@@ -122,7 +124,6 @@ cache (below). Without them, a search is the same for every shopper and can be c
 |---|---|
 | Sign-in redirects in a loop | The host isn't in the store's authorized hosts |
 | Copied cookies don't keep the session | Expired, or the target host isn't authorized |
-| `401` with the cookie present | The cookie belongs to another VTEX account than the client's `account` |
 | UI shows signed-out while VTEX checkout shows signed-in | The UI reads `document.cookie`; ask the server |
 
 ## What may be cached
@@ -137,8 +138,9 @@ Only responses that are the same for every shopper.
 - **Server functions that return shopper data** (cart, user, wishlist, addresses) answer
   `Cache-Control: private, no-store`. On TanStack Start, call `markPrivate()` from
   `@decocms/tanstack/server` in them.
-- **A signed-in shopper never shares a cached page.** The worker entry's segment marks
-  the shopper as signed in from the cookie the sign-in flow actually sets. Details in
+- **A signed-in shopper never shares a cached page.** On TanStack Start, the worker
+  entry's `buildSegment` returns `loggedIn: true` when the request has the cookie the
+  sign-in flow actually sets, and that page is not cached. Details in
   `deco-storefront-caching`.
 - **One React Query client per router**, never per isolate: a shared one leaks the
   previous request's cart and user to the next shopper.

@@ -145,6 +145,6 @@ List them before `decoCdn`. Which one matches a site, and the binding wiring, is
 |---|---|
 | Prices differ from the VTEX storefront | No `sc`, or a different `sc` than the shopper's; `regionId` missing on a regionalized store |
 | Cart empties after each action | `setCookies` not forwarded, or joined into one header ([`vtex-cookies-auth.md`](./vtex-cookies-auth.md)) |
-| A new, empty cart on every call | The cart call got no `cookie`, so it went out with the app's credentials instead of as the shopper |
+| A new, empty cart on every call | The cart call got no `cookie`: with no `checkout.vtex.com` cookie VTEX starts a new cart, and the call goes out with the app's credentials instead of as the shopper |
 | Every call fails at once for a few seconds | The circuit breaker opened after 5 failures in a row on any operation |
 | `vtex: invalid path segment` | A `.` or `..` segment in `term` or `pageType`'s path |

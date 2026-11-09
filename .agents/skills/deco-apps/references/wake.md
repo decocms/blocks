@@ -38,7 +38,8 @@ const data = await wake.graphql<GetProductQuery, GetProductQueryVariables>(GetPr
   `RemoveCoupon`, `AddKit`, `RemoveKit`, `ShippingQuotes`, `GetUser`, `GetWishlist`,
   `WishlistAddProduct`, `WishlistRemoveProduct`, `ProductRestockAlert`,
   `CreateNewsletterRegister`, `CreateProductReview`, `SendGenericForm`, `GetBuyList`,
-  `GetPartners`, `CheckoutPartnerAssociate`, `CheckoutPartnerDisassociate`, and more.
+  `GetPartners`, `CheckoutPartnerAssociate`, `CheckoutPartnerDisassociate` and
+  `productOptions`, plus two fragment strings (`Customer`, `WishlistReducedProduct`).
   `/storefront/types` has a `…Query` or `…Mutation` type and a `…Variables` type for
   each, named after the GraphQL operation inside, not the export: `GetURL` →
   `GetUrlQuery`, `GetBuyList` → `BuyListQuery`.
