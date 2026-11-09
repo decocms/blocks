@@ -8,6 +8,9 @@
  *   keeps its height while the next page loads;
  * - the CDN segment token and the draft this request renders, for
  *   `decoServerFnFetch` and the draft badge;
+ * - on the live site, the visitor's tests (the saved `experiments` block, as
+ *   the worker decided them) on `window.__DECO_EXPERIMENTS` and in the Deco
+ *   Analytics tag's experiment map, so its events carry the arm the page rendered;
  * - `StudioBridge` (in Studio's frame it answers Studio's origins,
  *   `STUDIO_ORIGINS`; outside it, "." opens the page in Studio's editor, with
  *   the page's `pathTemplate` from the route's loader data) and `DraftBadge`
@@ -154,8 +157,9 @@ export interface DecoPreviewProps {
 /**
  * What `DecoDocument` mounts for Studio and draft previews, for a site that
  * keeps its own document (a skip link before `<main>`, say): the request's
- * draft and CDN segment token published to the browser, `StudioBridge` and
- * `DraftBadge`. Render it once, in the `<body>`.
+ * draft, CDN segment token and the visitor's tests published to the browser,
+ * `StudioBridge` and `DraftBadge`. Render it once, in the `<body>`, before
+ * the Deco Analytics tag if the site adds that itself.
  */
 export function DecoPreview({ site, editShortcut, nonce, studioOrigins }: DecoPreviewProps) {
   const values = pageValues();
