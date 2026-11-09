@@ -11,13 +11,16 @@ export const openPage = cache(async (pathname: string) => {
   // Routing reads the index: the pages' paths (and the posts), then the redirects block.
   const [routes, routesError] = await c.routes();
   if (routesError) throw routesError;
-  const [posts, postsError] = await c.list<Post>("post");
+  // The posts' paths come from the index too (no post body is read to route); a post's
+  // route says so, and the post is read once it matched.
+  const [posts, postsError] = await c.entries("post");
   if (postsError) throw postsError;
-  const routable: (Route | Post)[] = [...routes, ...posts];
+  const postRoutes = posts.flatMap((p) => (p.path === undefined ? [] : [{ name: p.name, path: p.path, post: true }]));
+  const routable: (Route | (typeof postRoutes)[number])[] = [...routes, ...postRoutes];
   const match = matchRoute(pathname, { routes: routable });
-  const post = match.kind === "match" && "__resolveType" in match.entry ? (match.entry as Post) : null;
-  // The page's blocks start downloading with the redirects block, in one wave.
-  if (match.kind === "match" && post === null) c.prefetch(match.entry.name);
+  const isPost = match.kind === "match" && "post" in match.entry;
+  // The page's (or post's) blocks start downloading with the redirects block, in one wave.
+  if (match.kind === "match") c.prefetch(match.entry.name);
   const [redirects, redirectsError] = await c.redirects();
   if (redirectsError) throw redirectsError;
   const moved = matchRoute(pathname, { routes: [], redirects });
@@ -27,7 +30,11 @@ export const openPage = cache(async (pathname: string) => {
   }
   if (match.kind !== "match") notFound();
 
-  if (post !== null) return { post, page: null };
+  if (isPost) {
+    const [post, postError] = await c.resolve<Post>(match.entry.name, { run: false });
+    if (postError) throw postError;
+    return { post, page: null };
+  }
   const [page, error] = await c.resolve<ResolvedPage<ReactNode>>(match.entry.name);
   if (error) throw error;
   return { post: null, page };

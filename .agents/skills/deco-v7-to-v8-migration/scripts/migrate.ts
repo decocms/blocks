@@ -26,6 +26,8 @@
  *    `createDecoWorkerEntry` configured (the script writes no worker entry);
  * 6. imports: the codemod over `src/` (v7 helpers to `@decocms/compat-v7`,
  *    `ctx.device` from the loader's request, `src/imageUrl.ts` on TanStack);
+ *    then every `client.list(…)` call and `.deco/blocks` scan reported
+ *    (`client.entries()` or one `resolve(name)` instead; ./contentReads.ts);
  * 7. scripts: `deco schema && deco content` before dev and build, and
  *    `deco schema --check` in the site's CI after the install step.
  *
@@ -43,6 +45,7 @@ import { writeBlockMap } from "./blockMap";
 import { addSchemaCheck } from "./ciSchemaCheck";
 import { listSources, rewriteDeviceReads } from "./compat";
 import { moveContent } from "./content";
+import { reportContentReads } from "./contentReads";
 import { reportTestsAndDates } from "./experiments";
 import { siteFramework, V8_RANGE } from "./framework";
 import { rewriteImports } from "./imports";
@@ -170,6 +173,7 @@ export async function migrate(options: MigrateOptions): Promise<Report> {
     reportWorkerEntry(root, report);
   }
   rewriteImports(root, report, vendored);
+  reportContentReads(root, report);
   addScripts(root, report);
   addSchemaCheck(root, report);
   return report;

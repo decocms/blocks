@@ -114,6 +114,15 @@ export const cms = createCMS({ blocks, site: process.env.DECO_SITE! });
 const [props, error] = await cms.forRelease().resolve("Home Hero");
 ```
 
+A client reads one block at a time. What a site needs about all of them comes from the release's index, with no block fetched: `routes()` and `redirects()` for routing, and `entries(type?)` for the rest (`{ name, type, path?, refs, noIndex? }` per saved block; a sitemap is the `page` entries' paths without `:param` or `*` segments and without `noIndex`). `list()` was removed in 8.12 (it fetched every block of a type): it stays on `Client`, deprecated, so old code compiles, and throws at once, before reading anything, with an error that names these replacements (and `resolve(name)` for one body).
+
+```ts
+const [pages] = await cms.forRelease().entries("page");
+const sitemap = pages!
+  .filter((p) => p.path && !p.noIndex && !/(^|\/)(:|\*)/.test(p.path))
+  .map((p) => p.path!);
+```
+
 On production deploys, CI runs `deco schema && deco schema push` so Studio draws forms from the deployed code; a team that wants the guard adds `deco check`, which checks production (the live release, from the CDN) against the code. The `deco` CLI also edits content remotely, through the Studio API (log in once with `npx decocms auth login`, or set `DECO_TOKEN` to a Studio API key). It talks to the site named by `DECO_SITE`: the environment's, else the first of `.env`, `.dev.vars`, then `vars.DECO_SITE` in `wrangler.jsonc`, `wrangler.json` or `wrangler.toml`, in the folder that contains `.deco/`; Studio knows the site's organization.
 
 ```bash

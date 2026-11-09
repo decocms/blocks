@@ -97,7 +97,7 @@ describe("loaders", () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const client = cms.forDraft(pointer);
     const [v1, e1] = await client.resolve("SummerSEO");
-    const [v2, e2] = await client.list("page");
+    const [v2, e2] = await client.entries("page");
     const [v3, e3] = await client.resolve({ title: "literal" });
     for (const [value, error] of [
       [v1, e1],
@@ -311,7 +311,7 @@ describe("one revision per client", () => {
     revision = "r2";
     await cms.update();
     expect(await client.resolve("Name")).toEqual(["r1", null]);
-    expect(await client.list("anything")).toEqual([[], null]);
+    expect(await client.entries("anything")).toEqual([[], null]);
     expect(await client.revision()).toBe("r1");
     expect(await cms.forRelease().resolve("Name")).toEqual(["r2", null]);
   });
@@ -321,7 +321,7 @@ describe("one revision per client", () => {
     const cms = createCMS({ blocks: docsBlocks(), content: { load } });
     const client = cms.forRelease();
     expect(load).not.toHaveBeenCalled();
-    await Promise.all([client.resolve("SummerSEO"), client.list("page"), client.revision()]);
+    await Promise.all([client.resolve("SummerSEO"), client.entries("page"), client.revision()]);
     expect(load).toHaveBeenCalledTimes(1);
   });
 });

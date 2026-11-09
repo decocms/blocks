@@ -69,6 +69,7 @@ The full text of each step: [`references/manual-steps.md`](./references/manual-s
 ```bash
 bunx deco schema && bunx deco content && bunx deco check   # 0 errors
 bun run typecheck && bun run build
+bun <skill>/scripts/checkContentReads.ts --root .   # no client.list()
 ```
 
 Then the rest of [`references/verify.md`](./references/verify.md): the committed schema, type errors counted against v7, drafts probed by hand, and a page-by-page parity run with every approved difference encoded as a rule ([`references/parity.md`](./references/parity.md)).
@@ -106,7 +107,7 @@ What the site migrations taught, one subject per file. Commit hashes refer to `d
 | [`site-code.md`](./references/site-code.md) | What stays site code: SEO, devices, cookies, commerce code, error reporting, A/B splits |
 | [`server-functions.md`](./references/server-functions.md) | `/deco/invoke` → server functions |
 | [`caching-and-privacy.md`](./references/caching-and-privacy.md) | Per-visitor data, QueryClient scope, draft bypass, hydration waits |
-| [`nextjs.md`](./references/nextjs.md) | Next.js App Router: `@decocms/nextjs` drafts and proxy, `list('page')`, head order, Jest |
+| [`nextjs.md`](./references/nextjs.md) | Next.js App Router: `@decocms/nextjs` drafts and proxy, `entries('page')`, head order, Jest |
 | [`hosted-releases.md`](./references/hosted-releases.md) | Hosted CMS instead of fast deploy, bundled content, v7 leftovers to delete |
 | [`content.md`](./references/content.md) | `deco check` as a deploy gate, content it rejects, editing the bundled content, moving it to Studio's hosted CMS |
 | [`telemetry.md`](./references/telemetry.md) | Telemetry params, resource attributes, dropped v7 bindings, analytics |

@@ -486,15 +486,14 @@ describe("how resolution works", () => {
     expect((await client.resolve("A", { run: false }))[1]?.code).toBe("CYCLE");
   });
 
-  it("res-09: client.list(type, options) returns what { run: false } returns by default", async () => {
+  it("res-09: client.entries(type) names the saved blocks of a type from the index, running nothing", async () => {
     const card = vi.fn(productCard);
     const client = clientWith({ ...blockMap, "product-card": card }, saved);
-    const [entries, error] = await client.list("product-card");
+    const [entries, error] = await client.entries("product-card");
     expect(error).toBeNull();
-    expect(entries).toEqual([(await client.resolve("SummerCard", { run: false }))[0]]);
+    expect(entries?.map((e) => e.name)).toEqual(["SummerCard"]);
     expect(card).not.toHaveBeenCalled();
-    const [limited] = await client.list("product-card", { limit: 0 });
-    expect(limited).toEqual([]);
+    expect(await client.entries("nothing")).toEqual([[], null]);
   });
 
   it("res-10: error codes NOT_FOUND, UNKNOWN_BLOCK, CYCLE and BLOCK_FAILED, with code/message/path/cause", async () => {

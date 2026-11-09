@@ -60,8 +60,8 @@ Why each step is there:
 - **`cache()`** from React: `generateMetadata` and the page call `openPage`
   with the same arguments in one request; they share one result.
 - **`routes()`** reads `{ name, path }` of every page from the content index,
-  without page bodies. Do not route with `list("page")`: it fetches every
-  page and warns outside production.
+  without page bodies. `client.list()` was removed and throws: route with
+  `routes()` and `redirects()`, and read other types with `entries(type)`.
 - **`matchRoute(pathname, { routes, redirects })`** returns
   `{ kind: "match", entry, params }`, `{ kind: "redirect", location, status }`
   or `{ kind: "not-found" }`. Exact segments win over `:params`, params over a
@@ -74,12 +74,13 @@ Why each step is there:
   resolved, so `sections` holds what each block function returned.
 
 The example app also routes a custom block type (blog posts that carry a
-`path`): it adds `(await c.list<Post>("post"))` to the routes it matches and
-renders a matched post without resolving it.
+`path`): it adds the `{ name, path }` of `(await c.entries("post"))` to the
+routes it matches (from the index, no post body read) and reads the one post
+that matched.
 
 ## Results and errors
 
-`resolve`, `list`, `routes` and `redirects` return a tuple instead of
+`resolve`, `entries`, `routes` and `redirects` return a tuple instead of
 throwing: `[value, null]` or `[null, CMSError]`. (`revision()` is the
 exception: it rejects when content can't load.) `CMSError` has `code`, `message`, `path` (where in the
 tree, such as `["sections", 2, "product"]`) and, for function failures,

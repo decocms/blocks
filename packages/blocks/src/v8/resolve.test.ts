@@ -508,8 +508,8 @@ describe("shared content is never mutated", () => {
       .forRelease()
       .resolve<{ items: unknown[] }>("Shelf", { run: false });
     expanded?.items.push("caller mutation");
-    const [listed] = await cms.forRelease().list<{ items: unknown[] }>("shelf");
-    listed?.[0]?.items.push("caller mutation");
+    const [run] = await cms.forRelease().resolve<{ items: unknown[] }>("Shelf");
+    run?.items.push("caller mutation");
     expect(JSON.stringify(content.blocks)).toBe(frozen);
   });
 

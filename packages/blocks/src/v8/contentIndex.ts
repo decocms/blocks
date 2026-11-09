@@ -6,14 +6,15 @@
  * the inline `CMS` body) or, by hash, from the hosted block store.
  *
  * Local content (a content module or a custom `Loader`) is turned into an
- * index once per snapshot object, with `blockMeta` over its bodies, so
- * `routes()`, `redirects()` and `prefetch()` behave the same everywhere.
+ * index once per snapshot object, with `blockMeta` over its bodies (a page's
+ * saved SEO block resolved from them), so `routes()`, `redirects()`,
+ * `entries()` and `prefetch()` behave the same everywhere.
  */
-import { type BlockIndex, blockMeta, type IndexEntry } from "./blockMeta.ts";
+import { type BlockIndex, blockMeta, type IndexEntry, META_VERSION } from "./blockMeta.ts";
 import { REDIRECTS_TYPE } from "./builtins/data.ts";
 import { LEGACY_ALIASES } from "./builtins/legacy.ts";
 import { own } from "./json.ts";
-import type { Route, Snapshot } from "./types.ts";
+import type { Entry, Route, Snapshot } from "./types.ts";
 
 /** Fetches bodies by hash, shared across requests (see ./blockStore.ts). */
 export interface BodySource {
@@ -34,6 +35,11 @@ export interface IndexedContent {
   readonly revision: string;
   /** `latest.json`'s `sequence` (0 for local content). */
   readonly sequence: number;
+  /**
+   * The version of `blockMeta` that computed the entries' `meta` (the index's
+   * `metaVersion`, 1 when it has none; `META_VERSION` for local content).
+   */
+  readonly metaVersion: number;
   /** Name → entry; a null-prototype object, so any name is an entry. */
   readonly blocks: Readonly<BlockIndex>;
   /** The content module's alias table (local content only). */
@@ -84,6 +90,8 @@ interface Derived {
   names: string[];
   routes: Route[];
   redirects: string | null;
+  /** `entries(type)` by canonical type (`""`: every typed entry), built on first ask. */
+  entries: Map<string, readonly Entry[]>;
 }
 
 const derived = new WeakMap<IndexedContent, Derived>();
@@ -102,14 +110,9 @@ function derive(content: IndexedContent): Derived {
     if (type === PAGE && typeof meta.path === "string") routes.push({ name, path: meta.path });
     else if (type === REDIRECTS_TYPE && redirects === null) redirects = name;
   }
-  found = { names, routes, redirects };
+  found = { names, routes, redirects, entries: new Map() };
   derived.set(content, found);
   return found;
-}
-
-/** Every name, in code-unit order. */
-export function namesOf(content: IndexedContent): readonly string[] {
-  return derive(content).names;
 }
 
 /**
@@ -127,13 +130,38 @@ export function redirectsBlockOf(content: IndexedContent): string | null {
   return derive(content).redirects;
 }
 
-/** Names of entries whose type maps to `type`, in code-unit order. */
-export function namesOfType(content: IndexedContent, type: string): string[] {
-  const wanted = canonicalType(content, type);
-  return namesOf(content).filter((name) => {
-    const t = content.blocks[name]?.meta?.type;
-    return t !== undefined && canonicalType(content, t) === wanted;
-  });
+/**
+ * What the index says about each typed entry (of `type`, after alias mapping,
+ * when given), in code-unit order of name: `{ name, type, path?, refs,
+ * noIndex? }`, `type` mapped through the aliases. `noIndex` is a boolean on an
+ * index whose meta version has it (`metaVersion` 2 or later: a missing one is
+ * `false`), absent on an older one. Never reads a body. The same frozen array
+ * for the same index and type.
+ */
+export function entriesOf(content: IndexedContent, type?: string): readonly Entry[] {
+  const derived = derive(content);
+  const wanted = type === undefined ? "" : canonicalType(content, type);
+  let found = derived.entries.get(wanted);
+  if (found !== undefined) return found;
+  const knowsNoIndex = content.metaVersion >= 2;
+  const out: Entry[] = [];
+  for (const name of derived.names) {
+    const meta = content.blocks[name]?.meta;
+    if (meta?.type === undefined) continue;
+    const canonical = canonicalType(content, meta.type);
+    if (wanted !== "" && canonical !== wanted) continue;
+    const entry: Entry = {
+      name,
+      type: canonical,
+      refs: Object.freeze([...(meta.refs ?? [])]) as string[],
+    };
+    if (meta.path !== undefined) entry.path = meta.path;
+    if (knowsNoIndex) entry.noIndex = meta.noIndex === true;
+    out.push(Object.freeze(entry));
+  }
+  found = Object.freeze(out);
+  derived.entries.set(wanted, found);
+  return found;
 }
 
 /**
@@ -162,19 +190,21 @@ export function localIndex(snapshot: Snapshot): IndexedContent {
   if (found !== undefined) return found;
   const bodies = snapshot.blocks;
   const names = new Set(Object.keys(bodies));
+  const bodyOf = (name: string) => (Object.hasOwn(bodies, name) ? bodies[name] : undefined);
   const blocks = Object.create(null) as BlockIndex;
   for (const name of names) {
-    const meta = blockMeta(bodies[name], names);
+    const meta = blockMeta(bodies[name], names, bodyOf);
     // Local bodies are held, so no hash is needed (or computed).
     blocks[name] = Object.keys(meta).length > 0 ? { version: "", meta } : { version: "" };
   }
   found = {
     revision: snapshot.revision,
     sequence: 0,
+    metaVersion: META_VERSION,
     blocks,
     held: {
       has: (name) => Object.hasOwn(bodies, name),
-      get: (name) => (Object.hasOwn(bodies, name) ? bodies[name] : undefined),
+      get: bodyOf,
     },
   };
   if (snapshot.aliases !== undefined) (found as { aliases?: unknown }).aliases = snapshot.aliases;

@@ -1,160 +1,105 @@
 // @vitest-environment node
-/** client.list (api-reference#client-list-type-options and routing.mdx). */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * client.list() was removed: it fetched the body of every block of a type.
+ * The member stays (deprecated) so old code compiles, and throws at once,
+ * before reading the index or fetching anything, with a message that names
+ * what to read instead.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LIST_REMOVED } from "./client";
 import { createCMS, resetForTests } from "./cms";
-import { docsBlocks, docsSnapshot } from "./testFixtures";
-import type { Blocks, Page, Snapshot } from "./types";
+import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio } from "./testFixtures";
+import type { Client } from "./types";
 
 beforeEach(() => resetForTests());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
-function client(blocks: Blocks = docsBlocks(), content: Snapshot = docsSnapshot()) {
-  return createCMS({ blocks, content }).forRelease();
-}
+const TYPES = ["page", "redirect", "redirects", "website/pages/Page.tsx", "post", "seo", ""];
 
-interface Post {
-  name: string;
-  path: string;
-  date: string;
-}
-
-function blog(): Snapshot {
-  const posts: Record<string, unknown> = {};
-  const dates = ["2026-09-01", "2026-07-15", "2026-12-25", "2026-08-30"];
-  ["Zeta", "Alpha", "Mid", "Beta"].forEach((name, i) => {
-    posts[name] = {
-      __resolveType: "post",
-      name,
-      path: `/blog/${name.toLowerCase()}`,
-      date: dates[i],
-    };
+describe("client.list()", () => {
+  it("throws for every type, with or without options, on local content", () => {
+    const client = createCMS({ blocks: docsBlocks(), content: docsSnapshot() }).forRelease();
+    for (const type of TYPES) {
+      expect(() => client.list(type)).toThrow(LIST_REMOVED);
+      expect(() => client.list(type, { run: true, limit: 1, where: () => true })).toThrow(
+        LIST_REMOVED,
+      );
+    }
   });
-  return {
-    revision: "blog",
-    blocks: { ...posts, Other: { __resolveType: "page", name: "x", path: "/x", sections: [] } },
-  };
-}
 
-describe("client.list", () => {
-  it("returns every saved block of the type, sorted by name, as saved (nothing runs)", async () => {
-    const post = vi.fn();
-    const [posts, error] = await client({ post }, blog()).list<Post>("post");
-    expect(error).toBeNull();
-    expect(posts?.map((p) => p.name)).toEqual(["Alpha", "Beta", "Mid", "Zeta"]);
-    expect(posts?.[0]).toEqual({
-      __resolveType: "post",
-      name: "Alpha",
-      path: "/blog/alpha",
-      date: "2026-07-15",
+  it("throws synchronously on a hosted release, before the index or any block is fetched", async () => {
+    const api = fakeDelivery();
+    const fetch = vi.fn(api.fetch);
+    vi.stubGlobal("fetch", fetch);
+    await api.publish({
+      home: { __resolveType: "page", path: "/", sections: [] },
+      Redirects: { __resolveType: "redirects", redirects: [] },
     });
-    expect(post).not.toHaveBeenCalled();
+    const client = createCMS({ blocks: docsBlocks(), site: "acme" }).forRelease();
+    // createCMS starts polling the index on its own: let that settle first.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    fetch.mockClear();
+    for (const type of TYPES) {
+      expect(() => client.list(type)).toThrow(LIST_REMOVED);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetch).not.toHaveBeenCalled();
+    // Nothing was read, so the client never pinned an index.
+    expect(client.version).toBeUndefined();
   });
 
-  it("sorts by plain code-unit order, the same on every server and locale", async () => {
-    const names = ["b", "B", "a", "Ä", "_x", "10", "9"];
-    const content: Snapshot = {
-      revision: "r",
-      blocks: Object.fromEntries(names.map((name) => [name, { __resolveType: "t", name }])),
-    };
-    const [entries] = await client({}, content).list<{ name: string }>("t");
-    expect(entries?.map((e) => e.name)).toEqual(["10", "9", "B", "_x", "a", "b", "Ä"]);
-  });
-
-  it("returns pages as saved: seo and sections still blocks", async () => {
-    const [pages] = await client().list<Record<string, unknown>>("page");
-    expect(pages?.map((p) => p.name)).toEqual(["Home", "Summer campaign"]);
-    const summer = pages?.[1];
-    expect(summer?.seo).toEqual({
-      __resolveType: "seo",
-      title: "Sunny!",
-      description: "Light layers for long days.",
-    });
-  });
-
-  it("where, sort and limit (the api-reference example)", async () => {
-    const today = "2026-10-03";
-    const [posts] = await client({}, blog()).list<Post>("post", {
-      where: (p) => p.date <= today,
-      sort: (a, b) => b.date.localeCompare(a.date),
-      limit: 2,
-    });
-    expect(posts?.map((p) => p.name)).toEqual(["Zeta", "Beta"]);
-  });
-
-  it("limit 0 returns nothing; a negative limit is ignored", async () => {
-    expect((await client({}, blog()).list("post", { limit: 0 }))[0]).toEqual([]);
-    expect((await client({}, blog()).list("post", { limit: -1 }))[0]).toHaveLength(4);
-  });
-
-  it("run: true resolves every entry: list('page', { run: true }) returns ready pages", async () => {
-    const [pages, error] = await client().list<Page>("page", { run: true });
-    expect(error).toBeNull();
-    expect(pages?.map((p) => p.name)).toEqual(["Home", "Summer campaign"]);
-    expect(pages?.[1]?.seo).toEqual({
-      title: "Sunny!",
-      description: "Light layers for long days.",
-    });
-  });
-
-  it("run: true fails with UNKNOWN_BLOCK when the type isn't in the block map, naming the entry", async () => {
-    const [value, error] = await client({}, blog()).list("post", { run: true });
-    expect(value).toBeNull();
-    expect(error).toMatchObject({ code: "UNKNOWN_BLOCK", path: ["Alpha"] });
-  });
-
-  it("run: true leaves out entries that resolve to undefined", async () => {
-    const content: Snapshot = {
-      revision: "r",
-      blocks: {
-        A: { __resolveType: "maybe", keep: true },
-        B: { __resolveType: "maybe", keep: false },
+  it("throws on a draft client, before the draft or the release is read", async () => {
+    const studio = fakeStudio();
+    const fetch = vi.fn(studio.fetch);
+    vi.stubGlobal("fetch", fetch);
+    const pointer = studio.draft({ set: { SummerSEO: { __resolveType: "seo", title: "Draft" } } });
+    let loads = 0;
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: {
+        async load() {
+          loads++;
+          return docsSnapshot();
+        },
       },
-    };
-    const maybe = ({ keep }: { keep: boolean }) => (keep ? "kept" : undefined);
-    expect(await client({ maybe }, content).list("maybe", { run: true })).toEqual([["kept"], null]);
-  });
-
-  it("includes entries saved under an alias of the type", async () => {
-    const content: Snapshot = {
-      revision: "r",
-      blocks: {
-        New: { __resolveType: "page", name: "New", path: "/new", sections: [] },
-        Old: { __resolveType: "website/pages/Page.tsx", name: "Old", path: "/old", sections: [] },
-        Unrelated: { __resolveType: "post", name: "P", path: "/p" },
-      },
-      aliases: { "website/pages/Page.tsx": "page" },
-    };
-    const [pages] = await client({}, content).list<Page>("page");
-    expect(pages?.map((p) => p.name)).toEqual(["New", "Old"]);
-    const [byAlias] = await client({}, content).list<Page>("website/pages/Page.tsx");
-    expect(byAlias?.map((p) => p.name)).toEqual(["New", "Old"]);
-  });
-
-  it("an unknown type lists nothing", async () => {
-    expect(await client().list("nothing")).toEqual([[], null]);
-  });
-
-  it("expands references inside entries", async () => {
-    const [pages] = await client().list<Record<string, unknown>>("page", {
-      where: (p) => p.name === "Home",
     });
-    expect(pages?.[0]?.sections).toEqual([
-      {
-        __resolveType: "product-card",
-        title: "Summer collection",
-        product: { __resolveType: "catalog-product", slug: "summer-shirt" },
-      },
-    ]);
+    const draft = cms.forDraft(pointer);
+    for (const type of TYPES) {
+      expect(() => draft.list(type)).toThrow(LIST_REMOVED);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(loads).toBe(0);
   });
 
-  it("returns a CYCLE inside an entry as an error", async () => {
-    const content: Snapshot = {
-      revision: "r",
-      blocks: {
-        P: { __resolveType: "page", sections: [{ __resolveType: "Loop" }] },
-        Loop: { __resolveType: "Loop" },
-      },
-    };
-    const [, error] = await client({}, content).list("page");
-    expect(error?.code).toBe("CYCLE");
+  it("an awaited call rejects with the same error, so old code fails loudly", async () => {
+    const client: Client = createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+    }).forRelease();
+    await expect(async () => await client.list("page")).rejects.toThrow(LIST_REMOVED);
+  });
+
+  it("says it was removed and names the replacements", () => {
+    expect(LIST_REMOVED).toContain("client.list() was removed in this version");
+    for (const replacement of [
+      "client.routes()",
+      "client.redirects()",
+      "client.entries(type)",
+      "client.resolve(name)",
+      "index only",
+    ]) {
+      expect(LIST_REMOVED).toContain(replacement);
+    }
+  });
+
+  it("warns nothing: it throws instead", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = createCMS({ blocks: docsBlocks(), content: docsSnapshot() }).forRelease();
+    expect(() => client.list("page")).toThrow(Error);
+    expect(warn).not.toHaveBeenCalled();
   });
 });

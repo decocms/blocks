@@ -5,8 +5,10 @@
  * talk only to the CDN, with plain HTTP (ETag, `If-None-Match`, 304).
  *
  * - **The index.** `sites/<site>/latest.json` is the current revision's
- *   index (`{ revision, sequence, previewHosts, blocks: { <name>: { version,
- *   meta?, data? } } }`). The first use loads it (calls made meanwhile share
+ *   index (`{ revision, sequence, metaVersion?, previewHosts, blocks: {
+ *   <name>: { version, meta?, data? } } }`; `metaVersion`, absent on an
+ *   index written before it, is the `blockMeta` version of the entries'
+ *   `meta`: see ./blockMeta.ts). The first use loads it (calls made meanwhile share
  *   the load; a failed load isn't kept and rejects with a
  *   `ContentUnavailableError`, a 404 included: never an empty site). A poll
  *   (the CMS starts one in the background every interval, and a draft
@@ -288,6 +290,13 @@ class RemoteLoader implements Loader, HostedSource {
       throw format("sequence must be a positive integer");
     }
     if (!isPlainObject(body.blocks)) throw format("blocks must be an object");
+    // Absent (an index written before it) or unreadable: version 1, no `noIndex`.
+    const metaVersion =
+      typeof body.metaVersion === "number" &&
+      Number.isSafeInteger(body.metaVersion) &&
+      body.metaVersion >= 1
+        ? body.metaVersion
+        : 1;
     const blocks = Object.create(null) as BlockIndex;
     for (const [name, raw] of Object.entries(body.blocks)) {
       if (!isPlainObject(raw) || typeof raw.version !== "string" || !HASH_RE.test(raw.version)) {
@@ -299,7 +308,7 @@ class RemoteLoader implements Loader, HostedSource {
       if (name === INLINE_BLOCK && raw.data !== undefined) entry.data = raw.data;
       blocks[name] = entry;
     }
-    return { revision: body.revision, sequence, blocks, source: this.blocks };
+    return { revision: body.revision, sequence, metaVersion, blocks, source: this.blocks };
   }
 
   /** `blocks/<hash>.json`. */
@@ -333,6 +342,7 @@ function metaOf(raw: unknown): BlockMeta | undefined {
     const refs = raw.refs.filter((ref): ref is string => typeof ref === "string");
     if (refs.length > 0) meta.refs = refs;
   }
+  if (raw.noIndex === true) meta.noIndex = true;
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 

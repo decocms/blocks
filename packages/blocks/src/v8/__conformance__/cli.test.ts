@@ -954,9 +954,12 @@ describe("schema.mdx", () => {
         },
       },
     }).forRelease();
-    const [posts] = await cms.list<{ name: string; path: string }>("post");
+    const [posts] = await cms.entries("post");
     expect(posts?.map((p) => p.path)).toEqual(["/blog/hello"]);
-    const match = matchRoute("/blog/hello", { routes: posts ?? [] });
+    const routes = (posts ?? []).flatMap((p) =>
+      p.path === undefined ? [] : [{ name: p.name, path: p.path }],
+    );
+    const match = matchRoute("/blog/hello", { routes });
     expect(match).toMatchObject({ kind: "match" });
     const [value] = await cms.resolve("Hello");
     expect(value).toMatchObject({ author: { author: "ANA" } });

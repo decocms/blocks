@@ -5,13 +5,15 @@
 import { describe, expect, it } from "vitest";
 import { indexEntry as entryFromProtocol, blockMeta as fromProtocol } from "../protocol";
 import { blockMetaVectors } from "../protocol/conformance";
-import { blockMeta, indexEntry } from "./blockMeta";
+import { blockMeta, indexEntry, META_VERSION, pageNoIndex, seoNoIndex } from "./blockMeta";
 import { blockVersion } from "./canonical";
 
 describe("blockMeta vectors", () => {
   const { names, cases } = blockMetaVectors;
+  // A page's saved SEO block is looked up among the cases.
+  const bodyOf = (name: string) => cases.find((c) => c.name === name)?.body;
 
-  it("has the eight cases of the contract", () => {
+  it("has the eleven cases of the contract", () => {
     expect(cases.map((c) => c.name)).toEqual([
       "home",
       "footer",
@@ -21,14 +23,17 @@ describe("blockMeta vectors", () => {
       "extends",
       "redirects",
       "CMS",
+      "hidden-seo",
+      "noindex-inline",
+      "noindex-saved",
     ]);
   });
 
   it.each(cases.map((c) => [c.name, c] as const))("%s: version, meta and entry", async (_, c) => {
     expect(await blockVersion(c.body)).toBe(c.version);
-    expect(blockMeta(c.body, names)).toEqual(c.meta);
-    expect(blockMeta(c.body, new Set(names))).toEqual(c.meta);
-    expect(await indexEntry(c.name, c.body, names)).toEqual(c.entry);
+    expect(blockMeta(c.body, names, bodyOf)).toEqual(c.meta);
+    expect(blockMeta(c.body, new Set(names), bodyOf)).toEqual(c.meta);
+    expect(await indexEntry(c.name, c.body, names, bodyOf)).toEqual(c.entry);
   });
 
   it("is what @decocms/blocks/protocol re-exports", async () => {
@@ -42,6 +47,60 @@ describe("blockMeta vectors", () => {
     const cms = cases.find((c) => c.name === "CMS")!;
     expect(cms.entry.data).toEqual(cms.body);
     for (const c of cases) if (c.name !== "CMS") expect(c.entry).not.toHaveProperty("data");
+  });
+});
+
+describe("noIndex (meta version 2)", () => {
+  it("is version 2", () => {
+    expect(META_VERSION).toBe(2);
+  });
+
+  it("is true for a page whose inline seo says noIndexing, and left out otherwise", () => {
+    const page = (seo: unknown) => ({ __resolveType: "page", path: "/p", seo });
+    expect(blockMeta(page({ noIndexing: true }), []).noIndex).toBe(true);
+    for (const seo of [undefined, null, {}, { noIndexing: false }, { noIndexing: "true" }, []]) {
+      expect(blockMeta(page(seo), [])).not.toHaveProperty("noIndex");
+    }
+  });
+
+  it("only a body with a path is a page", () => {
+    expect(blockMeta({ __resolveType: "post", seo: { noIndexing: true } }, [])).toEqual({
+      type: "post",
+    });
+    expect(pageNoIndex({ path: "", seo: { noIndexing: true } })).toBe(true);
+  });
+
+  it("follows a referenced saved SEO block through bodyOf; without it, a reference is false", () => {
+    const bodies: Record<string, unknown> = {
+      DefaultSeo: { __resolveType: "website/sections/Seo/SeoV2.tsx", noIndexing: true },
+      Alias: { __resolveType: "DefaultSeo" },
+      A: { __resolveType: "B" },
+      B: { __resolveType: "A" },
+    };
+    const bodyOf = (name: string) => bodies[name];
+    expect(seoNoIndex({ __resolveType: "DefaultSeo" }, bodyOf)).toBe(true);
+    expect(seoNoIndex({ __resolveType: "Alias" }, bodyOf)).toBe(true);
+    expect(seoNoIndex({ __resolveType: "DefaultSeo" })).toBe(false);
+    expect(seoNoIndex({ __resolveType: "DefaultSeo", noIndexing: false }, bodyOf)).toBe(false);
+    expect(seoNoIndex({ __resolveType: "A" }, bodyOf)).toBe(false); // a cycle
+    expect(seoNoIndex({ __resolveType: "Missing" }, bodyOf)).toBe(false);
+    const page = { __resolveType: "page", path: "/", seo: { __resolveType: "DefaultSeo" } };
+    expect(blockMeta(page, Object.keys(bodies), bodyOf)).toEqual({
+      type: "page",
+      path: "/",
+      refs: ["DefaultSeo"],
+      noIndex: true,
+    });
+    expect(blockMeta(page, Object.keys(bodies))).not.toHaveProperty("noIndex");
+  });
+
+  it("stops after 8 saved blocks", () => {
+    // seo → S1 → … → S8 (8 saved blocks) says it; seo → S0 → … → S8 is 9.
+    const bodies: Record<string, unknown> = { S8: { noIndexing: true } };
+    for (let i = 0; i < 8; i++) bodies[`S${i}`] = { __resolveType: `S${i + 1}` };
+    const bodyOf = (name: string) => bodies[name];
+    expect(seoNoIndex({ __resolveType: "S1" }, bodyOf)).toBe(true);
+    expect(seoNoIndex({ __resolveType: "S0" }, bodyOf)).toBe(false);
   });
 });
 

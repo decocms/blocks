@@ -10,8 +10,8 @@ import type { Assignments, Visitor } from "./experiments.ts";
 // ---------------------------------------------------------------------------
 
 /**
- * A block as stored: the JSON in `.deco/blocks`, and what `client.list` and
- * `{ run: false }` return. Props never use it: a field's type is the value the
+ * A block as stored: the JSON in `.deco/blocks`, and what `{ run: false }`
+ * returns. Props never use it: a field's type is the value the
  * function receives.
  */
 export type Block = { __resolveType: string; [input: string]: unknown };
@@ -302,11 +302,39 @@ export interface ResolveOptions {
   run?: boolean;
 }
 
+/**
+ * @deprecated `client.list()` was removed and throws. Route with `routes()`
+ * and `redirects()`, read a type's names, paths and meta with
+ * `entries(type)` (both from the index alone), and a block's body with
+ * `resolve(name)`.
+ */
 export interface ListOptions<T> {
   where?: (entry: T) => boolean;
   sort?: (a: T, b: T) => number;
   limit?: number;
   run?: boolean;
+}
+
+/**
+ * One saved block as the content's index describes it (`client.entries()`):
+ * no body is read to answer.
+ */
+export interface Entry {
+  /** The saved block's name: `resolve(name)` reads it. */
+  name: string;
+  /** Its type, after alias mapping (a v7 `website/pages/Page.tsx` is `page`). */
+  type: string;
+  /** Its top-level `path`, when it has one. */
+  path?: string;
+  /** The saved blocks it references, deduped, in code-unit order. */
+  refs: string[];
+  /**
+   * Whether the page asks search engines not to index it (its `seo` says
+   * `noIndexing: true`, inline or through the saved SEO block it references).
+   * Absent when the content's index predates it (a hosted release last
+   * published before Studio wrote it): the next publish adds it.
+   */
+  noIndex?: boolean;
 }
 
 /**
@@ -322,9 +350,22 @@ export interface ListOptions<T> {
 export interface Client {
   resolve<T = unknown>(target: unknown, options?: ResolveOptions): Promise<Result<T>>;
   /**
-   * Every saved block of a type, read whole. For tools and type lists; routing
-   * reads `routes()` and `redirects()`, which need no body (a `page` or
-   * `redirect` list warns outside production).
+   * What the index says about every saved block (of `type`, or an alias of
+   * it, when given): `{ name, type, path?, refs, noIndex? }`, in code-unit
+   * order of name. Reads the index alone, never a body, so it costs no fetch
+   * however many blocks there are: a sitemap is the `page` entries' paths
+   * without parameters or a splat and without `noIndex`; a block's body is
+   * one `resolve(name)` away. The same frozen array for the same revision and
+   * type.
+   */
+  entries(type?: string): Promise<Result<readonly Entry[]>>;
+  /**
+   * @deprecated Removed: throws at once, before reading anything (it fetched
+   * the body of every block of a type, one CDN request per block on a hosted
+   * release). Route with `routes()` and `redirects()` (index only); read a
+   * type's names, paths, refs and `noIndex` with `entries(type)` (index
+   * only); read a block's body with `resolve(name)`. The signature stays so
+   * old code compiles and fails with that guidance at runtime.
    */
   list<T = Block>(type: string, options?: ListOptions<T>): Promise<Result<T[]>>;
   /**
@@ -350,7 +391,7 @@ export interface Client {
   prefetch(name: string): void;
   /**
    * The revision this client reads (loads it on first use). Unlike `resolve`
-   * and `list`, it rejects with the `LOADER_FAILED` error when the content
+   * and `entries`, it rejects with the `LOADER_FAILED` error when the content
    * can't load, since there is no revision to report.
    */
   revision(): Promise<string>;
@@ -359,7 +400,7 @@ export interface Client {
   /**
    * The version it reads: the release's revision id, or the draft pointer, as
    * passed to `cms.client()`. For the current release, the id of the release
-   * it loaded (`undefined` until its first `resolve`, `list` or `revision()`).
+   * it loaded (`undefined` until its first `resolve` or `revision()`).
    */
   readonly version: string | undefined;
   /** The date campaigns run at: the one passed to `cms.client()`, otherwise when the client was created. */
