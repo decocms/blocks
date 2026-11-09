@@ -20,13 +20,13 @@ Saved content stores type names in `__resolveType`. Treat them like database col
 
 ## Rewritten in content by the script
 
-`RENAMED_TYPES` in `scripts/legacyNames.ts`; same props, same behaviour. This is the table in the docs' "Run the migration".
+`RENAMED_TYPES` in `scripts/legacyNames.ts`; same props, same behaviour, except `date`. This is the table in the docs' "Run the migration".
 
 | v7 name | Saved as |
 |---|---|
 | `website/flags/multivariate/image.ts`, `website/flags/multivariate/message.ts`, `website/flags/multivariate/page.ts`, `$live/flags/multivariate.ts` | `website/flags/multivariate.ts` |
 | `$live/matchers/MatchAlways.ts` | `website/matchers/always.ts` |
-| `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date` |
+| `website/matchers/date.ts`, `$live/matchers/MatchDate.ts` | `date`, then reported: v8 has no `date` block and `deco check` rejects it. Move each window into the saved block `campaigns` ([`script-steps.md`](./script-steps.md), step 1) |
 
 ## Everything else
 
