@@ -9,7 +9,7 @@ v8 has no binding for them, and needs none. The app keeps reading its JSON. Only
 1. **Run the script as usual** and commit its output unedited. It writes `.deco/index.ts` with descriptor-returning section blocks, which `deco schema` and `deco check` need. Manual steps 2 to 4 (`createCMS`, framework code, `/deco/invoke`) don't apply.
 2. **Dependencies.**
    - Remove the v7 binding package.
-   - Add `@decocms/blocks@^8.1` and `typescript`, which `deco schema` needs as a peer.
+   - Add `@decocms/blocks@^8.4` and `typescript`, which `deco schema` needs as a peer.
    - Check the Node version that `@decocms/blocks`'s `engines` requires against the app's toolchain.
 3. **Scripts.**
    - These apps usually have no `dev`/`build` npm scripts. Run `deco schema && deco check` in whatever runs before the app's own start (`prestart`, a CI step).
@@ -40,4 +40,4 @@ Most form differences are expected. Sort them with [`editor-forms.md`](./editor-
 
 ## Before merging
 
-`prestart` regenerates `schema.gen.json` from the **installed** `@decocms/blocks`. Pin a range that includes every CLI fix the committed schema depends on. Otherwise the next start brings the old form differences back. The form-fidelity fixes below shipped after `8.1.0-next.1`.
+`prestart` regenerates `schema.gen.json` from the **installed** `@decocms/blocks`. Pin a range that includes every CLI fix the committed schema depends on. Otherwise the next start brings the old form differences back. The CLI fixes in [`editor-forms.md`](./editor-forms.md) (cause 3) shipped after `8.1.0-next.1`.
