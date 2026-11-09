@@ -1,17 +1,17 @@
 /**
- * Reads of the whole content, which v8 sites don't do (8.11 on): a site reads
+ * Reads of the whole content, which v8 sites don't do (8.12 on): a site reads
  * the index (`client.routes()`, `client.redirects()`, `client.entries(type?)`:
  * names, types, paths, references and `noIndex`, never a body) and one named
- * block at a time (`client.resolve(name)`). Since 8.11 there is no
- * `client.list(type)`; on a hosted release it fetched every block of the type
+ * block at a time (`client.resolve(name)`). Since 8.12 `client.list(type)`
+ * throws; on a hosted release it fetched every block of the type
  * (one request per block), and a build-time scan of `.deco/blocks` reads
  * content the site no longer bundles.
  *
  * - `list`: a `.list(…)` call on a CMS client (`c`, `cms`, `client`,
  *   `…Client`, `cms.forRelease()`, `cms.forDraft(…)`, `cms.client(…)`,
- *   `currentClient()`): an error. `scripts/checkContentReads.ts` fails on one; the
- *   site's typecheck fails on every other (a wrapper calling it), since
- *   `Client` has no `list`.
+ *   `currentClient()`): an error. `scripts/checkContentReads.ts` fails on one. `Client`
+ *   keeps a deprecated `list` so old code compiles, so the typecheck does
+ *   not catch one (a wrapper calling it neither): it throws at runtime.
  * - `scan`: a directory read or glob of `.deco/blocks` (`readdir`,
  *   `readdirSync`, `glob`, `import.meta.glob`, …; `.deco/blocks.gen` is the
  *   content module, not a scan): reported, since a native app may bundle the
@@ -139,7 +139,7 @@ export function findContentReads(root: string): ContentRead[] {
 }
 
 const LIST_FIX =
-  "client.list() is gone (8.11): client.entries(type) gives names, paths and noIndex from the index (a sitemap: page paths without :param or * and without noIndex), and client.resolve(name) reads one block; a map keyed by path becomes one saved block per path";
+  "client.list() throws (removed in 8.12): route with client.routes() and client.redirects(); client.entries(type) gives names, paths and noIndex from the index (a sitemap: page paths without :param or * and without noIndex), and client.resolve(name) reads one block; a map keyed by path becomes one saved block per path";
 const SCAN_FIX =
   "reads every saved block at build time: content comes from the CMS now (hosted releases leave .deco/blocks behind), so read client.entries(type) for paths and noIndex, or resolve one named block; keep it only for a native app that bundles the JSON (reference/native-apps.md)";
 

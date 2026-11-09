@@ -97,7 +97,15 @@ describe("the report and the check", () => {
     reportContentReads(root, report);
     expect(report.manual).toHaveLength(5);
     expect(report.manual[0]).toMatchObject({ step: "imports", subject: "src/sitemap.ts:4" });
-    expect(report.manual[0]?.message).toContain("client.entries(type)");
+    expect(report.manual[0]?.message).toContain("client.list() throws");
+    for (const fix of [
+      "client.routes()",
+      "client.redirects()",
+      "client.entries(type)",
+      "client.resolve(name)",
+    ]) {
+      expect(report.manual[0]?.message).toContain(fix);
+    }
   });
 
   it("checkContentReads fails on a list() call and passes once it reads entries()", () => {
@@ -112,7 +120,8 @@ describe("the report and the check", () => {
     site({ "src/sitemap.ts": SITEMAP });
     const failing = run();
     expect(failing.status, failing.stderr).toBe(1);
-    expect(failing.stdout).toContain("src/sitemap.ts:4: error: client.list() is gone");
+    expect(failing.stdout).toContain("src/sitemap.ts:4: error: client.list() throws");
+    expect(failing.stdout).toContain("route with client.routes() and client.redirects()");
     fs.writeFileSync(path.join(root, "src/sitemap.ts"), "export const x = 1;\n");
     const passing = run();
     expect(passing.status, passing.stderr).toBe(0);

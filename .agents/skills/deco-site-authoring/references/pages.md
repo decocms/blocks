@@ -138,12 +138,14 @@ changes one section. See the `deco-variants` skill.
   route it next to pages:
 
   ```ts
-  const [posts] = await c.list<Post>("post");
-  const match = matchRoute(pathname, { routes: [...routes, ...posts] });
+  const [posts] = await c.entries("post");
+  const postRoutes = posts.flatMap(({ name, path }) => (path ? [{ name, path }] : []));
+  const match = matchRoute(pathname, { routes: [...routes, ...postRoutes] });
   ```
 
-  `client.list(type)` returns entries as saved (nothing run) by default. Pass
-  `{ run: true }` to run them.
+  `client.entries(type)` reads only the content index (`{ name, type, path?, refs,
+  noIndex? }`, no body fetched); resolve the post that matched with
+  `client.resolve(match.entry.name)`. `client.list()` was removed and throws.
 
 ## Checklist for a new page
 

@@ -7,7 +7,7 @@ shapes. Pick the shape first; the code follows from it.
 |---|---|---|---|
 | **Global block** | Things on every page: header menu, footer, a top banner | One saved block with a fixed name, e.g. `.deco/blocks/Header%20menu.json` | `client.resolve("Header menu")` in a loader shared by every page |
 | **Composed page** | Pages editors rearrange: home, landings | A saved block of type `page` with `name`, `path`, `seo` and `sections` | `client.routes()` + `matchRoute`, then `client.resolve(name)` |
-| **Collection** | Many documents of one kind: articles, FAQ entries, store addresses | One saved block per document, all of one type | `client.list(type, { where, sort, limit })` |
+| **Collection** | Many documents of one kind: articles, FAQ entries, store addresses | One saved block per document, all of one type | `client.entries(type)` for names and paths (index only), then `client.resolve(name)` per document shown |
 
 A saved block's file name is `encodeURIComponent(name) + ".json"`, so the
 block named `Header menu` lives in `Header%20menu.json`. Subfolders of
@@ -182,17 +182,22 @@ post its own URL, list the posts and match them together with the pages, as
 `examples/nextjs-binding-smoke/src/open-page.server.ts` does:
 `matchRoute(href, { routes: [...routes, ...posts] })`.
 
-List them with `client.list`:
+List them with `client.entries`, which reads only the content index (names,
+types, paths, references, `noIndex`), and resolve the documents you show:
 
 ```ts
-const [posts, error] = await client.list<Post>("post", {
-  sort: (a, b) => b.date.localeCompare(a.date),
-  limit: 20,
-});
+const [entries, error] = await client.entries("post");
+if (error) throw error;
+const posts = await Promise.all(
+  entries.slice(0, 20).map(async ({ name }) => (await client.resolve<Post>(name))[0]),
+);
 ```
 
-`list` reads every saved block of that type whole. That is fine for an index
-of tens of documents. For pages, route with `client.routes()`, which reads
-only the index: `list("page")` warns outside production for that reason.
+`entries` is sorted by block name and costs no block fetch however many
+documents there are; each `resolve(name)` reads one body. Sort by a field of
+the body (a date) only over the documents you resolved, or put the sort key in
+the name. For pages, route with `client.routes()` and `client.redirects()`.
+There is no working `client.list()`: it was removed (it fetched every block of
+the type) and throws, naming these replacements.
 
 See `examples/nextjs-binding-smoke/src/app/blog/page.tsx` for a list page.
