@@ -148,8 +148,9 @@ the schema file is not written at all.
 
 - **Render nothing for `undefined`.** A section an editor hid with a rule resolves to
   `undefined` and is dropped from the list. The route must not crash on it.
-- **Do not mutate props.** The same block with the same inputs runs once per request
-  and every place that uses it gets the same object.
+- **Do not mutate what props hold.** The props object itself is a fresh copy, but a
+  loader result inside it is shared: the same block with the same inputs runs once per
+  request, and every place that uses it gets the same object. Copy before you change it.
 - **Keep editable text in props.** A string a merchant would change belongs in the
   Props type, not in the component.
 - **Keep layout choices few.** A prop that only picks spacing or color is a design

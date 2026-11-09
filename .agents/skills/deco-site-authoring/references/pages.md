@@ -129,7 +129,8 @@ changes one section. See the `deco-variants` skill.
   ```
 
   `deco check` warns that Studio's page list and editor rely on the built-in `page`.
-  Keep the same fields so they keep working.
+  Keep the same fields so they keep working. The `seo` field then follows your type:
+  Studio offers a block for it only if the block's return type fits that type.
 
 - **A routable type of your own** (blog posts, store locator entries). Make its Props
   extend `Route` (`name` and `path`). A block whose Props have a `path` field but do not

@@ -22,7 +22,9 @@ export default {
 ```
 
 `deco schema` puts a key in the loaders group when its return type is not an element,
-a descriptor or a boolean. Use whatever data types fit the site. The schema.org-shaped
+a descriptor or a boolean, and is not its own props type. A function that returns its
+props unchanged (like `seo: (input: Seo) => input`) is content, or a page when its
+props extend `Route`. Use whatever data types fit the site. The schema.org-shaped
 commerce types (`Product`, `ProductDetailsPage`, `ProductListingPage`, `BreadcrumbList`)
 are in `@decocms/compat-v7/commerce/types`.
 
@@ -110,15 +112,29 @@ Content holds no secrets, and there is no `secret` block. Create the upstream cl
 code from the deploy platform's secrets, and close over it:
 
 ```ts
-export const contactForm = (email: EmailClient) => async (props: ContactFormProps) => {
-  await email.sendEmail({ from: "site@example.com", to: props.to, subject: props.subject, text: "" });
-  return { to: props.to };
-};
+import { createInstrumentedFetch } from "@decocms/blocks/fetch";
+import type { Review } from "./model"; // the site's own type
 
-// .deco/index.ts: "contact-form": contactForm(resendClient),
+const reviewsFetch = createInstrumentedFetch({ provider: "reviews" });
+
+export const productReviews =
+  (apiKey: string) =>
+  async ({ productId }: { productId: string }): Promise<Review[]> => {
+    const url = `https://reviews.example.com/v1/products/${encodeURIComponent(productId)}`;
+    const response = await reviewsFetch(url, {
+      operation: "reviews.list",
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) throw new Error(`reviews: HTTP ${response.status}`);
+    return (await response.json()) as Review[];
+  };
+
+// .deco/index.ts: "product-reviews": productReviews(reviewsApiKey),
 ```
 
-Editors choose `to` and `subject`. The key never enters content. The
+Editors choose `productId`. The key never enters content. A v7 `secret` block left in
+content fails `deco check` with `unknown block type`, and the message says secrets live
+in the deploy platform. The
 `@decocms/apps-*` clients and how to configure them are in the `deco-apps` skill.
 
 ## Fetching upstream
@@ -155,8 +171,10 @@ Editors choose `to` and `subject`. The key never enters content. The
 - Decide what "no data" means. For an optional section, return `undefined` (render
   nothing) or an empty list. Throw only when the page cannot make sense without it.
 - On TanStack the page loader can mark the response with `DEGRADED_HEADER`
-  (`x-deco-degraded`, from `@decocms/tanstack/server`) when a loader failed, so the page
-  cache does not store it. See the `deco-storefront-caching` skill.
+  (`x-deco-degraded`, from `@decocms/tanstack/server`) when a loader failed, so the
+  site's page cache does not store it. Headers are sent before the body, so the page
+  loader has to await every block before it answers, and nothing streams. See the
+  `deco-storefront-caching` skill.
 
 ## Moving a v7 or Fresh loader
 

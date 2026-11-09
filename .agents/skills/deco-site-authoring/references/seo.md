@@ -83,8 +83,8 @@ does not), they make two calls. Keep the loader inputs identical.
 For a listing page, do the same with the listing loader. `ProductListingPage` and
 `ProductDetailsPage` in `@decocms/compat-v7/commerce/types` carry an optional `seo`
 (`title`, `description`, `canonical`, `noIndexing`) when the platform provides one, and
-`canonicalFromBreadcrumblist` in `@decocms/compat-v7/commerce/utils/canonical` picks the
-last breadcrumb's URL.
+`canonicalFromBreadcrumblist` in `@decocms/compat-v7/commerce/utils/canonical` returns
+the `item` URL of the breadcrumb with the highest `position`.
 
 ## JSON-LD
 
