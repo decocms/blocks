@@ -46,7 +46,7 @@ You do not write these. Do not add a second copy of them in `pageCache`.
 | Fingerprinted assets | `public, max-age=31536000, immutable`, `Vary: Accept-Encoding`. Also under `/fonts/`. |
 | CMS redirects | Answered before your `routes` and before `pageCache`. See `egress-traps.md`. |
 | v7 admin paths | `/deco/*`, `/live/*`, `/.decofile` answer 404 with a private header. |
-| Metric | `http.server.request.duration` with a `cache` label: `HIT` for your `HIT`, `STALE-HIT`, `STALE-ERROR`; `MISS`; `DRAFT` for previews; `BYPASS` otherwise. |
+| Metric | `http.server.request.duration` with a `cache` label: `HIT` for your `HIT`, `STALE-HIT`, `STALE-ERROR`; `MISS`; `DRAFT` for previews (a draft signal or a Studio link's version); `BYPASS` otherwise, including every response `pageCache` did not answer. |
 
 ## What `pageCache` receives
 
@@ -69,14 +69,14 @@ All from `@decocms/tanstack/worker`:
 | Helper | Use |
 |---|---|
 | `cacheVersion(cms, buildHash, url?)` | `<build>.<content revision>`. With the URL, the revision that page renders. Right after a publish a page whose new blocks are not loaded yet renders on the previous index, and this pins the same way, so a page is never stored under a revision it did not render. Without the URL (the purge), the current revision. Falls back to the build alone if the content can't be read. |
-| `assignmentsKey(assignments)` | `x=<tests on>\|c=<campaigns running>`, names sorted, `""` for none. Never the visitor id. |
+| `assignmentsKey(assignments)` | `x=<tests on>\|c=<campaigns running>`, names sorted and URL-encoded, empty parts left out, `""` for none (a `v=<version>` part comes first for a preview, which never reaches `pageCache`). Never the visitor id. |
 | `liveAssignmentKeys(cms)` | Every assignments key a live request can carry now: each subset of the saved tests, with and without the running campaigns. For the purge. Grows as 2^tests. |
 | `detectDevice(ua)`, `segmentKey(segment)` | Device class; a segment as one stable string (parts sorted, values URL-encoded, empty parts dropped). |
 | `segmentToken(segment, version)` | The `__cseg` token (DJB2 hex of segment and version). `null` when the version is empty or `"dev"`. |
 | `CSEG_PARAM` | `"__cseg"`, the query param `decoServerFnFetch` adds. Drop it from the key. |
 | `isServerFnPath(pathname)`, `serverFnPagePath(url)` | Server-function URLs (`/_serverFn/`, `/_server/`) and the page a GET page load asks for (first local path in `payload`). |
 | `isCacheable(request, { version, dev })`, `requestVersion(request)` | The worker's own gate and the version header. You rarely need them inside `pageCache`. |
-| `DEGRADED_HEADER` | `"x-deco-degraded"`. Your page sets it to `true` when a loader it needs failed. Nothing in the framework sets it for you. Also exported from `@decocms/tanstack/server`. |
+| `DEGRADED_HEADER` | `"x-deco-degraded"`. Your page sets it to `true` when a loader it needs failed, on the document response (a route's `headers` reach it, as with `x-page-status`). Nothing in the framework sets it for you. Also exported from `@decocms/tanstack/server`. |
 
 `markPrivate()` from `@decocms/tanstack/server` sets `Cache-Control: private, no-store` on a server
 function called over HTTP (cart, user, wishlist). The example never stores such a response.
@@ -116,7 +116,8 @@ The stored copy gets `Cache-Control: public, max-age=<fresh + max(swr, sie)>` so
 keeps it through the stale windows; the age comes from an `X-Deco-Stored-At` header that is
 removed before the answer goes out. `HIT`, `STALE-*` and `MISS` answers carry
 `X-Cache-Profile`, `X-Cache-Segment`, `X-Cache-Version` and `Vary: Accept-Encoding`. `BYPASS`
-answers carry only `X-Cache` and `X-Cache-Reason`.
+answers carry `X-Cache` and `X-Cache-Reason` and none of those. A `status:` bypass keeps the
+render's own `Cache-Control`; the other bypasses set `private, no-cache, no-store, must-revalidate`.
 
 What the example never stores:
 

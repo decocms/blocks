@@ -32,7 +32,7 @@ change to the worker entry, a loader on a cacheable page, or the segment.
 ## The model in five lines
 
 1. A request reaches `pageCache` only if `isCacheable` accepts it: a `GET` of the current release,
-   no draft signal, no `Authorization`, not `/_build`, not `vite dev`. Everything else renders.
+   no draft signal, no `Authorization`, not `/_build`, not `vite dev`. Everything else skips it.
 2. Every key carries `cacheVersion(cms, __BUILD_HASH__, url)`: `<build>.<content revision>`. A
    deploy or a publish moves every page to new entries. Nothing to purge after a publish.
 3. Every key carries `assignmentsKey(page.assignments)`: the tests on and the campaigns running,

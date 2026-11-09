@@ -28,7 +28,7 @@ done
 
 Expect on the second request: `x-cache: HIT`, the profile you meant, `x-cache-version:
 <build>.<revision>`, `vary: Accept-Encoding`, no `set-cookie` other than `deco_segment` on a first
-visit. A `BYPASS` comes with `x-cache-reason`; `egress-traps.md` maps each reason to a cause.
+visit (and the cookies in your `SAFE_COOKIES`, if a render set one). A `BYPASS` comes with `x-cache-reason`; `egress-traps.md` maps each reason to a cause.
 
 After a deploy or a publish, `x-cache-version` changes and the first request is a `MISS` again.
 That is expected.
@@ -119,7 +119,8 @@ curl -s -X POST "https://SITE/_cache/purge" \
 # expect {"purged":[...],"total":n}; the next GET of that path from the same data center is a MISS
 ```
 
-`total: 0` right after a HIT means the purge's key differs from the stored key.
+`total: 0` right after a HIT from the same data center means the purge's key differs from the
+stored key.
 
 ## 8. Telemetry, for 24 hours after the deploy
 
