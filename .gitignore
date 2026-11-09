@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# The agent skills @decocms/blocks ships (scripts/pack-skills.mjs copies .agents/skills at build)
+packages/blocks/skills/
 *.gen.ts
 *.gen.json
 

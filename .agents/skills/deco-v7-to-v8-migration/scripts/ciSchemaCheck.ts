@@ -101,7 +101,7 @@ export function addSchemaCheck(root: string, report: Report): void {
     : [];
   const workflows = files
     .map((file) => ({ file, text: fs.readFileSync(file, "utf8") }))
-    // v7's content regeneration jobs are deleted by hand (reference/manual-steps.md).
+    // v7's content regeneration jobs are deleted by hand (references/manual-steps.md).
     .filter(({ text }) => !/generate:blocks|regen-blocks/.test(text));
   const rel = (file: string) => path.relative(repo, file).split(path.sep).join("/");
   const command = `${runner(root, repo)} ${CHECK}`;

@@ -123,7 +123,7 @@ deco push --draft=pdp-copy        # exit 2 on a conflict; --ours / --theirs
 deco publish --draft=pdp-copy     # makes the draft live
 ```
 
-`deco drafts`, `deco releases` and `deco check --draft=<name> | --revision=<id>` cover the rest; every command takes `--json`. Exit codes: 0 ok, 1 failed, 2 conflict, 3 auth, 4 network, 5 busy (run again), 64 usage.
+`deco drafts`, `deco releases` and `deco check --draft=<name> | --revision=<id>` cover the rest; every command takes `--json`. `deco skills install` copies the agent skills of the installed `@decocms/blocks` into the site's `.claude/skills` (or `--dir`), so coding agents load the skills of the version the site runs; it needs no network. Exit codes: 0 ok, 1 failed, 2 conflict, 3 auth, 4 network, 5 busy (run again), 64 usage.
 
 ### TanStack Start
 

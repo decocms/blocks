@@ -45,6 +45,7 @@
 	"files": [
 		"bin",
 		"dist",
+		"skills",
 		"src",
 		"!src/**/*.test.ts",
 		"!src/**/*.test.tsx",
@@ -141,7 +142,7 @@
 		}
 	},
 	"scripts": {
-		"build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json",
+		"build": "node ../../scripts/tsc.mjs --clean dist -p tsconfig.build.json && node ../../scripts/pack-skills.mjs",
 		"prepack": "npm run build",
 		"test": "vitest run --root ../.. packages/blocks/",
 		"typecheck": "node ../../scripts/tsc.mjs -p tsconfig.json"

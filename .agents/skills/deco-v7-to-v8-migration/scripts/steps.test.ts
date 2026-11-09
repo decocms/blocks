@@ -744,7 +744,7 @@ describe("v7's image URLs by 7.x release", () => {
     expect(v7ImageUrl("7.77.0")).not.toContain("Nuvemshop");
     expect(v7ImageUrl("7.77.1")).toContain("Nuvemshop");
     expect(v7ImageUrl(undefined)).toContain(
-      "reference/framework-code.md lists the decoCdn options",
+      "references/framework-code.md lists the decoCdn options",
     );
     for (const v of ["7.2.0", "7.77.1", undefined]) {
       expect(v7ImageUrl(v)).toContain(
