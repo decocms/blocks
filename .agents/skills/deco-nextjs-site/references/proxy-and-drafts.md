@@ -10,7 +10,7 @@ fresh.
 | Step | Function (`@decocms/nextjs/proxy`) | Result |
 |---|---|---|
 | Version | `decideDraft(proxyCms, request)` | A Studio link's draft or old release on an allowed host, its preview moment (`__at`) and switched tests and campaigns (`__test`, `__campaign`), the cookie to set |
-| Visitor | `decideVisitor(request, draft)` | The `deco_segment` cookie, or a new visitor. Its cookie is sent on a first visit only, never from a preview |
+| Visitor | `decideVisitor(request, draft)` | The `deco_segment` cookie, or a new visitor. Its cookie is sent on a first visit only, never when the request renders a draft or an old release |
 | Tests and campaigns | `decideAssignments(proxyCms, draft, visitor)` | Each test of the saved `experiments` block on or off, each campaign of the saved `campaigns` block running or not. Missing blocks give none, never an error |
 
 It forwards them to the page on request headers, always removing copies sent
@@ -123,8 +123,9 @@ export default async function DraftPage({ params, searchParams }: Props) {
 - `bindDraft(cms, { searchParams })` binds, for this request: the page's own
   `?__draft=` (`off` ends the preview), else `x-deco-version`, else the draft
   cookie, each checked against the preview hosts. It also binds the visitor
-  and the assignments the proxy forwarded. It returns whether a version was
-  bound.
+  and the assignments the proxy forwarded (on the current release, only when
+  it saves an `experiments` or `campaigns` block, and a test at 0% stays
+  off). It returns whether a version was bound.
 - `contentClient(cms)` then builds `cms.client({ version, experiments, campaigns })`
   from what was bound. Create one per request. `openPage` in
   [rendering.md](./rendering.md) calls it.
@@ -165,9 +166,10 @@ ends a preview on any host.
    `previewHosts` and `preview.hosts`. Add a local host such as `localhost`
    to `preview.hosts` to preview in development.
 3. Does the page call `bindDraft` before reading content, on the draft route?
-4. Is the preview badge showing "unavailable"? The link's draft can no longer
-   be read (deleted, or the drafts host failing). The page renders the
-   release and the badge shows a notice instead of an error page.
+4. Does the page show a notice (`data-deco-preview-unavailable`) instead of
+   the "Preview mode" badge? The link's draft can no longer be read (deleted,
+   or the drafts host failing). The page renders the release, with that
+   notice instead of an error page.
 5. Is a CDN or a `headers()` rule caching responses that carry `?__draft=` or
    the `__deco_draft` cookie? Draft responses must not be stored.
 

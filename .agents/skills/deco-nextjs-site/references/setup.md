@@ -9,7 +9,7 @@ How a Next.js App Router app becomes a v8 Deco site. The reference app is
 |---|---|
 | `@decocms/blocks` | The CMS (`createCMS`, `matchRoute`, types), the `deco` CLI (its `bin`), `@decocms/blocks/image` |
 | `@decocms/nextjs` | The Next helpers. Same version as `@decocms/blocks` |
-| `next` 16, `react` 19, `react-dom` 19 | Peers of `@decocms/nextjs` (Node 24 or later) |
+| `next` 16, `react` 19 | Peers of `@decocms/nextjs` (Node 24 or later). Install `react-dom` 19 with them, as any Next app does |
 | `server-only` | Optional. The example marks its server modules with it |
 | `@opentelemetry/api` | Optional peer, for the request metric only |
 
@@ -95,8 +95,9 @@ import { cmsConfig } from "./cms.config";
 export const proxyCms = createCMS({ blocks: {}, ...cmsConfig });
 ```
 
-The same options give one CMS instance per process, so both handles share
-content and release checks. The proxy's handle has no block map, so no
+`createCMS` keeps one instance per process for each `site` (or, without
+`site`, each content module), so both handles share content and release
+checks. Each handle keeps its own block map. The proxy's handle has no block map, so no
 section code lands in the proxy bundle.
 
 Where content comes from:
