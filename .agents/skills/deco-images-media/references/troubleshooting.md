@@ -23,8 +23,8 @@ Look at the `quality` parameter on any requested `/image?…` URL.
   the CDN default applies to every image. Set `decoCdn({ quality: "high" })`.
 - **`quality=low`**: someone chose `low` site-wide. Raise it.
 - **Not a Deco CDN URL at all**: the image came from a platform provider.
-  VTEX providers have their own scale (default 8 of 10); Shopify's ignores
-  quality.
+  `vtexCatalogWebp` and `vtexFileManager` use VTEX's 1 to 10 scale (default
+  8); `vtexCatalog`, `vtexCatalogFrame` and `shopifyCdn` ignore quality.
 
 A site-wide tier change touches every image URL, so the CDN cache refills
 once. That is expected.
@@ -126,8 +126,9 @@ The requested URL equals the `src` in the content: no provider matched it.
   code builds CDN URLs by hand; switch it to `imageUrl`.
 - **508 on `assets.decocms.com` or `decoims.com`**: the `src` points back at
   `decoims.com`, and the CDN fetches itself. `decoCdn` strips `decoims.com`
-  from sources when it is in `legacyHosts` (the default on those domains). A
-  custom `legacyHosts: []` on a Cloudflare domain brings the loop back.
+  from sources when it is in `legacyHosts` (the default on those domains). With
+  a custom `legacyHosts: []` on `assets.decocms.com` and `sources: "all"`, a
+  `decoims.com` source is sent whole as `src=` and the loop comes back.
 - **404 with a valid-looking `src`**: characters like `%`, `&`, `#`, `+` in a
   file name. `decoCdn` escapes them only when it unwraps a nested URL; rename
   such files when you upload them. The v8 upload endpoint already does (see

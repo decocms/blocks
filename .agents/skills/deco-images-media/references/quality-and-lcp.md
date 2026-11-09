@@ -13,8 +13,9 @@ percentages:
 | `original` | 100 |
 
 With no tier, `decoCdn` sends no `quality` parameter and the CDN applies its own
-default (60% per the comment in `image.ts`). So a site that never sets a tier
-gets the lowest one on every Deco-CDN image.
+default (60% per the comment in `image.ts`). That is the same percentage the
+table above gives `low`, so a site that never sets a tier should expect
+low-tier quality on every Deco-CDN image.
 
 ## Where quality is set
 
@@ -23,7 +24,7 @@ gets the lowest one on every Deco-CDN image.
 | Whole site | `decoCdn({ quality: "high" })` in the site's `imageUrl` | The usual place. This is v7's `registerImageQuality`. |
 | One subtree (TanStack) | A nested `<ImageUrlProvider value={otherImageUrl}>` built with another tier | `Image`, `Picture` and `Source` have no `quality` prop. |
 | One URL | `imageUrl(src, { width, quality: "original" })`, `srcSet(imageUrl, src, { …, quality })`, `preloadLink(…, { quality })` | A call's tier wins over the `decoCdn` option. Numbers are ignored by `decoCdn`. |
-| next/image | `decoCdn({ quality })` | next/image's numeric `quality` is ignored by `decoCdn`; VTEX providers read it. |
+| next/image | `decoCdn({ quality })` | next/image's numeric `quality` is ignored by `decoCdn`; `vtexCatalogWebp` and `vtexFileManager` read it. |
 
 The "Default Image Quality" field of the Fresh-era website app has no v8
 equivalent. Quality is code. To let editors change it, read a value from a
@@ -74,9 +75,11 @@ Rules:
   carousel's second slide or a below-the-fold section wastes bandwidth the LCP
   image needs.
 - **Make the preload match the `<img>`.** Same `src`, same `width`/`height`,
-  same `sizes`. Otherwise the browser downloads two files. `Image` and `Source`
-  build both from the same props, so this holds as long as you do not also
-  write a manual preload.
+  same `sizes`. Otherwise the browser downloads two files. `Image` builds both
+  from the same props, so this holds as long as you do not also write a manual
+  preload. A `Source` preload link carries no `imageSizes`, so give the
+  `Source` no `sizes` either, or write that preload yourself with
+  `preloadLink`.
 - **Sections decide preload from props.** A banner section usually takes a
   `preload` or "is LCP" boolean, set on the first instance in the page. Do not
   hardcode `preload` in a component that appears many times.

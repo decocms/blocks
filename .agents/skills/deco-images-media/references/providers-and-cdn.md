@@ -77,7 +77,7 @@ empties the CDN cache.
 | `vtexFileManager({ via, quality? })` | URLs containing `vtexassets` and `/assets` (file-manager images) | `via: "query"`: `?width=&aspect=true&quality=`. `via: "thumbor"`: PNG/JPEG/WebP through `/unsafe/{w}x0/filters:…:format(webp)/…`; SVG and GIF unchanged. |
 
 VTEX quality is on a 1 to 10 scale. Tiers map to 60/70/80/100 and then to
-6/7/8/10; numbers above 10 are read as 1 to 100 and divided by 10. Default 8.
+6/7/8/10; numbers above 10 are read as 1 to 100, divided by 10 and rounded up. Default 8.
 
 ```ts
 import { createImageUrl, decoCdn } from "@decocms/blocks/image";

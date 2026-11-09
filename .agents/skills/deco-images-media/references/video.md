@@ -45,9 +45,9 @@ as is.
 
 ## Browser autoplay
 
-Browsers only autoplay muted video. To play with sound the user has to
-interact (a click on `controls` or your own button). This is browser policy;
-no URL or attribute changes it.
+Browsers block autoplay with sound in most cases; muted video autoplays. To
+play with sound, plan for a user action (a click on `controls` or your own
+button). This is browser policy; no URL or attribute changes it.
 
 | Goal | File URL | `<video>` attributes |
 |---|---|---|
