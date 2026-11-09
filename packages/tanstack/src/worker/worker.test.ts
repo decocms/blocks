@@ -704,6 +704,32 @@ describe("the visitor", () => {
     expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+none");
   });
 
+  it("hands the render the visitor's tests on the live site, through the site's cache or not; never a preview's", async () => {
+    const cms = testCMS(
+      snapshot({ previewHosts: ["store.example.com"], experiments: { all: 100, none: 0 } }),
+    );
+    const live = setup({ cms });
+    await live.get("/");
+    expect(live.entry.served[0]?.scope?.experiments).toEqual({ all: true, none: false });
+
+    const cached = setup({ cms, pageCache: async (page) => page.render() });
+    await cached.get("/");
+    expect(cached.entry.served[0]?.scope?.experiments).toEqual({ all: true, none: false });
+
+    // A link that switches a test is Studio, not a visitor: its arm must not be measured.
+    const preview = setup({ cms });
+    const local = "127.0.0.1:1/p@local";
+    const link = local.replace("@", `?__test=${encodeURIComponent("none=on")}@`);
+    await preview.get(`/?__draft=${encodeURIComponent(link)}`);
+    expect(preview.entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+all,+none");
+    expect(preview.entry.served[0]?.scope?.experiments).toBeUndefined();
+
+    // A site without an experiments block has none to hand.
+    const plain = setup();
+    await plain.get("/");
+    expect(plain.entry.served[0]?.scope?.experiments).toEqual({});
+  });
+
   it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
     vi.stubGlobal(
       "fetch",

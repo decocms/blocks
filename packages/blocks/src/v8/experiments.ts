@@ -16,9 +16,12 @@
  *
  * The stored form is v7's `deco_segment` (the same fields and encoding; names
  * sorted by code unit rather than v7's `localeCompare`) plus an `id`, so a
- * visitor carried over from v7 keeps the group v7 put them in and analytics
- * keeps reading the cookie it already reads. A visitor is written once, when
- * it has no id; v7's stored assignments are read and honoured, never rewritten.
+ * visitor carried over from v7 keeps the group v7 put them in. A visitor is
+ * written once, when it has no id; v7's stored assignments are read and
+ * honoured, never rewritten. So the cookie names v7's decisions only, never
+ * these: analytics learns a visitor's tests from the page
+ * (`@decocms/tanstack`'s document publishes what its worker decided), not
+ * from the cookie.
  */
 
 import { newId, roll } from "./bucketing.ts";

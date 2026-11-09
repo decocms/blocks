@@ -38,7 +38,8 @@
  *   site's `pageCache` (`page.assignments`, for its key) and to the app on
  *   `x-deco-assignments` (`contentClient` builds
  *   `cms.client({ version, experiments, campaigns })` from it, deciding
- *   nothing again).
+ *   nothing again). On the live site (never a preview) the tests also go to
+ *   the render's scope, which `DecoDocument` publishes for the analytics tag.
  * - `http.server.request.duration` for every request, to the CMS's telemetry
  *   (`recordServerRequest` from `@decocms/blocks/metrics`), labelled with the route's template, the
  *   method, the status class, the cache decision (the `X-Cache` the site's
@@ -478,6 +479,8 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     },
   ): Promise<Served> {
     const { draft, preview, unavailable, url, visitor, assignments } = inputs;
+    // A preview's tests may be switched by its link: they are no visitor's.
+    const live = draft === null && !preview && assignments?.version === null;
     const render = async (scope?: { csegToken?: string }): Promise<Response> =>
       withPageStatus(
         await runInScope(
@@ -485,6 +488,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
             csegToken: scope?.csegToken,
             draft: draft ?? undefined,
             ...(unavailable ? { draftUnavailable: true } : {}),
+            ...(live ? { experiments: assignments.experiments } : {}),
           },
           () => serverEntry.fetch(request, env, ctx),
         ),

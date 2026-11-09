@@ -16,7 +16,7 @@ import { DecoDocument, DecoPreview } from "./DecoDocument.tsx";
 import { pageValues, publishScript } from "./pageValues.ts";
 
 async function render(
-  scope: { csegToken?: string; draft?: string },
+  scope: { csegToken?: string; draft?: string; experiments?: Record<string, boolean> },
   props = {},
   loader?: () => unknown,
 ) {
@@ -92,6 +92,18 @@ describe("DecoDocument", () => {
     );
   });
 
+  it("publishes the visitor's tests, for the Deco Analytics tag, in the head; none without any", async () => {
+    const html = await render({ experiments: { "hero-copy": false, "buy-button": true } });
+    const head = html.slice(0, html.indexOf("</head>"));
+    expect(head).toContain(
+      `window.__DECO_EXPERIMENTS=JSON.parse("{\\"buy-button\\":true,\\"hero-copy\\":false}")`,
+    );
+    expect(head).toContain(
+      `(function(d){d.x=Object.assign({},d.x,JSON.parse("{\\"buy-button\\":\\"on\\",\\"hero-copy\\":\\"off\\"}"))})(window.__dq=window.__dq||{})`,
+    );
+    expect(await render({ experiments: {} })).not.toContain("__DECO_EXPERIMENTS");
+  });
+
   it("takes the site's language, body class, account and outlet element", async () => {
     const html = await render(
       {},
@@ -138,7 +150,11 @@ describe("the page the edit shortcut opens", () => {
 });
 
 describe("DecoPreview, for a site's own document", () => {
-  async function renderOwn(scope: { csegToken?: string; draft?: string }) {
+  async function renderOwn(scope: {
+    csegToken?: string;
+    draft?: string;
+    experiments?: Record<string, boolean>;
+  }) {
     const rootRoute = createRootRoute({
       loader: () => ({ pathTemplate: "/:slug" }),
       component: () => (
@@ -175,6 +191,12 @@ describe("DecoPreview, for a site's own document", () => {
   it("publishes nothing without a draft or segment", async () => {
     expect(await renderOwn({})).not.toContain("__DECO_DRAFT");
   });
+
+  it("publishes the visitor's tests", async () => {
+    expect(await renderOwn({ experiments: { "buy-button": true } })).toContain(
+      "window.__DECO_EXPERIMENTS=",
+    );
+  });
 });
 
 describe("page values", () => {
@@ -185,8 +207,18 @@ describe("page values", () => {
     expect(pageValues()).toEqual({ cseg: undefined, draft: undefined });
   });
 
+  it("carry the scope's tests, sorted", () => {
+    runInScope({ experiments: { b: false, a: true } }, () => {
+      expect(Object.keys(pageValues().experiments ?? {})).toEqual(["a", "b"]);
+    });
+  });
+
   it("publish as inert JS, nothing when empty", () => {
     expect(publishScript({})).toBeNull();
+    expect(publishScript({ experiments: {} })).toBeNull();
+    expect(
+      publishScript({ experiments: { "</script><script>alert(1)</script>": true } }),
+    ).not.toContain("</script>");
     expect(publishScript({ draft: "</script><script>alert(1)</script>" })).toBe(
       'window.__DECO_DRAFT="\\u003c/script>\\u003cscript>alert(1)\\u003c/script>"',
     );
