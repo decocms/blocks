@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LIST_REMOVED } from "./client";
 import { createCMS, resetForTests } from "./cms";
-import { docsBlocks, docsSnapshot, fakeDelivery } from "./testFixtures";
+import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio } from "./testFixtures";
 import type { Client } from "./types";
 
 beforeEach(() => resetForTests());
@@ -49,6 +49,30 @@ describe("client.list()", () => {
     expect(fetch).not.toHaveBeenCalled();
     // Nothing was read, so the client never pinned an index.
     expect(client.version).toBeUndefined();
+  });
+
+  it("throws on a draft client, before the draft or the release is read", async () => {
+    const studio = fakeStudio();
+    const fetch = vi.fn(studio.fetch);
+    vi.stubGlobal("fetch", fetch);
+    const pointer = studio.draft({ set: { SummerSEO: { __resolveType: "seo", title: "Draft" } } });
+    let loads = 0;
+    const cms = createCMS({
+      blocks: docsBlocks(),
+      content: {
+        async load() {
+          loads++;
+          return docsSnapshot();
+        },
+      },
+    });
+    const draft = cms.forDraft(pointer);
+    for (const type of TYPES) {
+      expect(() => draft.list(type)).toThrow(LIST_REMOVED);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(loads).toBe(0);
   });
 
   it("an awaited call rejects with the same error, so old code fails loudly", async () => {
