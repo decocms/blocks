@@ -419,6 +419,27 @@ describe("StudioBridge", () => {
       input.remove();
     });
 
+    it("leaves typing in a field inside a shadow root alone (a third-party widget's form)", () => {
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+      unmount = mountBridge({ site: "shop", trustedOrigins: STUDIO, editShortcut: true }, false);
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const input = document.createElement("input");
+      host.attachShadow({ mode: "open" }).appendChild(input);
+      // The document sees the host as the target; the email's "." must still type.
+      const e = new KeyboardEvent("keydown", {
+        key: ".",
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      });
+      input.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
+      expect(press({ key: ".", ctrlKey: true }, host).defaultPrevented).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+      host.remove();
+    });
+
     /** The choose-editor URL a Ctrl+"." opened (a plain "." navigates the tab, which jsdom can't follow). */
     function opened(open: { mock: { calls: unknown[][] } }, call = 0): Record<string, string> {
       const url = new URL(open.mock.calls[call][0] as string);
