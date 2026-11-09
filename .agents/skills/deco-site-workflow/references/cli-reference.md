@@ -19,6 +19,7 @@ The same commands are importable from `@decocms/blocks/cli` (`runCli`, `schema`,
 | `deco content` | `--watch` | `.deco/blocks` into `.deco/blocks.gen.ts`, for content without a site |
 | `deco schema` | `--watch` \| `--check` | `.deco/index.ts` into `.deco/schema.gen.json` |
 | `deco schema push` | | Uploads `.deco/schema.gen.json` to Studio |
+| `deco skills install` | `--dir=<path>` | 8.11.0+. Copies the agent skills this `@decocms/blocks` ships into `.claude/skills/<skill>/` (or `--dir`, relative to the folder that contains `.deco/`). Replaces each shipped skill's folder whole, leaves other folders alone, no network. No `.deco/`: exit 1 |
 | `deco help`, `--help`, `-h` | | Usage (exit 0). No command at all prints usage and exits 64 |
 
 Details: [content-sync.md](./content-sync.md) (pull, diff, push, drafts, publish, releases),
@@ -88,6 +89,7 @@ Per command, the result carries:
 | `releases` | `live`, `revisions: [{ id, status, meta }]` (`status`: `current`, `listed`, `unreadable`), `nextCursor` |
 | `check` | `blocks`, `errors`, `warnings`, `problems` |
 | `schema push` | `etag`, `blocksMajor` |
+| `skills install` | `dir` (absolute), `version`, `skills` (names, sorted) |
 | `login` | `command` |
 
 ## Common errors before any command runs
