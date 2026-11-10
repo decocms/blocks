@@ -58,6 +58,25 @@ const page = (sections: unknown[], extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/** deco check's message for a saved block typed as another saved block. */
+const chainMessage = (chain: string[], inherited: string) =>
+  `saved block "${chain[0]}" is typed as another saved block (${chain.join(" → ")}): ` +
+  `it renders, but Studio's editor follows one hop, finds no form for "${chain[1]}" and shows an empty one. ` +
+  `Set its __resolveType to "${chain[chain.length - 1]}"` +
+  (inherited ? ` and copy in the props it inherits from "${chain[1]}" (${inherited})` : "");
+/** deco check's message for a reference that carries props of its own. */
+const overridesMessage = (name: string, props: string[], type: string, inherited = "") =>
+  `reference to saved block "${name}" carries its own props (${props.join(", ")}): ` +
+  `they apply when the page renders, but Studio's editor shows and edits "${name}" itself, ` +
+  `ignores them and saves edits to "${name}" for every use. ` +
+  `Make it a bare reference ({ "__resolveType": "${name}" }), or inline it: set its __resolveType to "${type}"` +
+  (inherited ? ` and copy in the props of "${name}" it doesn't set (${inherited})` : "");
+/** deco check's message for a reference to a saved block whose name Studio reads as a module path. */
+const unopenableMessage = (name: string, ending: string) =>
+  `reference to saved block "${name}" can't be edited in Studio: its name ends in "${ending}", ` +
+  `so Studio's editor reads it as a module path, finds no form for it and shows an empty one. ` +
+  `Rename the saved block (no "." followed by letters or digits at the end) and update its references`;
+
 describe("props match the block type's schema", () => {
   it("passes content that fits", () => {
     expect(run({ HomePage: page([hero]) })).toEqual([]);
@@ -228,7 +247,256 @@ describe("typed references", () => {
   it("checks a reference's overrides against the saved block's type", () => {
     expect(
       lines(run({ Summer: hero, HomePage: page([{ __resolveType: "Summer", size: "huge" }]) })),
-    ).toEqual(['HomePage.json sections[0].size: "huge" isn\'t one of "sm", "md", "lg"']);
+    ).toEqual([
+      `HomePage.json sections[0]: ${overridesMessage("Summer", ["size"], "hero", "title")}`,
+      'HomePage.json sections[0].size: "huge" isn\'t one of "sm", "md", "lg"',
+    ]);
+  });
+});
+
+describe("saved blocks Studio's editor can open", () => {
+  // Flagged: a saved block typed as another saved block, with or without props.
+  it("rejects a saved block typed as another saved block that overrides its props", () => {
+    expect(lines(run({ Summer: hero, Island: { __resolveType: "Summer", size: "lg" } }))).toEqual([
+      `Island.json ${chainMessage(["Island", "Summer", "hero"], "title")}`,
+    ]);
+  });
+
+  it("rejects a bare alias block", () => {
+    expect(lines(run({ Summer: hero, Alias: { __resolveType: "Summer" } }))).toEqual([
+      `Alias.json ${chainMessage(["Alias", "Summer", "hero"], "title, size")}`,
+    ]);
+  });
+
+  it("names every hop of a longer chain and checks the merged props against the last type", () => {
+    expect(
+      lines(
+        run({
+          Summer: hero,
+          A: { __resolveType: "Summer" },
+          B: { __resolveType: "A", size: "huge" },
+        }),
+      ),
+    ).toEqual([
+      `A.json ${chainMessage(["A", "Summer", "hero"], "title, size")}`,
+      `B.json ${chainMessage(["B", "A", "Summer", "hero"], "title")}`,
+      'B.json size: "huge" isn\'t one of "sm", "md", "lg"',
+    ]);
+  });
+
+  it("follows a chain of any length (past the 8 hops Studio's block list follows)", () => {
+    const blocks: Record<string, Record<string, unknown>> = { H0: hero };
+    for (let i = 1; i <= 10; i++) blocks[`H${i}`] = { __resolveType: `H${i - 1}` };
+    const found = lines(run(blocks));
+    expect(found).toHaveLength(10);
+    expect(found).toContain(
+      `H10.json ${chainMessage(["H10", "H9", "H8", "H7", "H6", "H5", "H4", "H3", "H2", "H1", "H0", "hero"], "title, size")}`,
+    );
+  });
+
+  it("reports a cycle once, as a cycle", () => {
+    expect(lines(run({ A: { __resolveType: "B" }, B: { __resolveType: "A" } }))).toEqual([
+      "A.json references form a cycle: B → A → B",
+      "B.json references form a cycle: A → B → A",
+    ]);
+  });
+
+  it("reports a chain that ends at no block type as that name only", () => {
+    expect(lines(run({ A: { __resolveType: "Gone" }, B: { __resolveType: "A" } }))).toEqual([
+      'A.json no saved block or block type "Gone"',
+    ]);
+  });
+
+  // Flagged: a reference with props of its own, wherever it sits.
+  it("rejects a page section that references a saved block with props of its own", () => {
+    expect(
+      lines(run({ Summer: hero, HomePage: page([{ __resolveType: "Summer", size: "lg" }]) })),
+    ).toEqual([
+      `HomePage.json sections[0]: ${overridesMessage("Summer", ["size"], "hero", "title")}`,
+    ]);
+  });
+
+  it("rejects a nested prop that references a saved block with props of its own", () => {
+    expect(
+      lines(
+        run({
+          MyProduct: { __resolveType: "catalog-product", slug: "s" },
+          Card: {
+            __resolveType: "product-card",
+            title: "t",
+            product: { __resolveType: "MyProduct", slug: "other" },
+          },
+        }),
+      ),
+    ).toEqual([`Card.json product: ${overridesMessage("MyProduct", ["slug"], "catalog-product")}`]);
+  });
+
+  it("rejects one in a lazy block and in a variant's value", () => {
+    expect(
+      lines(
+        run({
+          Summer: hero,
+          MyProduct: { __resolveType: "catalog-product", slug: "s" },
+          Hero: {
+            ...hero,
+            later: { __resolveType: "lazy", value: { __resolveType: "MyProduct", slug: "x" } },
+          },
+          HomePage: page([
+            {
+              __resolveType: "multivariate",
+              variants: [
+                {
+                  rule: { __resolveType: "always" },
+                  value: { __resolveType: "lazy", value: { __resolveType: "Summer", size: "sm" } },
+                },
+              ],
+            },
+          ]),
+        }),
+      ),
+    ).toEqual([
+      `Hero.json later.value: ${overridesMessage("MyProduct", ["slug"], "catalog-product")}`,
+      `HomePage.json sections[0].variants[0].value.value: ${overridesMessage("Summer", ["size"], "hero", "title")}`,
+    ]);
+  });
+
+  it("rejects a reference whose overrides are empty objects (they replace the saved values)", () => {
+    expect(
+      lines(
+        run({
+          MyProduct: { __resolveType: "catalog-product", slug: "s" },
+          Card: {
+            __resolveType: "product-card",
+            title: "t",
+            product: { __resolveType: "MyProduct", extra: {} },
+          },
+        }),
+      ).filter((line) => line.includes("carries its own props")),
+    ).toEqual([
+      `Card.json product: ${overridesMessage("MyProduct", ["extra"], "catalog-product", "slug")}`,
+    ]);
+  });
+
+  // Flagged: a reference to a saved block whose name Studio reads as a module path.
+  it("rejects a reference to a saved block whose name ends in a dot and letters or digits", () => {
+    expect(
+      lines(
+        run({
+          "Promo 2.0": hero,
+          "Product.v2": { __resolveType: "catalog-product", slug: "s" },
+          HomePage: page([{ __resolveType: "Promo 2.0" }]),
+          Card: {
+            __resolveType: "product-card",
+            title: "t",
+            product: { __resolveType: "Product.v2" },
+          },
+        }),
+      ),
+    ).toEqual([
+      `Card.json product: ${unopenableMessage("Product.v2", ".v2")}`,
+      `HomePage.json sections[0]: ${unopenableMessage("Promo 2.0", ".0")}`,
+    ]);
+  });
+
+  it("rejects a reference to a saved block named constructor", () => {
+    expect(
+      lines(run({ constructor: hero, HomePage: page([{ __resolveType: "constructor" }]) })),
+    ).toEqual([
+      'HomePage.json sections[0]: reference to saved block "constructor" can\'t be edited in Studio: ' +
+        "Studio's editor never reads \"constructor\" as a saved block's name, finds no form for it and " +
+        "shows an empty one. Rename the saved block and update its references",
+    ]);
+  });
+
+  it("accepts a dotted name that is never referenced, and a dot inside a name", () => {
+    expect(
+      run({
+        "Promo 2.0": hero,
+        "Promo 2.0 home": hero,
+        HomePage: page([{ __resolveType: "Promo 2.0 home" }]),
+      }),
+    ).toEqual([]);
+  });
+
+  // Allowed: what Studio's editor opens and edits.
+  it("accepts bare references to a typed saved block anywhere", () => {
+    expect(
+      run({
+        Summer: hero,
+        MyProduct: { __resolveType: "catalog-product", slug: "s" },
+        Card: {
+          __resolveType: "product-card",
+          title: "t",
+          product: { __resolveType: "MyProduct" },
+        },
+        Hero: {
+          ...hero,
+          later: { __resolveType: "lazy", value: { __resolveType: "MyProduct" } },
+        },
+        HomePage: page([
+          { __resolveType: "Summer" },
+          {
+            __resolveType: "multivariate",
+            variants: [
+              {
+                rule: { __resolveType: "always" },
+                value: { __resolveType: "lazy", value: { __resolveType: "Summer" } },
+              },
+            ],
+          },
+        ]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("accepts saved blocks typed by a block type, an alias or a structural built-in", () => {
+    expect(
+      run({
+        Summer: hero,
+        Legacy: {
+          __resolveType: "website/pages/Page.tsx",
+          name: "Old",
+          path: "/old",
+          sections: [{ __resolveType: "Summer" }],
+        },
+        MyProduct: { __resolveType: "catalog-product", slug: "s" },
+        LazyProduct: { __resolveType: "lazy", value: { __resolveType: "MyProduct" } },
+        Hero: { ...hero, later: { __resolveType: "LazyProduct" } },
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails deco check (exit 1) on a chained saved block", async () => {
+    const fixture = createFixture({
+      ".deco/schema.gen.json": meta,
+      ".deco/blocks/CMS.json": SETTINGS,
+      ".deco/blocks/Summer.json": hero,
+      ".deco/blocks/Island.json": { __resolveType: "Summer", size: "lg" },
+    });
+    try {
+      let json = "";
+      const code = await runCli(["check", "--json"], {
+        cwd: fixture.root,
+        reporter: recorder(),
+        stdout: (text) => {
+          json += text;
+        },
+        ...production(fixture),
+      });
+      expect(code).toBe(1);
+      const out = JSON.parse(json);
+      expect(out.errors).toBe(1);
+      expect(out.problems).toEqual([
+        {
+          file: ".deco/blocks/Island.json",
+          path: "",
+          message: chainMessage(["Island", "Summer", "hero"], "title"),
+          severity: "error",
+        },
+      ]);
+    } finally {
+      fixture.remove();
+    }
   });
 });
 
@@ -1140,6 +1408,7 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
         ),
       ).toEqual([
         'HomePage.json sections[0].campaigns.sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it never runs: add your store\'s offset, like "2026-11-27T00:00:00-03:00"',
+        `Other.json sections[0].campaigns: ${overridesMessage("campaigns", ["flash"], "calendar", "black-friday, always-on")}`,
         'Other.json sections[0].campaigns.flash.start: the campaign "flash" starts at "2026-11-27", a date without a time or offset, so it never runs: add the time and your store\'s offset, like "2026-11-27T00:00-03:00"',
         'promo.json week.end: the campaign "week" ends at "2026-12-01 10:00", which has no offset, so it never runs: add your store\'s offset, like "2026-12-01T10:00-03:00"',
       ]);

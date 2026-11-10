@@ -8,6 +8,31 @@ merges to `main`; this file is the human-curated breaking-change ledger.
 For per-release auto-generated notes (every commit, every fix), see
 [GitHub Releases](https://github.com/decocms/deco-start/releases).
 
+## Unreleased — `deco check` rejects saved-block shapes Studio's editor can't open
+
+`deco check` now fails (exit 1) on shapes the runtime resolves but Studio's
+editor cannot edit:
+
+- **A saved block typed as another saved block**, such as `Footer-Island` =
+  `{ "__resolveType": "Footer", "revealOnScroll": true }` where `Footer` is a
+  saved block, or a bare alias `{ "__resolveType": "Footer" }`. Studio follows
+  one hop, finds no form for `Footer` and shows an empty one. The error names
+  the chain (`Footer-Island → Footer → site/sections/Footer.tsx`) and the props
+  to copy in when retyping the block by its section.
+- **A reference with props of its own** (a page section, variant value, lazy
+  value or prop `{ "__resolveType": "Footer", "hasFixedNewsletter": true }`).
+  Studio shows and edits `Footer` itself, ignores the extra props and saves edits
+  to the shared block. The error offers a bare reference, or inlining it (typed by
+  the section, with the saved block's other props copied in, listed).
+- **A reference to a saved block whose name ends in `.` and letters or digits**
+  (`Promo 2.0`), or is `constructor` or `__proto__`. Studio reads such a name as
+  a module path, not a saved block, and shows an empty form. Rename the block.
+
+A bare reference (`{ "__resolveType": "Footer" }`) is still fine anywhere. The
+props a reference resolves with are now validated along the whole chain of saved
+blocks, not only the first hop. Content that used either shape keeps rendering
+as before; only `deco check` changes.
+
 ## Unreleased — CMS schema: `RequestURLParam` picker, no saved-block mode on plain arrays
 
 Fixes [#644](https://github.com/decocms/blocks/issues/644).

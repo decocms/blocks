@@ -59,11 +59,35 @@ Every block is an object with `__resolveType`. The rest are its props.
   `redirect`, `redirects`, `cms-settings`, `split-traffic`, `calendar`;
 - **a legacy alias**: a v7 type name the runtime maps to a v8 one (see `deco-v7-to-v8-migration`);
 - **a saved block's name**: a **reference**. `{ "__resolveType": "Header" }` uses the saved block
-  `Header`. Other keys next to it override the saved props for this use only. This is how a header or
-  footer is shared by every page: change the saved block once.
+  `Header`. This is how a header or footer is shared by every page: change the saved block once.
 
 `deco check` reports a `__resolveType` that is none of these as `no saved block or block type "<name>"`.
 This is usually a deleted block that something still references.
+
+### References Studio can edit
+
+The runtime resolves more shapes than Studio's editor can open. `deco check` rejects these as errors,
+so content that passes it opens in Studio:
+
+- **A saved block typed as another saved block.** `Footer-Island` =
+  `{ "__resolveType": "Footer", "revealOnScroll": true }` renders (the resolver follows the chain and
+  merges each hop's props), but Studio's editor follows one hop, finds no form for `Footer` and shows
+  an empty one. A bare alias (`{ "__resolveType": "Footer" }` saved under another name) is the same.
+  Type the block by its section or loader (`site/sections/Footer.tsx`) and copy in the props it took
+  from `Footer`; the error names the chain and those props.
+- **A reference with props of its own.** A page section
+  `{ "__resolveType": "Footer", "hasFixedNewsletter": true }` renders with the props merged over
+  `Footer`'s, but Studio shows and edits `Footer` itself: it ignores these props and saves every edit
+  to `Footer`, for every page that uses it. The merge is shallow, so even `"seo": {}` replaces the
+  saved `seo`. Keep the reference bare, or inline it: type it by the section
+  (`site/sections/Footer.tsx`) and copy in `Footer`'s props it doesn't set; the error lists them.
+- **A reference to a saved block whose name ends in `.` and letters or digits** (`Promo 2.0`,
+  `Banner.v2`). Studio reads such a name as a module path (like `site/sections/Footer.tsx`), finds
+  no form for it and shows an empty one. Rename the block and its references. Studio never reads
+  `constructor` or `__proto__` as a saved block's name either.
+
+A bare reference (`{ "__resolveType": "Footer" }`, nothing else) is fine anywhere: in a page's
+sections, a variant, a lazy block or a prop.
 
 ## Blocks with a fixed role
 
