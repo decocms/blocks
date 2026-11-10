@@ -461,6 +461,20 @@ export function createVtexSitemapProxy(
 
 		try {
 			const resp = await fetchImpl(target);
+			// A 4xx is VTEX's answer about this path (`/sitemap/product-99.xml`
+			// → 404, an unknown sitemap → 400), not an outage: forward it with
+			// VTEX's body, as deco-cx's sitemap handler does. Turning it into a
+			// 502 tells crawlers the whole sitemap is down. Not cached — the
+			// sitemap's long `cacheControl` describes a sitemap, not an error.
+			if (resp.status >= 400 && resp.status < 500) {
+				return new Response(await resp.text(), {
+					status: resp.status,
+					headers: {
+						"Content-Type": resp.headers.get("content-type") ?? "text/plain; charset=utf-8",
+						"Cache-Control": "no-store",
+					},
+				});
+			}
 			if (!resp.ok) {
 				console.error(`[vtex-sitemap] VTEX returned ${resp.status} for ${url.pathname}`);
 				return new Response("Sitemap temporarily unavailable", { status: 502 });
