@@ -40,9 +40,11 @@ named block and reference it from each section, instead of repeating the props i
 "products": { "__resolveType": "Shelf - Best sellers" }
 ```
 
-A reference resolves to `{ ...saved, ...overrides }`. With no overrides, every reference
-reaches the loader with identical inputs, so the client runs it once. An override in one
-place (a different `count`) makes a second call there, which is what you want.
+A bare reference reaches the loader with the saved inputs, so every use has identical
+inputs and the client runs it once. When one place needs different inputs (a different
+`count`), save a second block for it: a reference with props of its own (`{ "__resolveType":
+"Shelf - Best sellers", "count": 4 }`) resolves, but Studio can't edit it and `deco check`
+rejects it.
 
 This also stops the copies drifting apart when someone edits one of them in Studio.
 

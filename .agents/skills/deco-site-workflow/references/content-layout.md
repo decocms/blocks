@@ -59,11 +59,30 @@ Every block is an object with `__resolveType`. The rest are its props.
   `redirect`, `redirects`, `cms-settings`, `split-traffic`, `calendar`;
 - **a legacy alias**: a v7 type name the runtime maps to a v8 one (see `deco-v7-to-v8-migration`);
 - **a saved block's name**: a **reference**. `{ "__resolveType": "Header" }` uses the saved block
-  `Header`. Other keys next to it override the saved props for this use only. This is how a header or
-  footer is shared by every page: change the saved block once.
+  `Header`. This is how a header or footer is shared by every page: change the saved block once.
 
 `deco check` reports a `__resolveType` that is none of these as `no saved block or block type "<name>"`.
 This is usually a deleted block that something still references.
+
+### References Studio can edit
+
+The runtime resolves more shapes than Studio's editor can open. `deco check` rejects these as errors,
+so content that passes it opens in Studio:
+
+- **A saved block typed as another saved block.** `Footer-Island` =
+  `{ "__resolveType": "Footer", "revealOnScroll": true }` renders (the resolver follows the chain and
+  merges each hop's props), but Studio's editor follows one hop, finds no form for `Footer` and shows
+  an empty one. A bare alias (`{ "__resolveType": "Footer" }` saved under another name) is the same.
+  Type the block by its section or loader (`site/sections/Footer.tsx`) and copy in the props it took
+  from `Footer`; the error names the chain and those props.
+- **A reference with props of its own.** A page section
+  `{ "__resolveType": "Footer", "hasFixedNewsletter": true }` renders with the props merged over
+  `Footer`'s, but Studio shows and edits `Footer` itself: it ignores these props and saves every edit
+  to `Footer`, for every page that uses it. Keep references bare, or save a new block typed by the
+  section with these props and reference that.
+
+A bare reference (`{ "__resolveType": "Footer" }`, nothing else) is fine anywhere: in a page's
+sections, a variant, a lazy block or a prop.
 
 ## Blocks with a fixed role
 

@@ -50,7 +50,7 @@ A rule can be a saved block, reused by name. A saved block named `Hero test` wit
 { "rule": { "__resolveType": "Hero test" }, "value": { "__resolveType": "lazy", "value": "…" } }
 ```
 
-The resolver merges `{ ...saved, ...arguments }` and looks the type up again, so a reference can override the saved inputs. `deco check` follows the reference when it checks the `name` of an `experiment` or `campaign` rule.
+Keep the reference bare. The resolver would merge props next to it over the saved inputs, but Studio's editor shows and edits the saved rule and ignores them, so `deco check` rejects a reference with props of its own. `deco check` follows the reference when it checks the `name` of an `experiment` or `campaign` rule.
 
 ## Replacing the built-in
 
