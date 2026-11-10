@@ -241,7 +241,7 @@ createCMS({ blocks, content: loader, interval: 60_000, telemetry: false });
 createCMS({ blocks, interval: 60_000, telemetry: false, site: "s", token: "t" });
 // @ts-expect-error secrets live in the deploy platform: createCMS takes no key
 createCMS({ blocks, content, secrets: { key: "k" } });
-createCMS({ blocks, site: "s", token: "t", telemetry: { limits: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
+createCMS({ blocks, site: "s", token: "t", telemetry: { defaults: { errorSampleRate: 0.1, traceSampleRate: 0 } } });
 createCMS({ blocks, content, telemetry: { endpoint: "https://otel.example", headers: { a: "b" }, resource: { "service.version": "abc" } } });
 createCMS({ blocks, content, preview: { hosts: ["*.example.com", "localhost:3000"], draftHosts: [".decocms.com"] } });
 // @ts-expect-error draft hosts are preview.draftHosts
@@ -320,7 +320,7 @@ assert<Equal<Analytics, { collector?: string; enabled?: boolean; decoAnalyticsKe
 assert<Equal<CMSError["code"], "NOT_FOUND" | "UNKNOWN_BLOCK" | "CYCLE" | "BLOCK_FAILED" | "LOADER_FAILED">>();
 assert<Equal<CMSError, { code: CMSError["code"]; message: string; path: (string | number)[]; cause?: unknown }>>();
 assert<Equal<Result<number>, [number, null] | [null, CMSError]>>();
-assert<Equal<TelemetryConfig, { endpoint?: string; headers?: Record<string, string>; resource?: Record<string, string>; limits?: { errorSampleRate?: number; traceSampleRate?: number } }>>();
+assert<Equal<TelemetryConfig, { endpoint?: string; headers?: Record<string, string>; resource?: Record<string, string>; defaults?: { errorSampleRate?: number; traceSampleRate?: number } }>>();
 export { r1, r2 };
 `,
     });
@@ -366,16 +366,20 @@ describe("AR-05 interval: default 60 000, minimum 5 000; no environment variable
   });
 });
 
-describe("AR-06 / AR-07 telemetry destination and limits", () => {
-  it("limits default to 0.1 and 0", () => {
-    expect(resolveDestination({ endpoint: "https://otel.example" })?.limits).toEqual({
-      errorSampleRate: 0.1,
+describe("AR-06 / AR-07 telemetry destination and defaults", () => {
+  it("defaults are the built-in 0.05 and 0, replaced rate by rate by telemetry.defaults", () => {
+    expect(resolveDestination({ endpoint: "https://otel.example" })?.defaults).toEqual({
+      errorSampleRate: 0.05,
       traceSampleRate: 0,
     });
-    expect(resolveDestination(undefined, "s", "t")?.limits).toEqual({
-      errorSampleRate: 0.1,
+    expect(resolveDestination(undefined, "s", "t")?.defaults).toEqual({
+      errorSampleRate: 0.05,
       traceSampleRate: 0,
     });
+    expect(
+      resolveDestination({ endpoint: "https://otel.example", defaults: { errorSampleRate: 1 } })
+        ?.defaults,
+    ).toEqual({ errorSampleRate: 1, traceSampleRate: 0 });
   });
 
   it("false sends nothing, even with a token", () => {
@@ -1325,8 +1329,8 @@ describe("AR-59 multivariate and lazy", () => {
   });
 });
 
-describe("AR-60 the telemetry section: defaults and caps", () => {
-  it("defaults 0.05 / 0, capped by limits", async () => {
+describe("AR-60 the telemetry section: content wins over code's defaults", () => {
+  it("defaults 0.05 / 0, replaced by telemetry.defaults; a rate the section sets wins", async () => {
     const sent: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -1335,36 +1339,56 @@ describe("AR-60 the telemetry section: defaults and caps", () => {
         return new Response("");
       }),
     );
-    const pipeline = (limits?: { errorSampleRate?: number; traceSampleRate?: number }) =>
-      new TelemetryPipeline(resolveDestination({ endpoint: "https://otel.example", limits })!);
+    const pipeline = (defaults?: { errorSampleRate?: number; traceSampleRate?: number }) =>
+      new TelemetryPipeline(resolveDestination({ endpoint: "https://otel.example", defaults })!);
     const random = vi.spyOn(Math, "random");
+    const logs = () => sent.filter((u) => u.includes("/v1/logs")).length;
 
-    // errorSampleRate 0.5 under the default limit 0.1: a draw of 0.2 is dropped, 0.09 kept.
-    const capped = pipeline();
-    capped.apply({ errorSampleRate: 0.5 });
-    random.mockReturnValue(0.2);
-    capped.error("e", {});
-    await capped.flush();
-    expect(sent.filter((u) => u.includes("/v1/logs"))).toHaveLength(0);
-    random.mockReturnValue(0.09);
-    capped.error("e", {});
-    await capped.flush();
-    expect(sent.filter((u) => u.includes("/v1/logs"))).toHaveLength(1);
+    // The section's errorSampleRate 0.5 wins: a draw of 0.6 is dropped, 0.4 kept.
+    const set = pipeline();
+    set.apply({ errorSampleRate: 0.5 });
+    random.mockReturnValue(0.6);
+    set.error("e", {});
+    await set.flush();
+    expect(logs()).toBe(0);
+    random.mockReturnValue(0.4);
+    set.error("e", {});
+    await set.flush();
+    expect(logs()).toBe(1);
 
-    // Default errorSampleRate 0.05: 0.06 dropped.
+    // Nothing in the section or code: the built-in 0.05, so 0.06 is dropped.
     sent.length = 0;
-    const defaults = pipeline({ errorSampleRate: 1 });
-    defaults.apply({});
+    const builtIn = pipeline();
+    builtIn.apply({});
     random.mockReturnValue(0.06);
-    defaults.error("e", {});
-    await defaults.flush();
-    expect(sent.filter((u) => u.includes("/v1/logs"))).toHaveLength(0);
+    builtIn.error("e", {});
+    await builtIn.flush();
+    expect(logs()).toBe(0);
 
-    // traceSampleRate defaults to 0 and is capped at limit 0.
+    // Code's default 1 with nothing in the section: every error is kept.
+    const fromCode = pipeline({ errorSampleRate: 1 });
+    fromCode.apply({});
+    random.mockReturnValue(0.99);
+    fromCode.error("e", {});
+    await fromCode.flush();
+    expect(logs()).toBe(1);
+
+    // The section's 0 wins over code's 1.
+    sent.length = 0;
+    const off = pipeline({ errorSampleRate: 1 });
+    off.apply({ errorSampleRate: 0 });
+    random.mockReturnValue(0);
+    off.error("e", {});
+    await off.flush();
+    expect(logs()).toBe(0);
+
+    // traceSampleRate: built-in 0, the section's 1 traces.
     random.mockReturnValue(0);
     const traces = pipeline();
-    traces.apply({ traceSampleRate: 1 });
+    traces.apply({});
     expect(traces.sampleTrace()).toBe(false);
+    traces.apply({ traceSampleRate: 1 });
+    expect(traces.sampleTrace()).toBe(true);
   });
 
   it("is always in the schema", () => {

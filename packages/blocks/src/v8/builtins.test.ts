@@ -503,10 +503,10 @@ describe("redirect, cms-settings", () => {
     ]);
   });
 
-  it("cms-settings fills in the telemetry and analytics defaults and keeps preview as saved", async () => {
+  it("cms-settings fills in the telemetry switches and analytics defaults, and keeps sample rates and preview as saved", async () => {
     expect(await client({}).resolve({ __resolveType: "cms-settings" })).toEqual([
       {
-        telemetry: { enabled: true, metrics: true, errorSampleRate: 0.05, traceSampleRate: 0 },
+        telemetry: { enabled: true, metrics: true },
         analytics: {
           collector: HOSTED_ANALYTICS_COLLECTOR,
           enabled: true,
@@ -529,7 +529,7 @@ describe("redirect, cms-settings", () => {
     expect(await client({}).resolve({ __resolveType: "cms-settings", ...saved })).toEqual([
       {
         preview: { hosts: ["staging.example.com"] },
-        telemetry: { enabled: false, metrics: true, errorSampleRate: 0.5, traceSampleRate: 0 },
+        telemetry: { enabled: false, metrics: true, errorSampleRate: 0.5 },
         analytics: {
           collector: "https://stats.example.com/events",
           enabled: false,

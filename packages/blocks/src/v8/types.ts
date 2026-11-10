@@ -178,9 +178,9 @@ export interface Telemetry {
   enabled?: boolean;
   /** Default `true`. */
   metrics?: boolean;
-  /** Default 0.05, capped by `telemetry.limits`. */
+  /** 0 to 1. When not saved: `telemetry.defaults` from code, else 0.05. */
   errorSampleRate?: number;
-  /** Default 0, capped by `telemetry.limits`. */
+  /** 0 to 1. When not saved: `telemetry.defaults` from code, else 0. */
   traceSampleRate?: number;
 }
 
@@ -249,7 +249,11 @@ export interface TelemetryConfig {
    * `service.version`, `deployment.environment.name`, …).
    */
   resource?: Record<string, string>;
-  limits?: { errorSampleRate?: number; traceSampleRate?: number };
+  /**
+   * The sample rates when the `telemetry` section of the CMS settings saves
+   * none (built-in: 0.05 and 0). A rate content saves wins, from 0 to 1.
+   */
+  defaults?: { errorSampleRate?: number; traceSampleRate?: number };
 }
 
 export interface CMSConfig {

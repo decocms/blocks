@@ -241,7 +241,7 @@ export function foldSiteSettings(root: string, report: Report): void {
       step: "settings",
       subject: "DECO_OTEL_* sampling",
       message:
-        "if your hosting sets sampling variables, move them to the telemetry section's errorSampleRate and traceSampleRate, within the limits in code (/next/telemetry#sampling)",
+        "if your hosting sets sampling variables, move them to the telemetry section's errorSampleRate and traceSampleRate, which win over code's telemetry.defaults (/next/telemetry#sampling)",
     },
     {
       step: "settings",

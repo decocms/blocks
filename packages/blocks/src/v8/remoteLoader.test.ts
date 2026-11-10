@@ -412,7 +412,7 @@ describe("settings", () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       site: SITE,
-      telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
+      telemetry: { endpoint: "https://otel.example", defaults: { traceSampleRate: 1 } },
     });
     await cms.forRelease().revision();
     expect(currentTelemetry()?.sampleTrace()).toBe(false);

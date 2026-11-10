@@ -42,7 +42,7 @@ export const redirects = (props: {
       )
     : [];
 
-/** The `telemetry` section's defaults (sample rates before code's caps). */
+/** The `telemetry` section's built-in defaults; code's `telemetry.defaults` replace the two rates. */
 export const TELEMETRY_DEFAULTS: Readonly<Required<Telemetry>> = Object.freeze({
   enabled: true,
   metrics: true,
@@ -54,14 +54,44 @@ export const TELEMETRY_DEFAULTS: Readonly<Required<Telemetry>> = Object.freeze({
 export const SETTINGS_BLOCK = "CMS";
 export const SETTINGS_TYPE = "cms-settings";
 
-/** The `telemetry` section with its defaults filled in; rates as saved, before any cap. */
-export function telemetrySection(section: unknown): Required<Telemetry> {
+/** The two sample rates a site falls back to when content saves none. */
+export type SampleRates = { errorSampleRate: number; traceSampleRate: number };
+
+/**
+ * The `telemetry` section with its defaults filled in: a rate content saved
+ * wins (held to 0–1), else `defaults` (code's `telemetry.defaults`, else
+ * the built-in ones).
+ */
+export function telemetrySection(
+  section: unknown,
+  defaults: SampleRates = TELEMETRY_DEFAULTS,
+): Required<Telemetry> {
   const t = isRecord(section) ? section : {};
   return {
     enabled: typeof t.enabled === "boolean" ? t.enabled : TELEMETRY_DEFAULTS.enabled,
     metrics: typeof t.metrics === "boolean" ? t.metrics : TELEMETRY_DEFAULTS.metrics,
-    errorSampleRate: rate(t.errorSampleRate, TELEMETRY_DEFAULTS.errorSampleRate),
-    traceSampleRate: rate(t.traceSampleRate, TELEMETRY_DEFAULTS.traceSampleRate),
+    errorSampleRate: rate(t.errorSampleRate, defaults.errorSampleRate),
+    traceSampleRate: rate(t.traceSampleRate, defaults.traceSampleRate),
+  };
+}
+
+/**
+ * The `telemetry` section as the `cms-settings` block returns it: switches
+ * filled in, sample rates only where content saved one. The block can't see
+ * code's `telemetry.defaults`; `cms.settings()` fills the rates from them.
+ */
+function savedTelemetry(section: unknown): Telemetry & { enabled: boolean; metrics: boolean } {
+  const t = isRecord(section) ? section : {};
+  const { enabled, metrics } = telemetrySection(t);
+  return {
+    enabled,
+    metrics,
+    ...(typeof t.errorSampleRate === "number" && Number.isFinite(t.errorSampleRate)
+      ? { errorSampleRate: rate(t.errorSampleRate, 0) }
+      : {}),
+    ...(typeof t.traceSampleRate === "number" && Number.isFinite(t.traceSampleRate)
+      ? { traceSampleRate: rate(t.traceSampleRate, 0) }
+      : {}),
   };
 }
 
@@ -81,14 +111,19 @@ export function analyticsSection(section: unknown): Required<Analytics> {
 
 /**
  * `cms-settings`: the type of the well-known saved block `CMS`. Returns its
- * input with the telemetry and analytics defaults filled in. Preview hosts
- * aren't here: Studio writes them into the release metadata.
+ * input with the telemetry switches and the analytics defaults filled in; a
+ * sample rate content didn't save stays out (`cms.settings()` fills it from
+ * code's `telemetry.defaults`). Preview hosts aren't here: Studio writes them
+ * into the release metadata.
  */
 export const cmsSettings = (
   props: CMSSettings = {},
-): CMSSettings & { telemetry: Required<Telemetry>; analytics: Required<Analytics> } => ({
+): CMSSettings & {
+  telemetry: Telemetry & { enabled: boolean; metrics: boolean };
+  analytics: Required<Analytics>;
+} => ({
   ...props,
-  telemetry: telemetrySection(props.telemetry),
+  telemetry: savedTelemetry(props.telemetry),
   analytics: analyticsSection(props.analytics),
 });
 

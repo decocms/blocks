@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Telemetry (telemetry.mdx, telemetry-internals.mdx, hosted-telemetry.mdx):
- * where it goes, what the Telemetry block and limits allow, the OTLP/HTTP
+ * where it goes, what the Telemetry block and code's defaults set, the OTLP/HTTP
  * JSON wire format, background sending and scrubbing.
  */
 import { gunzipSync } from "node:zlib";
@@ -95,9 +95,9 @@ describe("where telemetry goes", () => {
       headers: { authorization: "Bearer tok" },
       site: "acme",
     });
-    expect(resolveDestination({ limits: { traceSampleRate: 1 } }, "acme", "tok")).toMatchObject({
+    expect(resolveDestination({ defaults: { traceSampleRate: 1 } }, "acme", "tok")).toMatchObject({
       endpoint: HOSTED_TELEMETRY_ENDPOINT,
-      limits: { traceSampleRate: 1 },
+      defaults: { traceSampleRate: 1 },
     });
   });
 
@@ -229,7 +229,7 @@ describe("metrics", () => {
         ...withTelemetryBlock({ enabled: false, errorSampleRate: 1 }),
         root: "off",
       },
-      telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1 } },
     });
     await off.forRelease().resolve({ __resolveType: "broken" });
     await upstream("https://search.example/q");
@@ -318,14 +318,14 @@ describe("error logs", () => {
     expect(JSON.stringify(sent)).not.toContain(pointer);
   });
 
-  it("samples at the Telemetry block's errorSampleRate, capped by limits (default 0.1)", async () => {
+  it("samples at the Telemetry block's errorSampleRate, which wins over code's defaults", async () => {
     const { fetch } = collector();
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
-      content: withTelemetryBlock({ errorSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT },
+      content: withTelemetryBlock({ errorSampleRate: 0.1 }),
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1 } },
     });
-    const random = vi.spyOn(Math, "random").mockReturnValue(0.2); // above the 0.1 cap
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.2); // above the block's 0.1
     await cms.forRelease().resolve({ __resolveType: "broken" });
     await runBackground();
     expect(fetch).not.toHaveBeenCalled();
@@ -351,12 +351,12 @@ describe("error logs", () => {
 });
 
 describe("traces", () => {
-  it("are off by default, even when content asks for them", async () => {
+  it("are off by default, with no rate in content or code", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: withTelemetryBlock({ traceSampleRate: 1 }),
+      content: withTelemetryBlock({}),
       telemetry: { endpoint: ENDPOINT },
     });
     await cms.forRelease().revision();
@@ -365,13 +365,16 @@ describe("traces", () => {
     expect(sent.some((s) => s.url.endsWith("/v1/traces"))).toBe(false);
   });
 
-  it("trace block resolution and upstream calls once code raises the limit", async () => {
+  it.each([
+    ["content saves traceSampleRate 1", { traceSampleRate: 1 }, undefined],
+    ["code's default is 1 and content saves none", {}, { traceSampleRate: 1 }],
+  ])("trace block resolution and upstream calls once %s", async (_, block, defaults) => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
     const cms = createCMS({
       blocks: docsBlocks(),
-      content: withTelemetryBlock({ traceSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT, limits: { traceSampleRate: 1 } },
+      content: withTelemetryBlock(block),
+      telemetry: { endpoint: ENDPOINT, ...(defaults ? { defaults } : {}) },
     });
     await cms.forRelease().revision();
     await cms.forRelease().resolve("SummerSEO");

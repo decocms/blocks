@@ -180,7 +180,7 @@ describe("the docs' snippets typecheck (conformance/observability)", () => {
     );
     expect(errorsIn("cms.ts")).toBe("");
   });
-  it("tel-25/tel-24: the Sampling snippet (limits) compiles inside createCMS", () => {
+  it("tel-25/tel-24: the Sampling snippet (defaults) compiles inside createCMS", () => {
     expect(errorsIn("cms.ts")).toBe("");
   });
   it("tel-29: the traced() block map compiles with `satisfies Blocks`", () => {
@@ -398,7 +398,7 @@ describe("what's sent (telemetry.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: withTelemetryBlock({ errorSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1 } },
     });
     const [, error] = await cms.forRelease().resolve({ __resolveType: "broken" });
     expect(error?.code).toBe("BLOCK_FAILED");
@@ -429,13 +429,13 @@ describe("what's sent (telemetry.mdx)", () => {
 
   // The first client of a release must already honour that release's telemetry
   // section: no warm-up request before the one that should be traced.
-  it("tel-12: with limits and block traceSampleRate 1, block resolution and upstream spans are sent", async () => {
+  it("tel-12: with block traceSampleRate 1, block resolution and upstream spans are sent", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
     const cms = createCMS({
       blocks: docsBlocks(),
       content: withTelemetryBlock({ traceSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT, limits: { traceSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT, defaults: { traceSampleRate: 1 } },
     });
     await cms.forRelease().resolve("SummerPage");
     await upstreamWith().request("https://search.example/q", { operation: "search" });
@@ -560,7 +560,7 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: docsSnapshot(),
-      telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1, traceSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT },
     });
     const random = vi.spyOn(Math, "random");
     random.mockReturnValue(0.049); // < 0.05: an error is kept; >= 0 trace rate: no trace
@@ -574,16 +574,21 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
     expect(spans(sent)).toHaveLength(0);
   });
 
-  it("tel-17: {__resolveType: 'cms-settings'} returns its input with the telemetry defaults filled in (built-in-blocks)", async () => {
+  it("tel-17: {__resolveType: 'cms-settings'} returns its input with the telemetry switches filled in, sample rates only as saved (built-in-blocks)", async () => {
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
     const [value] = await cms.forRelease().resolve<{ telemetry: unknown }>({
       __resolveType: "cms-settings",
       telemetry: { metrics: false },
     });
-    expect(value?.telemetry).toEqual({
+    expect(value?.telemetry).toEqual({ enabled: true, metrics: false });
+    const [saved] = await cms.forRelease().resolve<{ telemetry: unknown }>({
+      __resolveType: "cms-settings",
+      telemetry: { errorSampleRate: 2, traceSampleRate: 0 },
+    });
+    expect(saved?.telemetry).toEqual({
       enabled: true,
-      metrics: false,
-      errorSampleRate: 0.05,
+      metrics: true,
+      errorSampleRate: 1,
       traceSampleRate: 0,
     });
   });
@@ -594,7 +599,7 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: withTelemetryBlock({ enabled: false, errorSampleRate: 1, traceSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1, traceSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1, traceSampleRate: 1 } },
     });
     await cms.forRelease().resolve({ __resolveType: "broken" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });
@@ -649,10 +654,10 @@ describe("the telemetry section of the CMS block (telemetry.mdx)", () => {
 // telemetry.mdx › Sampling
 // ---------------------------------------------------------------------------
 
-describe("sampling and limits (telemetry.mdx)", () => {
+describe("sampling: code's defaults, content wins (telemetry.mdx)", () => {
   async function errorsKept(
     block: Record<string, unknown>,
-    limits: Record<string, number> | undefined,
+    defaults: Record<string, number> | undefined,
     random: number,
   ): Promise<number> {
     resetForTests();
@@ -661,7 +666,7 @@ describe("sampling and limits (telemetry.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: withTelemetryBlock(block),
-      telemetry: { endpoint: ENDPOINT, ...(limits ? { limits } : {}) },
+      telemetry: { endpoint: ENDPOINT, ...(defaults ? { defaults } : {}) },
     });
     vi.spyOn(Math, "random").mockReturnValue(random);
     await cms.forRelease().resolve({ __resolveType: "broken" });
@@ -669,12 +674,16 @@ describe("sampling and limits (telemetry.mdx)", () => {
     return logRecords(sent).length;
   }
 
-  it("tel-24: without limits, a block errorSampleRate of 1 is capped at 0.1", async () => {
-    expect(await errorsKept({ errorSampleRate: 1 }, undefined, 0.09)).toBe(1);
-    expect(await errorsKept({ errorSampleRate: 1 }, undefined, 0.11)).toBe(0);
+  it("tel-24: a block errorSampleRate of 1 sends every error log, with no defaults in code", async () => {
+    expect(await errorsKept({ errorSampleRate: 1 }, undefined, 0.99)).toBe(1);
   });
 
-  it("tel-24: without limits, a block traceSampleRate of 1 stays at 0 (traces off)", async () => {
+  it("tel-24: without the block's rate or code's defaults, 5% of error logs are sent", async () => {
+    expect(await errorsKept({}, undefined, 0.04)).toBe(1);
+    expect(await errorsKept({}, undefined, 0.06)).toBe(0);
+  });
+
+  it("tel-24: a block traceSampleRate of 1 traces every request, with no defaults in code", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { sent } = collector();
     const cms = createCMS({
@@ -684,14 +693,31 @@ describe("sampling and limits (telemetry.mdx)", () => {
     });
     await cms.forRelease().resolve("SummerPage");
     await runBackground();
-    expect(spans(sent)).toHaveLength(0);
+    expect(spans(sent).length).toBeGreaterThan(0);
   });
 
-  it("tel-24: the effective rate is min(block, limit)", async () => {
-    expect(await errorsKept({ errorSampleRate: 0.3 }, { errorSampleRate: 0.5 }, 0.29)).toBe(1);
+  it("tel-24: the block's rate wins over code's defaults, up or down; code's apply when the block has none", async () => {
+    // Content above code's default: content's.
+    expect(await errorsKept({ errorSampleRate: 1 }, { errorSampleRate: 0.5 }, 0.9)).toBe(1);
+    // Content below code's default: content's.
     expect(await errorsKept({ errorSampleRate: 0.3 }, { errorSampleRate: 0.5 }, 0.31)).toBe(0);
-    expect(await errorsKept({ errorSampleRate: 1 }, { errorSampleRate: 0.5 }, 0.49)).toBe(1);
-    expect(await errorsKept({ errorSampleRate: 1 }, { errorSampleRate: 0.5 }, 0.51)).toBe(0);
+    expect(await errorsKept({ errorSampleRate: 0.3 }, { errorSampleRate: 0.5 }, 0.29)).toBe(1);
+    // Content saves 0: off, whatever code says.
+    expect(await errorsKept({ errorSampleRate: 0 }, { errorSampleRate: 1 }, 0)).toBe(0);
+    // Content saves no rate: code's default.
+    expect(await errorsKept({}, { errorSampleRate: 0.5 }, 0.49)).toBe(1);
+    expect(await errorsKept({}, { errorSampleRate: 0.5 }, 0.51)).toBe(0);
+  });
+
+  it("tel-24: telemetry.limits was removed: createCMS throws, naming telemetry.defaults", () => {
+    expect(() =>
+      createCMS({
+        blocks: docsBlocks(),
+        content: docsSnapshot(),
+        // @ts-expect-error -- removed from the types; a JS caller still gets a clear error
+        telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1 } },
+      }),
+    ).toThrow(/telemetry\.limits` was removed.*telemetry\.defaults/);
   });
 
   it("tel-23: sending never delays a response; a collector that hangs only holds its own batch", async () => {
@@ -750,7 +776,7 @@ describe("privacy (telemetry.mdx, telemetry-internals.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: withTelemetryBlock({ errorSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1 } },
     });
     await cms.forRelease().resolve({ __resolveType: "broken" });
     const failing = createInstrumentedFetch({
@@ -847,7 +873,7 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
     const cms = createCMS({
       blocks: { ...docsBlocks(), broken },
       content: withTelemetryBlock({ errorSampleRate: 1, traceSampleRate: 1 }),
-      telemetry: { endpoint: ENDPOINT, limits: { errorSampleRate: 1, traceSampleRate: 1 } },
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1, traceSampleRate: 1 } },
     });
     await cms.forRelease().resolve({ __resolveType: "broken" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });
@@ -927,7 +953,7 @@ describe("how telemetry is sent (telemetry-internals.mdx)", () => {
       blocks: { ...docsBlocks(), broken },
       site: "acme",
       token: "tok",
-      telemetry: { limits: { errorSampleRate: 1, traceSampleRate: 1 } },
+      telemetry: { defaults: { errorSampleRate: 1, traceSampleRate: 1 } },
     });
     await cms.forRelease().resolve({ __resolveType: "broken" });
     await upstreamWith().request("https://search.example/q", { operation: "search" });

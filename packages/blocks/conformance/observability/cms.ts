@@ -23,7 +23,7 @@ export const sampled = () =>
     content,
     telemetry: {
       endpoint: process.env.OTLP_ENDPOINT!,
-      limits: { errorSampleRate: 0.1, traceSampleRate: 0 },   // the defaults
+      defaults: { errorSampleRate: 0.05, traceSampleRate: 0 },   // the built-in defaults
     },
   });
 

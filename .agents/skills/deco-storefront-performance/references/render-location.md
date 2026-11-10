@@ -43,8 +43,9 @@ not the absolute numbers.
 In production, the same data exists as telemetry spans: when a trace is sampled, every
 block run becomes a span named after its block type, with `deco.block.type`. Sampling
 is off by default. It needs a telemetry destination (a `token` or a `telemetry.endpoint`
-on `createCMS`), the cap `createCMS({ telemetry: { limits: { traceSampleRate } } })`
-(default 0), and `telemetry.traceSampleRate` in the saved `CMS` block (default 0).
+on `createCMS`) and a trace rate: `telemetry.traceSampleRate` in the saved `CMS` block,
+which wins, else code's `createCMS({ telemetry: { defaults: { traceSampleRate } } })`
+(both default 0).
 
 ## 2. A prop resolved eagerly and then thrown away
 
