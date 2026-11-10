@@ -10,7 +10,7 @@ For per-release auto-generated notes (every commit, every fix), see
 
 ## Unreleased — `deco check` rejects saved-block shapes Studio's editor can't open
 
-`deco check` now fails (exit 1) on two shapes the runtime resolves but Studio's
+`deco check` now fails (exit 1) on shapes the runtime resolves but Studio's
 editor cannot edit:
 
 - **A saved block typed as another saved block**, such as `Footer-Island` =
@@ -22,7 +22,11 @@ editor cannot edit:
 - **A reference with props of its own** (a page section, variant value, lazy
   value or prop `{ "__resolveType": "Footer", "hasFixedNewsletter": true }`).
   Studio shows and edits `Footer` itself, ignores the extra props and saves edits
-  to the shared block.
+  to the shared block. The error offers a bare reference, or inlining it (typed by
+  the section, with the saved block's other props copied in, listed).
+- **A reference to a saved block whose name ends in `.` and letters or digits**
+  (`Promo 2.0`), or is `constructor` or `__proto__`. Studio reads such a name as
+  a module path, not a saved block, and shows an empty form. Rename the block.
 
 A bare reference (`{ "__resolveType": "Footer" }`) is still fine anywhere. The
 props a reference resolves with are now validated along the whole chain of saved

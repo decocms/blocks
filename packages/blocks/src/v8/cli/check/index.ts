@@ -509,15 +509,10 @@ class Checker {
     if (chain === null) return null; // a cycle or a missing name: checkBlock reports it
     const parent = chain[0];
     const type = String(this.saved.blocks[chain[chain.length - 1]].__resolveType);
-    const inherited = Object.keys(this.mergedChain(chain, {})).filter(
-      (key) => key !== "__resolveType" && !Object.hasOwn(entry, key),
-    );
-    const shown = inherited.slice(0, 12).join(", ");
-    const more = inherited.length > 12 ? ` and ${inherited.length - 12} more` : "";
-    const copy =
-      inherited.length > 0
-        ? ` and copy in the props it inherits from "${parent}" (${shown}${more})`
-        : "";
+    const inherited = this.inheritedProps(chain, entry);
+    const copy = inherited
+      ? ` and copy in the props it inherits from "${parent}" (${inherited})`
+      : "";
     return (
       `saved block "${name}" is typed as another saved block (${[name, ...chain, type].join(" → ")}): ` +
       `it renders, but Studio's editor follows one hop, finds no form for "${parent}" and shows an empty one. ` +
@@ -526,24 +521,64 @@ class Checker {
   }
 
   /**
+   * The props a block that sets `own` gets from the chain it is typed by
+   * (`chain[0]` onward), listed for a message: up to 12, then "and N more".
+   */
+  private inheritedProps(chain: string[], own: Record<string, Json>): string {
+    const keys = Object.keys(this.mergedChain(chain, {})).filter(
+      (key) => key !== "__resolveType" && !Object.hasOwn(own, key),
+    );
+    const more = keys.length > 12 ? ` and ${keys.length - 12} more` : "";
+    return keys.slice(0, 12).join(", ") + more;
+  }
+
+  /**
    * A reference that carries props of its own (a page section
    * `{ "__resolveType": "Footer", "hasFixedNewsletter": true }`) renders with
-   * them merged over the saved block's. Studio's editor shows and edits the
-   * saved block itself: it ignores these props, saves every edit to the shared
-   * block (changing every page that uses it) and drops them on detach. Only a
-   * bare reference is editable there.
+   * them merged over the saved block's (shallowly: `"seo": {}` replaces the
+   * saved `seo`). Studio's editor shows and edits the saved block itself: it
+   * ignores these props, saves every edit to the shared block (changing every
+   * page that uses it) and drops them on detach. Only a bare reference, or
+   * the block inlined (typed by its section, with the props copied in), is
+   * editable there.
    */
-  private referenceOverrides(name: string, overrides: string[]): string {
+  private referenceOverrides(block: Record<string, Json>, overrides: string[]): string {
+    const name: string = block.__resolveType;
     const chain = this.referenceChain(name);
     const type = chain ? String(this.saved.blocks[chain[chain.length - 1]].__resolveType) : null;
-    const instead = type
-      ? `, or save a block typed "${type}" with these props and reference that`
+    const inherited = chain ? this.inheritedProps(chain, block) : "";
+    const copy = inherited
+      ? ` and copy in the props of "${name}" it doesn't set (${inherited})`
       : "";
+    const instead = type ? `, or inline it: set its __resolveType to "${type}"${copy}` : "";
     return (
       `reference to saved block "${name}" carries its own props (${overrides.join(", ")}): ` +
       `they apply when the page renders, but Studio's editor shows and edits "${name}" itself, ` +
       `ignores them and saves edits to "${name}" for every use. ` +
       `Make it a bare reference ({ "__resolveType": "${name}" })${instead}`
+    );
+  }
+
+  /**
+   * Why Studio's editor can't open a reference to the saved block `name`, if
+   * it can't: Studio (isSavedBlockResolveType) reads a name ending in "." and
+   * letters or digits ("Promo 2.0") as a module path, and never treats
+   * "__proto__" or "constructor" as a saved block. It then finds no form for
+   * the name and shows an empty one; the page still renders.
+   */
+  private unopenableName(name: string): string | null {
+    const ending = /\.\w+$/.exec(name)?.[0];
+    const reason = ending
+      ? `its name ends in "${ending}", so Studio's editor reads it as a module path`
+      : name === "__proto__" || name === "constructor"
+        ? `Studio's editor never reads "${name}" as a saved block's name`
+        : null;
+    if (reason === null) return null;
+    return (
+      `reference to saved block "${name}" can't be edited in Studio: ${reason}, ` +
+      `finds no form for it and shows an empty one. Rename the saved block` +
+      (ending ? ` (no "." followed by letters or digits at the end)` : "") +
+      ` and update its references`
     );
   }
 
@@ -789,6 +824,8 @@ class Checker {
         return;
       }
       if (underlying === null) return; // the saved block reports its own problem
+      const unopenable = top ? null : this.unopenableName(name);
+      if (unopenable) this.report(ctx, path, unopenable);
       const fit = this.fitProblem(underlying, field);
       if (fit) {
         this.report(
@@ -804,7 +841,7 @@ class Checker {
       const chain = this.referenceChain(name);
       if (overrides.length > 0 && chain) {
         // A saved block typed this way is savedBlockChain's (run reports it).
-        if (!top) this.report(ctx, path, this.referenceOverrides(name, overrides));
+        if (!top) this.report(ctx, path, this.referenceOverrides(block, overrides));
         const merged = this.mergedChain(chain, block);
         if (this.isCalendar(merged.__resolveType)) this.checkCalendar(ctx, merged, path);
         else this.checkProps(ctx, merged, path, true);

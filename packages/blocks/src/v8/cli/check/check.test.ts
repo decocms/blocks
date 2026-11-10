@@ -65,11 +65,17 @@ const chainMessage = (chain: string[], inherited: string) =>
   `Set its __resolveType to "${chain[chain.length - 1]}"` +
   (inherited ? ` and copy in the props it inherits from "${chain[1]}" (${inherited})` : "");
 /** deco check's message for a reference that carries props of its own. */
-const overridesMessage = (name: string, props: string[], type: string) =>
+const overridesMessage = (name: string, props: string[], type: string, inherited = "") =>
   `reference to saved block "${name}" carries its own props (${props.join(", ")}): ` +
   `they apply when the page renders, but Studio's editor shows and edits "${name}" itself, ` +
   `ignores them and saves edits to "${name}" for every use. ` +
-  `Make it a bare reference ({ "__resolveType": "${name}" }), or save a block typed "${type}" with these props and reference that`;
+  `Make it a bare reference ({ "__resolveType": "${name}" }), or inline it: set its __resolveType to "${type}"` +
+  (inherited ? ` and copy in the props of "${name}" it doesn't set (${inherited})` : "");
+/** deco check's message for a reference to a saved block whose name Studio reads as a module path. */
+const unopenableMessage = (name: string, ending: string) =>
+  `reference to saved block "${name}" can't be edited in Studio: its name ends in "${ending}", ` +
+  `so Studio's editor reads it as a module path, finds no form for it and shows an empty one. ` +
+  `Rename the saved block (no "." followed by letters or digits at the end) and update its references`;
 
 describe("props match the block type's schema", () => {
   it("passes content that fits", () => {
@@ -242,7 +248,7 @@ describe("typed references", () => {
     expect(
       lines(run({ Summer: hero, HomePage: page([{ __resolveType: "Summer", size: "huge" }]) })),
     ).toEqual([
-      `HomePage.json sections[0]: ${overridesMessage("Summer", ["size"], "hero")}`,
+      `HomePage.json sections[0]: ${overridesMessage("Summer", ["size"], "hero", "title")}`,
       'HomePage.json sections[0].size: "huge" isn\'t one of "sm", "md", "lg"',
     ]);
   });
@@ -305,7 +311,9 @@ describe("saved blocks Studio's editor can open", () => {
   it("rejects a page section that references a saved block with props of its own", () => {
     expect(
       lines(run({ Summer: hero, HomePage: page([{ __resolveType: "Summer", size: "lg" }]) })),
-    ).toEqual([`HomePage.json sections[0]: ${overridesMessage("Summer", ["size"], "hero")}`]);
+    ).toEqual([
+      `HomePage.json sections[0]: ${overridesMessage("Summer", ["size"], "hero", "title")}`,
+    ]);
   });
 
   it("rejects a nested prop that references a saved block with props of its own", () => {
@@ -348,8 +356,66 @@ describe("saved blocks Studio's editor can open", () => {
       ),
     ).toEqual([
       `Hero.json later.value: ${overridesMessage("MyProduct", ["slug"], "catalog-product")}`,
-      `HomePage.json sections[0].variants[0].value.value: ${overridesMessage("Summer", ["size"], "hero")}`,
+      `HomePage.json sections[0].variants[0].value.value: ${overridesMessage("Summer", ["size"], "hero", "title")}`,
     ]);
+  });
+
+  it("rejects a reference whose overrides are empty objects (they replace the saved values)", () => {
+    expect(
+      lines(
+        run({
+          MyProduct: { __resolveType: "catalog-product", slug: "s" },
+          Card: {
+            __resolveType: "product-card",
+            title: "t",
+            product: { __resolveType: "MyProduct", extra: {} },
+          },
+        }),
+      ).filter((line) => line.includes("carries its own props")),
+    ).toEqual([
+      `Card.json product: ${overridesMessage("MyProduct", ["extra"], "catalog-product", "slug")}`,
+    ]);
+  });
+
+  // Flagged: a reference to a saved block whose name Studio reads as a module path.
+  it("rejects a reference to a saved block whose name ends in a dot and letters or digits", () => {
+    expect(
+      lines(
+        run({
+          "Promo 2.0": hero,
+          "Product.v2": { __resolveType: "catalog-product", slug: "s" },
+          HomePage: page([{ __resolveType: "Promo 2.0" }]),
+          Card: {
+            __resolveType: "product-card",
+            title: "t",
+            product: { __resolveType: "Product.v2" },
+          },
+        }),
+      ),
+    ).toEqual([
+      `Card.json product: ${unopenableMessage("Product.v2", ".v2")}`,
+      `HomePage.json sections[0]: ${unopenableMessage("Promo 2.0", ".0")}`,
+    ]);
+  });
+
+  it("rejects a reference to a saved block named constructor", () => {
+    expect(
+      lines(run({ constructor: hero, HomePage: page([{ __resolveType: "constructor" }]) })),
+    ).toEqual([
+      'HomePage.json sections[0]: reference to saved block "constructor" can\'t be edited in Studio: ' +
+        "Studio's editor never reads \"constructor\" as a saved block's name, finds no form for it and " +
+        "shows an empty one. Rename the saved block and update its references",
+    ]);
+  });
+
+  it("accepts a dotted name that is never referenced, and a dot inside a name", () => {
+    expect(
+      run({
+        "Promo 2.0": hero,
+        "Promo 2.0 home": hero,
+        HomePage: page([{ __resolveType: "Promo 2.0 home" }]),
+      }),
+    ).toEqual([]);
   });
 
   // Allowed: what Studio's editor opens and edits.
@@ -1342,7 +1408,7 @@ export default function Hero(props: Props) { return <div>{props.title}</div>; }`
         ),
       ).toEqual([
         'HomePage.json sections[0].campaigns.sale.start: the campaign "sale" starts at "2026-11-27T00:00:00", which has no offset, so it never runs: add your store\'s offset, like "2026-11-27T00:00:00-03:00"',
-        `Other.json sections[0].campaigns: ${overridesMessage("campaigns", ["flash"], "calendar")}`,
+        `Other.json sections[0].campaigns: ${overridesMessage("campaigns", ["flash"], "calendar", "black-friday, always-on")}`,
         'Other.json sections[0].campaigns.flash.start: the campaign "flash" starts at "2026-11-27", a date without a time or offset, so it never runs: add the time and your store\'s offset, like "2026-11-27T00:00-03:00"',
         'promo.json week.end: the campaign "week" ends at "2026-12-01 10:00", which has no offset, so it never runs: add your store\'s offset, like "2026-12-01T10:00-03:00"',
       ]);

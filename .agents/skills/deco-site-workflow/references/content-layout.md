@@ -78,8 +78,13 @@ so content that passes it opens in Studio:
 - **A reference with props of its own.** A page section
   `{ "__resolveType": "Footer", "hasFixedNewsletter": true }` renders with the props merged over
   `Footer`'s, but Studio shows and edits `Footer` itself: it ignores these props and saves every edit
-  to `Footer`, for every page that uses it. Keep references bare, or save a new block typed by the
-  section with these props and reference that.
+  to `Footer`, for every page that uses it. The merge is shallow, so even `"seo": {}` replaces the
+  saved `seo`. Keep the reference bare, or inline it: type it by the section
+  (`site/sections/Footer.tsx`) and copy in `Footer`'s props it doesn't set; the error lists them.
+- **A reference to a saved block whose name ends in `.` and letters or digits** (`Promo 2.0`,
+  `Banner.v2`). Studio reads such a name as a module path (like `site/sections/Footer.tsx`), finds
+  no form for it and shows an empty one. Rename the block and its references. Studio never reads
+  `constructor` or `__proto__` as a saved block's name either.
 
 A bare reference (`{ "__resolveType": "Footer" }`, nothing else) is fine anywhere: in a page's
 sections, a variant, a lazy block or a prop.
