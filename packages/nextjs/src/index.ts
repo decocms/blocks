@@ -5,12 +5,11 @@
  * - `DraftPreviewIndicator`: the "Preview mode" badge on a page rendered from
  *   a draft (`bindDraft` from `@decocms/nextjs/server`), outside Studio's frame.
  * - `StudioBridge`: one line in the root layout, `<StudioBridge site="my-store" />`,
- *   lets Studio's site editor drive the page when Studio frames it
- *   (`@decocms/blocks/preview`'s, answering `STUDIO_ORIGINS`). It renders an
- *   inline script with no React hooks, so a Server Component renders it as is.
- *   Outside Studio's frame, "." opens the page in Studio's editor. It also
- *   mounts the Studio channel (`StudioChannel`), through which Studio loads its
- *   own modules into the page when it frames it (`studioOrigins`).
+ *   lets Studio's site editor drive the page when Studio frames it: it mounts
+ *   the Studio channel (`StudioChannel` of `@decocms/blocks/preview`), through
+ *   which Studio loads its own modules into the page (`studioOrigins`).
+ *   Outside Studio's frame, "." opens the page in Studio's editor. Two inline
+ *   scripts with no React hooks, so a Server Component renders it as is.
  * - `StudioPage`: rendered inside each CMS page, `<StudioPage pathTemplate={page.path} />`,
  *   tells the bridge which page "." opens (the root layout doesn't re-render per page).
  * - `DRAFT_PARAM`, `DRAFT_COOKIE`, `VERSION_HEADER`, `draftResponseHeaders`,

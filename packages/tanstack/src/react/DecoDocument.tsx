@@ -8,23 +8,28 @@
  *   keeps its height while the next page loads;
  * - the CDN segment token and the draft this request renders, for
  *   `decoServerFnFetch` and the draft badge;
- * - `StudioBridge` (in Studio's frame it answers Studio's origins,
- *   `STUDIO_ORIGINS`; outside it, "." opens the page in Studio's editor, with
- *   the page's `pathTemplate` from the route's loader data) and `DraftBadge`
- *   (only on a draft page outside Studio's frame), from `@decocms/blocks/preview`;
  * - `StudioChannel` (every page, production included: framed by one of
  *   Studio's origins, `studioOrigins` / `DECO_STUDIO_ORIGIN` / Studio's
  *   production and staging origins, each exact, it loads the editor's own
- *   modules from that origin; otherwise it does nothing). The worker adds the
- *   same origins to the page's CSP `script-src` and `frame-ancestors`.
+ *   modules from that origin; otherwise it does nothing) and `DraftBadge`
+ *   (only on a draft page outside Studio's frame), from
+ *   `@decocms/blocks/preview`. The worker adds the same origins to the
+ *   page's CSP `script-src` and `frame-ancestors`;
+ * - v7's "." edit shortcut (`../studioShortcut.ts`: outside Studio's frame,
+ *   "." opens the page in Studio's editor, with the page's `pathTemplate`
+ *   from the route's loader data). v8 only: v7's framed handler
+ *   (`scrollToComponent`, `editor::rerender`) is gone, so no script compares
+ *   the window with `top` or `parent` in a form a test runner's
+ *   "frame-busting" rewrite matches (Cypress's `modifyObstructiveCode`).
  *
  * A site that keeps its own document renders `DecoPreview` in its `<body>`
  * for the bridge, the badge and the draft they read.
  */
-import { DraftBadge, StudioBridge, StudioChannel } from "@decocms/blocks/preview";
+import { DraftBadge, StudioChannel } from "@decocms/blocks/preview";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { STUDIO_ORIGINS, studioOrigins } from "../studio.ts";
+import { studioOrigins } from "../studio.ts";
+import { StudioShortcut } from "../studioShortcut.ts";
 import { pageValues, publishScript } from "./pageValues.ts";
 import { DATA_EVENT_OBSERVER, eventsBootstrap, PROGRESS_CSS } from "./scripts.ts";
 
@@ -100,7 +105,7 @@ function studioPageOf(
   return undefined;
 }
 
-/** The Studio bridge, with the page on screen, the Studio channel, and the badge for the request's draft. */
+/** The "." shortcut, with the page on screen, the Studio channel, and the badge for the request's draft. */
 function StudioPieces({
   site,
   editShortcut,
@@ -117,9 +122,8 @@ function StudioPieces({
   const pageId = useRouterState({ select: (s) => studioPageOf(s.matches)?.id });
   return (
     <>
-      <StudioBridge
+      <StudioShortcut
         site={site}
-        trustedOrigins={STUDIO_ORIGINS}
         editShortcut={editShortcut}
         page={{ pathTemplate, id: pageId }}
         nonce={nonce}
@@ -154,8 +158,8 @@ export interface DecoPreviewProps {
 /**
  * What `DecoDocument` mounts for Studio and draft previews, for a site that
  * keeps its own document (a skip link before `<main>`, say): the request's
- * draft and CDN segment token published to the browser, `StudioBridge` and
- * `DraftBadge`. Render it once, in the `<body>`.
+ * draft and CDN segment token published to the browser, the "." shortcut,
+ * `StudioChannel` and `DraftBadge`. Render it once, in the `<body>`.
  */
 export function DecoPreview({ site, editShortcut, nonce, studioOrigins }: DecoPreviewProps) {
   const values = pageValues();
@@ -182,7 +186,7 @@ export function DecoPreview({ site, editShortcut, nonce, studioOrigins }: DecoPr
 }
 
 export interface DecoDocumentProps {
-  /** The site's name in Deco (the Studio bridge's shortcut opens the page under it). */
+  /** The site's name in Deco (the "." shortcut opens the page under it). */
   site: string;
   /** `<html lang>`. Default `"en"`. */
   lang?: string;

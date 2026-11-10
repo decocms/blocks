@@ -1,24 +1,43 @@
 /**
- * `StudioBridge` of `@decocms/blocks/preview` with Studio's origins filled in
- * (`STUDIO_ORIGINS`, `./studio.ts`): the package owns where Studio runs, so a
- * site passes only its name. With it, the Studio channel (`StudioChannel`):
- * on every page, production included, framed by one of Studio's origins
- * (`studioOrigins` / `DECO_STUDIO_ORIGIN` / Studio's production and staging
- * origins, each exact) it loads the editor's own modules from that origin;
- * otherwise it does nothing. Two inline scripts and no hooks, so a Server
- * Component renders it as is. The site's CSP allows the same origins with
- * `withStudioCsp`.
+ * What a Next.js site renders for Deco Studio's site editor: the Studio
+ * channel (`StudioChannel` of `@decocms/blocks/preview`) and v7's "." edit
+ * shortcut (`./studioShortcut.ts`). On every page, production included,
+ * framed by one of Studio's origins (`studioOrigins` / `DECO_STUDIO_ORIGIN` /
+ * Studio's production and staging origins, each exact), the channel loads
+ * the editor's own modules from that origin; otherwise it does nothing. Not
+ * framed, "." opens the page in Studio's editor.
+ *
+ * v8 only: v7's framed handler (`scrollToComponent`, `editor::rerender`) is
+ * gone, so no script on the page compares the window with `top` or `parent`
+ * in a form a test runner's "frame-busting" rewrite matches (Cypress's
+ * `modifyObstructiveCode`, which would change the length of the React Server
+ * Components payload that carries the script). Two inline scripts and no
+ * hooks, so a Server Component renders it as is. The site's CSP allows the
+ * same origins with `withStudioCsp`.
  */
-import {
-  StudioBridge as BridgeScript,
-  type StudioBridgeProps as BridgeScriptProps,
-  StudioChannel,
-} from "@decocms/blocks/preview";
+import { StudioChannel, type StudioPageInfo } from "@decocms/blocks/preview";
 import { createElement, Fragment, type ReactNode } from "react";
-import { STUDIO_ORIGINS, studioOrigins } from "./studio.ts";
+import { studioOrigins } from "./studio.ts";
+import { StudioShortcut } from "./studioShortcut.ts";
 
-/** `site`, and optionally `editShortcut`, `page` and `nonce`; Studio's origins are the package's. */
-export interface StudioBridgeProps extends Omit<BridgeScriptProps, "trustedOrigins"> {
+/** `site`, and optionally `editShortcut`, `page`, `nonce` and `studioOrigins`. */
+export interface StudioBridgeProps {
+  /** The site's name in Deco (the "." shortcut sends it to Studio). */
+  site: string;
+  /**
+   * v7's editor shortcut: on a page that isn't framed, "." (or Ctrl+Shift+E)
+   * opens it in Studio, and Ctrl or Cmd+"." opens it in a new tab. On by
+   * default, as in v7; `false` turns it off.
+   */
+  editShortcut?: boolean;
+  /**
+   * The page being shown, when the layout knows it: the "." shortcut sends
+   * its path template (and id). A `StudioPage` rendered by the page wins (a
+   * Next.js root layout doesn't re-render per page).
+   */
+  page?: StudioPageInfo;
+  /** The CSP nonce for the inline scripts, when the site sends one. */
+  nonce?: string;
   /**
    * The Studio origins the Studio channel trusts, each an exact origin.
    * Default: `DECO_STUDIO_ORIGIN` (comma-separated), else Studio's production
@@ -30,13 +49,20 @@ export interface StudioBridgeProps extends Omit<BridgeScriptProps, "trustedOrigi
 
 /**
  * Lets Studio's site editor select and edit sections on the page when Studio
- * frames it. Render it once, in the root layout's `<body>`.
+ * frames it, and "." open the page in Studio when it doesn't. Render it once,
+ * in the root layout's `<body>`.
  */
-export function StudioBridge({ studioOrigins: origins, ...props }: StudioBridgeProps): ReactNode {
+export function StudioBridge({
+  site,
+  editShortcut,
+  page,
+  nonce,
+  studioOrigins: origins,
+}: StudioBridgeProps): ReactNode {
   return createElement(
     Fragment,
     null,
-    createElement(BridgeScript, { ...props, trustedOrigins: STUDIO_ORIGINS }),
-    createElement(StudioChannel, { studioOrigins: studioOrigins(origins), nonce: props.nonce }),
+    createElement(StudioShortcut, { site, editShortcut, page, nonce }),
+    createElement(StudioChannel, { studioOrigins: studioOrigins(origins), nonce }),
   );
 }
