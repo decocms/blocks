@@ -9,7 +9,9 @@
  * A new URL of the page (a save moved the draft pointer in `?__draft=`) first
  * goes to the worker as a document request, only for its draft cookie: the
  * loaders' server-function calls carry the cookie, not the page's query. Then
- * the router moves to the URL and reruns the loaders.
+ * the router moves to the URL. A route whose loader deps include `__draft`
+ * loads again on that move; only the matches it didn't load are invalidated,
+ * so the page renders the save once.
  *
  * Set on every page, framed or not: Studio's module is the only caller, and
  * comparing the window with its parent here is what a test runner's
@@ -30,6 +32,7 @@ export function StudioRefresh(): null {
       if (target.origin !== location.origin) {
         throw new Error(`Not this page's origin: ${target.origin}`);
       }
+      let loadedSince: number | null = null;
       if (target.href !== location.href) {
         const res = await fetch(target.href, {
           headers: { accept: "text/html" },
@@ -38,13 +41,19 @@ export function StudioRefresh(): null {
         });
         await res.body?.cancel();
         if (!res.ok) throw new Error(`The page answered ${res.status}`);
+        loadedSince = Date.now();
         await router.navigate({
           href: `${target.pathname}${target.search}${target.hash}`,
           replace: true,
           resetScroll: false,
         });
       }
-      await router.invalidate();
+      if (loadedSince === null) return router.invalidate();
+      const since = loadedSince;
+      const stale = router.state.matches.filter((m) => m.updatedAt < since);
+      if (stale.length === 0) return;
+      const ids = new Set(stale.map((m) => m.id));
+      await router.invalidate({ filter: (m) => ids.has(m.id) });
     };
     const slot = window as unknown as Record<string, unknown>;
     slot[STUDIO_PAGE_REFRESH] = refresh;

@@ -4,14 +4,26 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => [] as string[]);
-const router = vi.hoisted(() => ({
-  navigate: vi.fn(async (opts: { href: string }) => {
-    calls.push(`navigate ${opts.href}`);
-  }),
-  invalidate: vi.fn(async () => {
-    calls.push("invalidate");
-  }),
-}));
+type Match = { id: string; updatedAt: number };
+const router = vi.hoisted(() => {
+  const r = {
+    state: { matches: [] as Match[] },
+    /** What a navigation loads: the ids it gives a fresh `updatedAt`. */
+    reloads: [] as string[],
+    navigate: vi.fn(async (opts: { href: string }) => {
+      calls.push(`navigate ${opts.href}`);
+      const now = Date.now();
+      r.state.matches = r.state.matches.map((m) =>
+        r.reloads.includes(m.id) ? { ...m, updatedAt: now } : m,
+      );
+    }),
+    invalidate: vi.fn(async (opts?: { filter?: (m: Match) => boolean }) => {
+      const ids = opts?.filter ? r.state.matches.filter(opts.filter).map((m) => m.id) : ["*"];
+      calls.push(`invalidate ${ids.join(",")}`);
+    }),
+  };
+  return r;
+});
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => router }));
 
 const { StudioRefresh } = await import("./StudioRefresh.ts");
@@ -28,6 +40,11 @@ beforeEach(async () => {
   calls.length = 0;
   router.navigate.mockClear();
   router.invalidate.mockClear();
+  router.state.matches = [
+    { id: "__root__", updatedAt: 0 },
+    { id: "/shoes", updatedAt: 0 },
+  ];
+  router.reloads = [];
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     calls.push(`fetch ${String(input)}`);
     return new Response("<html></html>");
@@ -45,18 +62,34 @@ afterEach(async () => {
 describe("StudioRefresh", () => {
   it("reruns the loaders for the page's own URL, fetching nothing else", async () => {
     await slot()!(window.location.href);
-    expect(calls).toEqual(["invalidate"]);
+    expect(calls).toEqual(["invalidate *"]);
   });
 
   it("a moved draft pointer: the link's cookie first, then the URL, then the loaders", async () => {
     const next = `${window.location.origin}/shoes?__draft=b`;
     await slot()!(next);
-    expect(calls).toEqual([`fetch ${next}`, "navigate /shoes?__draft=b", "invalidate"]);
+    expect(calls).toEqual([
+      `fetch ${next}`,
+      "navigate /shoes?__draft=b",
+      "invalidate __root__,/shoes",
+    ]);
     expect(router.navigate).toHaveBeenCalledWith({
       href: "/shoes?__draft=b",
       replace: true,
       resetScroll: false,
     });
+  });
+
+  it("a moved draft pointer the loaders depend on: the navigation's load is the only one", async () => {
+    router.reloads = ["__root__", "/shoes"];
+    await slot()!(`${window.location.origin}/shoes?__draft=b`);
+    expect(router.invalidate).not.toHaveBeenCalled();
+  });
+
+  it("a moved draft pointer only the page depends on: the rest is invalidated, not the page", async () => {
+    router.reloads = ["/shoes"];
+    await slot()!(`${window.location.origin}/shoes?__draft=b`);
+    expect(calls.at(-1)).toBe("invalidate __root__");
   });
 
   it("rejects when the new link fails, leaving the page as it is", async () => {
