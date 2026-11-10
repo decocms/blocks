@@ -492,7 +492,7 @@ describe("update() checks on an interval", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
-  it("reads no DECO_CONTENT_INTERVAL: left out, the interval is the 60 s minimum", async () => {
+  it("reads no DECO_CONTENT_INTERVAL: left out, the interval is the 60 s default", async () => {
     vi.stubEnv("DECO_CONTENT_INTERVAL", "300000");
     const { cms, update, at } = scheduled();
     at("2026-10-03T00:00:00Z");
