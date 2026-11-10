@@ -53,10 +53,7 @@ const blocksOverrideStorage: ALSLike<BlocksOverride> = ALS
 // Change listeners
 // ---------------------------------------------------------------------------
 
-type ChangeListener = (
-  blocks: Record<string, unknown>,
-  revision: string,
-) => void;
+type ChangeListener = (blocks: Record<string, unknown>, revision: string) => void;
 const changeListeners: ChangeListener[] = [];
 
 /** Register a callback invoked whenever setBlocks() changes the decofile. */
@@ -84,12 +81,16 @@ function computeRevision(blocks: Record<string, unknown>): string {
  * Set the blocks data. Called at startup with generated blocks,
  * and by the admin on hot-reload.
  * Notifies all onChange listeners and updates the revision.
+ *
+ * Pass `knownRevision` when the source already has it (the KV snapshot stores
+ * one, computed with the same `computeRevision`): hashing re-serializes the
+ * whole decofile, ~21 MB of garbage on a 10 MB decofile, on every isolate boot.
  */
-export function setBlocks(blocks: Record<string, unknown>) {
+export function setBlocks(blocks: Record<string, unknown>, knownRevision?: string) {
   // A caller may hand back the same object after mutating it in place.
   pageIndexCache.delete(blocks);
   blockData = blocks;
-  revision = computeRevision(blocks);
+  revision = knownRevision ?? computeRevision(blocks);
 
   // Persist to globalThis so other module instances see them
   G.__deco.blockData = blockData;
@@ -227,10 +228,7 @@ export function getRevision(): string | null {
  * for the duration of the render. Other concurrent requests are not
  * affected (AsyncLocalStorage is per-request scoped).
  */
-export function withBlocksOverride<T>(
-  override: Record<string, unknown>,
-  fn: () => T,
-): T {
+export function withBlocksOverride<T>(override: Record<string, unknown>, fn: () => T): T {
   return blocksOverrideStorage.run({ mode: "merge", blocks: override }, fn);
 }
 
@@ -241,10 +239,7 @@ export function withBlocksOverride<T>(
  * exactly like the page render, deletions included, or a lazy section could
  * render a block the page no longer has.
  */
-export function withDraftBlocks<T>(
-  draft: Record<string, unknown>,
-  fn: () => T,
-): T {
+export function withDraftBlocks<T>(draft: Record<string, unknown>, fn: () => T): T {
   return blocksOverrideStorage.run({ mode: "snapshot", blocks: draft }, fn);
 }
 
@@ -338,8 +333,8 @@ type PageIndexEntry = {
  * themselves, so every module instance drops the same entry on `setBlocks()`.
  * The compiled matchers live on the entries and go away with them.
  */
-const pageIndexCache: WeakMap<Record<string, unknown>, PageIndexEntry[]> =
-  G.__deco.pageIndexCache ?? (G.__deco.pageIndexCache = new WeakMap());
+const pageIndexCache: WeakMap<Record<string, unknown>, PageIndexEntry[]> = G.__deco
+  .pageIndexCache ?? (G.__deco.pageIndexCache = new WeakMap());
 
 function buildPageIndex(blocks: Record<string, unknown>): PageIndexEntry[] {
   const pages: Array<PageIndexEntry & { key2: [number, number, number] }> = [];
@@ -508,10 +503,7 @@ function assertURLPattern() {
  * `URLPattern` is native in browsers, workerd, Deno, and Node >= 24 (this
  * package's `engines` floor). Node 22 and older lack it.
  */
-export function matchPath(
-  pattern: string,
-  urlPath: string,
-): Record<string, string> | null {
+export function matchPath(pattern: string, urlPath: string): Record<string, string> | null {
   assertURLPattern();
   return execPattern(cachedPattern(pattern), urlPath);
 }

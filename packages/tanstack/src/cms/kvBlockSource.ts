@@ -22,6 +22,7 @@ import {
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
+import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 
 export class KVBlockSource implements BlockSource {
   private readonly snapshotKey: string;
@@ -57,8 +58,17 @@ export class KVBlockSource implements BlockSource {
     }
     const blocks = parsed as Record<string, unknown>;
 
+    // Hash the raw text instead of re-serializing the parsed blocks (~21 MB of garbage
+    // on a 10 MB decofile). Writers store `JSON.stringify(blocks)`, so this equals
+    // `computeRevision(blocks)`. The stored revision is a separate key, so it is only
+    // trusted when it matches: a read that pairs a new revision with an older snapshot
+    // falls back to the revision of what was actually loaded, and the poller retries.
     const storedRevision = await this.kv.get(this.revisionKey);
-    return { blocks, revision: storedRevision ?? computeRevision(blocks) };
+    const revision =
+      storedRevision !== null && storedRevision === djb2Hex(raw)
+        ? storedRevision
+        : computeRevision(blocks);
+    return { blocks, revision };
   }
 
   /** Cheap revision probe for change detection (no full snapshot transfer). */
