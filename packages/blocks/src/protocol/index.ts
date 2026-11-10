@@ -61,9 +61,11 @@ export {
   defineStudioModule,
   type ModuleMessage,
   type PageChannelMessage,
+  STUDIO_PAGE_REFRESH,
   type StudioChannelContext,
   type StudioChannelMessage,
   type StudioChannelModule,
+  type StudioPageRefresh,
 } from "./channel.ts";
 export {
   assertSupportedEndpoint,

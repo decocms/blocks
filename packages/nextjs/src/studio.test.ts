@@ -4,6 +4,7 @@
 import {
   DEFAULT_STUDIO_ORIGIN,
   DEFAULT_STUDIO_ORIGINS as PROTOCOL_ORIGINS,
+  STUDIO_PAGE_REFRESH as PROTOCOL_PAGE_REFRESH,
 } from "@decocms/blocks/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -12,6 +13,7 @@ import {
   STUDIO_FRAME_ANCESTORS,
   STUDIO_ORIGIN,
   STUDIO_ORIGINS,
+  STUDIO_PAGE_REFRESH,
   studioOrigins,
 } from "./studio";
 
@@ -135,5 +137,12 @@ describe("studioOrigins (the origins the Studio channel trusts and the CSP allow
     expect(
       studioOrigins(["https://*.decocms.com", "http://[::1]:3000", "http://a.com:8080"]),
     ).toEqual(["http://[::1]:3000", "http://a.com:8080"]);
+  });
+});
+
+describe("STUDIO_PAGE_REFRESH", () => {
+  it("is the protocol's name, where Studio's HTML swap looks for the page's refresh", () => {
+    expect(STUDIO_PAGE_REFRESH).toBe(PROTOCOL_PAGE_REFRESH);
+    expect(STUDIO_PAGE_REFRESH).toBe("__decoStudioRefresh");
   });
 });
