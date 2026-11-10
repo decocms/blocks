@@ -460,6 +460,94 @@ class Checker {
   }
 
   /**
+   * The saved blocks a reference to `name` walks, first to last (`last` is
+   * typed by a block type: `{ __resolveType: "site/sections/Footer.tsx" }`),
+   * or null when the walk loops or ends at a name that is nothing.
+   */
+  private referenceChain(name: string): string[] | null {
+    const chain: string[] = [];
+    let cur = name;
+    while (this.canonicalType(cur) === null) {
+      const entry = own(this.saved.blocks, cur);
+      if (chain.includes(cur) || !entry || typeof entry.__resolveType !== "string") return null;
+      chain.push(cur);
+      cur = entry.__resolveType;
+    }
+    return chain.length > 0 ? chain : null;
+  }
+
+  /**
+   * The props a reference to `chain[0]` resolves with, the way the resolver
+   * merges them (mergeReference, hop by hop): the last block's props, each
+   * nearer block's over them, `overrides` on top, and the last block's type.
+   */
+  private mergedChain(chain: string[], overrides: Record<string, Json>): Record<string, Json> {
+    const merged: Record<string, Json> = {};
+    for (const name of [...chain].reverse()) Object.assign(merged, this.saved.blocks[name]);
+    Object.assign(merged, overrides);
+    merged.__resolveType = this.saved.blocks[chain[chain.length - 1]].__resolveType;
+    return merged;
+  }
+
+  /**
+   * A saved block typed as another saved block (`Footer-Island` =
+   * `{ "__resolveType": "Footer", "revealOnScroll": true }`) renders: the
+   * resolver follows the chain and merges each hop's props. Studio's editor
+   * doesn't: it follows one hop, looks up the form of the type it finds there
+   * (`Footer`, a saved block's name, has none) and shows an empty form, so
+   * the block can't be edited. A bare alias (`{ "__resolveType": "Footer" }`)
+   * is the same. Reported on the block itself, once, not at each reference
+   * to it: retyping the block fixes them all.
+   *
+   * A *reference* (a bare `{ "__resolveType": "Footer" }` in a page's
+   * sections, a variant, a lazy block or a prop) is fine: Studio follows its
+   * one hop to `Footer`, typed by its section, and edits that. See
+   * referenceOverrides for a reference that carries props of its own.
+   */
+  private savedBlockChain(name: string, entry: Record<string, Json>): string | null {
+    const chain = this.referenceChain(entry.__resolveType);
+    if (chain === null) return null; // a cycle or a missing name: checkBlock reports it
+    const parent = chain[0];
+    const type = String(this.saved.blocks[chain[chain.length - 1]].__resolveType);
+    const inherited = Object.keys(this.mergedChain(chain, {})).filter(
+      (key) => key !== "__resolveType" && !Object.hasOwn(entry, key),
+    );
+    const shown = inherited.slice(0, 12).join(", ");
+    const more = inherited.length > 12 ? ` and ${inherited.length - 12} more` : "";
+    const copy =
+      inherited.length > 0
+        ? ` and copy in the props it inherits from "${parent}" (${shown}${more})`
+        : "";
+    return (
+      `saved block "${name}" is typed as another saved block (${[name, ...chain, type].join(" → ")}): ` +
+      `it renders, but Studio's editor follows one hop, finds no form for "${parent}" and shows an empty one. ` +
+      `Set its __resolveType to "${type}"${copy}`
+    );
+  }
+
+  /**
+   * A reference that carries props of its own (a page section
+   * `{ "__resolveType": "Footer", "hasFixedNewsletter": true }`) renders with
+   * them merged over the saved block's. Studio's editor shows and edits the
+   * saved block itself: it ignores these props, saves every edit to the shared
+   * block (changing every page that uses it) and drops them on detach. Only a
+   * bare reference is editable there.
+   */
+  private referenceOverrides(name: string, overrides: string[]): string {
+    const chain = this.referenceChain(name);
+    const type = chain ? String(this.saved.blocks[chain[chain.length - 1]].__resolveType) : null;
+    const instead = type
+      ? `, or save a block typed "${type}" with these props and reference that`
+      : "";
+    return (
+      `reference to saved block "${name}" carries its own props (${overrides.join(", ")}): ` +
+      `they apply when the page renders, but Studio's editor shows and edits "${name}" itself, ` +
+      `ignores them and saves edits to "${name}" for every use. ` +
+      `Make it a bare reference ({ "__resolveType": "${name}" })${instead}`
+    );
+  }
+
+  /**
    * Whether `name` is the built-in itself here: the block map didn't define
    * the same key (which replaces the built-in, schema included).
    */
@@ -667,8 +755,17 @@ class Checker {
     }
   }
 
-  /** Check a block that sits in `field`, dispatching on its `__resolveType`. */
-  checkBlock(ctx: Context, block: Record<string, Json>, path: string, field: Json | null) {
+  /**
+   * Check a block that sits in `field`, dispatching on its `__resolveType`.
+   * `top`: it is a saved block itself, not a value in one.
+   */
+  checkBlock(
+    ctx: Context,
+    block: Record<string, Json>,
+    path: string,
+    field: Json | null,
+    top = false,
+  ) {
     const name: string = block.__resolveType;
     const type = this.canonicalType(name);
 
@@ -701,14 +798,16 @@ class Checker {
         );
         return;
       }
-      // Overrides are merged over the saved arguments for this use.
+      // Overrides are merged over the saved arguments for this use, along the
+      // whole chain of saved blocks (the resolver's mergeReference, per hop).
       const overrides = Object.keys(block).filter((k) => k !== "__resolveType");
-      if (overrides.length > 0) {
-        const target = this.saved.blocks[name];
-        const targetType = String(target.__resolveType);
-        const merged = { ...target, ...block, __resolveType: targetType };
-        if (this.isCalendar(targetType)) this.checkCalendar(ctx, merged, path);
-        else if (this.canonicalType(targetType)) this.checkProps(ctx, merged, path, true);
+      const chain = this.referenceChain(name);
+      if (overrides.length > 0 && chain) {
+        // A saved block typed this way is savedBlockChain's (run reports it).
+        if (!top) this.report(ctx, path, this.referenceOverrides(name, overrides));
+        const merged = this.mergedChain(chain, block);
+        if (this.isCalendar(merged.__resolveType)) this.checkCalendar(ctx, merged, path);
+        else this.checkProps(ctx, merged, path, true);
       }
       return;
     }
@@ -940,7 +1039,14 @@ class Checker {
       if (V7_REDIRECT_TYPES.has(entry.__resolveType) && !this.canonicalType(entry.__resolveType)) {
         continue;
       }
-      this.checkBlock(ctx, entry, "", null);
+      if (
+        this.canonicalType(entry.__resolveType) === null &&
+        Object.hasOwn(this.saved.blocks, entry.__resolveType)
+      ) {
+        const chained = this.savedBlockChain(name, entry);
+        if (chained) this.report(ctx, "", chained);
+      }
+      this.checkBlock(ctx, entry, "", null, true);
     }
     problems.push(...this.builtInOverrides());
     problems.push(...this.routeProblems());
