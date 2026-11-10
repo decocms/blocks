@@ -82,7 +82,9 @@ Missing everywhere: exit 64 with
 
 The CLI sends `Authorization: Bearer <token>` to Studio. It takes the token from:
 
-1. `DECO_TOKEN`, when set (use a Studio API key; this is the CI path);
+1. `DECO_TOKEN`, when set (this is the CI path): a Studio API key, or, for `deco schema push` only,
+   the site's own site token (the one the site passes to `createCMS({ token })`, issued in the
+   project's settings). A revoked site token gets 401;
 2. else the output of `npx decocms auth token --target=<DECO_STUDIO_URL>` (Studio CLI's session; the
    CLI has no login of its own). Log in once with `npx decocms auth login --target=https://studio.decocms.com`.
    `deco login` prints that command.
@@ -136,7 +138,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      DECO_TOKEN: ${{ secrets.DECO_TOKEN }}   # a Studio API key
+      DECO_TOKEN: ${{ secrets.DECO_TOKEN }}   # a Studio API key, or the site token
       # DECO_SITE: my-store                   # only if it isn't in wrangler.* vars or .env
     steps:
       - uses: actions/checkout@v4
