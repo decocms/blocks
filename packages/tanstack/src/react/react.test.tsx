@@ -39,12 +39,13 @@ async function render(
 }
 
 describe("DecoDocument", () => {
-  it("renders the document with Studio's bridge, the events bus and data-theme=light", async () => {
+  it('renders the document with the "." shortcut, the events bus and data-theme=light', async () => {
     const html = await render({});
     expect(html).toContain('<html lang="en" data-theme="light">');
     expect(html).toContain('class="bg-base-200 text-base-content"');
     expect(html).toContain('data-site="acme"');
-    expect(html).toContain("scrollToComponent");
+    expect(html).not.toContain("scrollToComponent");
+    expect(html).not.toContain("editor::rerender");
     expect(html).not.toContain("editor::inject");
     expect(html).toContain("window.DECO.events");
     expect(html).toContain('id="extra"');
@@ -74,15 +75,36 @@ describe("DecoDocument", () => {
     }
   });
 
-  it("the Studio bridge answers Studio's origins, the package's own list", async () => {
+  it('is v8 only: the "." shortcut answers no message, so it carries no origin list', async () => {
     const html = await render({});
-    const attr = html.match(/data-origins="([^"]*)"/)?.[1];
-    expect(attr && JSON.parse(attr.replaceAll("&quot;", '"'))).toEqual([
-      "https://studio.decocms.com",
-      "https://studio-stg.decocms.com",
-      "https://decocms.com",
-      "https://*.decocms.com",
-    ]);
+    const tag = html.match(/<script[^>]*data-deco-studio-bridge[^>]*>/)?.[0] ?? "";
+    expect(tag).toContain('data-site="acme"');
+    expect(html).not.toContain("data-origins=");
+  });
+
+  it("its Studio scripts are the \".\" shortcut's and the channel's, nothing else (tests/studio-shortcut.test.ts)", async () => {
+    const { StudioChannel } = await import("@decocms/blocks/preview");
+    const { StudioShortcut } = await import("../studioShortcut.ts");
+    const env = process.env.DECO_STUDIO_ORIGIN;
+    delete process.env.DECO_STUDIO_ORIGIN;
+    try {
+      const html = await render({}, { nonce: "n1" }, () => ({ pathTemplate: "/:slug/p" }));
+      const tags = html.match(/<script[^>]*data-deco-studio-[^>]*>[\s\S]*?<\/script>/g) ?? [];
+      expect(tags).toEqual([
+        renderToString(
+          <StudioShortcut site="acme" nonce="n1" page={{ pathTemplate: "/:slug/p" }} />,
+        ),
+        renderToString(
+          <StudioChannel
+            studioOrigins={["https://studio.decocms.com", "https://studio-stg.decocms.com"]}
+            nonce="n1"
+          />,
+        ),
+      ]);
+      expect(html).not.toMatch(/window\.(self|top)\s*[!=]==?\s*window\.(self|top)/);
+    } finally {
+      if (env !== undefined) process.env.DECO_STUDIO_ORIGIN = env;
+    }
   });
 
   it("publishes the request's CDN segment token and draft", async () => {
@@ -110,7 +132,7 @@ describe("DecoDocument", () => {
   });
 
   it("turns the edit shortcut off only when told to", async () => {
-    // The bridge's own script mentions the attribute, so look at its tag only.
+    // The shortcut's own script mentions the attribute, so look at its tag only.
     const bridgeTag = (html: string) =>
       html.match(/<script[^>]*data-deco-studio-bridge[^>]*>/)?.[0] ?? "";
     expect(bridgeTag(await render({}))).toContain("data-shortcut");

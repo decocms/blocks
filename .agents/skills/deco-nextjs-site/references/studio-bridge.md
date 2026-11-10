@@ -37,9 +37,11 @@ layout from being cached.
 
 ## What it does
 
-- **The bridge script** answers Studio's scroll-to-section and rerender
-  messages, only from a parent window at one of Studio's origins. Outside a
-  frame it answers no message and only listens for the "." shortcut.
+- **The shortcut script** listens for the "." shortcut, only outside a frame.
+  It answers no message: v8 only, v7's framed handler (scroll-to-section,
+  rerender) is gone, so no script on the page compares the window with `top`
+  or `parent`, and a test runner that rewrites "frame-busting" code (Cypress)
+  serves the page as is.
 - **The Studio channel** runs on every page, production included (about
   0.7 kB gzipped). Framed by a trusted origin, it posts `{ type: "deco:ready" }`
   and imports a module only when the answer `{ type: "deco:load", url }`

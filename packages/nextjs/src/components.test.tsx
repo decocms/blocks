@@ -49,29 +49,26 @@ describe("DraftPreviewIndicator", () => {
 });
 
 describe("StudioBridge", () => {
-  it("is @decocms/blocks/preview's script, answering Studio's origins (STUDIO_ORIGINS)", async () => {
+  it('is the "." shortcut and the Studio channel: v8 only, nothing of v7\'s framed handler', async () => {
     const preview = await import("@decocms/blocks/preview");
-    const { STUDIO_ORIGINS } = await import("./studio.ts");
+    const { StudioShortcut } = await import("./studioShortcut.ts");
     const html = renderToStaticMarkup(<StudioBridge site="acme" />);
     expect(html).toMatch(/^<script[^>]*>/);
     expect(html).toBe(
-      renderToStaticMarkup(<preview.StudioBridge site="acme" trustedOrigins={STUDIO_ORIGINS} />) +
+      renderToStaticMarkup(<StudioShortcut site="acme" />) +
         renderToStaticMarkup(
           <preview.StudioChannel
             studioOrigins={["https://studio.decocms.com", "https://studio-stg.decocms.com"]}
           />,
         ),
     );
+    expect(html).not.toContain("scrollToComponent");
+    expect(html).not.toContain("editor::rerender");
     const host = document.body.appendChild(document.createElement("div"));
     host.innerHTML = html;
     const script = host.querySelector("script[data-deco-studio-bridge]");
     expect(script?.getAttribute("data-site")).toBe("acme");
-    expect(JSON.parse(script?.getAttribute("data-origins") ?? "null")).toEqual([
-      "https://studio.decocms.com",
-      "https://studio-stg.decocms.com",
-      "https://decocms.com",
-      "https://*.decocms.com",
-    ]);
+    expect(script?.hasAttribute("data-origins")).toBe(false);
   });
 
   it("mounts the Studio channel for Studio's production and staging origins, the option, or DECO_STUDIO_ORIGIN", () => {

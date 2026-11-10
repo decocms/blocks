@@ -50,7 +50,7 @@ What else it mounts:
   after hydration. Work that must follow hydration waits for it.
 - `NavigationProgress` and `StableOutlet` ([`router-and-navigation.md`](./router-and-navigation.md)).
 - An inline script that publishes the request's draft and CDN segment token to `window`.
-- `StudioBridge`, `StudioChannel` and `DraftBadge` from `@decocms/blocks/preview` (below).
+- The "." edit shortcut, and `StudioChannel` and `DraftBadge` from `@decocms/blocks/preview` (below).
 
 ## The head
 
@@ -76,18 +76,18 @@ import { DecoPreview } from "@decocms/tanstack/react";
 ```
 
 `DecoPreview` takes `site`, `editShortcut`, `nonce` and `studioOrigins`. It renders the draft
-script, `StudioBridge`, `StudioChannel` and `DraftBadge`. `StudioBridge` alone leaves draft pages
-without the badge. You then own `<HeadContent />`, `<Scripts />`, `lang`, the events bus and the
+script, the "." shortcut, `StudioChannel` and `DraftBadge`. You then own `<HeadContent />`, `<Scripts />`, `lang`, the events bus and the
 progress bar.
 
 ## Studio inside the page
 
-- **`StudioBridge`**: in Studio's frame it talks to Studio. Outside it, "." opens the current page
-  in Studio's editor: the page whose route returns `pathTemplate` (and optionally `pageId`) in its
-  loader data, else Studio picks it from the URL.
+- **The "." shortcut**: outside Studio's frame, "." opens the current page in Studio's editor: the
+  page whose route returns `pathTemplate` (and optionally `pageId`) in its loader data, else Studio
+  picks it from the URL. In a frame it does nothing (v8 only: no v7 `scrollToComponent` /
+  `editor::rerender` handler).
 - **`StudioChannel`**: on every page, production included, about 0.7 kB gzipped. When a trusted
   Studio origin frames the page, it loads Studio's editor modules from that origin. Otherwise it
-  does nothing. The bridge runs no script Studio sends.
+  does nothing. It is the only way Studio's editor reaches the page.
 - **`DraftBadge`**: shown on a draft page outside Studio's frame. A draft link that can't be read
   anymore shows a notice and the release.
 
@@ -98,8 +98,7 @@ from `@decocms/tanstack`). Each entry must be an exact `http(s)` origin; anythin
 The worker puts the same list into the CSP. If you set `studioOrigins` on `DecoDocument`, set the
 same list on `createDecoWorker`; `DECO_STUDIO_ORIGIN` sets both.
 
-When Studio asks the page to scroll to a section, `StudioBridge` looks for the element whose
-`data-manifest-key` equals the id Studio sends, else the element with that `id`. How to render
+Studio's editor modules find the page's sections by their `data-manifest-key`. How to render
 sections: `deco-site-authoring`.
 
 ## Security headers

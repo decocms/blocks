@@ -1,8 +1,7 @@
 /**
  * Where Deco Studio runs: the origins its site editor frames a site from and
- * talks to it from (`postMessage`). One list, so the Studio bridge
- * (`StudioBridge`), `withDeco()`'s dev origins and a site's own
- * `frame-ancestors` never drift apart. This package's own copy: it never
+ * talks to it from (`postMessage`). One list, so `withDeco()`'s dev origins
+ * and a site's own `frame-ancestors` never drift apart. This package's own copy: it never
  * imports `@decocms/tanstack`.
  *
  * No module state and no framework code: safe in a browser bundle.
