@@ -225,6 +225,16 @@ describe("loaders", () => {
     expect(new Set(urls.map(bare)).size).toBe(3);
   });
 
+  it("a loopback draft host (no CDN in front) is read at its plain URL, with no nonce", async () => {
+    const fetch = vi.fn(async (_input: string | URL | Request) => Response.json({ names: [] }));
+    vi.stubGlobal("fetch", fetch);
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    await cms.forDraft("localhost:4000/sites/acme/drafts/x/index.json@1").resolve("SummerSEO");
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://localhost:4000/sites/acme/drafts/x/index.json",
+    ]);
+  });
+
   it("every draft request reads the draft index and its files again, with no If-None-Match", async () => {
     const { studio, fetch, pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });

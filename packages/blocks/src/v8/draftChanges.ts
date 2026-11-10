@@ -15,7 +15,8 @@
  *   (`<folder><file>`, the file being the name's `encodeURIComponent` plus
  *   `.json`, `index` written `%69ndex.json`), in parallel, plain GETs with no
  *   `If-None-Match` (nothing read from `drafts/` is kept across requests).
- *   Every GET carries a fresh `?r=<nonce>` the bucket ignores, so no shared
+ *   Every `https` GET carries a fresh `?r=<nonce>` the bucket ignores (a
+ *   loopback host has no CDN in front and is read as is), so no shared
  *   cache can answer it: a CDN keeps a 404 (it has no `Cache-Control`) for
  *   minutes, and a file read once before its save landed would otherwise
  *   read as missing long after it exists (the draft silently showing
@@ -204,8 +205,11 @@ export function parseDraftFile(body: unknown, name: string): DraftState | null {
  * `url` with a fresh `r` query parameter: a cache key no shared cache has
  * seen, so the read always reaches storage (which ignores the query). Draft
  * folder URLs carry no query of their own (see {@link draftFolderUrl}).
+ * Plain-`http` URLs are loopback hosts (a local Studio or test server, never
+ * behind a CDN): they're read as they are.
  */
 function uncachedUrl(url: string): string {
+  if (url.startsWith("http:")) return url;
   const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   return `${url}${url.includes("?") ? "&" : "?"}r=${nonce}`;
 }
