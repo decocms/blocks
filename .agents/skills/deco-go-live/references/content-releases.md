@@ -9,7 +9,7 @@ how to roll back each layer.
 
 - `createCMS({ blocks, site })` reads the site's latest release from the delivery CDN at runtime. With `site`, passing `content` too is an error: content never comes from the bundle.
 - The first client of an isolate loads the release index (10 s per fetch). Until a load succeeds, reads fail with a `ContentUnavailableError` cause. Test a cold start: the first request after a deploy must render.
-- Each isolate checks for a newer release every `interval` (default and minimum 60 000 ms, plus or minus up to 10 s), at an idle moment, in the background. So a publish shows up within about a minute per isolate, and the first request after the interval may still render the previous release. Tell the content team; the old stack may have felt instant.
+- Each isolate checks for a newer release every `interval` (default 60 000 ms, minimum 5 000 ms, plus or minus up to 1 s), at an idle moment, in the background. So with the default a publish shows up within about a minute per isolate (set `interval: 5_000` for about 5 s), and the first request after the interval may still render the previous release. Tell the content team; the old stack may have felt instant.
 - A draft request checks for the latest release first (once per request), so a draft preview builds on what was published a moment ago.
 - Block bodies are fetched by hash and kept in a per-isolate LRU bounded at 32 MB of JSON text. A hash always means the same body, so nothing there is invalidated.
 - Without `site`, content is the module `deco content` writes (`.deco/blocks.gen.ts`), bundled into the worker, and every content change needs a deploy. Large content in the bundle costs memory on every isolate ([worker-runtime.md](./worker-runtime.md#memory-128-mb-per-isolate)).

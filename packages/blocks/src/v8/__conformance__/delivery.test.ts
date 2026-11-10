@@ -1325,7 +1325,7 @@ describe("hosted-publishing", () => {
       const probe = scheduled(config);
       expect(await probe.tick(0)).toBe(1); // first use
       let elapsed = 0;
-      for (const step of [59_999, 1]) {
+      for (const step of [4_999, 1, 54_999, 1]) {
         elapsed += step;
         const calls = await probe.tick(step);
         if (calls === 2) return elapsed;
@@ -1351,11 +1351,11 @@ describe("hosted-publishing", () => {
       expect(await measured({ interval: 90_000 })).toBe(90_000);
     });
 
-    it("HP-6: values below 60 000 ms are raised with a warning", async () => {
+    it("HP-6: values below 5 000 ms are raised with a warning", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      expect(await measured({ interval: 1000 })).toBe(60_000);
+      expect(await measured({ interval: 1000 })).toBe(5_000);
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("interval 1000 ms is below the minimum; raised to 60000 ms"),
+        expect.stringContaining("interval 1000 ms is below the minimum; raised to 5000 ms"),
       );
     });
 
@@ -1368,18 +1368,18 @@ describe("hosted-publishing", () => {
       expect(await probe.tick(60_000)).toBe(3);
     });
 
-    it("HP-8: each check runs one interval ± up to 10 s after the previous one", async () => {
+    it("HP-8: each check runs one interval ± up to 1 s after the previous one", async () => {
       const random = vi.spyOn(Math, "random").mockReturnValue(0);
       const early = scheduled();
       expect(await early.tick(0)).toBe(1);
-      expect(await early.tick(49_999)).toBe(1);
-      expect(await early.tick(1)).toBe(2); // 60 s − 10 s
+      expect(await early.tick(58_999)).toBe(1);
+      expect(await early.tick(1)).toBe(2); // 60 s − 1 s
       resetForTests();
       random.mockReturnValue(0.999999);
       const late = scheduled();
       expect(await late.tick(0)).toBe(1);
-      expect(await late.tick(69_000)).toBe(1);
-      expect(await late.tick(1_000)).toBe(2); // ~60 s + 10 s
+      expect(await late.tick(60_900)).toBe(1);
+      expect(await late.tick(100)).toBe(2); // ~60 s + 1 s
     });
   });
 

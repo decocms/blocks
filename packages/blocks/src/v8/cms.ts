@@ -51,9 +51,16 @@ import type {
 } from "./types.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
-const MIN_INTERVAL = 60_000;
-/** Each check runs one interval, plus or minus up to this much, after the previous one. */
-const JITTER = 10_000;
+/** The interval when none is given: how often a server checks for a new release. */
+const DEFAULT_INTERVAL = 60_000;
+/** The shortest interval allowed; lower values are raised to it. */
+const MIN_INTERVAL = 5_000;
+/**
+ * Each check runs one interval, plus or minus up to this much, after the
+ * previous one. It must stay well under `MIN_INTERVAL`: a spread as wide as
+ * the interval would make a check due on almost every request.
+ */
+const JITTER = 1_000;
 /** How often telemetry reads its settings again when the release hasn't changed (date rules). */
 const TELEMETRY_SETTINGS_MS = 60_000;
 
@@ -301,7 +308,7 @@ class CMSInstance {
 
   /**
    * Checks a content source with `update()` on first use and then every
-   * `interval` (± up to 10 s), at an idle moment, never in front of a release
+   * `interval` (± up to 1 s), at an idle moment, never in front of a release
    * request (a draft read waits for a check of its own: `ContentStore.draft`).
    */
   #scheduleUpdate(): void {
@@ -522,8 +529,8 @@ function validate(config: CMSConfig): void {
 }
 
 function resolveInterval(configured: number | undefined): number {
-  const raw = configured ?? MIN_INTERVAL;
-  if (!Number.isFinite(raw)) return MIN_INTERVAL;
+  const raw = configured ?? DEFAULT_INTERVAL;
+  if (!Number.isFinite(raw)) return DEFAULT_INTERVAL;
   if (raw < MIN_INTERVAL) {
     console.warn(
       `[decocms/blocks] interval ${raw} ms is below the minimum; raised to ${MIN_INTERVAL} ms.`,

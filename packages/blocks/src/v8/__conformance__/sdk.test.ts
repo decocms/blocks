@@ -340,14 +340,14 @@ assert<Equal<Snapshot, { revision: string; blocks: Record<string, unknown>; alia
   }, 60_000);
 });
 
-describe("AR-05 interval: default 60 000, minimum 60 000; no environment variable", () => {
+describe("AR-05 interval: default 60 000, minimum 5 000; no environment variable", () => {
   const intervalOf = (cms: CMS) =>
     (instanceOf(cms) as { fingerprint: { interval: number } }).fingerprint.interval;
 
   it("clamps a value below the minimum", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const cms = createCMS({ blocks: {}, content: docsSnapshot(), interval: 1000 });
-    expect(intervalOf(cms)).toBe(60_000);
+    expect(intervalOf(cms)).toBe(5_000);
   });
 
   it("defaults to 60 000 and never reads DECO_CONTENT_INTERVAL", () => {
@@ -358,6 +358,10 @@ describe("AR-05 interval: default 60 000, minimum 60 000; no environment variabl
     resetForTests();
     expect(intervalOf(createCMS({ blocks: {}, content: docsSnapshot(), interval: 120_000 }))).toBe(
       120_000,
+    );
+    resetForTests();
+    expect(intervalOf(createCMS({ blocks: {}, content: docsSnapshot(), interval: 5_000 }))).toBe(
+      5_000,
     );
   });
 });

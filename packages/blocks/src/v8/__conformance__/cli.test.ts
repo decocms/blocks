@@ -2109,10 +2109,11 @@ describe("studio-implementation.mdx", () => {
       return entry?.title;
     };
 
-    it("si-08: 60 s poll with up to 10 s jitter", () => {
+    it("si-08: 60 s poll by default (5 s minimum) with up to 1 s jitter", () => {
       const src = fs.readFileSync(path.join(PKG, "src/v8/cms.ts"), "utf8");
-      expect(src).toMatch(/MIN_INTERVAL = 60_000/);
-      expect(src).toMatch(/JITTER = 10_000/);
+      expect(src).toMatch(/DEFAULT_INTERVAL = 60_000/);
+      expect(src).toMatch(/MIN_INTERVAL = 5_000/);
+      expect(src).toMatch(/JITTER = 1_000/);
     });
 
     it("si-09: the SDK follows the index latest.json holds while its sequence grows, never back", async () => {

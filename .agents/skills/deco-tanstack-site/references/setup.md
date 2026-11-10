@@ -103,7 +103,7 @@ export const client = (request: Request) => contentClient(cms, request);
 | `token` | The site token, a secret. Sends telemetry to the hosted collector. Needs `site`. |
 | `preview.hosts` | Hosts where draft links preview, besides the ones Studio writes into the release. |
 | `preview.draftHosts` | Hosts a draft pointer may point at; replaces the defaults. |
-| `interval` | ms between content update checks; minimum 60 000. |
+| `interval` | ms between content update checks; default 60 000, minimum 5 000. |
 | `telemetry` | Where telemetry goes, or `false`. |
 
 Create the CMS once, at module scope. The SDK reads no environment: the site passes `site` and

@@ -393,43 +393,72 @@ describe("update() checks on an interval", () => {
     expect(update).toHaveBeenCalledTimes(2);
   });
 
-  it("never checks more often than every 60 000 ms, and warns when it raises interval", async () => {
+  it("never checks more often than every 5 000 ms, and warns when it raises interval", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { cms, update, at } = scheduled(1_000);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("raised to 60000 ms"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("raised to 5000 ms"));
     at("2026-10-03T00:00:00Z");
     cms.forRelease();
     await idle();
-    at("2026-10-03T00:00:30Z");
+    at("2026-10-03T00:00:04Z");
     cms.forRelease();
     await idle();
     expect(update).toHaveBeenCalledTimes(1);
-    at("2026-10-03T00:01:00Z");
+    at("2026-10-03T00:00:05Z");
     cms.forRelease();
     await idle();
     expect(update).toHaveBeenCalledTimes(2);
   });
 
-  it("spreads checks by up to 10 s either way, so servers that started together don't check together", async () => {
-    const early = scheduled(undefined, 0); // -10 s
+  it("spreads checks by up to 1 s either way, so servers that started together don't check together", async () => {
+    const early = scheduled(undefined, 0); // -1 s
     early.at("2026-10-03T00:00:00Z");
     early.cms.forRelease();
     await idle();
-    early.at("2026-10-03T00:00:50Z");
+    early.at("2026-10-03T00:00:59Z");
     early.cms.forRelease();
     await idle();
     expect(early.update).toHaveBeenCalledTimes(2);
 
     resetForTests();
-    const late = scheduled(undefined, 1); // +10 s
+    const late = scheduled(undefined, 1); // +1 s
     late.at("2026-10-03T00:00:00Z");
     late.cms.forRelease();
     await idle();
-    late.at("2026-10-03T00:01:09Z");
+    late.at("2026-10-03T00:01:00.999Z");
     late.cms.forRelease();
     await idle();
     expect(late.update).toHaveBeenCalledTimes(1);
-    late.at("2026-10-03T00:01:10Z");
+    late.at("2026-10-03T00:01:01Z");
+    late.cms.forRelease();
+    await idle();
+    expect(late.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the same 1 s spread at the 5 s minimum: checks run 4 to 6 s apart", async () => {
+    const early = scheduled(5_000, 0); // -1 s
+    early.at("2026-10-03T00:00:00Z");
+    early.cms.forRelease();
+    await idle();
+    early.at("2026-10-03T00:00:03.999Z");
+    early.cms.forRelease();
+    await idle();
+    expect(early.update).toHaveBeenCalledTimes(1);
+    early.at("2026-10-03T00:00:04Z");
+    early.cms.forRelease();
+    await idle();
+    expect(early.update).toHaveBeenCalledTimes(2);
+
+    resetForTests();
+    const late = scheduled(5_000, 1); // +1 s
+    late.at("2026-10-03T00:00:00Z");
+    late.cms.forRelease();
+    await idle();
+    late.at("2026-10-03T00:00:05.999Z");
+    late.cms.forRelease();
+    await idle();
+    expect(late.update).toHaveBeenCalledTimes(1);
+    late.at("2026-10-03T00:00:06Z");
     late.cms.forRelease();
     await idle();
     expect(late.update).toHaveBeenCalledTimes(2);
@@ -446,7 +475,7 @@ describe("update() checks on an interval", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
-  it("reads no DECO_CONTENT_INTERVAL: left out, the interval is the 60 s minimum", async () => {
+  it("reads no DECO_CONTENT_INTERVAL: left out, the interval is the 60 s default", async () => {
     vi.stubEnv("DECO_CONTENT_INTERVAL", "300000");
     const { cms, update, at } = scheduled();
     at("2026-10-03T00:00:00Z");

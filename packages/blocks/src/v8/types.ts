@@ -261,7 +261,7 @@ export interface CMSConfig {
    * never from the bundle (passing both is an error).
    */
   content?: ContentModule | Loader;
-  /** ms between `update()` checks of a content source that has one; minimum 60 000. */
+  /** ms between `update()` checks of a content source that has one; default 60 000, minimum 5 000. */
   interval?: number;
   /** Where telemetry goes; see /next/telemetry. */
   telemetry?: false | TelemetryConfig;
