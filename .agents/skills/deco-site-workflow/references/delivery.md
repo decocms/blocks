@@ -11,8 +11,8 @@ With `createCMS({ blocks, site })`, content is never in the bundle. The site rea
 - If that first load fails, a 404 included (the site was never published), clients answer
   `LOADER_FAILED` with a `ContentUnavailableError` cause. There is no bundled fallback and never an
   empty site. A failed load isn't kept: the next request tries again.
-- After that, the CMS checks for a new release in the background every `interval` (default and
-  minimum 60 000 ms, plus or minus up to 10 s). A request starts the check and never waits for it. The
+- After that, the CMS checks for a new release in the background every `interval` (default
+  60 000 ms, minimum 5 000 ms, plus or minus up to a sixth of it, 10 s at most). A request starts the check and never waits for it. The
   check sends `If-None-Match`, so an unchanged index is a 304.
 - A read is adopted only if its `sequence` is higher than the one held, so a stale CDN answer never
   moves the site backwards. A failed check keeps the last good index.
@@ -45,7 +45,7 @@ So a publish shows on a given isolate within about 70 s, without a deploy.
 | Check | Meaning |
 |---|---|
 | `deco releases`: is your revision `current`? | If not, the publish didn't happen or someone published after you |
-| `curl -s https://delivery.decocms.com/sites/<site>/latest.json` and compare `revision` | The CDN has it; the site may not have polled yet. Wait about a minute |
+| `curl -s https://delivery.decocms.com/sites/<site>/latest.json` and compare `revision` | The CDN has it; the site may not have polled yet. Wait one `interval` (about a minute by default) |
 | The page comes from your page cache | Key the cache on the content revision (`cacheVersion(cms, buildHash, url)` from `@decocms/tanstack/worker`). See `deco-storefront-caching` |
 | The content is read outside the CMS client | Code that imports `.deco/blocks/*.json` directly, or a build script that reads `.deco/blocks`, stays on the last deploy. Read it through the client |
 | The site runs without `site` | A bundled site (`content`) changes only with a deploy |

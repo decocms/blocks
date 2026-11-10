@@ -51,9 +51,18 @@ import type {
 } from "./types.ts";
 
 const INSTANCE_PREFIX = "decocms.blocks.cms:";
-const MIN_INTERVAL = 60_000;
+/** The check interval when `createCMS` sets none: one minute. */
+const DEFAULT_INTERVAL = 60_000;
+/**
+ * The shortest check interval: a check is one conditional GET of
+ * `latest.json` (a 304 when nothing changed), and only one runs at a time, so
+ * 5 s costs a server twelve tiny requests a minute and never a pile-up.
+ */
+const MIN_INTERVAL = 5_000;
 /** Each check runs one interval, plus or minus up to this much, after the previous one. */
-const JITTER = 10_000;
+const MAX_JITTER = 10_000;
+/** The jitter is at most this share of the interval (±10 s at the default 60 s, ±1 s at 6 s). */
+const JITTER_SHARE = 1 / 6;
 /** How often telemetry reads its settings again when the release hasn't changed (date rules). */
 const TELEMETRY_SETTINGS_MS = 60_000;
 
@@ -301,7 +310,7 @@ class CMSInstance {
 
   /**
    * Checks a content source with `update()` on first use and then every
-   * `interval` (± up to 10 s), at an idle moment, never in front of a release
+   * `interval` (± up to a sixth of it, 10 s at most), at an idle moment, never in front of a release
    * request (a draft read waits for a check of its own: `ContentStore.draft`).
    */
   #scheduleUpdate(): void {
@@ -312,7 +321,7 @@ class CMSInstance {
   }
 
   #due(): number {
-    return Date.now() + this.#interval + (Math.random() * 2 - 1) * JITTER;
+    return Date.now() + this.#interval + (Math.random() * 2 - 1) * jitterOf(this.#interval);
   }
 
   #warnCollision(name: string): void {
@@ -521,9 +530,18 @@ function validate(config: CMSConfig): void {
   parseDraftHosts(config.preview);
 }
 
+/**
+ * How far either way a check may move from its interval: a sixth of it, never
+ * more than 10 s, so the default 60 s keeps ±10 s and a short interval never
+ * jitters down to nothing.
+ */
+function jitterOf(interval: number): number {
+  return Math.min(MAX_JITTER, interval * JITTER_SHARE);
+}
+
 function resolveInterval(configured: number | undefined): number {
-  const raw = configured ?? MIN_INTERVAL;
-  if (!Number.isFinite(raw)) return MIN_INTERVAL;
+  const raw = configured ?? DEFAULT_INTERVAL;
+  if (!Number.isFinite(raw)) return DEFAULT_INTERVAL;
   if (raw < MIN_INTERVAL) {
     console.warn(
       `[decocms/blocks] interval ${raw} ms is below the minimum; raised to ${MIN_INTERVAL} ms.`,

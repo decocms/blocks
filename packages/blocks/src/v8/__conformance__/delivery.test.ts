@@ -1351,12 +1351,27 @@ describe("hosted-publishing", () => {
       expect(await measured({ interval: 90_000 })).toBe(90_000);
     });
 
-    it("HP-6: values below 60 000 ms are raised with a warning", async () => {
+    it("HP-6: values below 5 000 ms are raised with a warning", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      expect(await measured({ interval: 1000 })).toBe(60_000);
+      vi.spyOn(Math, "random").mockReturnValue(0.5); // no jitter
+      const probe = scheduled({ interval: 1000 });
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("interval 1000 ms is below the minimum; raised to 60000 ms"),
+        expect.stringContaining("interval 1000 ms is below the minimum; raised to 5000 ms"),
       );
+      expect(await probe.tick(0)).toBe(1);
+      expect(await probe.tick(4_999)).toBe(1);
+      expect(await probe.tick(1)).toBe(2);
+    });
+
+    it("HP-6: interval: 10_000 checks every 10 s, without a warning", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(Math, "random").mockReturnValue(0.5); // no jitter
+      const probe = scheduled({ interval: 10_000 });
+      expect(await probe.tick(0)).toBe(1);
+      expect(await probe.tick(9_999)).toBe(1);
+      expect(await probe.tick(1)).toBe(2);
+      expect(await probe.tick(10_000)).toBe(3);
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it("HP-7/HRI-15: any loader with update() is checked on first use and then every interval", async () => {
@@ -1380,6 +1395,20 @@ describe("hosted-publishing", () => {
       expect(await late.tick(0)).toBe(1);
       expect(await late.tick(69_000)).toBe(1);
       expect(await late.tick(1_000)).toBe(2); // ~60 s + 10 s
+    });
+
+    it("HP-8: a shorter interval moves by up to a sixth of it either way", async () => {
+      const random = vi.spyOn(Math, "random").mockReturnValue(0);
+      const early = scheduled({ interval: 12_000 });
+      expect(await early.tick(0)).toBe(1);
+      expect(await early.tick(9_999)).toBe(1);
+      expect(await early.tick(1)).toBe(2); // 12 s − 2 s
+      resetForTests();
+      random.mockReturnValue(0.999999);
+      const late = scheduled({ interval: 12_000 });
+      expect(await late.tick(0)).toBe(1);
+      expect(await late.tick(13_900)).toBe(1);
+      expect(await late.tick(100)).toBe(2); // ~12 s + 2 s
     });
   });
 

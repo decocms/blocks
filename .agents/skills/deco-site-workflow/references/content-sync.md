@@ -100,7 +100,7 @@ exit 64: `"<value>" isn't a draft name: …`.
 `deco publish --draft=<name> [--message=<text>]`
 
 - Prints what the draft changes against production (same `M`/`A`/`D` view), then publishes.
-- `published revision <id>; it is live`. The site follows within about a minute
+- `published revision <id>; it is live`. The site follows within one `interval` (about a minute by default)
   ([delivery.md](./delivery.md)). No deploy.
 - `nothing to publish: production already has every block of draft <name>` when there is nothing.
 - A draft saved during the publish is not emptied, and the CLI warns:

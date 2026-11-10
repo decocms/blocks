@@ -441,7 +441,7 @@ describe("clients and content (api-reference.mdx, content.mdx)", () => {
     await expect(throwing.update()).resolves.toEqual({ updated: false });
   });
 
-  it("X23 api-reference: interval minimum 60_000; same key with different options keeps the first instance and the warning names the options", () => {
+  it("X23 api-reference: interval minimum 5_000; same key with different options keeps the first instance and the warning names the options", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const content = snap({});
     const a = createCMS({ blocks: {}, content, interval: 1000 });

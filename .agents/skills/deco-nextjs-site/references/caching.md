@@ -42,7 +42,7 @@ again in the background. So:
 - A banner can switch on a few minutes late. That delay is accepted.
 
 On a site with `site`, the CMS also checks for a new release every `interval`
-(default and minimum 60 000 ms). A re-render picks up whatever release the
+(default 60 000 ms, minimum 5 000 ms). A re-render picks up whatever release the
 process holds at that moment.
 
 Never use `force-static` on a CMS page. A page that never expires keeps what

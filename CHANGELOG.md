@@ -8,6 +8,16 @@ merges to `main`; this file is the human-curated breaking-change ledger.
 For per-release auto-generated notes (every commit, every fix), see
 [GitHub Releases](https://github.com/decocms/deco-start/releases).
 
+## Unreleased — release checks can run every 5 s
+
+`createCMS({ interval })` now accepts values down to 5 000 ms (it raised
+anything under 60 000 ms before), and each check moves by up to a sixth of the
+interval either way, 10 s at most (it was a fixed ±10 s). The default stays
+60 000 ms with ±10 s, so a site that sets no `interval`, or one of 60 000 ms or
+more, polls exactly as before. A site that set a lower value and relied on it
+being raised to 60 000 ms now polls at that value: check `interval` in
+`createCMS` (and `remoteLoader`).
+
 ## Unreleased — `deco check` rejects saved-block shapes Studio's editor can't open
 
 `deco check` now fails (exit 1) on shapes the runtime resolves but Studio's

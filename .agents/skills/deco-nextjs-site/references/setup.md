@@ -104,7 +104,7 @@ Where content comes from:
 
 - **With `site`** (Studio's site slug): the site's latest release on the
   delivery CDN, loaded at runtime and checked again every `interval` (default
-  and minimum 60 000 ms). Passing `content` too throws.
+  60 000 ms, minimum 5 000 ms). Passing `content` too throws.
 - **Without `site`**: pass `content`, the module `deco content` writes from
   `.deco/blocks` (`import content from "../.deco/blocks.gen"`). Used by tests
   and the examples.

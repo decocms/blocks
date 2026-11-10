@@ -2109,10 +2109,12 @@ describe("studio-implementation.mdx", () => {
       return entry?.title;
     };
 
-    it("si-08: 60 s poll with up to 10 s jitter", () => {
+    it("si-08: 60 s poll by default, 5 s at least, with up to 10 s jitter (a sixth of a shorter interval)", () => {
       const src = fs.readFileSync(path.join(PKG, "src/v8/cms.ts"), "utf8");
-      expect(src).toMatch(/MIN_INTERVAL = 60_000/);
-      expect(src).toMatch(/JITTER = 10_000/);
+      expect(src).toMatch(/DEFAULT_INTERVAL = 60_000/);
+      expect(src).toMatch(/MIN_INTERVAL = 5_000/);
+      expect(src).toMatch(/MAX_JITTER = 10_000/);
+      expect(src).toMatch(/JITTER_SHARE = 1 \/ 6/);
     });
 
     it("si-09: the SDK follows the index latest.json holds while its sequence grows, never back", async () => {
