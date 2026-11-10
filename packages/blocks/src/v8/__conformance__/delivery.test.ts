@@ -1368,18 +1368,18 @@ describe("hosted-publishing", () => {
       expect(await probe.tick(60_000)).toBe(3);
     });
 
-    it("HP-8: each check runs one interval ± up to 10 s after the previous one", async () => {
+    it("HP-8: each check runs one interval ± up to 1 s after the previous one", async () => {
       const random = vi.spyOn(Math, "random").mockReturnValue(0);
       const early = scheduled();
       expect(await early.tick(0)).toBe(1);
-      expect(await early.tick(49_999)).toBe(1);
-      expect(await early.tick(1)).toBe(2); // 60 s − 10 s
+      expect(await early.tick(58_999)).toBe(1);
+      expect(await early.tick(1)).toBe(2); // 60 s − 1 s
       resetForTests();
       random.mockReturnValue(0.999999);
       const late = scheduled();
       expect(await late.tick(0)).toBe(1);
-      expect(await late.tick(69_000)).toBe(1);
-      expect(await late.tick(1_000)).toBe(2); // ~60 s + 10 s
+      expect(await late.tick(60_900)).toBe(1);
+      expect(await late.tick(100)).toBe(2); // ~60 s + 1 s
     });
   });
 

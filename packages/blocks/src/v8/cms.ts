@@ -56,12 +56,11 @@ const DEFAULT_INTERVAL = 60_000;
 /** The shortest interval allowed; lower values are raised to it. */
 const MIN_INTERVAL = 5_000;
 /**
- * Each check runs one interval, plus or minus up to a fifth of it (never more
- * than `MAX_JITTER`), after the previous one: a fixed spread wider than the
- * interval would make a check due on almost every request.
+ * Each check runs one interval, plus or minus up to this much, after the
+ * previous one. It must stay well under `MIN_INTERVAL`: a spread as wide as
+ * the interval would make a check due on almost every request.
  */
-const JITTER_RATIO = 0.2;
-const MAX_JITTER = 10_000;
+const JITTER = 1_000;
 /** How often telemetry reads its settings again when the release hasn't changed (date rules). */
 const TELEMETRY_SETTINGS_MS = 60_000;
 
@@ -309,7 +308,7 @@ class CMSInstance {
 
   /**
    * Checks a content source with `update()` on first use and then every
-   * `interval` (± up to a fifth of it, 10 s at most), at an idle moment, never in front of a release
+   * `interval` (± up to 1 s), at an idle moment, never in front of a release
    * request (a draft read waits for a check of its own: `ContentStore.draft`).
    */
   #scheduleUpdate(): void {
@@ -320,8 +319,7 @@ class CMSInstance {
   }
 
   #due(): number {
-    const jitter = Math.min(this.#interval * JITTER_RATIO, MAX_JITTER);
-    return Date.now() + this.#interval + (Math.random() * 2 - 1) * jitter;
+    return Date.now() + this.#interval + (Math.random() * 2 - 1) * JITTER;
   }
 
   #warnCollision(name: string): void {

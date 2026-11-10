@@ -410,32 +410,32 @@ describe("update() checks on an interval", () => {
     expect(update).toHaveBeenCalledTimes(2);
   });
 
-  it("spreads checks by up to 10 s either way, so servers that started together don't check together", async () => {
-    const early = scheduled(undefined, 0); // -10 s
+  it("spreads checks by up to 1 s either way, so servers that started together don't check together", async () => {
+    const early = scheduled(undefined, 0); // -1 s
     early.at("2026-10-03T00:00:00Z");
     early.cms.forRelease();
     await idle();
-    early.at("2026-10-03T00:00:50Z");
+    early.at("2026-10-03T00:00:59Z");
     early.cms.forRelease();
     await idle();
     expect(early.update).toHaveBeenCalledTimes(2);
 
     resetForTests();
-    const late = scheduled(undefined, 1); // +10 s
+    const late = scheduled(undefined, 1); // +1 s
     late.at("2026-10-03T00:00:00Z");
     late.cms.forRelease();
     await idle();
-    late.at("2026-10-03T00:01:09Z");
+    late.at("2026-10-03T00:01:00.999Z");
     late.cms.forRelease();
     await idle();
     expect(late.update).toHaveBeenCalledTimes(1);
-    late.at("2026-10-03T00:01:10Z");
+    late.at("2026-10-03T00:01:01Z");
     late.cms.forRelease();
     await idle();
     expect(late.update).toHaveBeenCalledTimes(2);
   });
 
-  it("scales the spread with a short interval: a fifth of it, so 5 s checks run 4 to 6 s apart", async () => {
+  it("keeps the same 1 s spread at the 5 s minimum: checks run 4 to 6 s apart", async () => {
     const early = scheduled(5_000, 0); // -1 s
     early.at("2026-10-03T00:00:00Z");
     early.cms.forRelease();
