@@ -13,7 +13,12 @@ import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { getCacheProfile } from "../sdk/cacheHeaders";
 import { cacheBackground, createCacheStore, getCacheStorageContext } from "../sdk/cacheStorage";
 import { detectDevice } from "../sdk/detectDevice";
-import { withInflightTimeout } from "../sdk/inflightTimeout";
+import {
+  joinSlot,
+  publishInflight,
+  releaseSlot,
+  withInflightTimeout,
+} from "../sdk/inflightTimeout";
 import { withTracing } from "../sdk/observability";
 import type { ResolvedSection } from "./resolve";
 import { buildSectionLoaderContext, type SectionLoaderContext } from "./sectionLoaderContext";
@@ -145,14 +150,21 @@ async function runCacheableSectionLoader(
     sectionCacheKey(section.component, section.props as Record<string, unknown>),
   );
 
+  // Joining another request's flight is bounded by THIS request's timer: an
+  // owner whose client disconnected may never settle it (see `joinInflight`).
+  const join = (shared: Promise<ResolvedSection>) =>
+    joinSlot(sectionLoaderInflight, key, shared, () =>
+      runCacheableSectionLoader(section, loader, request, config),
+    );
+
   const existing = sectionLoaderInflight.get(key);
-  if (existing) return existing;
+  if (existing) return join(existing);
 
   const entry = getCacheStorageContext()?.storage
     ? await sectionLoaderCache.read(key)
     : sectionLoaderCache.get(key);
   const pending = sectionLoaderInflight.get(key);
-  if (pending) return pending;
+  if (pending) return join(pending);
   const now = Date.now();
   const isStale = entry ? now - entry.createdAt > config.maxAge : true;
 
@@ -202,10 +214,9 @@ async function runCacheableSectionLoader(
       return enriched;
     })(),
     `sectionLoader ${key}`,
-  ).finally(() => sectionLoaderInflight.delete(key));
+  ).finally(() => releaseSlot(sectionLoaderInflight, key, promise));
 
-  sectionLoaderInflight.set(key, promise);
-  return promise;
+  return publishInflight(sectionLoaderInflight, key, promise);
 }
 
 /**
@@ -386,7 +397,13 @@ async function resolveLayoutSection(
   if (cached) return Promise.resolve(withIndex(cached));
 
   const existing = layoutInflight.get(key);
-  if (existing) return existing.then(withIndex);
+  if (existing) {
+    // Bounded by this request's own timer; a stalled flight is evicted and
+    // this caller resolves the layout itself (see `joinInflight`).
+    return joinSlot(layoutInflight, key, existing, () =>
+      resolveLayoutSection(section, loader, request),
+    ).then(withIndex);
+  }
 
   const promise = withInflightTimeout(
     (async () => {
@@ -397,11 +414,9 @@ async function resolveLayoutSection(
       return withIndex(enriched);
     })(),
     `layoutSection ${key}`,
-  ).finally(() => layoutInflight.delete(key));
+  ).finally(() => releaseSlot(layoutInflight, key, promise));
 
-  layoutInflight.set(key, promise);
-
-  return promise;
+  return publishInflight(layoutInflight, key, promise);
 }
 
 /**
