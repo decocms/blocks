@@ -21,6 +21,9 @@ import { MemoryCache, TestContext } from "../packages/tanstack/src/worker/testin
 const SITE = "acme";
 const ORIGIN = "https://store.example.com";
 
+/** A draft GET's URL without its cache-busting `?r=<nonce>` (see draftChanges.ts). */
+const bare = (url: string) => url.replace(/\?r=[0-9a-z]+$/, "");
+
 beforeEach(() => resetForTests());
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -166,7 +169,7 @@ describe("the worker on hosted releases", () => {
     const response = await worker.fetch(new Request(url), {}, new TestContext());
     expect(await response.text()).toContain("Draft,footer");
     const folder = (file: string) =>
-      studio.requests.filter((r) => r.url.endsWith(`/drafts/summer-sale/${file}`)).length;
+      studio.requests.filter((r) => bare(r.url).endsWith(`/drafts/summer-sale/${file}`)).length;
     expect(folder("index.json")).toBe(1);
     expect(folder("header.json")).toBe(1);
 
