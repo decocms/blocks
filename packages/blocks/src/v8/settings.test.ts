@@ -143,30 +143,48 @@ describe("cms.settings(): defaults", () => {
   });
 });
 
-describe("cms.settings(): caps from code", () => {
-  it("telemetry rates are the lower of content's and telemetry.limits (defaults 0.1 and 0)", async () => {
+describe("cms.settings(): code's defaults and caps", () => {
+  it("a telemetry rate content saved wins over telemetry.defaults, up or down", async () => {
     const content = withSettings({ telemetry: { errorSampleRate: 0.5, traceSampleRate: 0.5 } });
-    const defaults = await createCMS({ blocks: {}, content }).settings();
-    expect(defaults.telemetry).toMatchObject({ errorSampleRate: 0.1, traceSampleRate: 0 });
+    const plain = await createCMS({ blocks: {}, content }).settings();
+    expect(plain.telemetry).toMatchObject({ errorSampleRate: 0.5, traceSampleRate: 0.5 });
     resetForTests();
-    const limited = await createCMS({
+    const withDefaults = await createCMS({
       blocks: {},
       content,
       telemetry: {
         endpoint: "https://otel.example",
-        limits: { errorSampleRate: 1, traceSampleRate: 0.2 },
+        defaults: { errorSampleRate: 1, traceSampleRate: 0.2 },
       },
     }).settings();
-    expect(limited.telemetry).toMatchObject({ errorSampleRate: 0.5, traceSampleRate: 0.2 });
+    expect(withDefaults.telemetry).toMatchObject({ errorSampleRate: 0.5, traceSampleRate: 0.5 });
   });
 
-  it("telemetry: false still caps with the default limits", async () => {
+  it("a rate content didn't save is code's telemetry.defaults, else the built-in 0.05 and 0", async () => {
+    const content = withSettings({ telemetry: { enabled: true } });
+    expect((await createCMS({ blocks: {}, content }).settings()).telemetry).toMatchObject({
+      errorSampleRate: 0.05,
+      traceSampleRate: 0,
+    });
+    resetForTests();
+    const cms = createCMS({
+      blocks: {},
+      content,
+      telemetry: { endpoint: "https://otel.example", defaults: { errorSampleRate: 1 } },
+    });
+    expect((await cms.settings()).telemetry).toMatchObject({
+      errorSampleRate: 1,
+      traceSampleRate: 0,
+    });
+  });
+
+  it("telemetry: false reads content's rates as saved", async () => {
     const cms = createCMS({
       blocks: {},
       content: withSettings({ telemetry: { errorSampleRate: 1 } }),
       telemetry: false,
     });
-    expect((await cms.settings()).telemetry.errorSampleRate).toBe(0.1);
+    expect((await cms.settings()).telemetry.errorSampleRate).toBe(1);
   });
 
   it("without preview hosts in the release, code's list applies (in normal form)", async () => {
@@ -389,7 +407,7 @@ describe("cms.settings(): always the release in memory", () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       content: release,
-      telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
+      telemetry: { endpoint: "https://otel.example", defaults: { traceSampleRate: 1 } },
     });
     await cms.forRelease().revision();
     expect((await cms.forDraft(pointer).resolve("SummerSEO"))[1]).toBeNull();
@@ -405,7 +423,7 @@ describe("cms.settings(): always the release in memory", () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       content: withSettings({ telemetry: { traceSampleRate: 1 } }),
-      telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
+      telemetry: { endpoint: "https://otel.example" },
     });
     expect(currentTelemetry()?.sampleTrace()).toBe(false); // the defaults, before any client
     await cms.forRelease().revision();
@@ -438,7 +456,7 @@ describe("cms.settings(): always the release in memory", () => {
     const cms = createCMS({
       blocks: docsBlocks(),
       content,
-      telemetry: { endpoint: "https://otel.example", limits: { traceSampleRate: 1 } },
+      telemetry: { endpoint: "https://otel.example", defaults: { traceSampleRate: 1 } },
     });
     await cms.forRelease().revision();
     expect(currentTelemetry()?.sampleTrace()).toBe(false);

@@ -28,13 +28,13 @@ import {
   previewHosts,
   readSettings,
   type SavedSettings,
-  type SettingsCaps,
+  type SettingsDefaults,
 } from "./settings.ts";
 import {
   resolveDestination,
   setCurrentTelemetry,
   TelemetryPipeline,
-  telemetryLimits,
+  telemetryDefaults,
 } from "./telemetry.ts";
 import type {
   Blocks,
@@ -84,7 +84,7 @@ class CMSInstance {
   readonly #interval: number;
   readonly #warned = new Set<string>();
   readonly #telemetry: TelemetryPipeline | undefined;
-  readonly #caps: SettingsCaps;
+  readonly #caps: SettingsDefaults;
   /** Settings of a `CMS` block with nothing to run, per release index. */
   #staticSettings = new WeakMap<IndexedContent, SavedSettings>();
   /** Code's `preview.hosts`, parsed: added to the release's own preview hosts, or the only list without a site. */
@@ -105,7 +105,7 @@ class CMSInstance {
     this.#store = new ContentStore(contentOf(config), parseDraftHosts(config.preview));
     this.fingerprint = fingerprintOf(config, interval);
     this.#codeHosts = parseCodeHosts(config.preview);
-    this.#caps = { limits: telemetryLimits(config.telemetry) };
+    this.#caps = { telemetry: telemetryDefaults(config.telemetry) };
     const destination = resolveDestination(config.telemetry, config.site, config.token);
     if (destination !== null) {
       this.#telemetry = new TelemetryPipeline(destination);

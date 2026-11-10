@@ -2,15 +2,16 @@
  * The CMS settings (see /next/built-in-blocks#cms-settings and
  * /next/api-reference#cms-settings): the saved block `CMS`, of the built-in
  * type `cms-settings`, read from the release, with the defaults filled in and
- * code's caps applied.
+ * code's defaults and caps applied.
  *
  * - The caller hands in the `CMS` body already in memory (local content
  *   holds it; a hosted index carries it inline); nothing here loads content,
  *   so reading settings never fetches (a section referencing another saved
  *   block resolves it as any read would).
  * - A missing block, a block of another type, or a section that fails to
- *   resolve gives that section's defaults, still capped. Nothing rejects.
- * - Telemetry rates are the lower of content's and `telemetry.limits`.
+ *   resolve gives that section's defaults. Nothing rejects.
+ * - A telemetry rate content saved wins; else code's `telemetry.defaults`;
+ *   else the built-in 0.05 and 0. Code doesn't cap content's rates.
  * - Preview hosts aren't content: Studio writes them into the release
  *   metadata (PO 2026-10-22), and `previewHosts` merges them with code's
  *   `preview.hosts`. A remote site with no list published (no `latest.json`
@@ -20,6 +21,7 @@
  */
 import {
   analyticsSection,
+  type SampleRates,
   SETTINGS_BLOCK,
   SETTINGS_TYPE,
   telemetrySection,
@@ -29,9 +31,9 @@ import { EVERY_HOST, formatHostPattern, type HostPattern, parseHostPattern } fro
 import { isPlainObject } from "./json.ts";
 import type { Client, CMSConfig, EffectiveSettings } from "./types.ts";
 
-/** What code allows: the caps every section's content is held to. */
-export interface SettingsCaps {
-  limits: { errorSampleRate: number; traceSampleRate: number };
+/** What code decides for content: the sample rates when content saves none. */
+export interface SettingsDefaults {
+  telemetry: SampleRates;
 }
 
 /** The settings a release's `CMS` block holds: every section but `preview`, which isn't content. */
@@ -72,8 +74,8 @@ function parseCodePatterns(
   });
 }
 
-/** The settings with nothing saved: every default, capped. */
-export function defaultSettings(caps: SettingsCaps): SavedSettings {
+/** The settings with nothing saved: every default. */
+export function defaultSettings(caps: SettingsDefaults): SavedSettings {
   return effectiveSettings({}, caps);
 }
 
@@ -85,7 +87,7 @@ export function defaultSettings(caps: SettingsCaps): SavedSettings {
 export async function readSettings(
   entry: unknown,
   client: () => Client,
-  caps: SettingsCaps,
+  caps: SettingsDefaults,
 ): Promise<SavedSettings> {
   try {
     if (!isPlainObject(entry) || entry.__resolveType !== SETTINGS_TYPE) {
@@ -125,14 +127,9 @@ function holdsBlock(value: unknown): boolean {
  * The settings, deep-frozen: one object per release is handed to every caller,
  * so a caller that writes to it would change it for every request.
  */
-function effectiveSettings(value: Record<string, unknown>, caps: SettingsCaps): SavedSettings {
-  const telemetry = telemetrySection(value.telemetry);
+function effectiveSettings(value: Record<string, unknown>, caps: SettingsDefaults): SavedSettings {
   return deepFreeze({
-    telemetry: {
-      ...telemetry,
-      errorSampleRate: Math.min(telemetry.errorSampleRate, caps.limits.errorSampleRate),
-      traceSampleRate: Math.min(telemetry.traceSampleRate, caps.limits.traceSampleRate),
-    },
+    telemetry: telemetrySection(value.telemetry, caps.telemetry),
     analytics: analyticsSection(value.analytics),
   });
 }

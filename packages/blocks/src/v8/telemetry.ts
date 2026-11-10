@@ -7,8 +7,8 @@
  *   `token` (sent as a Bearer token), else nowhere. `false` sends nothing.
  *   Nothing is read from the environment.
  * - **How much** comes from content: the `telemetry` section of the CMS
- *   settings (`cms.settings()`, the release's `CMS` block), capped by
- *   `telemetry.limits`. The CMS reads it outside any request, when the
+ *   settings (`cms.settings()`, the release's `CMS` block); a rate it doesn't
+ *   save is code's `telemetry.defaults`, else the built-in 0.05 and 0. The CMS reads it outside any request, when the
  *   release changes and then at most once a minute.
  * - Metrics are aggregated in memory (delta histograms); error logs and traces
  *   are sampled. Batches leave in the background (after the response on
@@ -18,7 +18,7 @@
  *   cookies or authorization values.
  */
 import { hasBackgroundHook, later, runInBackground } from "./background.ts";
-import { rate, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
+import { rate, type SampleRates, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
 import { isResolutionError } from "./errors.ts";
 import type { CMSError, Telemetry, TelemetryConfig } from "./types.ts";
 
@@ -32,17 +32,25 @@ const MAX_SPANS = 1_000;
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
 /** OpenTelemetry's recommended `http.*.request.duration` buckets, in seconds. */
 const BOUNDS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10];
-const DEFAULT_LIMITS = { errorSampleRate: 0.1, traceSampleRate: 0 };
 
-/** The caps on content's sample rates: `telemetry.limits`, defaults 0.1 and 0. */
-export function telemetryLimits(config: false | TelemetryConfig | undefined): {
-  errorSampleRate: number;
-  traceSampleRate: number;
-} {
-  const limits = config ? config.limits : undefined;
+/**
+ * Code's sample rates for when content saves none: `telemetry.defaults`, each
+ * rate falling back to the built-in one. `telemetry.limits` was removed (it
+ * capped content's rates); a config still passing it is a TypeError, so a
+ * site can't keep a cap it believes in.
+ */
+export function telemetryDefaults(config: false | TelemetryConfig | undefined): SampleRates {
+  if (config && "limits" in config) {
+    throw new TypeError(
+      "createCMS: `telemetry.limits` was removed. Rename it to `telemetry.defaults`: " +
+        "code now sets the sample rates content doesn't save, and content's win " +
+        "(see /next/telemetry#sampling)",
+    );
+  }
+  const defaults = config ? config.defaults : undefined;
   return {
-    errorSampleRate: rate(limits?.errorSampleRate, DEFAULT_LIMITS.errorSampleRate),
-    traceSampleRate: rate(limits?.traceSampleRate, DEFAULT_LIMITS.traceSampleRate),
+    errorSampleRate: rate(defaults?.errorSampleRate, TELEMETRY_DEFAULTS.errorSampleRate),
+    traceSampleRate: rate(defaults?.traceSampleRate, TELEMETRY_DEFAULTS.traceSampleRate),
   };
 }
 
@@ -57,7 +65,8 @@ interface Destination {
   site?: string;
   /** `telemetry.resource`: merged over the default resource attributes. */
   resource: Record<string, string>;
-  limits: { errorSampleRate: number; traceSampleRate: number };
+  /** Code's sample rates for when content saves none. */
+  defaults: SampleRates;
 }
 
 interface SpanInput {
@@ -106,10 +115,10 @@ export function resolveDestination(
 ): Destination | null {
   if (config === false) return null;
   // OPEN: no per-signal URLs (v7's OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT): every signal goes to `<endpoint>/v1/<signal>`.
-  const limits = telemetryLimits(config);
+  const defaults = telemetryDefaults(config);
   const resource = { ...config?.resource };
   if (typeof config?.endpoint === "string" && config.endpoint) {
-    return { endpoint: config.endpoint, headers: { ...config.headers }, site, resource, limits };
+    return { endpoint: config.endpoint, headers: { ...config.headers }, site, resource, defaults };
   }
   if (!token) return null;
   return {
@@ -117,7 +126,7 @@ export function resolveDestination(
     headers: { authorization: `Bearer ${token}` },
     site,
     resource,
-    limits,
+    defaults,
   };
 }
 
@@ -133,7 +142,7 @@ export class TelemetryPipeline {
 
   constructor(destination: Destination) {
     this.#destination = destination;
-    this.apply(TELEMETRY_DEFAULTS);
+    this.apply({});
   }
 
   /** The release being served: its revision labels batches. */
@@ -142,22 +151,17 @@ export class TelemetryPipeline {
   }
 
   /**
-   * The `telemetry` section to follow (from `cms.settings()`). Rates are
-   * capped by the destination's limits here too, whatever the caller passed.
+   * The `telemetry` section to follow (from `cms.settings()`). A rate the
+   * section leaves out is the destination's default (code's
+   * `telemetry.defaults`, else the built-in one); one it sets wins.
    */
   apply(section: Telemetry): void {
-    const { limits } = this.#destination;
+    const { defaults } = this.#destination;
     this.#settings = {
       enabled: typeof section.enabled === "boolean" ? section.enabled : TELEMETRY_DEFAULTS.enabled,
       metrics: typeof section.metrics === "boolean" ? section.metrics : TELEMETRY_DEFAULTS.metrics,
-      errorSampleRate: Math.min(
-        rate(section.errorSampleRate, TELEMETRY_DEFAULTS.errorSampleRate),
-        limits.errorSampleRate,
-      ),
-      traceSampleRate: Math.min(
-        rate(section.traceSampleRate, TELEMETRY_DEFAULTS.traceSampleRate),
-        limits.traceSampleRate,
-      ),
+      errorSampleRate: rate(section.errorSampleRate, defaults.errorSampleRate),
+      traceSampleRate: rate(section.traceSampleRate, defaults.traceSampleRate),
     };
   }
 

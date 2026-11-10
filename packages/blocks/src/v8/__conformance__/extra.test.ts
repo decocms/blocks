@@ -600,20 +600,22 @@ describe("the content protocol (content-protocol.mdx)", () => {
 });
 
 describe("telemetry settings are content (telemetry.mdx)", () => {
-  it("X31 the telemetry section's rates are capped by telemetry.limits (trace default cap 0); enabled: false switches it off", async () => {
-    const settings = (telemetry: Record<string, unknown>, limits?: { traceSampleRate: number }) =>
+  it("X31 the telemetry section's rates win over telemetry.defaults (trace built-in default 0); enabled: false switches it off", async () => {
+    const settings = (telemetry: Record<string, unknown>, defaults?: { traceSampleRate: number }) =>
       createCMS({
         blocks: {},
         content: snap(
           { CMS: { __resolveType: "cms-settings", telemetry } },
           JSON.stringify(telemetry),
         ),
-        telemetry: { endpoint: "https://otel.example", ...(limits ? { limits } : {}) },
+        telemetry: { endpoint: "https://otel.example", ...(defaults ? { defaults } : {}) },
       }).settings();
-    expect((await settings({ traceSampleRate: 1 })).telemetry.traceSampleRate).toBe(0);
+    expect((await settings({})).telemetry.traceSampleRate).toBe(0);
+    expect((await settings({}, { traceSampleRate: 0.2 })).telemetry.traceSampleRate).toBe(0.2);
+    expect((await settings({ traceSampleRate: 1 })).telemetry.traceSampleRate).toBe(1);
     expect(
-      (await settings({ traceSampleRate: 1 }, { traceSampleRate: 1 })).telemetry.traceSampleRate,
-    ).toBe(1);
+      (await settings({ traceSampleRate: 0 }, { traceSampleRate: 1 })).telemetry.traceSampleRate,
+    ).toBe(0);
     expect(
       (await settings({ traceSampleRate: 1, enabled: false }, { traceSampleRate: 1 })).telemetry
         .enabled,

@@ -937,7 +937,7 @@ describe("design decisions", () => {
     release();
   });
 
-  it("dd-15/tr-18: sample rates above the code limit are capped; enabled: false sends nothing", async () => {
+  it("dd-15/tr-18: content's sample rate wins over code's default; enabled: false sends nothing", async () => {
     const HOOK = Symbol.for("decocms.blocks.background");
     const tasks: (() => Promise<void>)[] = [];
     (globalThis as Record<symbol, unknown>)[HOOK] = (task: () => Promise<void>) => tasks.push(task);
@@ -956,24 +956,25 @@ describe("design decisions", () => {
       throw new Error("no");
     };
     try {
-      const capped = createCMS({
+      const raised = createCMS({
         blocks: { broken },
         content: snap({
           CMS: { __resolveType: "cms-settings", telemetry: { errorSampleRate: 1 } },
         }),
-        telemetry: { endpoint: "https://otel.example.com", limits: { errorSampleRate: 0.1 } },
+        telemetry: { endpoint: "https://otel.example.com", defaults: { errorSampleRate: 0.1 } },
       });
       vi.spyOn(Math, "random").mockReturnValue(0.5); // inside the editor's 1, above code's 0.1
-      await capped.forRelease().resolve({ __resolveType: "broken" });
+      await raised.forRelease().resolve({ __resolveType: "broken" });
       await flush();
-      expect(sent).not.toHaveBeenCalled();
+      expect(sent).toHaveBeenCalledTimes(1);
+      sent.mockClear();
 
       const off = createCMS({
         blocks: { broken },
         content: snap({
           CMS: { __resolveType: "cms-settings", telemetry: { enabled: false, errorSampleRate: 1 } },
         }),
-        telemetry: { endpoint: "https://otel2.example.com", limits: { errorSampleRate: 1 } },
+        telemetry: { endpoint: "https://otel2.example.com", defaults: { errorSampleRate: 1 } },
       });
       vi.spyOn(Math, "random").mockReturnValue(0);
       await off.forRelease().resolve({ __resolveType: "broken" });
