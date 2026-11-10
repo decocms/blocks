@@ -1,5 +1,5 @@
 import type { CacheStorage } from "./cacheStorage";
-import { decodeBase64 } from "./encoding";
+import { decodeBase64, encodeBase64 } from "./encoding";
 
 interface StoredResponse {
   status: number;
@@ -57,15 +57,11 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
         bytes.set(chunk, offset);
         offset += chunk.byteLength;
       }
-      let binary = "";
-      for (let i = 0; i < bytes.length; i += 8192) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-      }
       const value: StoredResponse = {
         status: response.status,
         statusText: response.statusText,
         headers: [...response.headers.entries()],
-        body: btoa(binary),
+        body: encodeBase64(bytes),
       };
       try {
         await storage.set(keyFor(request), JSON.stringify(value), expiresAt);
