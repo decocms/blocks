@@ -118,7 +118,10 @@ export function createKVCacheStorage(
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
       const raw = JSON.stringify({ value, expiresAt });
       // Leave space below KV's 25 MiB value limit. Oversized cache entries are optional.
-      if (new TextEncoder().encode(raw).byteLength > 25 * 1024 * 1024) return;
+      // UTF-8 takes at most 3 bytes per UTF-16 unit, so only a value that long needs the
+      // exact count: encoding every write copied each entry once more just to measure it.
+      const limit = 25 * 1024 * 1024;
+      if (raw.length * 3 > limit && new TextEncoder().encode(raw).byteLength > limit) return;
       await kv.put(await keyFor(key), raw, {
         expirationTtl: Math.max(60, Math.ceil((expiresAt - Date.now()) / 1000)),
       });
@@ -175,7 +178,9 @@ function serialize(value: unknown): string | undefined {
       throw new Error("Unsupported cached object");
     }
     seen.add(v);
-    for (const item of Object.values(v)) check(item);
+    // Index and key loops: `Object.values` copied every array and object it walked.
+    if (Array.isArray(v)) for (let i = 0; i < v.length; i++) check(v[i]);
+    else for (const key in v) check((v as Record<string, unknown>)[key]);
     seen.delete(v);
   }
   check(value);
@@ -203,13 +208,14 @@ export function createCacheStore<T>(
     if (entry) bytes -= entry.bytes;
     local.delete(key);
   }
-  function remember(key: string, value: T, expiresAt: number) {
+  /** `json`: the value's serialization when the caller already has it, so sizing doesn't stringify again. */
+  function remember(key: string, value: T, expiresAt: number, json?: string) {
     remove(key);
     let size: number;
     try {
       size = sizeOf
         ? sizeOf(value)
-        : Math.max(512, (key.length + (JSON.stringify(value)?.length ?? 0)) * 2);
+        : Math.max(512, (key.length + ((json ?? JSON.stringify(value))?.length ?? 0)) * 2);
     } catch {
       size = 1024;
     }
@@ -252,7 +258,7 @@ export function createCacheStore<T>(
         if (raw === null) return undefined;
         const entry = JSON.parse(raw) as { value: T; expiresAt: number };
         if (!Number.isFinite(entry.expiresAt) || Date.now() >= entry.expiresAt) return undefined;
-        remember(key, entry.value, entry.expiresAt);
+        remember(key, entry.value, entry.expiresAt, raw);
         return entry.value;
       } catch {
         return undefined;
@@ -265,15 +271,16 @@ export function createCacheStore<T>(
         expiresAt <= Date.now()
       )
         return;
-      remember(key, value, expiresAt);
-      const storage = getCacheStorageContext()?.storage;
-      if (!persist || !storage || !Number.isFinite(expiresAt)) return;
+      const storage = persist ? getCacheStorageContext()?.storage : null;
+      let raw: string | undefined;
       try {
-        const raw = serialize({ value, expiresAt });
-        if (raw !== undefined) cacheBackground(storage.set(key, raw, expiresAt));
+        if (storage) raw = serialize({ value, expiresAt });
       } catch {
         /* Non-serializable results remain in the memory tier. */
       }
+      // The memory tier is sized from the same serialization the storage gets.
+      remember(key, value, expiresAt, raw);
+      if (storage && raw !== undefined) cacheBackground(storage.set(key, raw, expiresAt));
     },
     delete(key: string): void {
       remove(key);
