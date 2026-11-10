@@ -61,6 +61,9 @@ const POINTER = `${DRAFT_HOST}/sites/acme/drafts/summer-sale/index.json@9f3c1a`;
 /** Where the fake CDN answers drafts. */
 const DRAFTS = `https://${DRAFT_HOST}/sites/acme/drafts/`;
 
+/** A draft GET's URL without its cache-busting `?r=<nonce>` (see draftChanges.ts). */
+const bare = (url: string) => url.replace(/\?r=[0-9a-z]+$/, "");
+
 /** Content without a site: the docs' snapshot. */
 const docsSnapshot = (revision?: string): Snapshot => unhashedSnapshot(revision);
 /** The revision the fake CDN serves until a test publishes another: the docs' content. */
@@ -315,7 +318,7 @@ describe("content-delivery", () => {
     const cms = createCMS({ blocks: docsBlocks(), site: SITE });
     await cms.update();
     expect(await titleOf(cms.forDraft(pointer))).toBe("Draft");
-    const urls = api.requests.map((r) => r.url);
+    const urls = api.requests.map((r) => bare(r.url));
     // The draft's folder: its index, then the one file it names.
     expect(urls.filter((url) => url.startsWith(DRAFTS))).toEqual([
       `${DRAFTS}summer-sale/index.json`,
@@ -508,7 +511,7 @@ describe("draft previews", () => {
     const cms = cmsOf({ site: SITE, token: TOKEN });
     expect(await titleOf(cms.forDraft(withVariant))).toBe("Draft");
     const requests = api.draftFetches();
-    expect(requests.map((r) => r.url)).toEqual([
+    expect(requests.map((r) => bare(r.url))).toEqual([
       `${DRAFTS}summer-sale/index.json`,
       `${DRAFTS}summer-sale/SummerSEO.json`,
     ]);
@@ -648,7 +651,7 @@ describe("draft previews", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
-        urls.push(String(input));
+        urls.push(bare(String(input)));
         return Response.json({ names: [] });
       }),
     );
@@ -932,7 +935,7 @@ describe("draft previews", () => {
     expect(await cms.forDraft(forced(1)).resolve("Banner")).toEqual(["draft summer", null]);
     expect(await cms.forDraft(forced(0)).resolve("Banner")).toEqual(["draft fallback", null]);
     expect(await cms.forDraft(pointer).resolve("Banner")).toEqual([undefined, null]); // the rules
-    const urls = api.draftFetches().map((r) => r.url);
+    const urls = api.draftFetches().map((r) => bare(r.url));
     expect(new Set(urls)).toEqual(
       new Set([`${DRAFTS}summer-sale/index.json`, `${DRAFTS}summer-sale/Banner.json`]),
     );

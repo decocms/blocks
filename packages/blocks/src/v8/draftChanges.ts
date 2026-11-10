@@ -14,8 +14,12 @@
  * - A draft read is one wave: the draft index, then every file it names
  *   (`<folder><file>`, the file being the name's `encodeURIComponent` plus
  *   `.json`, `index` written `%69ndex.json`), in parallel, plain GETs with no
- *   `If-None-Match` (nothing read from `drafts/` is kept across requests; the
- *   CDN revalidates every read with storage). The scheme comes from the domain
+ *   `If-None-Match` (nothing read from `drafts/` is kept across requests).
+ *   Every GET carries a fresh `?r=<nonce>` the bucket ignores, so no shared
+ *   cache can answer it: a CDN keeps a 404 (it has no `Cache-Control`) for
+ *   minutes, and a file read once before its save landed would otherwise
+ *   read as missing long after it exists (the draft silently showing
+ *   production for that block). The scheme comes from the domain
  *   that admitted the host, never from the pointer: plain `http` only for
  *   loopback hosts. No cookies or credentials are sent, and redirects aren't
  *   followed (a response that was redirected anyway is refused). Each read has
@@ -196,8 +200,19 @@ export function parseDraftFile(body: unknown, name: string): DraftState | null {
   }
 }
 
-/** GETs a draft object: its JSON, or `undefined` for a 404. */
-async function getJson(url: string, label: string): Promise<unknown> {
+/**
+ * `url` with a fresh `r` query parameter: a cache key no shared cache has
+ * seen, so the read always reaches storage (which ignores the query). Draft
+ * folder URLs carry no query of their own (see {@link draftFolderUrl}).
+ */
+function uncachedUrl(url: string): string {
+  const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return `${url}${url.includes("?") ? "&" : "?"}r=${nonce}`;
+}
+
+/** GETs a draft object, past any shared cache: its JSON, or `undefined` for a 404. */
+async function getJson(objectUrl: string, label: string): Promise<unknown> {
+  const url = uncachedUrl(objectUrl);
   const response = await fetch(url, {
     headers: { accept: "application/json" },
     redirect: "manual",

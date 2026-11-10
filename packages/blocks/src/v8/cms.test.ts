@@ -8,6 +8,9 @@ import { createCMS, instanceOf, resetForTests } from "./cms";
 import { docsBlocks, docsSnapshot, fakeStudio } from "./testFixtures";
 import type { Loader, Snapshot } from "./types";
 
+/** A draft GET's URL without its cache-busting `?r=<nonce>` (see draftChanges.ts). */
+const bare = (url: string) => url.replace(/\?r=[0-9a-z]+$/, "");
+
 beforeEach(() => resetForTests());
 afterEach(() => {
   vi.useRealTimers();
@@ -209,6 +212,19 @@ describe("loaders", () => {
     expect(fetch).toHaveBeenCalledTimes(6);
   });
 
+  it("every draft GET carries a fresh ?r= nonce, so no shared cache (a CDN-kept 404) answers it", async () => {
+    const { fetch, pointer } = studioDraft();
+    const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    await cms.forDraft(pointer).resolve("SummerSEO");
+    const urls = fetch.mock.calls.map(([url]) => String(url));
+    expect(urls).toHaveLength(6);
+    for (const url of urls) expect(url).toMatch(/\.json\?r=[0-9a-z]+$/);
+    expect(new Set(urls).size).toBe(urls.length);
+    // The nonce is the only query: the object's address is unchanged.
+    expect(new Set(urls.map(bare)).size).toBe(3);
+  });
+
   it("every draft request reads the draft index and its files again, with no If-None-Match", async () => {
     const { studio, fetch, pointer } = studioDraft();
     const cms = createCMS({ blocks: docsBlocks(), content: docsSnapshot() });
@@ -217,7 +233,7 @@ describe("loaders", () => {
     const second = cms.forDraft(pointer);
     expect((await second.resolve("SummerSEO"))[0]).toMatchObject({ title: "Draft title" });
     expect(await second.revision()).toBe(await first.revision());
-    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+    expect(fetch.mock.calls.map(([url]) => bare(String(url)))).toEqual([
       "https://delivery.decocms.com/sites/acme/drafts/summer-sale/index.json",
       "https://delivery.decocms.com/sites/acme/drafts/summer-sale/HelloWorld.json",
       "https://delivery.decocms.com/sites/acme/drafts/summer-sale/SummerSEO.json",
@@ -694,7 +710,7 @@ describe("preview.draftHosts", () => {
       preview: { draftHosts: [" Drafts.Example.com "] },
     });
     expect((await own.forDraft(pointer).resolve("SummerSEO"))[1]).toBeNull();
-    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+    expect(bare(String(fetch.mock.calls[0]?.[0]))).toBe(
       "https://drafts.example.com/sites/acme/drafts/x/index.json",
     );
     const studio = "delivery.decocms.com/sites/acme/drafts/x/index.json@1";

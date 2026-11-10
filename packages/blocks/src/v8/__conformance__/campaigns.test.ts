@@ -16,6 +16,9 @@ import { newVisitor, type Visitor } from "../experiments";
 import { docsBlocks, docsSnapshot, fakeStudio } from "../testFixtures";
 import type { Blocks, Client, Snapshot } from "../types";
 
+/** A draft GET's URL without its cache-busting `?r=<nonce>` (see draftChanges.ts). */
+const bare = (url: string) => url.replace(/\?r=[0-9a-z]+$/, "");
+
 beforeEach(() => resetForTests());
 afterEach(() => {
   vi.restoreAllMocks();
@@ -489,7 +492,7 @@ describe("the preview link: the version, the moment and the tests and campaigns 
       cms.client({ version }).resolve("Banner"),
     ]);
     // Nothing of a draft is kept across clients: each reads its index (it names no file).
-    expect(new Set(studio.requests.map((r) => r.url))).toEqual(
+    expect(new Set(studio.requests.map((r) => bare(r.url)))).toEqual(
       new Set([`https://${version.slice(0, version.lastIndexOf("@"))}`]),
     );
     expect(studio.requests).toHaveLength(4);

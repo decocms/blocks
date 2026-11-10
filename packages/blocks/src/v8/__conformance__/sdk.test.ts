@@ -30,6 +30,9 @@ import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio, hero, seo } from ".
 import type { Blocks, CMS, Redirect, RequestLike, Snapshot } from "../types";
 import { typecheck } from "./typecheck";
 
+/** A draft GET's URL without its cache-busting `?r=<nonce>` (see draftChanges.ts). */
+const bare = (url: string) => url.replace(/\?r=[0-9a-z]+$/, "");
+
 /** cms.draftPointer and cms.draftCookie on a CMS whose code lets every host preview. */
 const helpers = () =>
   createCMS({
@@ -577,7 +580,7 @@ describe("AR-66 a draft pointer's forced variants (releases-and-drafts#preview-a
     expect((await cms.forDraft(draft(1)).resolve("Banner"))[0]).toBe("summer");
     expect((await cms.forDraft(draft(0)).resolve("Banner"))[0]).toBe("spring");
     // Each read: the draft's index, then its one file (SummerSEO).
-    const urls = fetch.mock.calls.map(([url]) => String(url));
+    const urls = fetch.mock.calls.map(([url]) => bare(String(url)));
     expect(urls).toHaveLength(4);
     expect(urls.slice(2)).toEqual(urls.slice(0, 2));
     expect(urls.some((url) => url.includes("__variant"))).toBe(false);
