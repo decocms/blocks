@@ -14,7 +14,7 @@
  * comparing the window with its parent here is what a test runner's
  * frame-busting rewrite matches (see `StudioBridge.ts`).
  */
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation.js";
 import { useEffect, useRef, useTransition } from "react";
 import { STUDIO_PAGE_REFRESH } from "./studio.ts";
 

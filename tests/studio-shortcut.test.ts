@@ -25,7 +25,7 @@ import { STUDIO_BRIDGE_SCRIPT } from "../packages/blocks/src/v8/preview/StudioBr
 import * as nextShortcut from "../packages/nextjs/src/studioShortcut.ts";
 
 // StudioBridge renders StudioRefresh, which needs the App Router mounted.
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, replace() {} }) }));
+vi.mock("next/navigation.js", () => ({ useRouter: () => ({ refresh() {}, replace() {} }) }));
 
 import * as tanstackShortcut from "../packages/tanstack/src/studioShortcut.ts";
 

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const router = vi.hoisted(() => ({ refresh: vi.fn(), replace: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation.js", () => ({ useRouter: () => router }));
 
 const { StudioRefresh } = await import("./StudioRefresh.tsx");
 const { STUDIO_PAGE_REFRESH } = await import("./studio.ts");
