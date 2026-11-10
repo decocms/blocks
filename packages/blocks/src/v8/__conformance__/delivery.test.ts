@@ -1325,7 +1325,7 @@ describe("hosted-publishing", () => {
       const probe = scheduled(config);
       expect(await probe.tick(0)).toBe(1); // first use
       let elapsed = 0;
-      for (const step of [59_999, 1]) {
+      for (const step of [4_999, 1, 54_999, 1]) {
         elapsed += step;
         const calls = await probe.tick(step);
         if (calls === 2) return elapsed;
@@ -1351,11 +1351,11 @@ describe("hosted-publishing", () => {
       expect(await measured({ interval: 90_000 })).toBe(90_000);
     });
 
-    it("HP-6: values below 60 000 ms are raised with a warning", async () => {
+    it("HP-6: values below 5 000 ms are raised with a warning", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      expect(await measured({ interval: 1000 })).toBe(60_000);
+      expect(await measured({ interval: 1000 })).toBe(5_000);
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("interval 1000 ms is below the minimum; raised to 60000 ms"),
+        expect.stringContaining("interval 1000 ms is below the minimum; raised to 5000 ms"),
       );
     });
 
