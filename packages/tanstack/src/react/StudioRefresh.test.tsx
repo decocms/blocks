@@ -7,6 +7,9 @@ const calls = vi.hoisted(() => [] as string[]);
 type Match = { id: string; updatedAt: number };
 const router = vi.hoisted(() => {
   const r = {
+    options: { scrollRestoration: true as boolean | (() => boolean) },
+    /** What `scrollRestoration` answered while the loaders ran. */
+    restorationDuringLoad: [] as unknown[],
     state: { matches: [] as Match[] },
     /** What a navigation loads: the ids it gives a fresh `updatedAt`. */
     reloads: [] as string[],
@@ -18,6 +21,8 @@ const router = vi.hoisted(() => {
       );
     }),
     invalidate: vi.fn(async (opts?: { filter?: (m: Match) => boolean }) => {
+      const restoration = r.options.scrollRestoration;
+      r.restorationDuringLoad.push(typeof restoration === "function" ? restoration() : restoration);
       const ids = opts?.filter ? r.state.matches.filter(opts.filter).map((m) => m.id) : ["*"];
       calls.push(`invalidate ${ids.join(",")}`);
     }),
@@ -45,6 +50,8 @@ beforeEach(async () => {
     { id: "/shoes", updatedAt: 0 },
   ];
   router.reloads = [];
+  router.options.scrollRestoration = true;
+  router.restorationDuringLoad = [];
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     calls.push(`fetch ${String(input)}`);
     return new Response("<html></html>");
@@ -90,6 +97,23 @@ describe("StudioRefresh", () => {
     router.reloads = ["/shoes"];
     await slot()!(`${window.location.origin}/shoes?__draft=b`);
     expect(calls.at(-1)).toBe("invalidate __root__");
+  });
+
+  it("keeps the page's scroll: restoration is off while it loads, then the site's own again", async () => {
+    await slot()!(window.location.href);
+    expect(router.restorationDuringLoad).toEqual([false]);
+    expect(router.options.scrollRestoration).toBe(true);
+
+    router.reloads = ["/shoes"];
+    await slot()!(`${window.location.origin}/shoes?__draft=b`);
+    expect(router.restorationDuringLoad).toEqual([false, false]);
+    expect(router.options.scrollRestoration).toBe(true);
+  });
+
+  it("gives the site's scroll restoration back after a failed refresh too", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("", { status: 500 })) as typeof fetch;
+    await expect(slot()!(`${window.location.origin}/shoes?__draft=b`)).rejects.toThrow(/500/);
+    expect(router.options.scrollRestoration).toBe(true);
   });
 
   it("rejects when the new link fails, leaving the page as it is", async () => {
