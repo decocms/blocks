@@ -14,9 +14,14 @@
  * Components payload that carries the script). Two inline scripts and no
  * hooks, so a Server Component renders it as is. The site's CSP allows the
  * same origins with `withStudioCsp`.
+ *
+ * After a save, Studio shows the new content through the App Router
+ * (`StudioRefresh`, a client component, so React stays attached to the page)
+ * instead of replacing the document.
  */
 import { StudioChannel, type StudioPageInfo } from "@decocms/blocks/preview";
 import { createElement, Fragment, type ReactNode } from "react";
+import { StudioRefresh } from "./StudioRefresh.tsx";
 import { studioOrigins } from "./studio.ts";
 import { StudioShortcut } from "./studioShortcut.ts";
 
@@ -64,5 +69,6 @@ export function StudioBridge({
     null,
     createElement(StudioShortcut, { site, editShortcut, page, nonce }),
     createElement(StudioChannel, { studioOrigins: studioOrigins(origins), nonce }),
+    createElement(StudioRefresh),
   );
 }

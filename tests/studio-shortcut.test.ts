@@ -23,6 +23,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STUDIO_BRIDGE_SCRIPT } from "../packages/blocks/src/v8/preview/StudioBridge.ts";
 import * as nextShortcut from "../packages/nextjs/src/studioShortcut.ts";
+
+// StudioBridge renders StudioRefresh, which needs the App Router mounted.
+vi.mock("next/navigation.js", () => ({ useRouter: () => ({ refresh() {}, replace() {} }) }));
+
 import * as tanstackShortcut from "../packages/tanstack/src/studioShortcut.ts";
 
 // Cypress's regex rewriter (packages/rewriter/lib/regex-rewriter.ts).

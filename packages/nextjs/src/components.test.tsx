@@ -9,6 +9,8 @@ vi.mock("./server/slot.ts", () => ({
   activeDraftPointer: () => slot.pointer,
   draftUnavailable: () => slot.unavailable,
 }));
+// StudioBridge renders StudioRefresh, which needs the App Router mounted.
+vi.mock("next/navigation.js", () => ({ useRouter: () => ({ refresh() {}, replace() {} }) }));
 
 const { DraftPreviewIndicator, StudioBridge, StudioPage } = await import("./index.ts");
 

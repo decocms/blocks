@@ -43,6 +43,12 @@ export const DEFAULT_STUDIO_ORIGINS: readonly string[] = Object.freeze([
   "https://studio-stg.decocms.com",
 ]);
 
+/**
+ * Where `StudioRefresh` puts the page's own refresh for Studio's HTML swap
+ * (`STUDIO_PAGE_REFRESH` of `@decocms/blocks/protocol`, held equal by a test).
+ */
+export const STUDIO_PAGE_REFRESH = "__decoStudioRefresh";
+
 /** `value` as an exact http(s) origin (`https://host[:port]`, a trailing `/` dropped; no wildcard), or `""`. */
 function asOrigin(value: unknown): string {
   if (typeof value !== "string") return "";

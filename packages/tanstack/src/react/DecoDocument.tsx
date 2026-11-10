@@ -15,6 +15,9 @@
  *   (only on a draft page outside Studio's frame), from
  *   `@decocms/blocks/preview`. The worker adds the same origins to the
  *   page's CSP `script-src` and `frame-ancestors`;
+ * - `StudioRefresh`: after a save, Studio shows the new content by rerunning
+ *   the loaders (`router.invalidate()`), with React still attached, instead
+ *   of replacing the document;
  * - v7's "." edit shortcut (`../studioShortcut.ts`: outside Studio's frame,
  *   "." opens the page in Studio's editor, with the page's `pathTemplate`
  *   from the route's loader data). v8 only: v7's framed handler
@@ -31,6 +34,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { studioOrigins } from "../studio.ts";
 import { StudioShortcut } from "../studioShortcut.ts";
 import { pageValues, publishScript } from "./pageValues.ts";
+import { StudioRefresh } from "./StudioRefresh.ts";
 import { DATA_EVENT_OBSERVER, eventsBootstrap, PROGRESS_CSS } from "./scripts.ts";
 
 declare global {
@@ -129,6 +133,7 @@ function StudioPieces({
         nonce={nonce}
       />
       <StudioChannel studioOrigins={studioOrigins(origins)} nonce={nonce} />
+      <StudioRefresh />
       <DraftBadge pointer={draft ?? null} unavailable={draftUnavailable} />
     </>
   );
