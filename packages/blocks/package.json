@@ -68,6 +68,11 @@
 			"source": "./src/v8/analytics.ts",
 			"default": "./dist/v8/analytics.js"
 		},
+		"./analytics/client": {
+			"types": "./dist/v8/analytics/client.d.ts",
+			"source": "./src/v8/analytics/client.ts",
+			"default": "./dist/v8/analytics/client.js"
+		},
 		"./cli": {
 			"types": "./dist/v8/cli/index.d.ts",
 			"source": "./src/v8/cli/index.ts",
