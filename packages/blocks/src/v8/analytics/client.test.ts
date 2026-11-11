@@ -15,7 +15,10 @@ import { WIRE } from "./shared/contract.ts";
 
 type Event = Record<string, unknown>;
 type Api = Record<string, (...args: any[]) => unknown>;
-type Post = { url: string; body: { site: string; key?: string; events: Event[] } };
+type Post = {
+  url: string;
+  body: { site: string; key?: string; ab?: Record<string, string>; events: Event[] };
+};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const w = window as unknown as Record<string, any>;
@@ -90,6 +93,27 @@ describe("startAnalytics", () => {
     await start({ key: "dq_SiteKey000000000000000", endpoint: "https://collector.example/_dq/e" });
     expect(posts[0].url).toBe("https://collector.example/_dq/e");
     expect(posts[0].body.key).toBe("dq_SiteKey000000000000000");
+  });
+
+  it("sends the A/B token, site and revision once per batch, never on an event", async () => {
+    const experiments = {
+      token: "AAAAAAAAAAAAAAAAAAAAAA",
+      site: "demo-store",
+      revision: "fe5e393cccb9-01a1c6c3-3346-7cfb-a1da-6f4fadf51727",
+    };
+    const api = await start({ experiments, modules: ["click"] });
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    api!.flush();
+    expect(posts.length).toBe(2);
+    for (const post of posts) {
+      expect(post.body.ab).toEqual(experiments);
+      expect(JSON.stringify(post.body.events)).not.toContain(experiments.token);
+    }
+  });
+
+  it("sends no ab without experiments, so other sites' beacons are unchanged", async () => {
+    await start();
+    expect(Object.keys(posts[0].body)).toEqual(["site", "events"]);
   });
 
   it("leaves the external tag alone when it booted first: one client per page", async () => {

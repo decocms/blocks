@@ -42,6 +42,15 @@ export interface AnalyticsClientOptions {
   heatmapRate?: number;
   /** Errors module: cross-origin script hosts that count as the site's own. */
   errorHosts?: string[];
+  /**
+   * The visitor's A/B tests, measured without sending them: the visitor's id (`Visitor.id` from
+   * `@decocms/blocks/experiments`), the site's name in deco's content (`createCMS({ site })`)
+   * and the release the page rendered (`client.revision()`; without it, the current release).
+   * Every batch carries them once, and the collector runs `assign` over that release's
+   * `experiments` block and writes each test's arm, `on` or `off`, to the events' `exp`. The
+   * token is never stored. Leave it unset on a preview, whose switched tests are no visitor's.
+   */
+  experiments?: { token: string; site: string; revision?: string };
 }
 
 /** One loader per file, so a bundler splits each module into its own chunk. */
@@ -92,6 +101,7 @@ export async function startAnalytics(
         ...(options.key ? { k: options.key } : {}),
         ...(options.heatmapRate !== undefined ? { hr: options.heatmapRate } : {}),
         ...(options.errorHosts?.length ? { er: options.errorHosts } : {}),
+        ...(options.experiments ? { ab: { ...options.experiments } } : {}),
       },
       page,
       { q: [] },
