@@ -18,7 +18,6 @@ type Cfg = {
   hash?: boolean; // the site routes on location.hash
   dev?: boolean; // collect even on a development host
   x?: Record<string, string>; // experiment map, injected by SSR
-  ab?: { token: string; site: string; revision?: string }; // A/B: the collector derives `x`
   e?: string; // endpoint
   q?: unknown[] | { push: (r: unknown) => void }; // stub queue; a live dispatcher after boot
   killed?: boolean;
@@ -219,13 +218,7 @@ function applyCommand(cmd: Record<string, unknown> | null) {
   if ("h" in cmd) cfg.h = cmd.h as number;
 }
 
-/** `ab` goes once per batch, never per event, and only when the page set it: a v8 page's
- *  visitor token, its content site and revision, from which the collector decides the visitor's
- *  A/B arms and writes them to `exp`, so neither the variants nor the config ever travel. Absent
- *  everywhere else, and `JSON.stringify` drops an undefined key, so every other site sends the
- *  same bytes as before. */
-const payload = (events: QueuedEvent[]) =>
-  JSON.stringify({ site: cfg.s, key: cfg.k, ab: cfg.ab, events });
+const payload = (events: QueuedEvent[]) => JSON.stringify({ site: cfg.s, key: cfg.k, events });
 
 /** The last chance to deliver, so it does not get to fail quietly.
  *

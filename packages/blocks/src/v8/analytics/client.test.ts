@@ -15,10 +15,7 @@ import { WIRE } from "./shared/contract.ts";
 
 type Event = Record<string, unknown>;
 type Api = Record<string, (...args: any[]) => unknown>;
-type Post = {
-  url: string;
-  body: { site: string; key?: string; ab?: Record<string, string>; events: Event[] };
-};
+type Post = { url: string; body: { site: string; key?: string; events: Event[] } };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const w = window as unknown as Record<string, any>;
@@ -95,25 +92,30 @@ describe("startAnalytics", () => {
     expect(posts[0].body.key).toBe("dq_SiteKey000000000000000");
   });
 
-  it("sends the A/B token, site and revision once per batch, never on an event", async () => {
-    const experiments = {
-      token: "AAAAAAAAAAAAAAAAAAAAAA",
-      site: "demo-store",
-      revision: "fe5e393cccb9-01a1c6c3-3346-7cfb-a1da-6f4fadf51727",
-    };
-    const api = await start({ experiments, modules: ["click"] });
+  it("puts the tests the page rendered on every event, the first page view included", async () => {
+    const api = await start({
+      experiments: { "hero-copy": true, "buy-button": false },
+      modules: ["click"],
+    });
     document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     api!.flush();
-    expect(posts.length).toBe(2);
-    for (const post of posts) {
-      expect(post.body.ab).toEqual(experiments);
-      expect(JSON.stringify(post.body.events)).not.toContain(experiments.token);
+    expect(names()).toEqual(["$pageview", "experiment_click"]);
+    for (const event of events()) {
+      expect(event[WIRE.exp]).toEqual({ "hero-copy": "on", "buy-button": "off" });
     }
+    // Only the decision travels: the beacon has no other new field.
+    for (const post of posts) expect(Object.keys(post.body)).toEqual(["site", "events"]);
   });
 
-  it("sends no ab without experiments, so other sites' beacons are unchanged", async () => {
-    await start();
-    expect(Object.keys(posts[0].body)).toEqual(["site", "events"]);
+  it("keeps another script's tests on the page, and the rendered arm wins a shared name", async () => {
+    w.__dq = { x: { "ab-sdk-test": "verde", "hero-copy": "off" } };
+    await start({ experiments: { "hero-copy": true } });
+    expect(events()[0][WIRE.exp]).toEqual({ "ab-sdk-test": "verde", "hero-copy": "on" });
+  });
+
+  it("sends no exp without experiments, so other sites' events are unchanged", async () => {
+    await start({ experiments: {} });
+    expect(events()[0][WIRE.exp]).toBeUndefined();
   });
 
   it("leaves the external tag alone when it booted first: one client per page", async () => {
@@ -123,6 +125,17 @@ describe("startAnalytics", () => {
     const api = await start({ modules: ["click"] });
     expect(api?.track).toBe(track);
     expect(posts).toEqual([]);
+  });
+
+  it("hands the tests to the tag when the tag booted first", async () => {
+    const setExperiment = vi.fn();
+    w.__dqBooted = true;
+    w.__dq = { track: vi.fn(), setExperiment };
+    await start({ experiments: { "hero-copy": true, "buy-button": false } });
+    expect(setExperiment.mock.calls).toEqual([
+      ["hero-copy", "on"],
+      ["buy-button", "off"],
+    ]);
   });
 
   it("collects nothing, and loads no module, when collection is off for this visitor", async () => {
