@@ -169,8 +169,8 @@ if [ -n "$CAND" ]; then
 
   # the first-visit visitor cookie, the split cookie and Cloudflare's own are expected
   h=$(cc -o /dev/null -D - "$CAND/" | tr -d '\r')
-  sc=$(echo "$h" | grep -i '^set-cookie:' | grep -viE '^set-cookie: *(deco_segment|_deco_bucket|__cf_bm|_cfuvid|cf_clearance)=')
-  [ -z "$sc" ] && pass "anonymous / sets no cookie besides deco_segment" ||
+  sc=$(echo "$h" | grep -i '^set-cookie:' | grep -viE '^set-cookie: *(deco_vid|_deco_bucket|__cf_bm|_cfuvid|cf_clearance)=')
+  [ -z "$sc" ] && pass "anonymous / sets no cookie besides deco_vid" ||
     { warn "anonymous / sets other cookies: a page cache must not store it"; echo "$sc" | cut -c1-90 | show; }
   echo "$h" | grep -qi '^x-robots-tag:.*noindex' && fail "/ sends X-Robots-Tag noindex" || pass "/ has no X-Robots-Tag noindex"
   xc=$(cc -o /dev/null -D - "$CAND/" | tr -d '\r' | grep -iE '^(x-cache|cf-cache-status):' | tr '\n' ' ')

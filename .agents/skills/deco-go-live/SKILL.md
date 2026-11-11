@@ -80,7 +80,7 @@ or curl-able.
 ## 5. Cache (→ **deco-storefront-caching**)
 
 - [ ] 🔴 **A signed-in shopper never gets a stored anonymous page**; nothing per-user is stored.
-- [ ] 🟡 Anonymous pages set no cookie except the first-visit `deco_segment`, and the second request is `X-Cache: HIT`.
+- [ ] 🟡 Anonymous pages set no cookie except the first-visit `deco_vid`, and the second request is `X-Cache: HIT`.
 - [ ] 🟡 The cache key drops the paid-media parameters your traffic carries.
 - [ ] 🟡 A failed loader marks the page degraded (`x-deco-degraded`) instead of caching "not found".
 

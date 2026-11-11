@@ -112,11 +112,11 @@ try {
     page.body.match(/srcSet="[^"]*"/)?.[0],
   );
   check("no draft badge on the release", !page.body.includes(POINTER));
-  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="));
   const [visitorCookie, ...moreVisitorCookies] = visitorCookies(page.res);
   check(
     "a first visit gets the visitor's cookie from the proxy, once",
-    /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
+    /^deco_vid=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
       moreVisitorCookies.length === 0,
     page.res.headers.getSetCookie().join(" | "),
   );
@@ -231,7 +231,7 @@ try {
       if (assign({ "new-banner": 50 }, visitor)["new-banner"] === inside) return visitor;
     }
   };
-  const as = (visitor) => ({ cookie: `deco_segment=${serializeVisitor(visitor)}` });
+  const as = (visitor) => ({ cookie: `deco_vid=${serializeVisitor(visitor)}` });
   const assignmentsOf = (body) => body.match(/<main data-assignments="([^"]*)"/)?.[1];
   const [inA, inB, out] = [visitorOn(true), visitorOn(true), visitorOn(false)];
   const sideA = await get("/sale", as(inA));

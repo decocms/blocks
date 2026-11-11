@@ -1,6 +1,6 @@
 ---
 name: deco-variants
-description: "Variants on @decocms/blocks 8: the built-in multivariate block ({ rule, value } with lazy values, first true rule wins, later rules never run), the built-in rules always, never, experiment and campaign, A/B tests as the saved block experiments (split-traffic: a percentage per test, a sticky visitor id in the deco_segment cookie, @decocms/blocks/experiments) and scheduled content as the saved block campaigns (calendar), v7's matchers from @decocms/compat-v7/matchers (device, cookie, host, pathname, queryString, location, multi, sticky random), custom rules in the block map, previewing a variant, a test or a moment from a Studio draft link (__variant, __test, __campaign, __at), and keeping variant pages cacheable (assignmentsKey, one cache entry per set of assignments). Load it for A/B tests, scheduled or segmented content, a variant that never shows or always shows, matcher bugs after a v7 migration, or a variant page that misses the cache."
+description: "Variants on @decocms/blocks 8: the built-in multivariate block ({ rule, value } with lazy values, first true rule wins, later rules never run), the built-in rules always, never, experiment and campaign, A/B tests as the saved block experiments (split-traffic: a percentage per test, a sticky visitor id in the deco_vid cookie, @decocms/blocks/experiments) and scheduled content as the saved block campaigns (calendar), v7's matchers from @decocms/compat-v7/matchers (device, cookie, host, pathname, queryString, location, multi; v7's random moves to experiments), custom rules in the block map, previewing a variant, a test or a moment from a Studio draft link (__variant, __test, __campaign, __at), and keeping variant pages cacheable (assignmentsKey, one cache entry per set of assignments). Load it for A/B tests, scheduled or segmented content, a variant that never shows or always shows, matcher bugs after a v7 migration, or a variant page that misses the cache."
 ---
 
 # Variants on @decocms/blocks 8
@@ -17,7 +17,7 @@ Code is in `packages/blocks/src/v8/builtins/` (`multivariate.ts`, `matchers.ts`,
 |---|---|
 | [`references/multivariate.md`](./references/multivariate.md) | Writing or reading variant JSON; a variant never shows, always shows, or a slot is empty; `deco check` says "a variant's value must be a lazy block"; v7 `website/flags/multivariate*.ts` content |
 | [`references/experiments-and-campaigns.md`](./references/experiments-and-campaigns.md) | Setting up an A/B test or a scheduled promotion; ramping a test; a campaign that never starts; `deco check` says "no test" or "no campaign"; tagging analytics with the test arm |
-| [`references/v7-matchers.md`](./references/v7-matchers.md) | Content migrated from v7 uses `website/matchers/device.ts`, `cookie.ts`, `location.ts`, `random.ts` and others; `UNKNOWN_BLOCK` on a v7 matcher; wiring `matcherContext` and the `deco_segment` cookie |
+| [`references/v7-matchers.md`](./references/v7-matchers.md) | Content migrated from v7 uses `website/matchers/device.ts`, `cookie.ts`, `location.ts`, `random.ts` and others; `UNKNOWN_BLOCK` on a v7 matcher; wiring `matcherContext`; moving a v7 random test to `experiments` |
 | [`references/custom-matchers.md`](./references/custom-matchers.md) | Writing a site's own rule; a rule that needs the request, the visitor or the date; a rule that does not appear in Studio's rule picker |
 | [`references/draft-preview.md`](./references/draft-preview.md) | Previewing one variant, a test switched on, or a future date from a Studio link; a preview link that shows the saved content instead |
 | [`references/caching-variants.md`](./references/caching-variants.md) | A page with variants misses the cache or shows the wrong variant from cache; deciding whether a rule is safe behind a page cache; purging variant pages |
@@ -43,7 +43,7 @@ With the saved block `experiments` set to `{ "__resolveType": "split-traffic", "
 - Order is the logic. Put narrow rules first and `always` last. With no `always`, a visitor that matches no rule gets `undefined` for that slot.
 - Prefer `experiment` and `campaign` over request-reading rules. The binding decides them once at the edge and the page cache keys on them. A rule that reads a cookie, a header or the location changes the page by something the cache key does not hold (see [`caching-variants.md`](./references/caching-variants.md)).
 - Keep a test's name stable. A visitor's side is a hash of the test name and their id, so renaming a test re-draws everyone.
-- Run one A/B system per site. The saved block `experiments` and v7's sticky `random` both write `deco_segment`.
+- A/B tests live only in the saved block `experiments`. v7's `random` has no port: move each v7 random test there, with `experiment` rules.
 
 ## Reading results
 

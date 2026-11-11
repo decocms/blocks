@@ -8,7 +8,7 @@
 
 /**
  * The request header carrying the visitor, in its stored form (the
- * `deco_segment` cookie's value, `serializeVisitor`). The worker removes any
+ * `deco_vid` cookie's value, `serializeVisitor`). The worker removes any
  * copy that arrives from outside, so a client can't send one itself.
  */
 export const VISITOR_HEADER = "x-deco-visitor";

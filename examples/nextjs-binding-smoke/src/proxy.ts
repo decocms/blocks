@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
   // The version: a Studio link's draft or old release, on a host that may preview, with the
   // preview's moment and switched tests and campaigns.
   const draft = await decideDraft(proxyCms, request);
-  // The visitor: the deco_segment cookie, or a new one (its cookie goes out on a first visit).
+  // The visitor: the deco_vid cookie, or a new one (its cookie goes out on a first visit).
   const visitor = decideVisitor(request, draft);
   // Published pages are cached (ISR), so a CMS page renders on the assignments route,
   // /_assignments/<assignments>/<path>: the proxy decides every test and campaign, Next caches one

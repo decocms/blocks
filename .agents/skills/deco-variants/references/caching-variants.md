@@ -8,7 +8,7 @@ This page covers the variant side of caching. The `deco-storefront-caching` skil
 
 On every page and server-function request, before any cache lookup, the binding:
 
-1. reads the visitor (`readVisitor`: the `deco_segment` cookie, or a new visitor with a fresh id);
+1. reads the visitor (`readVisitor`: the `deco_vid` cookie, or a new visitor with a fresh id);
 2. decides every test of `experiments` and every campaign of `campaigns` for that visitor and that moment;
 3. hands those **assignments** to the cache and to the page, which renders exactly them and decides nothing again.
 
@@ -28,8 +28,6 @@ On v7, a cached page decided the variant for every new visitor who hit it until 
 
 v8's `experiment` rule does not have this problem. Each new visitor gets an id and a roll at the edge before the cache lookup, and the lookup uses their assignments. Two new visitors on different sides read different entries.
 
-v7's sticky `random` from `@decocms/compat-v7` still decides during render. A response that sets `deco_segment` must never be stored, so a visitor's first page of a random test is always rendered fresh. Then `cohortSegment(request)` puts their group in the key. Moving the test into `experiments` removes both costs.
-
 ## Rule by rule
 
 | Rule | In the key? | What to do |
@@ -41,7 +39,6 @@ v7's sticky `random` from `@decocms/compat-v7` still decides during render. A re
 | `queryString` (compat) | Depends on your key | The example drops tracking parameters (`utm_*` and the like) from the key, so a rule on them shows one visitor's variant to another |
 | `host` (compat) | Depends on your key | The example keys on the full URL, host included. Safe only when your key does too |
 | `cookie`, `location` (compat) | No | Add the value to the key, skip caching for those pages, or personalize in the browser |
-| `random` (compat) | Through `cohortSegment` | See above; prefer `experiments` |
 | A custom rule that reads the request | No | Same as `cookie` |
 | A custom rule on `currentClient().date` | No | The page keeps the variant of the moment it was cached until it expires. Use a campaign instead |
 
@@ -56,7 +53,7 @@ Signed-in, cart and account content belongs in option 3 or uncached. Never put a
 ## Checklist: a variant page misses the cache or shows the wrong arm
 
 1. **Is it a preview?** A `?__draft=` link or the draft cookie never reaches `pageCache` (see [`draft-preview.md`](./draft-preview.md)).
-2. **Does the response set a cookie?** The worker-entry example never stores a response that sets one (other than `_deco_bucket`). The worker adds the visitor's own cookie after `pageCache`, so that one does not count. v7's `deco_segment` writer from compat does count.
+2. **Does the response set a cookie?** The worker-entry example never stores a response that sets one (other than `_deco_bucket`). The worker adds the visitor's own cookie after `pageCache`, so that one does not count.
 3. **Does a rule read the request?** List the rules on the page (follow saved rule blocks too) and check each against the table above.
 4. **How many tests are running?** `2^n` entries per page split the hits.
 5. **Is the wrong arm stable for one URL?** A rule reads something that is not in the key. Compare the same URL with two different values of the suspect cookie or header.

@@ -137,7 +137,7 @@ navigation.
 |---|---|---|
 | M1 | Browser heap stays flat over 10 SPA navigations | DevTools Memory |
 | M2 | Minicart open/close 10× leaves the heap flat | heap snapshots before and after |
-| M3 | Anonymous pages send no `Set-Cookie` except the first-visit `deco_segment` | `curl -sI` without cookies |
+| M3 | Anonymous pages send no `Set-Cookie` except the first-visit `deco_vid` | `curl -sI` without cookies |
 | M4 | The second anonymous request is a cache hit | `X-Cache: HIT` from the site's page cache (**deco-storefront-caching**) |
 | M5 | Lazy sections load their chunk only when needed | network panel while scrolling |
 

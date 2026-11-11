@@ -65,14 +65,14 @@ export const banner = (props: Props) => ({ component: "banner", props });`,
 });
 
 describe("@decocms/compat-v7 matchers in deco schema", () => {
-  it("a matcher wrapped in the block map gets v7's fields, and random its cohort", async () => {
+  it("a matcher wrapped in the block map gets v7's fields", async () => {
     const fixture = createFixture({
       "src/matchers.ts": `
-import { type DeviceProps, device, type RandomProps, random } from "@decocms/compat-v7/matchers";
+import { type CookieProps, cookie, type DeviceProps, device } from "@decocms/compat-v7/matchers";
 declare const request: Request;
 export const matchers = {
   "website/matchers/device.ts": (props: DeviceProps) => device(props, request),
-  "website/matchers/random.ts": (props: RandomProps) => random(props, request),
+  "website/matchers/cookie.ts": (props: CookieProps) => cookie(props, request),
 };`,
       ".deco/index.ts": `import { matchers } from "../src/matchers"; export default { ...matchers };`,
     });
@@ -84,10 +84,13 @@ export const matchers = {
         Object.entries(defs).find(([key]) => key.startsWith(toBase64(name)))?.[1] as
           | { properties: Record<string, { type?: string; title?: string }> }
           | undefined;
-      const random = find("website/matchers/random.ts");
-      expect(random, Object.keys(defs).join(" ")).toBeDefined();
-      expect(random?.properties.traffic).toMatchObject({ type: "number", title: "Traffic share" });
-      expect(random?.properties.cohort).toMatchObject({ type: "string", title: "Cohort" });
+      const cookieMatcher = find("website/matchers/cookie.ts");
+      expect(cookieMatcher, Object.keys(defs).join(" ")).toBeDefined();
+      expect(cookieMatcher?.properties.name).toMatchObject({
+        type: "string",
+        title: "Cookie name",
+      });
+      expect(cookieMatcher?.properties.value).toMatchObject({ type: "string", title: "Value" });
       const deviceProps = find("website/matchers/device.ts")?.properties;
       expect(Object.keys(deviceProps ?? {}).sort()).toEqual([
         "__resolveType",

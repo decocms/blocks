@@ -427,7 +427,7 @@ describe("matchers", () => {
     ).toContain("@decocms/compat-v7/matchers");
   });
 
-  it("never registers v7's random matcher: the binding owns deco_segment", () => {
+  it("never registers v7's random matcher: it moves to experiments", () => {
     site({
       "package.json": TANSTACK,
       ".deco/blocks/Home.json": {

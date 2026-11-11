@@ -26,7 +26,7 @@ Put the control last, under `always`.
 
 ### How a visitor is assigned
 
-- A visitor has an id: 16 random bytes as 22 base64url characters, stored in the `deco_segment` cookie for a year. The cookie is not `HttpOnly`, so an analytics script can read it.
+- A visitor has an id: 16 random bytes as 22 base64url characters, stored in the `deco_vid` cookie for a year. The cookie is not `HttpOnly`, so an analytics script can read it.
 - For each test, the visitor's roll is a hash of `<test name>:<id>` (MurmurHash3, in `bucketing.ts`), a fixed number from 0 to 99.99. The visitor is in the test when the roll is below the percentage.
 - Nothing per test is stored. One id serves every test, a new test needs no new state, and two tests are independent of each other.
 - The decision is the same on a server, in a browser and in an app: `assign(experiments, visitor)` is a pure function.
@@ -56,7 +56,7 @@ This gives a safe launch path:
 
 ### Visitors from v7
 
-The cookie keeps v7's name and format. A v7 visitor gets an id on their next visit, and v7's stored decisions are honoured while the percentage they were made at holds. After it moves, a v7 visitor in a test that grows stays in, and one out of a test that shrinks stays out. To keep a v7 random test's groups, move it into `experiments` under the same name (the `deco-v7-to-v8-migration` skill reports each one). Do not also register v7's `random` matcher: two writers of `deco_segment` undo each other.
+v8 neither reads nor writes v7's `deco_segment` cookie, so its stored decisions are not honoured: a visitor with only that cookie is a first visit, with a new id, and is drawn again. Move each v7 random test into `experiments` under the same name, so its results keep their name (the `deco-v7-to-v8-migration` skill reports each one); `@decocms/compat-v7` has no `random` to register.
 
 ## Campaigns
 
@@ -99,6 +99,6 @@ v8 decides who sees what. It does not record conversions, and its analytics modu
 
 - On TanStack, `requestAssignments()` from `@decocms/tanstack/server` returns each test on or off for the request, as the worker decided it. Pass the arms the page rendered to your analytics events.
 - On any binding, the page's own client gives the same answer: `const [tests] = await client.resolve("experiments")` gives each test's name and `true` or `false`, never a percentage.
-- In the browser, the `deco_segment` cookie holds the visitor; `parseVisitor` and `assign` from `@decocms/blocks/experiments` give the same answer as the server for a given `experiments` block.
+- In the browser, the `deco_vid` cookie holds the visitor; `parseVisitor` and `assign` from `@decocms/blocks/experiments` give the same answer as the server for a given `experiments` block.
 
 Count users, not sessions: the id is per visitor. Then use the `ab-testing` skill in decocms/skills to plan the sample size, check the sample ratio and read significance.

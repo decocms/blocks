@@ -251,18 +251,7 @@ function copyVisitor(visitor: Visitor | null | undefined): Visitor | null {
   if (typeof visitor !== "object" || visitor === null || typeof visitor.id !== "string") {
     return null;
   }
-  const strings = (value: unknown): string[] =>
-    Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
-  const copy: Visitor = {
-    id: visitor.id,
-    active: Object.freeze(strings(visitor.active)) as string[],
-    inactiveDrawn: Object.freeze(strings(visitor.inactiveDrawn)) as string[],
-    pct: Object.freeze(Object.assign(Object.create(null), visitor.pct)),
-  };
-  if (typeof visitor.exp === "object" && visitor.exp !== null) {
-    copy.exp = Object.freeze(Object.assign(Object.create(null), visitor.exp));
-  }
-  return Object.freeze(copy);
+  return Object.freeze({ id: visitor.id });
 }
 
 function asCMSError(error: unknown): CMSError {

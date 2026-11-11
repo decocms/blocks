@@ -63,19 +63,17 @@ It drops falsy values, joins the rest and collapses whitespace runs, as v7 did. 
 ## Matchers
 
 ```ts
-import { type DeviceProps, device, type RandomProps, random } from "@decocms/compat-v7/matchers";
+import { type DeviceProps, device } from "@decocms/compat-v7/matchers";
 
 export const blocks = {
   "website/matchers/device.ts": (props: DeviceProps) => device(props, matcherContext()),
-  "website/matchers/random.ts": (props: RandomProps) => random(props, matcherContext()),
 };
 ```
 
-`device`, `cookie`, `host`, `pathname`, `queryString`, `location`, `multi` and `random` give v7's results. A v8 block function gets only its inputs, so each matcher takes the request as its second argument: a `Request`, or `{ request, url, flags }`, where `url` is the page's URL when the request is a client-side navigation's server-function call, and `flags` is one array per request for the A/B decisions. `matcherContext()` stands for however the site reaches the request being served; the framework subpaths provide it. `always`, `never` and `date` are v8 built-ins, so they aren't here; v8's `date` names a campaign of the saved block `campaigns`, and the migration moves each v7 date window there.
+`device`, `cookie`, `host`, `pathname`, `queryString`, `location` and `multi` give v7's results. A v8 block function gets only its inputs, so each matcher takes the request as its second argument: a `Request`, or `{ request, url }`, where `url` is the page's URL when the request is a client-side navigation's server-function call. `matcherContext()` stands for however the site reaches the request being served; the framework subpaths provide it. `always`, `never` and `date` are v8 built-ins, so they aren't here; v8's `date` names a campaign of the saved block `campaigns`, and the migration moves each v7 date window there.
 
-- `random` is v7's sticky random (latest 7.x): a visitor keeps their group through the `deco_segment` cookie, and is drawn again once when the traffic share changes. The cookie is keyed on the test's **cohort, the saved matcher block's name**. A v8 block doesn't know its own name, so the block carries it in `cohort`; a random rule written inline uses `website/matchers/random.ts`, as v7 did. Keep the cohort when changing the traffic share: renaming it puts every visitor in a new test. The v7 → v8 migration doesn't register it: it reports each random matcher, to be moved into the saved block `experiments` (type `split-traffic`) under the same name, so visitors keep their groups, and the binding owns `deco_segment`. Don't run both on one site: two writers of the cookie undo each other's decisions.
-- After the page resolved, `segmentSetCookie(request, flags)` gives the `Set-Cookie` to send, or `null` when the visitor's cookie already says the same. `decideRandom` returns a decision with that cookie. Don't cache a response that sets it for other visitors.
-- `multi` gets its rules' results: v8 resolves them first. An inner `random` is sticky here; v7 drew it again on every request.
+- v7's `random` isn't here, nor its `deco_segment` cookie: v8 neither reads nor writes that cookie. Move each v7 random test into the saved block `experiments` (type `split-traffic`, a whole percentage per test) and write its rules as `{ "__resolveType": "experiment", "name": "<test>" }`; the binding hands the visitor to the client. Visitors are drawn again on v8.
+- `multi` gets its rules' results: v8 resolves them first.
 - `environment` throws: it read the process environment, which no v8 package does. Register your own matcher under its name.
 - `location` reads the `cf-*` headers, then the Workers `request.cf`, then the `__cf_geo_*` cookies, as v7 did.
 
@@ -129,27 +127,21 @@ Each file is v7's, formatting aside, and tests run v7's file next to it. None us
 
 ```ts
 // the block map
-import { random, type RandomProps } from "@decocms/compat-v7/matchers";
+import { device, type DeviceProps } from "@decocms/compat-v7/matchers";
 import { matcherContext } from "@decocms/compat-v7/tanstack/server";
 
-"website/matchers/random.ts": (props: RandomProps) => random(props, matcherContext()),
+"website/matchers/device.ts": (props: DeviceProps) => device(props, matcherContext()),
 
 // the page's server function (it gets the page's href)
 const page = await openPage(data.href);  // resolves the page, so the matchers run
-commitSegmentCookie();                   // deco_segment, as v7's page route set it
 return { ...page, device: requestDevice() };
 
 // the page component
 import { DeviceProvider } from "@decocms/compat-v7/tanstack";
 <DeviceProvider value={page.device}>{sections}</DeviceProvider>
-
-// src/worker-entry.ts: the segment of the site's own page cache
-const segment = (request: Request) => ({ device: …, ...cohortSegment(request) });
 ```
 
-- `matcherContext(pageUrl?)` gives every matcher the request being served (TanStack Start's `getRequest()`), the page's URL and one `flags` array per request. On a client-side navigation the request is the server-function call, so pass the page's URL there, as v7 matched the page being navigated to; without it, that call throws.
-- `commitSegmentCookie()` sets `deco_segment` on the response with the decisions the matchers made, merged over the visitor's cookie: `deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`, v7's bytes. Nothing when the cookie already says the same. Call it in the server function, after the page resolved. A site's page cache never stores a response that sets it, as v7's worker didn't: keep `deco_segment` out of the cookies its cache strips and stores (the worker-entry recipe in `@decocms/tanstack`'s README stores no response that sets a cookie other than its `SAFE_COOKIES`).
-- `cohortSegment(request)` is v7's A/B split of the edge cache (`{ abf: <token> }` for a visitor in a test, `{}` otherwise), so each group keeps its own cached page and everyone else shares one.
+- `matcherContext(pageUrl?)` gives every matcher the request being served (TanStack Start's `getRequest()`) and the page's URL, one context per request and URL. On a client-side navigation the request is the server-function call, so pass the page's URL there, as v7 matched the page being navigated to; without it, that call throws.
 - `requestDevice()` is v7's `detectDevice` on the request's user agent: the class the worker-entry recipe's cache key uses by default. Return it with the page so the browser hydrates with the same value. `useDevice()` reads the provider; without one it reads the browser's user agent (`"desktop"` on the server), as v7 did.
 
 ### The A/B split with the legacy origin
@@ -187,12 +179,7 @@ return applyDraft(NextResponse.next({ request: { headers } }), decision);
 
 // the block map
 import { matcherContext } from "@decocms/compat-v7/nextjs/server";
-"website/matchers/random.ts": async (props: RandomProps) => random(props, await matcherContext()),
-
-// the page (a server component)
-import { SegmentCookie } from "@decocms/compat-v7/nextjs/server";
-const sections = await resolvePage(...);  // the matchers run here
-return <>{sections}<SegmentCookie nonce={nonce} /></>;
+"website/matchers/device.ts": async (props: DeviceProps) => device(props, await matcherContext()),
 
 // app/layout.tsx
 import { DeviceProvider } from "@decocms/compat-v7/nextjs";
@@ -200,8 +187,7 @@ import { DeviceProvider } from "@decocms/compat-v7/nextjs";
 ```
 
 - A server component sees the request's headers but not its URL, and the proxy may rewrite the path a page renders under. The proxy forwards the URL the visitor asked for on `x-deco-page-url` (replacing any copy from outside), and `matcherContext()` matches it; pass a URL to `matcherContext(url)` instead when the page knows it.
-- The decisions are kept per request with React's `cache`.
-- A server component can't set a cookie, and the proxy runs before the page decides. So `SegmentCookie` renders a one-line script that sets the same cookie v7's TanStack route sent (`deco_segment=<value>; Max-Age=31536000; Path=/; SameSite=Lax`), or nothing when the visitor's cookie already says the same. After a client-side navigation React renders the page itself and runs no script it renders, so an effect sets the same cookie then. Render it after the content resolved. A page that reads the request is dynamic, so Next never shares it between visitors; keep a CDN in front from caching it too. v7's Next.js binding never wrote this cookie: there, random drew again on every request.
+- The contexts are kept per request with React's `cache`.
 
 The device context is the same module for both frameworks: one `DeviceContext`.
 

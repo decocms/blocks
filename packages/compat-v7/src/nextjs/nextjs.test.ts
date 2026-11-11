@@ -1,39 +1,18 @@
 // @vitest-environment node
 /**
- * `@decocms/compat-v7/nextjs`, `/nextjs/server` and `/nextjs/proxy` against
- * v7's own code (latest 7.x, run by `__tests__/v7Page.ts`).
- *
- * v7's Next.js binding never wrote `deco_segment` (only its TanStack route
- * did), so the cookie is pinned to that route's: a page's sticky random
- * decisions, made through `matcherContext()`, and the cookie `SegmentCookie`'s
- * script writes in the browser, equal v7's decisions and the `Set-Cookie`
- * its `persistFlags` sent, attribute for attribute.
+ * `@decocms/compat-v7/nextjs`, `/nextjs/server` and `/nextjs/proxy`, the
+ * device against v7's own code (latest 7.x, run by `__tests__/v7Device.ts`).
  *
  * `next/headers`' `headers()` is replaced by each case's request headers, and
  * React's `cache` by one memo per case (in Next it is one per request).
  */
-import {
-  createElement,
-  type FunctionComponent,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { createElement, type FunctionComponent, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { rng } from "../__tests__/v7";
-import {
-  cookieHeader,
-  ourDecisions,
-  randomPage,
-  segmentValue,
-  v7DetectDevice,
-  v7Page,
-} from "../__tests__/v7Page";
-import { type MatcherContext, SEGMENT_COOKIE } from "../matchers/index.ts";
+import { describe, expect, it, vi } from "vitest";
+import { v7DetectDevice } from "../__tests__/v7Device";
 import * as client from "./index.ts";
 import { PAGE_URL_HEADER, pageUrlRequestHeaders } from "./proxy.ts";
-import { matcherContext, requestDevice, SegmentCookie, segmentCookieScript } from "./server.ts";
+import { matcherContext, requestDevice } from "./server.ts";
 
 /** A provider element with its child (`createElement`'s third argument, which the provider's props type can't see). */
 const provide = (provider: unknown, props: object, child: ReactNode) =>
@@ -61,79 +40,17 @@ function render(headers: HeadersInit = {}): void {
   request.memo = new Map();
 }
 
-/** The fuzz runs take seconds; a busy machine (the whole suite in parallel) needs room. */
-const FUZZ = { timeout: 120_000 };
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-/** What the browser's cookie jar receives when the script runs. */
-function runScript(element: ReactElement | null): string | null {
-  if (element === null) return null;
-  expect(isValidElement(element)).toBe(true);
-  const markup = renderToStaticMarkup(element);
-  const html = /^<script[^>]*>([\s\S]*)<\/script>$/.exec(markup)?.[1];
-  if (html === undefined) throw new Error(`not one script: ${markup}`);
-  const jar: string[] = [];
-  const document = {
-    set cookie(value: string) {
-      jar.push(value);
-    },
-  };
-  new Function("document", html)(document);
-  expect(jar).toHaveLength(1);
-  return jar[0] as string;
-}
-
-describe("the sticky random's cookie (latest 7.x), written by the page", () => {
-  it("decisions and the cookie match v7's over 5,000 seeded pages", FUZZ, async () => {
-    const r = rng(0x9e47);
-    const pageUrl = "https://loja.example/promo?x=1";
-    let cookies = 0;
-    let returning = 0;
-    for (let i = 0; i < 5_000; i++) {
-      const page = randomPage(r);
-
-      const visit = async (cookie: string | undefined) => {
-        const headers: Record<string, string> = cookie ? { cookie } : {};
-        const seed = Math.floor(r() * 2 ** 31);
-        const expected = v7Page(page, new Request(pageUrl, { headers }), pageUrl, [], seed);
-        // The proxy forwarded the page URL; the block map awaits matcherContext().
-        render({ ...headers, [PAGE_URL_HEADER]: pageUrl });
-        const inputs: MatcherContext[] = [];
-        for (const _ of page.rules) inputs.push(await matcherContext());
-        let n = 0;
-        const decisions = ourDecisions(page, () => inputs[n++]!, seed);
-        const written = runScript(SegmentCookie());
-        expect([i, decisions]).toEqual([i, expected.decisions]);
-        expect([i, written]).toEqual([i, expected.setCookies[0] ?? null]);
-        return written;
-      };
-
-      const cookie = r() < 0.7 ? `${SEGMENT_COOKIE}=${segmentValue(r)}` : cookieHeader(r);
-      const written = await visit(cookie);
-      if (written) cookies++;
-      if (written && r() < 0.3) {
-        expect([i, await visit(written.split(";")[0])]).toEqual([i, null]);
-        returning++;
-      }
-    }
-    expect(cookies).toBeGreaterThan(1_000);
-    expect(returning).toBeGreaterThan(300);
-  });
-
-  it("one flags array per request; the same context per page URL", async () => {
+describe("matcherContext reads the page URL the proxy forwarded", () => {
+  it("one request per render; the same context per page URL", async () => {
     render({ [PAGE_URL_HEADER]: "https://loja.example/a" });
     const a = await matcherContext();
     expect(await matcherContext()).toBe(a);
     expect(await matcherContext("https://loja.example/a")).toBe(a);
     const b = await matcherContext("https://loja.example/b");
     expect(b).not.toBe(a);
-    expect(b.flags).toBe(a.flags);
     expect(b.request).toBe(a.request);
     render({ [PAGE_URL_HEADER]: "https://loja.example/a" });
-    expect((await matcherContext()).flags).not.toBe(a.flags);
+    expect(await matcherContext()).not.toBe(a);
   });
 
   it("the request the matchers read carries the request's headers at the page URL", async () => {
@@ -148,19 +65,6 @@ describe("the sticky random's cookie (latest 7.x), written by the page", () => {
     render({});
     await expect(matcherContext()).rejects.toThrow(/pageUrlRequestHeaders/);
     expect((await matcherContext("https://loja.example/p")).url).toBe("https://loja.example/p");
-  });
-
-  it("SegmentCookie renders nothing when no matcher ran, and an inert script otherwise", async () => {
-    render({});
-    expect(SegmentCookie()).toBeNull();
-    const script = segmentCookieScript("deco_segment=</script><x>; Path=/");
-    expect(script).not.toContain("</script>");
-    const element = createElement("script", {
-      nonce: "n1",
-      dangerouslySetInnerHTML: { __html: script },
-    });
-    expect(runScript(element)).toBe("deco_segment=</script><x>; Path=/");
-    expect(renderToStaticMarkup(element)).toContain('nonce="n1"');
   });
 });
 
