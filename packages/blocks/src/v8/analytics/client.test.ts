@@ -113,6 +113,30 @@ describe("startAnalytics", () => {
     expect(events()[0][WIRE.exp]).toEqual({ "ab-sdk-test": "verde", "hero-copy": "on" });
   });
 
+  it("keeps the rendered arm over a stale deco_segment the deco module reads", async () => {
+    // A migrated visitor's v7 cookie: `hero-copy` on, `buy-button` off, never rewritten by v8.
+    const v7 = btoa(
+      encodeURIComponent(JSON.stringify({ active: ["hero-copy"], inactiveDrawn: ["buy-button"] })),
+    );
+    // biome-ignore lint/suspicious/noDocumentCookie: the deco module reads the raw cookie
+    document.cookie = `deco_segment=${v7}; path=/`;
+    try {
+      const api = await start({
+        experiments: { "hero-copy": false, "buy-button": true },
+        modules: ["deco", "click"],
+      });
+      document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      api!.flush();
+      expect(names()).toEqual(["$pageview", "experiment_click"]);
+      for (const event of events()) {
+        expect(event[WIRE.exp]).toEqual({ "hero-copy": "off", "buy-button": "on" });
+      }
+    } finally {
+      // biome-ignore lint/suspicious/noDocumentCookie: clears the cookie the test wrote
+      document.cookie = "deco_segment=; path=/; max-age=0";
+    }
+  });
+
   it("sends no exp without experiments, so other sites' events are unchanged", async () => {
     await start({ experiments: {} });
     expect(events()[0][WIRE.exp]).toBeUndefined();

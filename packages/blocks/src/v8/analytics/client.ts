@@ -134,6 +134,9 @@ export async function startAnalytics(
     if (typeof w.__dq.track !== "function") return null;
 
     for (const name of new Set(options.modules ?? [])) await MODULES[name]?.();
+    // A module may set a test of its own on load: `deco` reads v7's `deco_segment`, which a
+    // migrated visitor still carries and v8 never rewrites. The arm the page rendered wins.
+    for (const name of Object.keys(arms)) w.__dq.setExperiment?.(name, arms[name]);
     for (const r of queued) w.__dq.q?.push?.(r);
     return w.__dq;
   } catch {
