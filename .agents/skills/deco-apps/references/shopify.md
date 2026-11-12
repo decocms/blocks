@@ -51,9 +51,19 @@ const data = await shopify.storefront.query<ProductByHandleQuery, { handle: stri
 | Case | `codes` |
 |---|---|
 | HTTP error | `[]` |
-| GraphQL `errors` | each error's `extensions.code`, or `UNKNOWN`, deduplicated |
+| GraphQL `errors` | recognized `extensions.code` values, or `UNKNOWN`, deduplicated |
 | No `data` | `["MISSING_DATA"]` |
 | Body isn't JSON (an HTML error page) | `["INVALID_JSON"]` |
+| Invalid GraphQL envelope or non-object `data` | `["INVALID_RESPONSE"]` |
+
+HTTP failures use the shared fetch logs. HTTP-success GraphQL failures emit one
+sampled log before rejecting: internal, unknown and malformed responses are ERROR;
+throttling, access, inactive-shop and recognized query-validation failures are WARN.
+Messages, variables, tokens and arbitrary upstream codes are never included. Both
+levels follow the CMS's `errorSampleRate` and telemetry enable switch.
+
+Mutation `userErrors`, `customerUserErrors` and cart warnings inside `data` are
+returned unchanged and do not emit a log. Sites own their validation and UX.
 
 A response with both `data` and `errors` is rejected as a whole. The client doesn't
 guess which fields are still trustworthy. If a query can partly fail and you still want

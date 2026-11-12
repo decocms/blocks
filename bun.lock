@@ -162,7 +162,7 @@
         "@decocms/blocks": "workspace:*",
       },
       "peerDependencies": {
-        "@decocms/blocks": "^8.4.0",
+        "@decocms/blocks": "^8.20.1",
       },
     },
     "packages/apps-vtex": {

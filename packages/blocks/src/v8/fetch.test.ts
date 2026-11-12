@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetForTests } from "./cms";
-import { createInstrumentedFetch } from "./fetch";
+import { createInstrumentedFetch, reportUpstreamError } from "./fetch";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry";
 
 /** A stand-in pipeline recording what the fetch reports. */
@@ -436,5 +436,77 @@ describe("upstream response logs through the real telemetry exporter", () => {
     ]) {
       expect(encoded).not.toContain(sensitive);
     }
+  });
+
+  it("exports protocol failures through the same sampled pipeline, without sending a request", async () => {
+    reportUpstreamError({
+      provider: "shopify",
+      operation: "Cart",
+      code: "INTERNAL_SERVER_ERROR",
+      status: 200,
+    });
+    reportUpstreamError({
+      provider: "shopify",
+      operation: "Cart",
+      code: "THROTTLED",
+      severity: "warn",
+    });
+    await pipeline.flush();
+
+    expect(server.calls).toEqual([]);
+    const logs = exportedLogs(server);
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toMatchObject({
+      severityNumber: 17,
+      severityText: "ERROR",
+      body: { stringValue: "shopify Cart failed (INTERNAL_SERVER_ERROR)" },
+    });
+    expect(logAttributes(logs[0]!)).toEqual({
+      "error.code": "INTERNAL_SERVER_ERROR",
+      provider: "shopify",
+      operation: "Cart",
+      "http.response.status_code": 200,
+    });
+    expect(logs[1]).toMatchObject({
+      severityNumber: 13,
+      severityText: "WARN",
+      body: { stringValue: "shopify Cart failed (THROTTLED)" },
+    });
+    expect(logAttributes(logs[1]!)).toEqual({
+      "error.code": "THROTTLED",
+      provider: "shopify",
+      operation: "Cart",
+    });
+  });
+
+  it.each([
+    { enabled: false, errorSampleRate: 1 },
+    { enabled: true, errorSampleRate: 0 },
+  ])("applies current CMS settings to HTTP and protocol failures alike: %j", async (settings) => {
+    pipeline.apply({ ...settings, metrics: false, traceSampleRate: 0 });
+    server.statuses.push(503);
+    const request = createInstrumentedFetch({ provider: "shopify" });
+    expect((await request(`${server.origin}/upstream`)).status).toBe(503);
+    reportUpstreamError({ provider: "shopify", operation: "Cart", code: "INVALID_JSON" });
+    reportUpstreamError({
+      provider: "shopify",
+      operation: "Cart",
+      code: "THROTTLED",
+      severity: "warn",
+    });
+    await pipeline.flush();
+    expect(exportedLogs(server)).toEqual([]);
+  });
+
+  it("looks up telemetry when a protocol failure occurs, and is a no-op without a destination", async () => {
+    setCurrentTelemetry(undefined);
+    expect(() =>
+      reportUpstreamError({ provider: "shopify", operation: "Cart", code: "MISSING_DATA" }),
+    ).not.toThrow();
+    setCurrentTelemetry(pipeline);
+    reportUpstreamError({ provider: "shopify", operation: "Cart", code: "MISSING_DATA" });
+    await pipeline.flush();
+    expect(exportedLogs(server)).toHaveLength(1);
+    expect(server.calls).toEqual([]);
   });
 });

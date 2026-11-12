@@ -256,7 +256,10 @@ describe("the ./metrics subpath", () => {
       default: "./dist/v8/metrics.js",
     });
     expect(Object.keys(await import("./metrics.ts"))).toEqual(["recordServerRequest"]);
-    expect(Object.keys(await import("./fetch.ts"))).toEqual(["createInstrumentedFetch"]);
+    expect(Object.keys(await import("./fetch.ts"))).toEqual([
+      "createInstrumentedFetch",
+      "reportUpstreamError",
+    ]);
     const root = (await import("../index.ts")) as Record<string, unknown>;
     expect(root.recordServerRequest).toBeUndefined();
   });

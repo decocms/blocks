@@ -181,7 +181,7 @@ describe("AR-02 fetch and analytics live on their own subpaths; there's no secre
   });
 
   it("each subpath exports exactly the documented runtime names", () => {
-    expect(Object.keys(fetchModule)).toEqual(["createInstrumentedFetch"]);
+    expect(Object.keys(fetchModule)).toEqual(["createInstrumentedFetch", "reportUpstreamError"]);
     expect(Object.keys(analyticsModule).sort()).toEqual(["AnalyticsScript", "track"]);
   });
 
@@ -195,6 +195,7 @@ describe("AR-02 fetch and analytics live on their own subpaths; there's no secre
   it("the root doesn't re-export them", () => {
     const r = root as Record<string, unknown>;
     expect(r.createInstrumentedFetch).toBeUndefined();
+    expect(r.reportUpstreamError).toBeUndefined();
     expect(r.track).toBeUndefined();
     expect(r.AnalyticsScript).toBeUndefined();
     expect(r.encryptSecret).toBeUndefined();

@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 
 function findRepoRoot(): string {
@@ -75,7 +76,7 @@ const PEER: Record<string, string> = {
   "apps-magento": "^8.4.0",
   "apps-resend": "^8.4.0",
   "apps-sfmc-personalization": "^8.4.0",
-  "apps-shopify": "^8.4.0",
+  "apps-shopify": "^8.20.1",
   "apps-vtex": "^8.4.0",
   "apps-wake": "^8.4.0",
 };
@@ -84,6 +85,29 @@ const BLOCKS_API_SINCE: Record<string, string> = {
   "@decocms/blocks/experiments": "8.6.0",
   "@decocms/blocks/metrics": "8.5.0",
 };
+/** New exports on an existing subpath only raise their callers' peer floor. */
+const BLOCKS_SYMBOL_SINCE = [
+  { subpath: "@decocms/blocks/fetch", symbol: "reportUpstreamError", since: "8.20.1" },
+];
+
+function importsSymbol(code: string, subpath: string, symbol: string): boolean {
+  const source = ts.createSourceFile("source.ts", code, ts.ScriptTarget.Latest);
+  return source.statements.some((node) => {
+    if (
+      !ts.isImportDeclaration(node) ||
+      !ts.isStringLiteral(node.moduleSpecifier) ||
+      node.moduleSpecifier.text !== subpath
+    ) {
+      return false;
+    }
+    const bindings = node.importClause?.namedBindings;
+    return (
+      bindings !== undefined &&
+      ts.isNamedImports(bindings) &&
+      bindings.elements.some((binding) => (binding.propertyName ?? binding.name).text === symbol)
+    );
+  });
+}
 
 const semver = (v: string): number[] => v.replace(/^\^/, "").split(".").map(Number);
 const compare = (a: string, b: string): number => {
@@ -151,7 +175,31 @@ describe("release: dependency ranges", () => {
         if (!new RegExp(`["']${subpath}["']`).test(code)) continue;
         expect([file, subpath, compare(floor, since) >= 0]).toEqual([file, subpath, true]);
       }
+      for (const { subpath, symbol, since } of BLOCKS_SYMBOL_SINCE) {
+        if (!importsSymbol(code, subpath, symbol)) continue;
+        expect([file, subpath, symbol, compare(floor, since) >= 0]).toEqual([
+          file,
+          subpath,
+          symbol,
+          true,
+        ]);
+      }
     }
+  });
+
+  it("checks Shopify's new reporter without raising the floor for existing fetch callers", () => {
+    const { subpath, symbol } = BLOCKS_SYMBOL_SINCE[0];
+    expect(
+      sourcesOf("apps-shopify").some((file) =>
+        importsSymbol(readFileSync(file, "utf8"), subpath, symbol),
+      ),
+    ).toBe(true);
+    expect(
+      importsSymbol(`import { ${symbol} as report } from "${subpath}";`, subpath, symbol),
+    ).toBe(true);
+    expect(
+      importsSymbol(`import { createInstrumentedFetch } from "${subpath}";`, subpath, symbol),
+    ).toBe(false);
   });
 
   it.each([
@@ -357,28 +405,39 @@ describe("scripts/sync-versions.mjs", () => {
       encoding: "utf8",
     });
 
-  it("writes 8.6.0 everywhere, keeps the peer ranges and leaves no workspace: range", () => {
+  it("writes 8.20.1 everywhere, keeps the peer ranges and leaves no workspace: range", () => {
     const root = copyManifests();
-    const r = sync(root, "8.6.0");
+    const r = sync(root, "8.20.1");
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
     for (const dir of packageDirs) {
       const m = readManifest(dir, root);
-      expect(m.version).toBe("8.6.0");
+      expect(m.version).toBe("8.20.1");
       expect(JSON.stringify(m)).not.toContain("workspace:");
       if (dir !== "blocks") {
         expect(m.peerDependencies?.[BLOCKS]).toBe(PEER[dir]);
-        expect(m.devDependencies?.[BLOCKS]).toBe("8.6.0");
+        expect(m.devDependencies?.[BLOCKS]).toBe("8.20.1");
       }
     }
   });
 
   it("keeps each peer floor on a later lockstep release", () => {
     const root = copyManifests();
-    expect(sync(root, "8.6.1").status).toBe(0);
+    expect(sync(root, "8.20.2").status).toBe(0);
     for (const dir of Object.keys(PEER)) {
       expect(readManifest(dir, root).peerDependencies?.[BLOCKS]).toBe(PEER[dir]);
     }
+  });
+
+  it("refuses a release before the Shopify reporter exists, without raising other clients' floors", () => {
+    const root = copyManifests();
+    const r = sync(root, "8.20.0");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('apps-shopify: peer @decocms/blocks "^8.20.1"');
+    for (const dir of Object.keys(PEER).filter((dir) => dir !== "apps-shopify")) {
+      expect(r.stderr).not.toContain(`${dir}:`);
+    }
+    expect(readManifest("blocks", root).version).toBe("0.0.0");
   });
 
   it.each([
@@ -415,7 +474,7 @@ describe("scripts/sync-versions.mjs", () => {
     const m = readManifest("apps-vtex", root);
     m.dependencies = { [BLOCKS]: "workspace:*" };
     writeFileSync(path, JSON.stringify(m));
-    const r = sync(root, "8.6.0");
+    const r = sync(root, "8.20.1");
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("apps-vtex: @decocms/blocks must be a peer dependency");
   });
