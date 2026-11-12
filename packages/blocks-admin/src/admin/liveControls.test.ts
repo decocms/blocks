@@ -37,9 +37,19 @@ describe("LIVE_CONTROLS_SCRIPT editor::inject", () => {
     "https://attacker--site.deco.host",
     "https://evil.example.com",
     "https://deco.cx.evil.example.com",
+    "https://user-sandbox.preview.decocms.com",
+    "https://anything.deco.cx",
     "http://admin.deco.cx",
+    "http://localhost:3000",
     "null",
   ])("ignores a script sent by %s", (origin) => {
     expect(injectFrom(origin)).toBe(false);
+  });
+
+  it("on a local dev page, trusts a locally run Studio or admin", () => {
+    const injectLocal = bootOn("http://localhost:8000");
+    expect(injectLocal("http://localhost:3000")).toBe(true);
+    expect(injectLocal("http://127.0.0.1:4200")).toBe(true);
+    expect(injectLocal("https://attacker--site.deco.host")).toBe(false);
   });
 });
