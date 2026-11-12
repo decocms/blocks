@@ -37,7 +37,7 @@ describe("LIVE_CONTROLS_SCRIPT editor::inject", () => {
     "https://attacker--site.deco.host",
     "https://evil.example.com",
     "https://deco.cx.evil.example.com",
-    "https://user-sandbox.preview.decocms.com",
+    "https://user-sandbox.preview-studio.decocms.com",
     "https://anything.deco.cx",
     "http://admin.deco.cx",
     "http://localhost:3000",
