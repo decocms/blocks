@@ -2,7 +2,7 @@
 
 Supersedes `GAP_ANALYSIS.md` and `GAP_ANALYSIS_V2.md` (both removed — see git history if you need the full original audits, dated March 2026). Those two documents tracked capability gaps between this framework and the original `deco-cx/deco`; the overwhelming majority of tracked items are now shipped. This file keeps only what's still genuinely open, plus the architectural-rationale table that's still useful context.
 
-**A caution about this list itself:** while extracting it, at least four items the source docs marked "remaining"/"still missing" turned out to already be resolved in the current codebase (RequestContext via AsyncLocalStorage, `LazySection` intersection-observer lazy loading, the decofile hot-reload endpoint's auth-token check, and composable `BlockSource`/`KVBlockSource` decofile providers) — plus a fifth, the dev daemon/tunnel, which the old doc called "deferred" but which now ships as `@decocms/tanstack/daemon`. So treat the items below as a **starting point for verification**, not a guaranteed-accurate open-items list. If you're about to build one of these, grep for it first.
+**A caution about this list itself:** while extracting it, at least four items the source docs marked "remaining"/"still missing" turned out to already be resolved in the current codebase (RequestContext via AsyncLocalStorage, `LazySection` intersection-observer lazy loading, the decofile hot-reload endpoint's auth-token check, and composable `BlockSource`/`KVBlockSource` decofile providers). So treat the items below as a **starting point for verification**, not a guaranteed-accurate open-items list. If you're about to build one of these, grep for it first.
 
 ## Still open (as of this doc's writing)
 
