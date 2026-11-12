@@ -48,8 +48,8 @@ export interface AnalyticsClientOptions {
    * decided, `requestAssignments(request)?.experiments`). Every event then carries each test's
    * arm, `on` or `off`, in `exp`, the first page view included, and the collector stores it as
    * it stores any `exp`. Passing the decision rather than an id keeps what is measured equal to
-   * what was shown, v7's kept decisions, a cached page and a release change included. Leave it
-   * unset on a preview, whose switched tests are no visitor's.
+   * what was shown, a preview's switched tests and a release change included. Leave it unset
+   * on a preview, whose switched tests are no visitor's.
    */
   experiments?: Readonly<Record<string, boolean>>;
 }
