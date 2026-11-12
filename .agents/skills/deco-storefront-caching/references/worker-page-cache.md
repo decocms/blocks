@@ -41,7 +41,7 @@ You do not write these. Do not add a second copy of them in `pageCache`.
 | Previews | Always render. Answer `Cache-Control: max-age=0, no-cache, must-revalidate`, `Vary: Cookie`, `noindex`, and `CDN-Cache-Control: no-store`. |
 | `Authorization` | The page renders and answers `private, no-cache, no-store, must-revalidate`, whatever the app set. |
 | Default CDN header | Any response without `CDN-Cache-Control` leaves with `CDN-Cache-Control: no-store`. |
-| Visitor cookie | `deco_segment` is set on a first visit only, and appended after `pageCache` answers. A stored copy never carries it; a visitor served from the cache still gets theirs. |
+| Visitor cookie | `deco_vid` is set on a first visit only, and appended after `pageCache` answers. A stored copy never carries it; a visitor served from the cache still gets theirs. |
 | `Set-Cookie` | One header per cookie (name + Domain + Path). |
 | Fingerprinted assets | `public, max-age=31536000, immutable`, `Vary: Accept-Encoding`. Also under `/fonts/`. |
 | CMS redirects | Answered before your `routes` and before `pageCache`. See `egress-traps.md`. |

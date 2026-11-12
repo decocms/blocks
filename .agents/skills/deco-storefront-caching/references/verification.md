@@ -27,7 +27,7 @@ done
 ```
 
 Expect on the second request: `x-cache: HIT`, the profile you meant, `x-cache-version:
-<build>.<revision>`, `vary: Accept-Encoding`, no `set-cookie` other than `deco_segment` on a first
+<build>.<revision>`, `vary: Accept-Encoding`, no `set-cookie` other than `deco_vid` on a first
 visit (and the cookies in your `SAFE_COOKIES`, if a render set one). A `BYPASS` comes with `x-cache-reason`; `egress-traps.md` maps each reason to a cause.
 
 After a deploy or a publish, `x-cache-version` changes and the first request is a `MISS` again.

@@ -37,7 +37,7 @@ the spec follows a TTL change instead of failing on it.
 | Returning visitor | A cart or checkout cookie alone does not make the page private |
 | Tracking params | `utm_*`, `gclid`, `fbclid`: 200, no `location`, same `x-cache-segment`, HIT once warm |
 | No poisoning | A value sent in `gclid` never appears in the clean URL's HTML |
-| No cookies on cached pages | A public page answers no `set-cookie` except `deco_segment` on a first visit |
+| No cookies on cached pages | A public page answers no `set-cookie` except `deco_vid` on a first visit |
 | Payload | Raw HTML under a budget; a marker of heavy data (a schema.org type you trim) under a count |
 | Assets | A fingerprinted asset is `public, max-age=31536000, immutable` |
 | CLS | Home and a listing under 0.1 on desktop and mobile |

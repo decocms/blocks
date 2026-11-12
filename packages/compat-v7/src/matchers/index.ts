@@ -9,9 +9,9 @@
  * ```
  *
  * where `matcherContext()` is the site's way to reach the request being
- * served, with one `flags` array per request (the framework subpaths provide
- * it). `random` is sticky (latest 7.x): see `./random.ts` for the cohort
- * contract and the cookie.
+ * served (the framework subpaths provide it). v7's `random` isn't here: a v7
+ * A/B test moves into the saved block `experiments` (type `split-traffic`),
+ * its rules becoming `{ "__resolveType": "experiment", "name": … }`.
  */
 export {
   type CookieProps,
@@ -33,20 +33,3 @@ export {
 } from "./builtins.ts";
 export { type MatcherContext, type MatcherInput, parseCookies } from "./context.ts";
 export { COUNTRY_NAME_TO_CODE, resolveCountryCode } from "./countryNames.ts";
-export {
-  decideRandom,
-  INLINE_COHORT,
-  type RandomDecision,
-  type RandomProps,
-  random,
-} from "./random.ts";
-export {
-  parseSegmentCookie,
-  SEGMENT_COOKIE,
-  SEGMENT_COOKIE_MAX_AGE,
-  type StoredFlag,
-  segmentCacheToken,
-  segmentSetCookie,
-  serializeSegmentCookie,
-  trafficToPct,
-} from "./segment.ts";

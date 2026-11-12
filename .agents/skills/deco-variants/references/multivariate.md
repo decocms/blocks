@@ -37,7 +37,7 @@ What follows from that:
 
 - **Order is the logic.** Narrow rules first, `always` last. A `never` rule is how the editor hides a variant.
 - **No fallback, no value.** Without an `always` at the end, a visitor that matches nothing gets `undefined`. Sometimes that is the goal ("desktop only"), often it is a bug.
-- **Later rules have no side effects.** A rule after the winner never runs. With v7's sticky `random`, that means no draw and no cookie for that test on this request, as in v7.
+- **Later rules have no side effects.** A rule after the winner never runs.
 - **Rules run in sequence, not in parallel.** Each async rule waits for the one before it. A slow rule early in the list delays the whole slot. The built-in `experiment` and `campaign` read a saved block once per client, however many rules ask.
 - **Results are memoized per request.** The resolver keeps one result per block function and inputs for the life of a client, so two identical rules on one page run once. Treat results as read-only.
 - **A rule that throws fails the block** with `BLOCK_FAILED`. v7's matchers from `@decocms/compat-v7/matchers` catch their own errors and answer `false`, as v7 did. A site's own rule should do the same if a failure should mean "no match" (see [`custom-matchers.md`](./custom-matchers.md)).

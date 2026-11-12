@@ -10,7 +10,7 @@ fresh.
 | Step | Function (`@decocms/nextjs/proxy`) | Result |
 |---|---|---|
 | Version | `decideDraft(proxyCms, request)` | A Studio link's draft or old release on an allowed host, its preview moment (`__at`) and switched tests and campaigns (`__test`, `__campaign`), the cookie to set |
-| Visitor | `decideVisitor(request, draft)` | The `deco_segment` cookie, or a new visitor. Its cookie is sent on a first visit only, never when the request renders a draft or an old release |
+| Visitor | `decideVisitor(request, draft)` | The `deco_vid` cookie, or a new visitor. Its cookie is sent on a first visit only, never when the request renders a draft or an old release |
 | Tests and campaigns | `decideAssignments(proxyCms, draft, visitor)` | Each test of the saved `experiments` block on or off, each campaign of the saved `campaigns` block running or not. Missing blocks give none, never an error |
 
 It forwards them to the page on request headers, always removing copies sent

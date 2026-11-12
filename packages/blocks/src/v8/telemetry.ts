@@ -10,7 +10,7 @@
  *   settings (`cms.settings()`, the release's `CMS` block); a rate it doesn't
  *   save is code's `telemetry.defaults`, else the built-in 0.05 and 0. The CMS reads it outside any request, when the
  *   release changes and then at most once a minute.
- * - Metrics are aggregated in memory (delta histograms); error logs and traces
+ * - Metrics are aggregated in memory (delta histograms); failure logs and traces
  *   are sampled. Batches leave in the background (after the response on
  *   Workers, on an unref'd timer elsewhere); a send that fails is retried
  *   once on 429/502/503/504 and otherwise dropped.
@@ -99,6 +99,7 @@ interface Histogram {
 
 interface LogRecord {
   time: number;
+  severity: "ERROR" | "WARN";
   message: string;
   attributes: Attributes;
 }
@@ -197,9 +198,28 @@ export class TelemetryPipeline {
 
   /** An error log, kept at the error sample rate. */
   error(message: string, attributes: Attributes): void {
+    this.#recordLog("ERROR", message, attributes);
+  }
+
+  /** A warning log, kept at the same sample rate as errors. */
+  warn(message: string, attributes: Attributes): void {
+    this.#recordLog("WARN", message, attributes);
+  }
+
+  #recordLog(severity: LogRecord["severity"], message: string, attributes: Attributes): void {
     if (!this.#settings.enabled || Math.random() >= this.#settings.errorSampleRate) return;
-    if (this.#logs.length >= MAX_LOGS) return;
-    this.#logs.push({ time: Date.now(), message, attributes });
+    if (this.#logs.length >= MAX_LOGS) {
+      const warningIndex =
+        severity === "ERROR" ? this.#logs.findIndex((log) => log.severity === "WARN") : -1;
+      if (warningIndex === -1) {
+        // An early host hook may have left this full batch waiting for the
+        // next request. Dropping a new log must not strand the retained ones.
+        this.#schedule();
+        return;
+      }
+      this.#logs.splice(warningIndex, 1);
+    }
+    this.#logs.push({ time: Date.now(), severity, message, attributes });
     this.#schedule();
   }
 
@@ -319,8 +339,8 @@ export class TelemetryPipeline {
                   scope,
                   logRecords: logs.map((log) => ({
                     timeUnixNano: nanos(log.time),
-                    severityNumber: 17,
-                    severityText: "ERROR",
+                    severityNumber: log.severity === "ERROR" ? 17 : 13,
+                    severityText: log.severity,
                     body: { stringValue: scrubText(log.message) },
                     attributes: encode(log.attributes),
                   })),

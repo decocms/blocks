@@ -81,11 +81,11 @@ try {
   const token = body.match(/window\.__DECO_CSEG="([0-9a-f]{8})"/)?.[1];
   check("the document publishes its CDN segment token", Boolean(token), "no __DECO_CSEG");
   check("data-theme=light", body.includes('data-theme="light"'));
-  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+  const visitorCookies = (res) => res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="));
   const [visitorCookie, ...moreVisitorCookies] = visitorCookies(first);
   check(
     "a first visit gets the visitor's cookie, once",
-    /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
+    /^deco_vid=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax/.test(visitorCookie ?? "") &&
       moreVisitorCookies.length === 0,
     first.headers.getSetCookie().join(" | "),
   );

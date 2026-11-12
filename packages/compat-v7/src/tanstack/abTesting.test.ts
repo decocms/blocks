@@ -294,7 +294,7 @@ function configOf(c: Case): ABTestConfig {
 }
 
 /** A visitor who has been here before (the worker sends their cookie only on a first visit). */
-const RETURNING = `deco_segment=${serializeVisitor(newVisitor())}`;
+const RETURNING = `deco_vid=${serializeVisitor(newVisitor())}`;
 
 describe("abTestingRoutes is v7's withABTesting", () => {
   it(

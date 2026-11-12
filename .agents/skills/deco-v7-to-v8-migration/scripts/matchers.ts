@@ -1,12 +1,11 @@
 /**
  * v7's website matchers in the block map. `@decocms/compat-v7/matchers` has
  * each one with v7's results, taking the request explicitly; the binding's
- * compat subpath gives that request (`matcherContext()`, with one A/B
- * decision list per request). The block map registers each matcher the
- * content uses under its v7 name. v7's random matcher isn't one of them, so
- * the binding is the only writer of the visitor's `deco_segment`: its tests
- * move by hand into the saved block `experiments`, as do date windows into
- * `campaigns` (the content step reports both, ./experiments.ts).
+ * compat subpath gives that request (`matcherContext()`). The block map
+ * registers each matcher the content uses under its v7 name. v7's random
+ * matcher isn't one of them (compat-v7 has none): its tests move by hand into
+ * the saved block `experiments`, read by the `experiment` rule, as do date
+ * windows into `campaigns` (the content step reports both, ./experiments.ts).
  */
 import type { Framework } from "./framework";
 

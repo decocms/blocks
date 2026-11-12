@@ -30,7 +30,7 @@ const DURING = "2026-11-28T12:00:00Z";
 const BEFORE = "2026-11-20T12:00:00Z";
 
 /** `hero-copy` rolls 0.93 for this visitor (pinned in experiments.test.ts): in at 50%. */
-const LOW: Visitor = { id: "Zm9vYmFyYmF6cXV4MTIzNA", active: [], inactiveDrawn: [], pct: {} };
+const LOW: Visitor = { id: "Zm9vYmFyYmF6cXV4MTIzNA" };
 
 /** A banner that says "Sale" while `campaign` runs, "Regular" otherwise. */
 const banner = (rule: unknown) => ({

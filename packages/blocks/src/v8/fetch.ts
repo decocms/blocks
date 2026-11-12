@@ -6,8 +6,9 @@
  * (`http.client.request.duration`), with `provider`, `operation`,
  * `status_class`, `cached` and `retries` labels, however many retries it
  * took. Measurements go to the CMS in the same process, and nowhere when it
- * has no telemetry destination. Nothing about a request's body, headers or
- * query string is recorded.
+ * has no telemetry destination. Final 5xx responses emit sampled error logs;
+ * actionable 4xx responses emit sampled warnings. Recovered attempts emit no
+ * response log. Nothing about a request's body, headers or query is recorded.
  */
 import { currentTelemetry, describe, newTraceId } from "./telemetry.ts";
 
@@ -33,6 +34,11 @@ type InstrumentedFetch = (
 
 /** Statuses worth retrying: rate limits and gateway errors. */
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
+/**
+ * Final client failures worth investigating. Misses, conflicts and auth
+ * responses can be normal application results, so they stay quiet.
+ */
+const WARNING_STATUSES = new Set([400, 405, 408, 422, 429]);
 /** Only requests that are safe to repeat are retried. */
 const IDEMPOTENT = new Set(["GET", "HEAD", "OPTIONS", "PUT", "DELETE"]);
 
@@ -108,6 +114,25 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
           provider,
           operation,
         });
+      } else {
+        const status = response.status;
+        const level =
+          status >= 500 && status < 600
+            ? "error"
+            : WARNING_STATUSES.has(status)
+              ? "warn"
+              : undefined;
+        if (level !== undefined) {
+          telemetry[level](`${provider} ${operation} failed with HTTP ${status}`, {
+            "error.code": level === "error" ? "FETCH_HTTP_ERROR" : "FETCH_HTTP_WARNING",
+            provider,
+            operation,
+            "http.request.method": method,
+            "http.response.status_code": status,
+            retries,
+            cached: labels.cached,
+          });
+        }
       }
       if (telemetry.sampleTrace()) {
         telemetry.span({

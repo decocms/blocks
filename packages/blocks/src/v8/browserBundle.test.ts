@@ -125,12 +125,9 @@ describe("v8 core bundle", () => {
         assignments,
       );
       const mod = (assignments as unknown as { E: typeof import("./experiments.ts") }).E;
-      expect(
-        mod.assign(
-          { "pdp-cta": 50 },
-          { active: [], inactiveDrawn: [], pct: {}, id: vectors[0][1] },
-        ),
-      ).toMatchObject({ "pdp-cta": false }); // roll 84.57, out at 50
+      expect(mod.assign({ "pdp-cta": 50 }, { id: vectors[0][1] })).toMatchObject({
+        "pdp-cta": false,
+      }); // roll 84.57, out at 50
     }
   });
 

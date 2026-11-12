@@ -1,9 +1,8 @@
 /**
  * Test-only. v7's own code, the reference every helper here is pinned
  * against: `src/__fixtures__/v7/` holds the files verbatim from `7.x`
- * (`packages/blocks/src/<same path>`, at the commit below; `tanstack/<path>`
- * is `packages/tanstack/src/<path>`), and their hashes are pinned so an edit
- * to a reference fails `fixtures.test.ts` instead of silently moving the
+ * (`packages/blocks/src/<same path>`, at the commit below), and their hashes
+ * are pinned so an edit to a reference fails `fixtures.test.ts` instead of silently moving the
  * goalposts. To refresh after a 7.x change:
  * `git show origin/7.x:packages/blocks/src/<path> > src/__fixtures__/v7/<path>`
  * and update the hash and the commit.
@@ -12,16 +11,13 @@
  * `@decocms/apps-commerce`, which shipped its source), the same bytes at the
  * commit below and at `d586d6f0`, the 7.x head when `/commerce` was ported.
  *
- * `tanstack/sdk/workerEntry.ts` is from `d586d6f0` (7.x head; its cookie
- * reading is the same as at the commit below).
- *
  * `v7.77.12/<path>` is the same file at `@decocms/blocks` 7.77.12 (`44952cbe`),
  * the last release before 7.x#648: its section runner ran the loaders of
  * the sections a section held directly in a prop or a list prop, and of no
  * section nested deeper (`runSectionLoaders`' `nested: "direct"`).
  *
  * `vendor/h3-cookie.js` is the cookie code v7's TanStack route ran through
- * `getCookies()`/`setCookie()`: lines 1236–1335 of `h3-v2` (npm `h3`
+ * `getCookies()`: lines 1236–1335 of `h3-v2` (npm `h3`
  * 2.0.1-rc.16, the version `@tanstack/start-server-core` 1.166 pinned for v7
  * sites) `dist/h3-ByfIX5Jk.mjs`, verbatim, plus one `export` line.
  */
@@ -63,10 +59,8 @@ export const V7_FILES: Record<string, string> = {
   "sdk/experiments.ts": "0ae6d947a43c812a87be50df3906c9bb98d536cb4fc44c2dda7e6f04c89c3e87",
   "sdk/flags.ts": "cb73a16f0d7522cdd2e3cae051900c921badede4c96eda0a1b5487b540c3240e",
   "sdk/useScript.ts": "fe32f4a89897730a1c5ee2f20aa1894c05943ff2e14da7af400f397b4476fe58",
-  "tanstack/routes/cmsRoute.ts": "86c5f980fea9e36c0c3982f1129b883c74f9e906c5a278948b87623829d44bdb",
   "sdk/useDevice.ts": "56ff9a761ddc819f7249dc40317e92db6fe18bf4cbc0c567aad0e0965a3b69ab",
   "sdk/useDeviceContext.tsx": "bca5efa56a7012ea8e3c754b25c96ab6eb9cb0539ff120477f6b26cc435bd972",
-  "tanstack/sdk/workerEntry.ts": "3a5c5c6a017b9eefb7ba1e78e6d73e2bc962a21b2e21af090c188b78c75b826e",
   "types/index.ts": "e74120a518f1d6c7dd1e4db2499de67db081fb1d8077514806dc434b6f5e5ca5",
   "types/widgets.ts": "f45956ea4344b9267069518fa3e952810dc7d37d9f798b56c68e28527e84c752",
   "v7.77.12/cms/sectionLoaders.ts":

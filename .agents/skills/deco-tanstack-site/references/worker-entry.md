@@ -38,7 +38,7 @@ No option turns these off.
   release.
 - **The CMS redirects**, for `GET`/`HEAD` page requests, before anything else. Server-function
   calls, assets and `/_build` are not redirected.
-- **The visitor and the tests.** It reads the visitor (`deco_segment` cookie, or a new one) and
+- **The visitor and the tests.** It reads the visitor (`deco_vid` cookie, or a new one) and
   decides each test and campaign once, then hands them to the app on request headers it strips
   from incoming requests (below). The visitor cookie goes out on a first visit only, and never on a request that renders a draft
   or an old release.

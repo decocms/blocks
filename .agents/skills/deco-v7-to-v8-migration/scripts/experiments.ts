@@ -53,7 +53,7 @@ export function reportTestsAndDates(root: string, report: Report): void {
     report.manual.push({
       step: "content",
       subject: "A/B tests",
-      message: `v7's random matchers (in ${quoted([...tests].map((n) => files[n] ?? n))}) weren't moved: put each test in the saved block experiments (type split-traffic) under its saved-block name, so visitors keep their groups and results carry over, and point its rules at { "__resolveType": "experiment", "name": … } (Run an A/B test, ${RUN_AN_AB_TEST})`,
+      message: `v7's random matchers (in ${quoted([...tests].map((n) => files[n] ?? n))}) weren't moved: put each test in the saved block experiments (type split-traffic) under its saved-block name, so its results carry over (visitors are drawn again: v8 neither reads nor writes v7's deco_segment cookie, and @decocms/compat-v7 has no random matcher), and point its rules at { "__resolveType": "experiment", "name": … } (Run an A/B test, ${RUN_AN_AB_TEST})`,
     });
     reportAssignment(root, report);
   }
