@@ -42,6 +42,29 @@ export interface AnalyticsClientOptions {
   heatmapRate?: number;
   /** Errors module: cross-origin script hosts that count as the site's own. */
   errorHosts?: string[];
+  /**
+   * The visitor's A/B tests as the page rendered them: each test of the saved `experiments`
+   * block on or off, exactly the map that decided the page (on TanStack, what the worker
+   * decided, `requestAssignments(request)?.experiments`). Every event then carries each test's
+   * arm, `on` or `off`, in `exp`, the first page view included, and the collector stores it as
+   * it stores any `exp`. Passing the decision rather than an id keeps what is measured equal to
+   * what was shown, a preview's switched tests and a release change included. Leave it unset
+   * on a preview, whose switched tests are no visitor's.
+   */
+  experiments?: Readonly<Record<string, boolean>>;
+}
+
+/** The decided tests as the collector's `exp` values, `on` or `off`; non-boolean entries left out. */
+function armsOf(
+  experiments: Readonly<Record<string, boolean>> | undefined,
+): Record<string, string> {
+  const arms = Object.create(null) as Record<string, string>;
+  if (typeof experiments !== "object" || experiments === null) return arms;
+  for (const name of Object.keys(experiments)) {
+    const on = experiments[name];
+    if (typeof on === "boolean") arms[name] = on ? "on" : "off";
+  }
+  return arms;
 }
 
 /** One loader per file, so a bundler splits each module into its own chunk. */
@@ -73,7 +96,13 @@ export async function startAnalytics(
   if (typeof window === "undefined") return null;
   const w = window as unknown as Record<string, any>;
   try {
-    if (w.__dqBooted) return typeof w.__dq?.track === "function" ? w.__dq : null;
+    const arms = armsOf(options.experiments);
+    if (w.__dqBooted) {
+      // The tag booted first: its API is the client, so the arms go through it.
+      if (typeof w.__dq?.track !== "function") return null;
+      for (const name of Object.keys(arms)) w.__dq.setExperiment?.(name, arms[name]);
+      return w.__dq;
+    }
 
     // The same fields the collector writes ahead of `/_dq/a.js`, and the same precedence: what
     // the page already set on `window.__dq` wins. `q` is held back and replayed below, once
@@ -94,6 +123,9 @@ export async function startAnalytics(
         ...(options.errorHosts?.length ? { er: options.errorHosts } : {}),
       },
       page,
+      // The page's own map (another script's tests) is kept; on a name both carry, the arm the
+      // page rendered wins. Set before core boots, so the first page view carries it.
+      Object.keys(arms).length ? { x: { ...(page.x as object), ...arms } } : {},
       { q: [] },
     );
 
@@ -102,6 +134,9 @@ export async function startAnalytics(
     if (typeof w.__dq.track !== "function") return null;
 
     for (const name of new Set(options.modules ?? [])) await MODULES[name]?.();
+    // A module may set a test of its own on load: `deco` reads v7's `deco_segment`, which a
+    // migrated visitor still carries and v8 never rewrites. The arm the page rendered wins.
+    for (const name of Object.keys(arms)) w.__dq.setExperiment?.(name, arms[name]);
     for (const r of queued) w.__dq.q?.push?.(r);
     return w.__dq;
   } catch {
