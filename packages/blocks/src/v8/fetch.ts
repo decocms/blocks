@@ -152,6 +152,36 @@ export function createInstrumentedFetch(options: InstrumentedFetchOptions): Inst
   };
 }
 
+/**
+ * Report a provider failure found inside an otherwise successful HTTP response.
+ * The client owns its protocol's error handling; this only records a sampled
+ * log on the CMS's current telemetry pipeline. Do not also report HTTP failures:
+ * `createInstrumentedFetch` already records those.
+ *
+ * Pass static provider/operation identifiers and a curated code, never upstream
+ * error messages, arbitrary response codes, documents, variables or shopper data.
+ */
+export function reportUpstreamError({
+  provider,
+  operation,
+  code,
+  severity = "error",
+  status,
+}: {
+  provider: string;
+  operation: string;
+  code: string;
+  severity?: "error" | "warn";
+  status?: number;
+}): void {
+  currentTelemetry()?.[severity](`${provider} ${operation} failed (${code})`, {
+    "error.code": code,
+    provider,
+    operation,
+    ...(status === undefined ? {} : { "http.response.status_code": status }),
+  });
+}
+
 function isAbort(error: unknown): boolean {
   const name = (error as { name?: unknown } | null)?.name;
   return name === "AbortError" || name === "TimeoutError";

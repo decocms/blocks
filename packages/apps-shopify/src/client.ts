@@ -10,8 +10,33 @@
  * and the circuit breaker stay off, as for every client but VTEX's; caching
  * is the site's job.
  */
-import { createInstrumentedFetch } from "@decocms/blocks/fetch";
+import { createInstrumentedFetch, reportUpstreamError } from "@decocms/blocks/fetch";
 import { extractGraphqlOperationName } from "./graphqlOperationName.ts";
+
+// Shopify can return these failures with HTTP 200. Only fixed codes cross
+// the error/log boundary: upstream messages and arbitrary codes can contain
+// customer data. Unknown failures remain errors so they aren't hidden.
+const WARNING_CODES = new Set([
+  "THROTTLED",
+  "ACCESS_DENIED",
+  "SHOP_INACTIVE",
+  "MAX_COST_EXCEEDED",
+  "GRAPHQL_PARSE_FAILED",
+  "GRAPHQL_VALIDATION_FAILED",
+  "BAD_USER_INPUT",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorCode(error: unknown): string {
+  const extensions = isRecord(error) ? error.extensions : undefined;
+  const code = isRecord(extensions) ? extensions.code : undefined;
+  return typeof code === "string" && (code === "INTERNAL_SERVER_ERROR" || WARNING_CODES.has(code))
+    ? code
+    : "UNKNOWN";
+}
 
 export interface ShopifyClientConfig {
   /** The store's subdomain: "acme" for acme.myshopify.com. */
@@ -84,24 +109,35 @@ export function createShopifyClient(
           void response.body?.cancel().catch(() => {});
           throw new ShopifyError(operation, response.status);
         }
+        function reject(codes: string[]): never {
+          reportUpstreamError({
+            provider: "shopify",
+            operation,
+            status: response.status,
+            code: codes.join(","),
+            severity: codes.every((code) => WARNING_CODES.has(code)) ? "warn" : "error",
+          });
+          throw new ShopifyError(operation, response.status, codes);
+        }
+
         // A non-JSON body (an HTML error page) must not reach the error: the
         // SyntaxError's message quotes the start of the body.
-        let body: { data?: unknown; errors?: { extensions?: { code?: unknown } }[] };
+        let body: unknown;
         try {
           body = await response.json();
         } catch {
-          throw new ShopifyError(operation, response.status, ["INVALID_JSON"]);
+          reject(["INVALID_JSON"]);
+        }
+        if (!isRecord(body) || (body.errors != null && !Array.isArray(body.errors))) {
+          reject(["INVALID_RESPONSE"]);
         }
         // Partial data alongside errors is rejected as a whole, deliberately:
         // a thin client doesn't guess which fields are still trustworthy.
-        if (body.errors?.length || body.data == null) {
-          const codes = body.errors?.length
-            ? body.errors.map((e) =>
-                typeof e.extensions?.code === "string" ? e.extensions.code : "UNKNOWN",
-              )
-            : ["MISSING_DATA"];
-          throw new ShopifyError(operation, response.status, [...new Set(codes)]);
+        if (Array.isArray(body.errors) && body.errors.length > 0) {
+          reject([...new Set(body.errors.map(errorCode))]);
         }
+        if (body.data == null) reject(["MISSING_DATA"]);
+        if (!isRecord(body.data)) reject(["INVALID_RESPONSE"]);
         return body.data as never;
       },
     }) satisfies ShopifyGraphQL;

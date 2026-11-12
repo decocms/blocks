@@ -14,6 +14,7 @@ const seen = vi.hoisted(() => ({
 vi.mock("@decocms/blocks/fetch", async (importOriginal) => {
   const real = await importOriginal<typeof import("@decocms/blocks/fetch")>();
   return {
+    ...real,
     createInstrumentedFetch: (options: Parameters<typeof real.createInstrumentedFetch>[0]) => {
       seen.options.push(options);
       const request = real.createInstrumentedFetch(options);
