@@ -4,11 +4,13 @@
  * where it goes, what the Telemetry block and code's defaults set, the OTLP/HTTP
  * JSON wire format, background sending and scrubbing.
  */
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCMS, resetForTests } from "./cms";
 import { createInstrumentedFetch } from "./fetch";
-import { currentTelemetry, resolveDestination } from "./telemetry";
+import { currentTelemetry, resolveDestination, TelemetryPipeline } from "./telemetry";
 import { docsBlocks, docsSnapshot } from "./testFixtures";
 import type { Snapshot, TelemetryConfig } from "./types";
 
@@ -347,6 +349,158 @@ describe("error logs", () => {
     await cms.forRelease().resolve({ __resolveType: "broken" });
     await runBackground();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+interface WireLog {
+  severityNumber: number;
+  severityText: string;
+  body: { stringValue: string };
+  attributes: { key: string; value: Record<string, unknown> }[];
+}
+
+interface WireLogs {
+  resourceLogs: { scopeLogs: { logRecords: WireLog[] }[] }[];
+}
+
+/** Real HTTP collector: assertions inspect the bytes the pipeline exported. */
+async function withLogCollector(
+  check: (pipeline: TelemetryPipeline, payloads: string[]) => Promise<void>,
+): Promise<void> {
+  const payloads: string[] = [];
+  const failures: unknown[] = [];
+  const server = createServer(async (request, response) => {
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = Buffer.concat(chunks);
+      payloads.push(
+        request.headers["content-encoding"] === "gzip"
+          ? gunzipSync(body).toString()
+          : body.toString(),
+      );
+      response.end();
+    } catch (error) {
+      failures.push(error);
+      response.writeHead(400).end();
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  try {
+    const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const destination = resolveDestination({ endpoint, defaults: { errorSampleRate: 1 } });
+    if (destination === null) throw new Error("Collector destination missing");
+    await check(new TelemetryPipeline(destination), payloads);
+    expect(failures).toEqual([]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+function wireLogs(payloads: string[]): WireLog[] {
+  return payloads.flatMap((payload) =>
+    (JSON.parse(payload) as WireLogs).resourceLogs.flatMap((resource) =>
+      resource.scopeLogs.flatMap((scope) => scope.logRecords),
+    ),
+  );
+}
+
+describe("warning and error logs over OTLP", () => {
+  it("exports distinct severities and scrubs warning messages and attributes", async () => {
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline.warn(
+        "upstream refused https://api.example/items?token=warn-query-secret authorization: Bearer warn-auth-secret",
+        {
+          "http.response.status_code": 429,
+          detail: "cookie=warn-cookie-secret",
+        },
+      );
+      pipeline.error("upstream unavailable", { "http.response.status_code": 503 });
+      await pipeline.flush();
+      const logs = wireLogs(payloads);
+      expect(logs.map((log) => [log.severityNumber, log.severityText])).toEqual([
+        [13, "WARN"],
+        [17, "ERROR"],
+      ]);
+      expect(attrs(logs[0]!.attributes)["http.response.status_code"]).toBe("429");
+      expect(logs[0]!.body.stringValue).toContain("https://api.example/items?[redacted]");
+      for (const secret of ["warn-query-secret", "warn-auth-secret", "warn-cookie-secret"]) {
+        expect(payloads.join("\n")).not.toContain(secret);
+      }
+    });
+  });
+
+  it.each([
+    ["sampling off", { errorSampleRate: 0 }],
+    ["telemetry off", { enabled: false, errorSampleRate: 1 }],
+  ])("does not export warnings or errors with %s", async (_, settings) => {
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline.apply(settings);
+      pipeline.warn("warning", {});
+      pipeline.error("error", {});
+      await pipeline.flush();
+      expect(payloads).toEqual([]);
+    });
+  });
+
+  it("keeps the buffer bounded while replacing the oldest warnings with errors", async () => {
+    await withLogCollector(async (pipeline, payloads) => {
+      for (let index = 0; index < 200; index++) pipeline.warn(`warning-${index}`, {});
+      pipeline.error("first-error", {});
+      pipeline.warn("overflow-warning", {});
+      pipeline.error("second-error", {});
+      await pipeline.flush();
+      const logs = wireLogs(payloads);
+      const messages = logs.map((log) => log.body.stringValue);
+      expect(logs).toHaveLength(200);
+      expect(logs.filter((log) => log.severityText === "WARN")).toHaveLength(198);
+      expect(messages).toContain("first-error");
+      expect(messages).toContain("second-error");
+      for (const dropped of ["warning-0", "warning-1", "overflow-warning"]) {
+        expect(messages).not.toContain(dropped);
+      }
+    });
+  });
+
+  it("never evicts a buffered error for a warning or another error", async () => {
+    await withLogCollector(async (pipeline, payloads) => {
+      for (let index = 0; index < 200; index++) pipeline.error(`error-${index}`, {});
+      pipeline.warn("overflow-warning", {});
+      pipeline.error("overflow-error", {});
+      await pipeline.flush();
+      const logs = wireLogs(payloads);
+      expect(logs).toHaveLength(200);
+      expect(logs.every((log) => log.severityNumber === 17)).toBe(true);
+      expect(logs.map((log) => log.body.stringValue)).toEqual(
+        Array.from({ length: 200 }, (_, index) => `error-${index}`),
+      );
+    });
+  });
+
+  it.each([
+    "warn",
+    "error",
+  ] as const)("exports a full %s buffer after an early host hook", async (severity) => {
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline.apply({ metrics: false, errorSampleRate: 1, traceSampleRate: 0 });
+      for (let index = 0; index < 200; index++) pipeline[severity](`log-${index}`, {});
+      // The host runs this response's work before the batch is old enough.
+      await Promise.all(tasks.splice(0).map((task) => task()));
+      expect(payloads).toEqual([]);
+
+      clock += 11_000;
+      pipeline[severity]("overflow-log", {});
+      await Promise.all(tasks.splice(0).map((task) => task()));
+      const logs = wireLogs(payloads);
+      expect(logs.map((log) => log.body.stringValue)).toEqual(
+        Array.from({ length: 200 }, (_, index) => `log-${index}`),
+      );
+    });
   });
 });
 
