@@ -5,6 +5,7 @@ import {
   revisionKey,
   setBlocks,
   snapshotKey,
+  stringifyWithoutSecrets,
 } from "@decocms/blocks/cms";
 import { clearLoaderCache } from "@decocms/blocks/sdk/cachedLoader";
 import { getRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
@@ -33,7 +34,14 @@ export function handleDecofileRead(): Response {
   const blocks = loadBlocks();
   const revision = getRevision();
 
-  return new Response(JSON.stringify(blocks), {
+  // Strip secret envelopes ({ __resolveType: ".../secret.ts", encrypted, name })
+  // and resolved Secret objects from the served decofile. `/.decofile` is reachable
+  // unauthenticated, so emitting ciphertext + the plaintext env-var name discloses
+  // secret material and the attack surface to anonymous callers. Secrets resolve
+  // server-side at runtime from the env binding, never from this served file, so
+  // dropping them here does not affect rendering. Same stripper used by
+  // ?renderJson / ?asJson for consistency.
+  return new Response(stringifyWithoutSecrets(blocks), {
     status: 200,
     headers: {
       "Content-Type": "application/json",
