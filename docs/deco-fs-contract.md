@@ -175,8 +175,7 @@ delivery, not to the schema/content contract.
 ## Open items to confirm with the producer side
 
 1. **Delivery mechanism.** How the workspace `.deco/` reaches Studio — a daemon
-   that mounts it (reuse `packages/tanstack/src/daemon/` pattern, or a thin
-   Eitri daemon?). Decide shared vs. per-stack. *(Phase 3.)*
+   that mounts it (a shared one, or a thin Eitri daemon?). Decide shared vs. per-stack. *(Phase 3.)*
 2. **Write-back ownership.** Confirm Studio writes `.deco/blocks/*.json`
    directly (single-encoded filenames) and the daemon owns `blocks.gen.json`
    refresh — vs. Studio calling a generator hook.
