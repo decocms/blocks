@@ -22,8 +22,8 @@ afterEach(() => {
 const lazy = (value: unknown) => ({ __resolveType: "lazy", value });
 
 /** `hero-copy` rolls 0.93 and 97.85, `pdp-cta` 42.5 and 84.57 (pinned in experiments.test.ts). */
-const LOW: Visitor = { id: "Zm9vYmFyYmF6cXV4MTIzNA", active: [], inactiveDrawn: [], pct: {} };
-const HIGH: Visitor = { id: "AAAAAAAAAAAAAAAAAAAAAA", active: [], inactiveDrawn: [], pct: {} };
+const LOW: Visitor = { id: "Zm9vYmFyYmF6cXV4MTIzNA" };
+const HIGH: Visitor = { id: "AAAAAAAAAAAAAAAAAAAAAA" };
 
 /** A variant that shows "New" for the visitors in `name`, "Old" for the rest. */
 const abTest = (name: string) => ({

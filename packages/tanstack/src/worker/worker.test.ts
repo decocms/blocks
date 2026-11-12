@@ -33,7 +33,7 @@ const DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) Chrome/130";
 const PHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148";
 
 /** A visitor who has been here before: their cookie, as the worker wrote it. */
-const RETURNING = `deco_segment=${serializeVisitor(newVisitor())}`;
+const RETURNING = `deco_vid=${serializeVisitor(newVisitor())}`;
 
 afterEach(() => {
   removeMetrics();
@@ -63,7 +63,7 @@ function setup(
     if (!headers.has("user-agent")) headers.set("user-agent", init.ua ?? DESKTOP_UA);
     // A returning visitor unless the test says otherwise, so no visitor cookie joins its own.
     const cookie = headers.get("cookie");
-    if (!init.firstVisit && !cookie?.includes("deco_segment=")) {
+    if (!init.firstVisit && !cookie?.includes("deco_vid=")) {
       headers.set("cookie", cookie ? `${cookie}; ${RETURNING}` : RETURNING);
     }
     const url = path.startsWith("http") ? path : `${ORIGIN}${path}`;
@@ -279,8 +279,8 @@ describe("pageCache: the site's own cache", () => {
   it("gets the visitor the app renders for: on a first visit, the one the cookie names", async () => {
     const { get, seen, entry } = setup();
     const res = await get("/", { firstVisit: true });
-    const cookie = res.headers.getSetCookie().find((c) => c.startsWith("deco_segment="));
-    const stored = parseVisitor(cookie?.split(";")[0]?.slice("deco_segment=".length) ?? null);
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith("deco_vid="));
+    const stored = parseVisitor(cookie?.split(";")[0]?.slice("deco_vid=".length) ?? null);
     expect(seen[0]?.visitor.id).toBe(stored?.id);
     expect(parseVisitor(entry.served[0]?.headers.get("x-deco-visitor") ?? null)?.id).toBe(
       stored?.id,
@@ -299,7 +299,7 @@ describe("pageCache: the site's own cache", () => {
     const res = await get("/", { firstVisit: true });
     expect(rendered?.headers.has("set-cookie")).toBe(false);
     expect(await res.text()).toBe("from the site's cache");
-    expect(res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="))).toHaveLength(1);
+    expect(res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="))).toHaveLength(1);
   });
 
   it("render({ csegToken }) is the token the document publishes; render() has none", async () => {
@@ -590,20 +590,20 @@ describe("drafts", () => {
 
 describe("the visitor", () => {
   const segmentCookies = (res: Response) =>
-    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="));
   const cookieValue = (setCookie: string) => setCookie.split(";")[0] as string;
   const forwarded = (headers: Headers | undefined) =>
     parseVisitor(headers?.get("x-deco-visitor") ?? null);
 
-  it("a first visit: the app gets a new visitor, the response sets deco_segment once", async () => {
+  it("a first visit: the app gets a new visitor, the response sets deco_vid once", async () => {
     const { get, entry } = setup();
     const res = await get("/", { firstVisit: true });
     const visitor = forwarded(entry.served[0]?.headers);
     expect(visitor?.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     const [cookie, ...more] = segmentCookies(res);
     expect(more).toEqual([]);
-    expect(cookie).toMatch(/^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/);
-    expect(cookieValue(cookie as string)).toBe(`deco_segment=${serializeVisitor(visitor!)}`);
+    expect(cookie).toMatch(/^deco_vid=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/);
+    expect(cookieValue(cookie as string)).toBe(`deco_vid=${serializeVisitor(visitor!)}`);
   });
 
   it("a returning visitor keeps their id and gets no cookie", async () => {
@@ -616,17 +616,24 @@ describe("the visitor", () => {
     );
   });
 
-  it("a v7 visitor gets an id once, their stored decisions kept", async () => {
+  it("a visitor with only v7's deco_segment is a first visit: a new id, deco_vid set once", async () => {
     const v7 = btoa(
       encodeURIComponent(
-        JSON.stringify({ active: ["hero"], inactiveDrawn: [], pct: { hero: 50 } }),
+        JSON.stringify({
+          id: "AAAAAAAAAAAAAAAAAAAAAA",
+          active: ["hero"],
+          inactiveDrawn: [],
+          pct: { hero: 50 },
+        }),
       ),
     );
     const { get, entry } = setup();
-    const res = await get("/", { headers: { cookie: `deco_segment=${v7}` } });
+    const res = await get("/", { headers: { cookie: `deco_segment=${v7}` }, firstVisit: true });
     const visitor = forwarded(entry.served[0]?.headers);
-    expect(visitor?.active).toEqual(["hero"]);
+    expect(visitor?.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(visitor?.id).not.toBe("AAAAAAAAAAAAAAAAAAAAAA");
     expect(segmentCookies(res)).toHaveLength(1);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith("deco_segment="))).toBe(false);
   });
 
   it("a new visitor served from the site's cache still gets their cookie; the stored copy has none", async () => {
@@ -704,7 +711,7 @@ describe("the visitor", () => {
     expect(entry.served[0]?.headers.get("x-deco-assignments")).toBe("x=+none");
   });
 
-  it("a preview (a draft) gets the visitor but never writes deco_segment", async () => {
+  it("a preview (a draft) gets the visitor but never writes deco_vid", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json({ names: [] })),
@@ -736,7 +743,7 @@ describe("the visitor", () => {
 describe("the version: an old release from a Studio link", () => {
   const SHA = "0123456789ab-01234567-89ab-7def-8123-456789abcdef";
   const segmentCookies = (res: Response) =>
-    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="));
 
   it("a release SHA on a preview host is the version the app reads, kept in the draft cookie", async () => {
     const { get, entry } = setup();

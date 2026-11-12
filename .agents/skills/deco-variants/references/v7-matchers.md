@@ -15,7 +15,6 @@ Use them for content migrated from v7. For new A/B tests and dates, prefer the b
 | `queryString` | `website/matchers/queryString.ts` | Query parameters, with `Exists`, `Equals`, `Greater`, `GreaterOrEquals`, `Lesser`, `LesserOrEquals`, `Includes` |
 | `location` | `website/matchers/location.ts` | Country, region, city or coordinates, included or excluded. Reads the `cf-*` headers, then the Workers `request.cf`, then the `__cf_geo_*` cookies |
 | `multi` | `website/matchers/multi.ts` | `op: "and"` or `"or"` over its `matchers`. No rules matches everyone |
-| `random` | `website/matchers/random.ts` | v7's sticky random: a `traffic` share (0 to 1, default 0.5) keyed on a `cohort` |
 | `environment` | `website/matchers/environment.ts` | Always throws: it read the process environment, which no v8 package does. Register your own rule under that name |
 
 `always` and `never` are v8 built-ins, and v7's names for them are aliases (see [`multivariate.md`](./multivariate.md)). v7's date matcher became the `campaign` rule and the saved block `campaigns`.
@@ -29,42 +28,31 @@ Every matcher except `multi` and `environment` takes the request as a second arg
 ```ts
 // the block map
 import type { Blocks } from "@decocms/blocks";
-import { device, type DeviceProps, random, type RandomProps } from "@decocms/compat-v7/matchers";
+import { device, type DeviceProps } from "@decocms/compat-v7/matchers";
 import { matcherContext } from "@decocms/compat-v7/tanstack/server";
 
 export default {
   "website/matchers/device.ts": (props: DeviceProps) => device(props, matcherContext()),
-  "website/matchers/random.ts": (props: RandomProps) => random(props, matcherContext()),
 } satisfies Blocks;
 ```
 
-- `matcherContext(pageUrl?)` gives the matcher the request being served (TanStack Start's `getRequest()`), the page's URL and one `flags` array per request.
+- `matcherContext(pageUrl?)` gives the matcher the request being served (TanStack Start's `getRequest()`) and the page's URL, one context per request and URL.
 - On a client-side navigation the request is the server-function call, not the page. Pass the page's URL there: `matcherContext(new URL(href, request.url))`. Without it, the call throws instead of matching `/_serverFn/…`.
-- After the page resolved, in the page's server function, call `commitSegmentCookie()` to set `deco_segment` with the decisions `random` made. It sets nothing when the cookie already says the same.
-- `cohortSegment(request)` gives v7's A/B split of the cache key (`{ abf: <token> }` for a visitor in a test, `{}` otherwise). Spread it into the segment of the site's page cache.
 
 ## Wiring on Next.js
 
 ```ts
 // the block map
 import { matcherContext } from "@decocms/compat-v7/nextjs/server";
-"website/matchers/random.ts": async (props: RandomProps) => random(props, await matcherContext()),
+"website/matchers/device.ts": async (props: DeviceProps) => device(props, await matcherContext()),
 ```
 
 - The matchers need the page's URL. Forward it from the proxy with `pageUrlRequestHeaders` from `@decocms/compat-v7/nextjs/proxy`, or pass it to `matcherContext(url)`.
-- Render `<SegmentCookie />` from `@decocms/compat-v7/nextjs/server` as the last child of the page, after the content resolved. A server component cannot set a cookie, so it renders a one-line script (and an effect after a client-side navigation) that sets it.
 - A page that reads the request is dynamic: Next never shares it between visitors. Keep a CDN in front from caching it too.
 
-## The sticky `random`
+## v7's `random`
 
-- A visitor keeps their group through `deco_segment` until the traffic share changes, then is drawn again once. The draw is `Math.random()`, as in v7.
-- The cookie is keyed on the **cohort**: in v7, the name of the saved matcher block. A v8 block does not know its own name, so the name travels in the `cohort` prop. Set it to the v7 saved block's name. The migration script does not register `random` or fill `cohort`: it reports each random test to move into `experiments`. A random rule written inline uses `website/matchers/random.ts` as its cohort, as v7 did.
-- Keep the cohort when changing the share. Renaming it puts every visitor in a new test.
-- `decideRandom(props, request)` returns `{ value, isFresh, setCookie }` when you need the decision and the cookie together.
-- A response that sets `deco_segment` must not be cached for other visitors.
-- Inside `multi`, a `random` is sticky too. v7 drew it again on every request.
-
-The better path for a v7 random test is to move it into the saved block `experiments` under the same name, so visitors keep their groups and the binding owns the cookie. Do not run both on one site.
+`@decocms/compat-v7` has no `random`, and v8 neither reads nor writes v7's `deco_segment` cookie. A rule of type `website/matchers/random.ts` fails with `UNKNOWN_BLOCK` until it is moved: put the test in the saved block `experiments` (type `split-traffic`, a whole percentage 0 to 100; v7's `traffic: 0.3` is `30`) under the v7 saved block's name, and write each rule as `{ "__resolveType": "experiment", "name": "<test>" }` (see [`experiments-and-campaigns.md`](./experiments-and-campaigns.md)). Visitors are drawn again on v8. The migration script reports each random test to move.
 
 ## The legacy-origin split
 

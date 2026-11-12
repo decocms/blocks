@@ -599,7 +599,7 @@ describe("a v7 TanStack Start site on the v8 binding", () => {
     expect(map).toContain(
       '"website/matchers/device.ts": (props: matchers.DeviceProps) => matchers.device(props, matcherInput()),',
     );
-    // v7's random matcher is never registered: the binding owns deco_segment.
+    // v7's random matcher is never registered: compat-v7 has none; the test moves to experiments.
     expect(map).not.toContain("matchers.random");
     expect(map).toContain('import { sectionLoaders } from "../src/setup/section-loaders";');
     // 7.64.3 ran nested sections' loaders only directly in a prop.

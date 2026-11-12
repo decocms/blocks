@@ -20,7 +20,7 @@
  * The proxy decides: the version (`decideDraft`: a Studio link's draft or old
  * release, after the host allowlist, with the preview's moment and switched
  * tests and campaigns), the visitor (`decideVisitor`: `readVisitor` from
- * `@decocms/blocks/experiments`, the `deco_segment` cookie or a new visitor)
+ * `@decocms/blocks/experiments`, the `deco_vid` cookie or a new visitor)
  * and, from both, each test and campaign on or off (`decideAssignments`:
  * `cms.client({ version, visitor, date, experiments, campaigns })` resolving
  * the saved `experiments` and `campaigns` blocks). It forwards them on
@@ -232,9 +232,9 @@ export function draftRequestHeaders(
 
 /** The visitor of one request. */
 export interface VisitorDecision {
-  /** Who is visiting: the `deco_segment` cookie's visitor, or a new one. */
+  /** Who is visiting: the `deco_vid` cookie's visitor, or a new one. */
   visitor: Visitor;
-  /** The `deco_segment` `Set-Cookie`, on a first visit to the live site; `null` otherwise. */
+  /** The `deco_vid` `Set-Cookie`, on a first visit to the live site; `null` otherwise. */
   setCookie: string | null;
 }
 
@@ -246,7 +246,7 @@ function isHttps(request: NextRequest | Request): boolean {
 }
 
 /**
- * The visitor of a request (`readVisitor`: the `deco_segment` cookie, or a
+ * The visitor of a request (`readVisitor`: the `deco_vid` cookie, or a
  * new visitor when it had no id) and the cookie to send back, only on a first
  * visit and never from a preview (`draft` holds a version): Studio is not a
  * visitor. Reads no content.
@@ -274,7 +274,7 @@ export function visitorRequestHeaders(headers: Headers, decision: VisitorDecisio
   return out;
 }
 
-/** The `deco_segment` cookie on the response, on a first visit. */
+/** The `deco_vid` cookie on the response, on a first visit. */
 export function applyVisitor<R extends Response>(response: R, decision: VisitorDecision): R {
   if (decision.setCookie) response.headers.append("set-cookie", decision.setCookie);
   return response;

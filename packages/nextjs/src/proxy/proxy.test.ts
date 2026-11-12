@@ -317,16 +317,16 @@ describe("the visitor", () => {
   const visit = (headers: Record<string, string> = {}, url = "https://shop.example.com/shoes") =>
     new NextRequest(url, { headers });
   const segmentCookies = (res: Response) =>
-    res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+    res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="));
   const nameValue = (setCookie: string) => setCookie.split(";")[0] as string;
 
-  it("a first visit: a new visitor and the deco_segment cookie", () => {
+  it("a first visit: a new visitor and the deco_vid cookie", () => {
     const d = decideVisitor(visit(), release);
     expect(d.visitor.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(d.setCookie).toMatch(
-      /^deco_segment=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/,
+      /^deco_vid=[^;]+; Path=\/; Max-Age=31536000; SameSite=Lax; Secure$/,
     );
-    expect(nameValue(d.setCookie as string)).toBe(`deco_segment=${serializeVisitor(d.visitor)}`);
+    expect(nameValue(d.setCookie as string)).toBe(`deco_vid=${serializeVisitor(d.visitor)}`);
   });
 
   it("a returning visitor keeps their id; no cookie", () => {
@@ -525,7 +525,7 @@ describe("the assignments route: Next's path-keyed cache keys on the request's a
     }
   };
   const asCookie = (visitor: ReturnType<typeof newVisitor>) => ({
-    cookie: `deco_segment=${serializeVisitor(visitor)}`,
+    cookie: `deco_vid=${serializeVisitor(visitor)}`,
   });
   /** The path the request is rewritten to, or null when it isn't. */
   async function routed(

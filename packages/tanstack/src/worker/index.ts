@@ -28,7 +28,7 @@
  *   `script-src`: the Studio channel's list, `studioOrigins`); immutable fingerprinted
  *   assets; one `Set-Cookie` per cookie; `x-page-status`.
  * - The visitor: on a page or server-function request, `readVisitor` from
- *   `@decocms/blocks/experiments` (the `deco_segment` cookie, or a new
+ *   `@decocms/blocks/experiments` (the `deco_vid` cookie, or a new
  *   visitor), handed to the app on `x-deco-visitor`; the cookie is sent on a
  *   first visit only, never from a preview.
  * - What the request's content gives it, decided once per request: each test
@@ -341,13 +341,13 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     routed?: true;
     /** A CMS redirect. */
     redirect?: true;
-    /** The visitor's `deco_segment` cookie, on a first visit to the live site. */
+    /** The visitor's `deco_vid` cookie, on a first visit to the live site. */
     visitorCookie?: string;
   }
 
   /**
    * What a page or server-function request reads, decided once: the visitor
-   * (`readVisitor`: the `deco_segment` cookie, or a new visitor) on
+   * (`readVisitor`: the `deco_vid` cookie, or a new visitor) on
    * `x-deco-visitor`, each test and campaign on or off for it and the
    * request's version (`readAssignments`) on `x-deco-assignments`, and the
    * cookie to send when the visitor had no id. A preview (a draft, or an old

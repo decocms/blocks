@@ -10,7 +10,7 @@
 
 /**
  * The request header carrying the visitor, in its stored form (the
- * `deco_segment` cookie's value, `serializeVisitor`). The proxy removes any
+ * `deco_vid` cookie's value, `serializeVisitor`). The proxy removes any
  * copy that arrives from outside (`draftRequestHeaders`).
  */
 export const VISITOR_HEADER = "x-deco-visitor";

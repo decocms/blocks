@@ -19,15 +19,16 @@ import {
   type Visitor,
 } from "./experiments.ts";
 
-const COOKIE = "deco_segment";
+const COOKIE = "deco_vid";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
-/** A visitor with this id and nothing stored. */
-const visitor = (id: string): Visitor => ({ id, active: [], inactiveDrawn: [], pct: {} });
+/** A visitor with this id. */
+const visitor = (id: string): Visitor => ({ id });
 
-/** A `deco_segment` value v7 itself would have written: no id. */
-const v7Value = (body: Record<string, unknown>) => btoa(encodeURIComponent(JSON.stringify(body)));
+/** A `deco_segment` value v7 (or v8 before 8.18) wrote: base64 of URI-encoded JSON. */
+const segmentValue = (body: Record<string, unknown>) =>
+  btoa(encodeURIComponent(JSON.stringify(body)));
 
 const requestWith = (cookie?: string, url = "https://example.com/") =>
   new Request(url, cookie === undefined ? {} : { headers: { cookie } });
@@ -182,19 +183,13 @@ describe("assign", () => {
     }
   });
 
-  it("without a usable id, keeps the stored assignments and leaves every other test out", () => {
-    for (const id of ["", "too-short"]) {
-      const stored: Visitor = { id, active: ["in", "zero"], inactiveDrawn: ["out"], pct: {} };
-      expect({ ...assign({ in: 50, out: 100, zero: 0, other: 100 }, stored) }).toEqual({
-        in: true,
-        out: false,
-        zero: true,
-        other: false,
-      });
-    }
-    // A stored assignment whose percentage moved past it is rolled, and there is no roll.
-    const moved: Visitor = { id: "", active: ["t"], inactiveDrawn: [], pct: { t: 50 } };
-    expect(assign({ t: 20 }, moved).t).toBe(false);
+  it("ignores anything a caller adds to the visitor beyond its id (v7's lists included)", () => {
+    const id = "AAAAAAAAAAAAAAAAAAAAAA";
+    const withLists = { id, active: ["t"], inactiveDrawn: ["u"], pct: { t: 50, u: 50 } };
+    expect({ ...assign({ t: 50, u: 50 }, withLists as Visitor) }).toEqual({
+      ...assign({ t: 50, u: 50 }, { id }),
+    });
+    expect({ ...assign({ t: 0 }, { id: "", active: ["t"] } as Visitor) }).toEqual({ t: false });
   });
 
   it("answers only the tests in the block, and leaves out a percentage that is not a finite number", () => {
@@ -231,127 +226,25 @@ describe("assign", () => {
   });
 });
 
-describe("the v7 visitor", () => {
-  /** A v7 visitor, given an id: what `readVisitor` makes of a v7 cookie. */
-  const fromV7 = (body: Record<string, unknown>, id = "AAAAAAAAAAAAAAAAAAAAAA") => {
-    const { visitor: read } = readVisitor(requestWith(`${COOKIE}=${v7Value(body)}`));
-    return { ...read, id };
-  };
-
-  it("keeps the decision v7 made while its percentage still holds", () => {
-    // In at 50%, but their own roll is 84.57: re-rolling would throw them out.
-    const v = fromV7({ active: ["pdp-cta"], inactiveDrawn: [], pct: { "pdp-cta": 50 } });
-    expect(assign({ "pdp-cta": 50 }, v)["pdp-cta"]).toBe(true);
-  });
-
-  it("honours a v7 cohort named like a saved block, spaces and comma included", () => {
-    const cohort = "Test AB 0,5";
-    const v = fromV7({ active: [cohort], inactiveDrawn: [], pct: { [cohort]: 50 } });
-    expect(assign({ [cohort]: 50 }, v)[cohort]).toBe(true);
-    expect(parseVisitor(serializeVisitor(v))?.active).toEqual([cohort]);
-  });
-
-  it("keeps a v7 visitor in when the percentage goes up, roll or no roll", () => {
-    const v = fromV7({ active: ["pdp-cta"], inactiveDrawn: [], pct: { "pdp-cta": 50 } });
-    expect(assign({ "pdp-cta": 60 }, v)["pdp-cta"]).toBe(true);
-  });
-
-  it("keeps a v7 visitor out when the percentage goes down", () => {
-    const v = fromV7({ active: [], inactiveDrawn: ["pdp-cta"], pct: { "pdp-cta": 50 } });
-    expect(assign({ "pdp-cta": 40 }, v)["pdp-cta"]).toBe(false);
-  });
-
-  for (const [label, pct] of [
-    ["recorded no percentage for the name", undefined],
-    ['recorded -1, v7\'s "any percentage"', -1],
-  ] as const) {
-    it(`keeps both groups where v7 put them when the cookie ${label}`, () => {
-      for (const id of ids(400)) {
-        for (const isIn of [true, false]) {
-          const v = fromV7(
-            {
-              active: isIn ? ["t"] : [],
-              inactiveDrawn: isIn ? [] : ["t"],
-              pct: pct === undefined ? {} : { t: pct },
-            },
-            id,
-          );
-          expect(assign({ t: 50 }, v).t, `${id} ${isIn}`).toBe(isIn);
-        }
-      }
-    });
-  }
-});
-
 describe("the visitor's stored form", () => {
-  it("round-trips through v7's encoding", () => {
-    const v: Visitor = {
-      id: "AAAAAAAAAAAAAAAAAAAAAA",
-      active: ["a"],
-      inactiveDrawn: ["b"],
-      pct: { a: 10, b: 50 },
-      exp: { "legacy-nway": "arm-b" },
-    };
+  it("is the id itself, and round-trips", () => {
+    const v = newVisitor();
+    expect(serializeVisitor(v)).toBe(v.id);
     expect(parseVisitor(serializeVisitor(v))).toEqual(v);
   });
 
-  it("is v7's format: btoa(encodeURIComponent(JSON)) with v7's fields plus id", () => {
-    const v = newVisitor();
-    const body = JSON.parse(decodeURIComponent(atob(serializeVisitor(v))));
-    expect(body).toEqual({ active: [], inactiveDrawn: [], pct: {}, id: v.id });
-  });
-
-  it("gives byte-equal values for equal visitors", () => {
-    const a: Visitor = {
-      id: "AAAAAAAAAAAAAAAAAAAAAA",
-      active: ["b", "a"],
-      inactiveDrawn: ["d", "c"],
-      pct: { b: 50, a: 10, d: 1, c: 2 },
-    };
-    const b: Visitor = {
-      id: "AAAAAAAAAAAAAAAAAAAAAA",
-      active: ["a", "b"],
-      inactiveDrawn: ["c", "d"],
-      pct: { a: 10, b: 50, c: 2, d: 1 },
-    };
-    expect(serializeVisitor(a)).toBe(serializeVisitor(b));
-  });
-
-  it("stays under 2KB, dropping first the v7 entries the id reproduces", () => {
-    const id = "AAAAAAAAAAAAAAAAAAAAAA";
-    const v: Visitor = { id, active: [], inactiveDrawn: [], pct: {} };
-    const unrecoverable: string[] = [];
-    for (let i = 0; i < 20; i++) {
-      const name = `experiment-number-${i}`;
-      const isIn = !(roll(name, id) < 50); // only v7 could have stored this
-      (isIn ? v.active : v.inactiveDrawn).push(name);
-      v.pct[name] = 50;
-      unrecoverable.push(name);
-    }
-    for (let i = 0; i < 120; i++) {
-      const name = `reproducible-${i}`;
-      (roll(name, id) < 50 ? v.active : v.inactiveDrawn).push(name);
-      v.pct[name] = 50;
-    }
-    const value = serializeVisitor(v);
-    expect(value.length).toBeLessThanOrEqual(2048);
-    const written = parseVisitor(value) as Visitor;
-    const kept = new Set([...written.active, ...written.inactiveDrawn]);
-    for (const name of unrecoverable) expect(kept.has(name), name).toBe(true);
-    expect(kept.size).toBeLessThan(140);
-  });
-
-  it("parses to null when missing, broken, hostile, or without an id (never throws)", () => {
+  it("parses to null when missing, broken, hostile, or not an id (never throws)", () => {
     const junk = [
       undefined,
       null,
       "",
-      "not-base64!!",
-      btoa("not json"),
-      v7Value(null as never),
-      btoa(encodeURIComponent(JSON.stringify([1, 2, 3]))),
-      v7Value({ active: [], inactiveDrawn: [], pct: {} }), // v7: no id
-      v7Value({ id: "../../etc/passwd", active: [], inactiveDrawn: [], pct: {} }),
+      "too-short",
+      "AAAAAAAAAAAAAAAAAAAAA!",
+      "AAAAAAAAAAAAAAAAAAAAAAA", // 23 characters
+      "%E0%A4%A", // broken percent-encoding
+      "../../etc/passwd",
+      // v7's deco_segment format, even one carrying an id, is not a visitor.
+      segmentValue({ id: "AAAAAAAAAAAAAAAAAAAAAA", active: [], inactiveDrawn: [], pct: {} }),
     ];
     for (const text of junk) {
       expect(() => parseVisitor(text)).not.toThrow();
@@ -359,33 +252,18 @@ describe("the visitor's stored form", () => {
     }
   });
 
-  it("drops entries of the wrong type instead of trusting them", () => {
-    const parsed = parseVisitor(
-      v7Value({
-        id: "AAAAAAAAAAAAAAAAAAAAAA",
-        active: ["ok", 42, null],
-        inactiveDrawn: ["fine"],
-        pct: { ok: 50, bad: "50" },
-        exp: { a: "arm", b: 7 },
-      }),
-    ) as Visitor;
-    expect(parsed.active).toEqual(["ok"]);
-    expect({ ...parsed.pct }).toEqual({ ok: 50 });
-    expect({ ...parsed.exp }).toEqual({ a: "arm" });
-  });
-
-  it("reads a percent-encoded value, as a cookie API that encodes what it writes leaves it", () => {
+  it("reads a percent-encoded or padded value, as some cookie APIs leave it", () => {
     const v = newVisitor();
-    const value = serializeVisitor(v);
-    expect(parseVisitor(encodeURIComponent(value))?.id).toBe(v.id);
+    expect(parseVisitor(encodeURIComponent(v.id))?.id).toBe(v.id);
+    expect(parseVisitor(`  ${v.id} `)?.id).toBe(v.id);
   });
 
-  it("newVisitor draws a fresh 22-character id each time", () => {
+  it("newVisitor draws a fresh 22-character id each time, and nothing else", () => {
     const a = newVisitor();
     const b = newVisitor();
     expect(a.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(a.id).not.toBe(b.id);
-    expect(a).toMatchObject({ active: [], inactiveDrawn: [] });
+    expect(Object.keys(a)).toEqual(["id"]);
   });
 });
 
@@ -416,18 +294,24 @@ describe("readVisitor", () => {
     expect(readVisitor({ headers: new Headers() }).cookie).toContain("Secure");
   });
 
-  it("gives a v7 visitor an id, keeping every decision v7 stored", () => {
-    const body = {
-      active: ["pdp-cta"],
-      inactiveDrawn: ["hero-copy"],
-      pct: { "pdp-cta": 50, "hero-copy": 10, "legacy-nway": 30 },
-      exp: { "legacy-nway": "arm-b" },
-    };
-    const { visitor: read, cookie } = readVisitor(requestWith(`${COOKIE}=${v7Value(body)}`));
+  it("ignores deco_segment: a visitor with only it gets a new id, even one it carried", () => {
+    const carried = "AAAAAAAAAAAAAAAAAAAAAA";
+    const old = segmentValue({ id: carried, active: ["pdp-cta"], inactiveDrawn: [], pct: {} });
+    const { visitor: read, cookie } = readVisitor(requestWith(`deco_segment=${old}`));
     expect(read.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    const written = parseVisitor((cookie as string).split(";")[0].slice(COOKIE.length + 1));
-    expect(written).toEqual(read);
-    expect(written).toMatchObject({ ...body, id: read.id });
+    expect(read.id).not.toBe(carried);
+    expect(Object.keys(read)).toEqual(["id"]);
+    expect(cookie?.startsWith(`${COOKIE}=${read.id};`)).toBe(true);
+    expect(cookie).not.toContain("deco_segment");
+  });
+
+  it("reads deco_vid when deco_segment is there too", () => {
+    const v = newVisitor();
+    const { visitor: read, cookie } = readVisitor(
+      requestWith(`deco_segment=${segmentValue({ active: ["x"] })}; ${COOKIE}=${v.id}`),
+    );
+    expect(read).toEqual(v);
+    expect(cookie).toBeNull();
   });
 
   it("never throws, and replaces a broken or forged value", () => {

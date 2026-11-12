@@ -500,8 +500,7 @@ export interface MultiProps {
  * @description Combines rules: all of them ("and") or any of them ("or"). No rules matches everyone.
  *
  * In v8 the inner rules are resolved before this runs, so it gets their
- * results; v7 ran them itself, with the same and/or. One difference: an inner
- * `random` here is sticky like any other, where v7 re-drew it on every request.
+ * results; v7 ran them itself, with the same and/or.
  */
 export function multi(props: MultiProps): boolean {
   const op = props?.op ?? "and";

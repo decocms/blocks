@@ -136,7 +136,7 @@ async function get(
   if (!headers.has("user-agent")) headers.set("user-agent", init.ua ?? DESKTOP);
   // A returning visitor unless the test passes `visitor: null` (a first visit).
   const visitor = init.visitor === undefined ? newVisitor() : init.visitor;
-  if (visitor) headers.append("cookie", `deco_segment=${serializeVisitor(visitor)}`);
+  if (visitor) headers.append("cookie", `deco_vid=${serializeVisitor(visitor)}`);
   const response = await entry.fetch(
     new Request(`${ORIGIN}${path}`, { ...init, headers }),
     { PURGE_TOKEN: TOKEN },
@@ -260,10 +260,10 @@ describe("the key carries the request's assignments", () => {
     const sides = new Set<boolean>();
     for (let i = 0; i < 12; i++) {
       const res = await get("/", { visitor: null });
-      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("deco_segment="));
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("deco_vid="));
       expect(cookies).toHaveLength(1);
       const visitor = parseVisitor(
-        (cookies[0] as string).split(";")[0]?.slice("deco_segment=".length) ?? null,
+        (cookies[0] as string).split(";")[0]?.slice("deco_vid=".length) ?? null,
       );
       expect(visitor).not.toBe(null);
       const side = assign({ hero: 50 }, visitor).hero === true;

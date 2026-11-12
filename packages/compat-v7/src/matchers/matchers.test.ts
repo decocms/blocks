@@ -2,81 +2,47 @@
 /**
  * Every matcher against v7's own code (latest 7.x, `src/__fixtures__/v7`):
  * cms/resolve.ts' `evaluateMatcher` (with matchers/builtins.ts registered, as
- * v7 sites did at setup) and `evaluateVariantRule` (the sticky random), and
- * the TanStack page route's `persistFlags` for the cookie. v7's context is
- * built the way that route built it: the user agent, the page URL, the path
+ * v7 sites did at setup). v7's context is built the way its TanStack page
+ * route built it: the user agent, the page URL, the path
  * TanStack's splat gave (decoded), and the cookies h3 parsed.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { noop, v7Loader, v7Source } from "../__tests__/loadV7";
+import { noop, v7Loader } from "../__tests__/loadV7";
 import { pick, rng } from "../__tests__/v7";
 import {
   COUNTRY_NAME_TO_CODE,
   cookie,
-  decideRandom,
   device,
   environment,
   host,
-  INLINE_COHORT,
   location,
   type MatcherContext,
   multi,
   parseCookies,
-  parseSegmentCookie,
   pathname,
   queryString,
-  random,
   resolveCountryCode,
-  SEGMENT_COOKIE,
-  type StoredFlag,
-  segmentCacheToken,
-  segmentSetCookie,
-  serializeSegmentCookie,
-  trafficToPct,
 } from "./index.ts";
 
 // ---------------------------------------------------------------------------
 // v7, loaded from the reference files
 // ---------------------------------------------------------------------------
 
-let savedBlocks: Record<string, unknown> = {};
-/** What v7's `persistFlags` set, through h3's `setCookie`: `serialize(name, value, { path: "/", ...options })`. */
-const setCookies: string[] = [];
 const v7 = v7Loader({
   stubs: {
-    "cms/loader": { loadBlocks: () => savedBlocks },
+    "cms/loader": { loadBlocks: () => ({}) },
     // The section runner takes no part in matching (sections.test.ts runs it).
     "cms/sectionLoaders": noop,
-    "tanstack/routes/__h3": {
-      setCookie: (name: string, value: string, options: object) =>
-        setCookies.push(h3.serialize(name, value, { path: "/", ...options })),
-    },
   },
 });
-const resolve = v7("cms/resolve.ts", { expose: ["evaluateVariantRule"] });
+const resolve = v7("cms/resolve.ts");
 const builtins = v7("matchers/builtins.ts");
 builtins.registerBuiltinMatchers();
-const flags = v7("sdk/flags.ts");
 const countries = v7("matchers/countryNames.ts");
 const h3 = v7("vendor/h3-cookie.js");
 
-/** `persistFlags` from v7's TanStack page route, verbatim, with h3's `setCookie`. */
-const persistFlags: (ctx: object) => StoredFlag[] = (() => {
-  const text = v7Source("tanstack/routes/cmsRoute.ts");
-  const start = text.indexOf("/** One year");
-  const fn = text.indexOf("function persistFlags(");
-  const end = text.indexOf("\n}\n", fn) + 3;
-  expect([start > 0, fn > start, end > fn]).toEqual([true, true, true]);
-  const source = [
-    'import { parseSegmentCookie, SEGMENT_COOKIE, serializeSegmentCookie } from "../../sdk/flags";',
-    'import { setCookie } from "./__h3";',
-    text.slice(start, end),
-  ].join("\n");
-  return v7("tanstack/routes/__persistFlags.ts", { source, expose: ["persistFlags"] }).persistFlags;
-})();
-
 /** The context v7's TanStack page route made for a page request. */
-function v7Ctx(request: Request, extra: { flags?: StoredFlag[] } = {}) {
+function v7Ctx(request: Request) {
   const url = new URL(request.url);
   let path: string;
   try {
@@ -90,7 +56,6 @@ function v7Ctx(request: Request, extra: { flags?: StoredFlag[] } = {}) {
     path,
     cookies: h3.parse(request.headers.get("cookie") ?? ""),
     request,
-    ...extra,
   };
 }
 
@@ -105,7 +70,6 @@ const FUZZ = { timeout: 120_000 };
 
 afterEach(() => {
   vi.restoreAllMocks();
-  savedBlocks = {};
 });
 
 // ---------------------------------------------------------------------------
@@ -215,28 +179,12 @@ function ua(r: () => number): string {
 
 function cookieHeader(r: () => number): string {
   const n = Math.floor(r() * 5);
-  const pairs = Array.from({ length: n }, () => {
-    const name = pick(r, COOKIE_NAMES);
-    if (name === SEGMENT_COOKIE && r() < 0.7) return `${name}=${segmentValue(r)}`;
-    return `${r() < 0.1 ? " " : ""}${name}=${pick(r, COOKIE_VALUES)}`;
-  });
+  const pairs = Array.from(
+    { length: n },
+    () => `${r() < 0.1 ? " " : ""}${pick(r, COOKIE_NAMES)}=${pick(r, COOKIE_VALUES)}`,
+  );
   if (r() < 0.1) pairs.push("novalue");
   return pairs.join(pick(r, ["; ", ";", " ; "]));
-}
-
-function randomFlags(r: () => number): StoredFlag[] {
-  return Array.from({ length: Math.floor(r() * 4) }, () => ({
-    name: pick(r, ["Hero test", "Banner AB", INLINE_COHORT, "plp-ranking", "Ç test"]),
-    value: r() < 0.2 ? pick(r, ["a", "b"]) : r() < 0.5,
-    pct: pick(r, [-1, 0, 10, 30, 50, 100, Math.round(r() * 100)]),
-  }));
-}
-
-function segmentValue(r: () => number): string {
-  const roll = r();
-  if (roll < 0.1) return "garbage";
-  if (roll < 0.2) return btoa(encodeURIComponent(JSON.stringify({ active: ["Hero test"] })));
-  return flags.serializeSegmentCookie(randomFlags(r));
 }
 
 function makeRequest(r: () => number): Request {
@@ -523,179 +471,4 @@ describe("the location matcher's country table is v7's", () => {
       expect(resolveCountryCode(name)).toBe(countries.resolveCountryCode(name));
     }
   });
-});
-
-// ---------------------------------------------------------------------------
-// Random: sticky, latest 7.x
-// ---------------------------------------------------------------------------
-
-/** A seeded `Math.random`, restarted for each side so both draw the same numbers. */
-function seededMath(seed: number) {
-  const r = rng(seed);
-  return vi.spyOn(Math, "random").mockImplementation(r);
-}
-
-describe("random is v7's sticky random (latest 7.x)", () => {
-  it(
-    "decisions, recorded flags and the Set-Cookie match v7 over 10k seeded page requests",
-    FUZZ,
-    () => {
-      const r = rng(0xab7e57);
-      const COHORTS = ["Hero test", "Banner AB", "Ç test"];
-      let fresh = 0;
-      let kept = 0;
-      let cookies = 0;
-      for (let i = 0; i < 10_000; i++) {
-        const traffic = pick(r, [
-          0,
-          0.1,
-          0.3,
-          0.5,
-          0.505,
-          0.9,
-          1,
-          1.5,
-          -1,
-          Number.NaN,
-          undefined,
-          "0.3",
-        ]);
-        const blocks: Record<string, unknown> = {};
-        for (const name of COHORTS) {
-          blocks[name] = {
-            __resolveType: "website/matchers/random.ts",
-            ...(r() < 0.9 ? { traffic: r() < 0.5 ? traffic : pick(r, [0.2, 0.5, 0.8]) } : {}),
-          };
-        }
-        // The rules one page evaluates, in order: saved blocks by name, or inline.
-        const rules = Array.from({ length: 1 + Math.floor(r() * 4) }, () =>
-          r() < 0.75
-            ? { __resolveType: pick(r, COHORTS) }
-            : { __resolveType: "website/matchers/random.ts", ...(r() < 0.8 ? { traffic } : {}) },
-        );
-        const cookieHeaderValue =
-          r() < 0.7 ? `${SEGMENT_COOKIE}=${segmentValue(r)}` : cookieHeader(r);
-        const request = new Request("https://example.com/", {
-          headers: cookieHeaderValue ? { cookie: cookieHeaderValue } : {},
-        });
-        const recordFlags = r() < 0.9;
-        const seed = Math.floor(r() * 2 ** 31);
-
-        // v7
-        savedBlocks = blocks;
-        const v7Flags: StoredFlag[] | undefined = recordFlags ? [] : undefined;
-        const ctx = v7Ctx(request, { flags: v7Flags });
-        const spy = seededMath(seed);
-        const expected = rules.map((rule) => resolve.evaluateVariantRule(rule, ctx));
-        setCookies.length = 0;
-        if (v7Flags) persistFlags(ctx);
-        const expectedCookie = setCookies[0] ?? null;
-        spy.mockRestore();
-
-        // ours: the saved block's name travels as `cohort`
-        const ourFlags: StoredFlag[] | undefined = recordFlags ? [] : undefined;
-        const input = recordFlags ? { request, flags: ourFlags } : request;
-        seededMath(seed);
-        const decisions = rules.map((rule) => {
-          const saved = blocks[rule.__resolveType] as { traffic?: number } | undefined;
-          const props = saved
-            ? { traffic: saved.traffic, cohort: rule.__resolveType }
-            : { traffic: (rule as { traffic?: number }).traffic };
-          return decideRandom(props, input);
-        });
-        vi.restoreAllMocks();
-
-        expect([i, decisions.map((d) => d.value)]).toEqual([i, expected]);
-        expect([i, ourFlags]).toEqual([i, v7Flags]);
-        const ourCookie = decisions.at(-1)!.setCookie;
-        expect([i, ourCookie]).toEqual([i, expectedCookie]);
-        expect([i, ourFlags ? segmentSetCookie(request, ourFlags) : null]).toEqual([
-          i,
-          expectedCookie,
-        ]);
-        for (const d of decisions) d.isFresh ? fresh++ : kept++;
-        if (expectedCookie) cookies++;
-      }
-      // Every path is exercised: fresh draws, kept decisions, cookies set and not.
-      expect(fresh).toBeGreaterThan(2_000);
-      expect(kept).toBeGreaterThan(2_000);
-      expect(cookies).toBeGreaterThan(2_000);
-      expect(cookies).toBeLessThan(9_000);
-    },
-  );
-
-  it("the cohort is the saved block's name: a visitor v7 drew keeps their group", () => {
-    savedBlocks = { "Hero test": { __resolveType: "website/matchers/random.ts", traffic: 0.3 } };
-    const cookieValue = flags.serializeSegmentCookie([{ name: "Hero test", value: true, pct: 30 }]);
-    const request = new Request("https://example.com/", {
-      headers: { cookie: `${SEGMENT_COOKIE}=${cookieValue}` },
-    });
-    vi.spyOn(Math, "random").mockReturnValue(0.99);
-    expect(resolve.evaluateVariantRule({ __resolveType: "Hero test" }, v7Ctx(request))).toBe(true);
-    expect(random({ traffic: 0.3, cohort: "Hero test" }, request)).toBe(true);
-    // Without the name it is another test: the visitor is drawn again.
-    expect(random({ traffic: 0.3 }, request)).toBe(false);
-    expect(random({ traffic: 0.3, cohort: "Renamed" }, request)).toBe(false);
-  });
-
-  it("draws with Math.random() < traffic: a 0 share never matches, a 1 share always does", () => {
-    const request = new Request("https://example.com/");
-    for (const [draw, traffic] of [
-      [0, 0],
-      [0.999_999, 1],
-      [0.3, 0.3],
-      [0.299_999, 0.3],
-    ] as const) {
-      savedBlocks = {};
-      vi.spyOn(Math, "random").mockReturnValue(draw);
-      const expected = resolve.evaluateVariantRule(
-        { __resolveType: "website/matchers/random.ts", traffic },
-        v7Ctx(request),
-      );
-      expect([draw, traffic, random({ traffic }, request)]).toEqual([draw, traffic, expected]);
-    }
-  });
-
-  it("a new traffic share draws the visitor again, once", () => {
-    const cookieValue = serializeSegmentCookie([{ name: "Hero test", value: true, pct: 30 }]);
-    const request = new Request("https://example.com/", {
-      headers: { cookie: `${SEGMENT_COOKIE}=${cookieValue}` },
-    });
-    const flagsOfRequest: StoredFlag[] = [];
-    vi.spyOn(Math, "random").mockReturnValue(0.99);
-    const first = decideRandom(
-      { traffic: 0.5, cohort: "Hero test" },
-      { request, flags: flagsOfRequest },
-    );
-    expect(first).toMatchObject({ value: false, isFresh: true });
-    expect(first.setCookie).toBe(
-      `deco_segment=${serializeSegmentCookie([{ name: "Hero test", value: false, pct: 50 }])}; Max-Age=31536000; Path=/; SameSite=Lax`,
-    );
-    // The same request asks again: the decision already made is reused.
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    expect(
-      decideRandom({ traffic: 0.5, cohort: "Hero test" }, { request, flags: flagsOfRequest }),
-    ).toMatchObject({ value: false, isFresh: false });
-  });
-});
-
-describe("the deco_segment helpers are v7's", () => {
-  it(
-    "parse, serialize, the cache token and the traffic fingerprint: 20k seeded cases",
-    FUZZ,
-    () => {
-      const r = rng(0xf1a95);
-      for (let i = 0; i < 20_000; i++) {
-        const list = randomFlags(r);
-        expect(serializeSegmentCookie(list)).toBe(flags.serializeSegmentCookie(list));
-        expect(segmentCacheToken(list)).toBe(flags.segmentCacheToken(list));
-        const raw =
-          r() < 0.8 ? flags.serializeSegmentCookie(list) : pick(r, ["", "x", "e30=", "bnVsbA=="]);
-        expect(parseSegmentCookie(raw)).toEqual(flags.parseSegmentCookie(raw));
-        const traffic = pick(r, [r(), r() * 2 - 0.5, Number.NaN, Infinity, 0.005, 0.995]);
-        expect(trafficToPct(traffic)).toBe(flags.trafficToPct(traffic));
-      }
-      expect(SEGMENT_COOKIE).toBe(flags.SEGMENT_COOKIE);
-    },
-  );
 });

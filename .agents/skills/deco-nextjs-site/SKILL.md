@@ -31,7 +31,7 @@ example disagree, the example wins.
 ## The shape of a request
 
 1. `proxy.ts` decides once: the version (a Studio link's draft or old
-   release, on an allowed host), the visitor (`deco_segment` cookie) and every
+   release, on an allowed host), the visitor (`deco_vid` cookie) and every
    test and campaign on or off.
 2. A published CMS page is rewritten to `/_assignments/<segment>/<path>`. The
    page reads no request, so Next caches it (ISR).
