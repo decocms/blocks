@@ -698,6 +698,25 @@ describe("the visitor", () => {
     ).toBe("none");
   });
 
+  it("hands the render the live page's tests, for analytics, and never a preview's", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ names: [] })),
+    );
+    const cms = testCMS(
+      snapshot({ previewHosts: ["store.example.com"], experiments: { all: 100, none: 0 } }),
+    );
+    // Through the site's page cache (setup's): the page it stores carries its key's tests.
+    const { get, entry } = setup({ cms });
+    await get("/");
+    expect(entry.served[0]?.scope?.experiments).toEqual({ all: true, none: false });
+    // A draft, and a link that only switches a test: no tests in the scope.
+    await get(`/?__draft=${encodeURIComponent(POINTER)}`);
+    const link = "127.0.0.1:1/p?__test=none%3Don@local";
+    await get(`/?__draft=${encodeURIComponent(link)}`);
+    expect(entry.served.slice(1).map((s) => s.scope?.experiments)).toEqual([undefined, undefined]);
+  });
+
   it("a preview link's switched tests are decided in the worker, even a test at 0%", async () => {
     const cms = testCMS(
       snapshot({ previewHosts: ["store.example.com"], experiments: { none: 0 } }),
