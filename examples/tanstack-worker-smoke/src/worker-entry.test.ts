@@ -30,13 +30,13 @@ const doubles = vi.hoisted(() => {
   return state;
 });
 
-vi.mock("@tanstack/react-start/server-entry", () => ({
-  default: {
-    fetch: (request: Request) => {
-      doubles.served.push(request);
-      return doubles.respond(request);
-    },
+vi.mock("@tanstack/react-start/server", () => ({
+  createStartHandler: (_streamHandler: unknown) => (request: Request) => {
+    doubles.served.push(request);
+    return doubles.respond(request);
   },
+}));
+vi.mock("@tanstack/react-start/server-entry", () => ({
   createServerEntry: (entry: unknown) => entry,
 }));
 // The recipe imports `cms` once; each test points it at its own content.

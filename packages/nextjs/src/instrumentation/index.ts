@@ -1,6 +1,6 @@
 /**
- * `@decocms/nextjs/instrumentation`: `http.server.request.duration` for a
- * Next.js site, from the request span Next.js already opens.
+ * `@decocms/nextjs/instrumentation`: request metrics from Next's own span,
+ * and uncaught server errors through its public `onRequestError` hook.
  *
  * Next.js measures every request it serves: `BaseServer.handleRequest` opens
  * one root span per request and, when the response is done, sets its status,
@@ -30,6 +30,7 @@
  */
 
 import { recordServerRequest } from "@decocms/blocks/metrics";
+import { flushTelemetry, reportError } from "@decocms/blocks/telemetry";
 import type {
   Context,
   ContextManager,
@@ -40,6 +41,7 @@ import type {
   Tracer,
   TracerProvider,
 } from "@opentelemetry/api";
+import type { Instrumentation } from "next";
 import { DRAFT_ROUTE_PREFIX, VERSION_HEADER } from "../draft.ts";
 
 type Api = typeof import("@opentelemetry/api");
@@ -81,6 +83,29 @@ export interface ServerRequestSpanProcessor {
 
 /** OpenTelemetry's `SpanStatusCode.ERROR`. */
 const STATUS_ERROR = 2;
+
+/**
+ * Next's server error hook: render, route, action and proxy failures, including
+ * errors in a streamed render after response headers have been sent. Re-export
+ * it alongside `register` from the site's `instrumentation.ts`.
+ *
+ * Only the route template and method travel: request paths, queries and headers
+ * never enter the report. Await the bounded flush because a serverless host may
+ * freeze the process once Next finishes handling the error.
+ */
+export const onRequestError: Instrumentation.onRequestError = async (error, request, context) => {
+  try {
+    await reportError(error, {
+      framework: "nextjs",
+      source: context.routeType,
+      route: context.routePath,
+      method: request.method,
+    });
+    await flushTelemetry();
+  } catch {
+    // Reporting never changes Next's error handling.
+  }
+};
 
 /** Records one ended `BaseServer.handleRequest` span. Never throws. */
 function recordRequestSpan(

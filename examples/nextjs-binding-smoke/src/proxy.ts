@@ -6,6 +6,8 @@ import {
   decideDraft,
   decideVisitor,
   draftRequestHeaders,
+  ERROR_REPORT_PATH,
+  handleErrorReport,
   isAssignmentsRoutePath,
   isDraftRoutePath,
   rewriteToAssignmentsRoute,
@@ -17,6 +19,7 @@ import { proxyCms } from "./cms.proxy";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (pathname === ERROR_REPORT_PATH) return handleErrorReport(request);
   // The draft and assignments routes are reached only through the rewrites below: a path can't
   // pick a draft, or switch a test or a campaign on.
   if (isDraftRoutePath(pathname) || isAssignmentsRoutePath(pathname)) {

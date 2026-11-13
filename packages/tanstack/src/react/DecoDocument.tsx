@@ -29,6 +29,7 @@
  * for the bridge, the badge and the draft they read.
  */
 import { DraftBadge, StudioChannel } from "@decocms/blocks/preview";
+import { startErrorCapture } from "@decocms/blocks/telemetry/client";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { studioOrigins } from "../studio.ts";
@@ -121,6 +122,7 @@ function StudioPieces({
   draft: string | undefined;
   draftUnavailable?: boolean;
 }) {
+  useEffect(() => startErrorCapture(), []);
   // Two primitives, so a navigation that keeps the page doesn't re-render the document.
   const pathTemplate = useRouterState({ select: (s) => studioPageOf(s.matches)?.pathTemplate });
   const pageId = useRouterState({ select: (s) => studioPageOf(s.matches)?.id });

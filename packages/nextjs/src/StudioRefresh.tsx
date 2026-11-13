@@ -13,7 +13,11 @@
  * Set on every page, framed or not: Studio's module is the only caller, and
  * comparing the window with its parent here is what a test runner's
  * frame-busting rewrite matches (see `StudioBridge.ts`).
+ *
+ * This shared client mount also starts the bounded browser exception
+ * reporter, once per page, independently of Studio framing or refreshes.
  */
+import { startErrorCapture } from "@decocms/blocks/telemetry/client";
 import { useRouter } from "next/navigation.js";
 import { useEffect, useRef, useTransition } from "react";
 import { STUDIO_PAGE_REFRESH } from "./studio.ts";
@@ -25,6 +29,10 @@ export function StudioRefresh(): null {
   const [pending, startTransition] = useTransition();
   // Each refresh waits for the transition it starts; a later one joins it.
   const waiting = useRef<Array<() => void>>([]);
+
+  useEffect(() => {
+    startErrorCapture();
+  }, []);
 
   useEffect(() => {
     if (pending) return;

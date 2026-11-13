@@ -412,6 +412,36 @@ function wireLogs(payloads: string[]): WireLog[] {
 }
 
 describe("warning and error logs over OTLP", () => {
+  it("scrubs database URI credentials before exporting exception text", async () => {
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline.error(
+        "connection refused postgres://db-user-private:db-password-private@db.example/store?sslmode=ssl-private",
+        {
+          "exception.stacktrace":
+            "at connect (redis://redis-user-private:redis-password-private@redis.example:6379/0)",
+          endpoint: "mongodb+srv://mongo-user-private:mongo-password-private@cluster.example/store",
+        },
+      );
+      await pipeline.flush();
+      const sent = payloads.join("\n");
+      for (const secret of [
+        "db-user-private",
+        "db-password-private",
+        "ssl-private",
+        "redis-user-private",
+        "redis-password-private",
+        "mongo-user-private",
+        "mongo-password-private",
+      ])
+        expect(sent).not.toContain(secret);
+      const [log] = wireLogs(payloads);
+      expect(log?.body.stringValue).toContain("postgres://db.example/store?[redacted]");
+      const values = attrs(log!.attributes);
+      expect(values["exception.stacktrace"]).toContain("redis://redis.example:6379/0");
+      expect(values.endpoint).toBe("mongodb+srv://cluster.example/store");
+    });
+  });
+
   it.each([
     "warn",
     "error",
@@ -460,6 +490,45 @@ describe("warning and error logs over OTLP", () => {
       for (const secret of ["warn-query-secret", "warn-auth-secret", "warn-cookie-secret"]) {
         expect(payloads.join("\n")).not.toContain(secret);
       }
+    });
+  });
+
+  it("scrubs relative URL queries, fragments and absolute URL userinfo in actual OTLP", async () => {
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline.error(
+        "failed /api/customer?email=relative-private#relative-hash ./chunks/render.js?session=dot-private ../render.js#parent-private bare.js?value=bare-private",
+        {
+          "exception.stacktrace":
+            "at render (https://user-private:password-private@shop.example/render.js?value=absolute-private#absolute-hash:12:34) at /chunks/render.js?value=stack-private:56:78",
+          endpoint: "https://userinfo-private:credential-private@api.example/path",
+        },
+      );
+      await pipeline.flush();
+      const sent = payloads.join("\n");
+      for (const secret of [
+        "relative-private",
+        "relative-hash",
+        "dot-private",
+        "parent-private",
+        "bare-private",
+        "user-private",
+        "password-private",
+        "absolute-private",
+        "absolute-hash",
+        "stack-private",
+        "userinfo-private",
+        "credential-private",
+      ])
+        expect(sent).not.toContain(secret);
+      const [log] = wireLogs(payloads);
+      expect(log?.body.stringValue).toContain("/api/customer?[redacted]");
+      expect(log?.body.stringValue).toContain("bare.js?[redacted]");
+      const values = attrs(log!.attributes);
+      expect(values["exception.stacktrace"]).toContain(
+        "https://shop.example/render.js?[redacted]:12:34",
+      );
+      expect(values["exception.stacktrace"]).toContain("/chunks/render.js?[redacted]:56:78");
+      expect(values.endpoint).toBe("https://api.example/path");
     });
   });
 

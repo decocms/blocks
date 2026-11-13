@@ -7,6 +7,8 @@
  * `POST /_cache/purge`. The cache is this file's: change what it keys on,
  * how long it keeps a page, or drop it.
  */
+
+import { decoStreamHandler } from "@decocms/tanstack/stream";
 import {
   assignmentsKey,
   CSEG_PARAM,
@@ -23,7 +25,8 @@ import {
   segmentToken,
   serverFnPagePath,
 } from "@decocms/tanstack/worker";
-import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
+import { createStartHandler } from "@tanstack/react-start/server";
+import { createServerEntry } from "@tanstack/react-start/server-entry";
 import { cms } from "./cms";
 
 interface Env {
@@ -471,7 +474,7 @@ async function purge(request: Request, env: Env): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 const worker = createDecoWorker<Env>({
-  serverEntry: createServerEntry({ fetch: handler.fetch }),
+  serverEntry: createServerEntry({ fetch: createStartHandler(decoStreamHandler) }),
   cms,
   dev: import.meta.env.DEV,
   pageCache,

@@ -2,7 +2,7 @@
 
 Deco CMS for [TanStack Start](https://tanstack.com/start) sites on Cloudflare Workers, deployed the way Deco deploys them. It is opinionated: one worker entry with a few options, one escape hatch for your own routes, and the behaviour every Deco TanStack site should have, always on.
 
-Peers: `@decocms/blocks` (same version), `@tanstack/react-start`, `@tanstack/react-router`, `react`, and `vite` for `/vite`.
+Peers: `@decocms/blocks` (same version), `@tanstack/react-start`, `@tanstack/react-router`, `react`, `react-dom` for `/stream`, and `vite` for `/vite`. The optional `/stream` entry requires router 1.170.39 / Start 1.168.58 or later; existing entry points retain their existing framework compatibility.
 
 ## The worker
 
@@ -82,6 +82,39 @@ export const Route = createRootRoute({ component: () => <DecoDocument site="my-s
 ```
 
 `DecoDocument` mounts v7's "." edit shortcut, the Studio channel and the draft badge. It is v8 only: v7's framed handler (`scrollToComponent`, `editor::rerender`) is gone, so no script on the page compares the window with `top` or `parent`, and a test runner that rewrites "frame-busting" code (Cypress's `modifyObstructiveCode`) serves the page byte for byte. The Studio channel is on every page, production included: a small inline script (about 0.7 kB gzipped) through which Studio loads its own editor code (the section wireframe, the page swap after a save) into the page when it frames it. It is the only way Studio runs code in the page: the bridge evaluates no script Studio sends. The page trusts a list of exact Studio origins: the `studioOrigins` prop when given, else the `DECO_STUDIO_ORIGIN` environment variable, comma-separated (read on the server; a local Studio, such as `http://localhost:3000`), else Studio's production and staging origins (`DEFAULT_STUDIO_ORIGINS`). Framed, the page posts `{ type: "deco:ready" }` with each of them as the target origin (only a parent at one of them receives it) and imports a module only when Studio's answer, `{ type: "deco:load", url }`, comes from exactly one of them and names a URL on the origin of that message; not framed, or framed by any other origin, it does nothing. The worker adds the same list to every HTML response's CSP: to `frame-ancestors`, and to `script-src` (or `script-src-elem`; a policy that restricts scripts only through `default-src` gets a `script-src` with its sources plus Studio's). A site that sets `studioOrigins` on `DecoDocument` sets the worker's `studioOrigins` option too; `DECO_STUDIO_ORIGIN` sets both. The inline scripts take the site's `nonce`. The message and module types are in `@decocms/blocks/protocol`. A page route returns `pathTemplate` (the page block's `path`, as `matchRoute` matched it) in its loader data, so "." on the store page opens that page in Studio's editor. A site that keeps its own document (a skip link before `<main>`, say) renders `<DecoPreview site="my-store" />` in its `<body>` instead: the shortcut, the channel, the badge and the draft they read.
+
+## Error reporting
+
+With CMS telemetry configured, `createDecoWorker` reports thrown handlers and failed renders, including failures a page cache replaces with stale content. It also records returned 5xx responses without reading their bodies. Request metadata uses route templates; raw URLs, headers, cookies, bodies and component props are omitted. Error logs keep the CMS error sampling rate even when request metrics are disabled.
+
+React can recover from an SSR error after a successful response has started. Use the Deco stream handler to report those errors from React's `onError` callback:
+
+```ts
+// src/server.ts
+import { createStartHandler } from "@tanstack/react-start/server";
+import { createServerEntry } from "@tanstack/react-start/server-entry";
+import { decoStreamHandler } from "@decocms/tanstack/stream";
+
+export default createServerEntry({ fetch: createStartHandler(decoStreamHandler) });
+
+// src/worker-entry.ts: pass the custom entry explicitly
+import serverEntry from "./server";
+export default createDecoWorker({ serverEntry, cms });
+```
+
+This handler uses Web Streams and the public router SSR APIs introduced in router 1.170.39. A site pinned to an older router must upgrade its framework dependencies before adopting `/stream`. The Worker must import the site's own server entry: the package default from `@tanstack/react-start/server-entry` always uses TanStack's default renderer and does not delegate to `src/server.ts`.
+
+`createDecoRouter` reports errors caught by its client route boundary and chains a supplied `defaultOnCatch` callback. `DecoDocument` and `DecoPreview` start uncaught browser exception and unhandled rejection capture after mounting. For capture before hydration, call `startErrorCapture()` from `@decocms/blocks/telemetry/client` in your client entry. An application-owned React error boundary, or a route-specific `onCatch` override, must report caught exceptions explicitly:
+
+```ts
+import { captureException } from "@decocms/blocks/telemetry/client";
+
+componentDidCatch(error: Error) {
+  captureException(error, { source: "render", component: this.props.sectionKey });
+}
+```
+
+Reports go to `/deco/_errors` on the same origin. The worker validates the origin, payload shape, body size and ingress budget, then sends through the server's existing authenticated telemetry pipeline. No collector credential is shipped to the browser. This transport feeds Monitor Logs; the separate analytics error module retains its own analytics behavior. Client-side limits and server-side sampling/budgets bound error storms; delivery is best effort when the collector or runtime cannot accept a report.
 
 ## Images
 

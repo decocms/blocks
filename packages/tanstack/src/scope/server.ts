@@ -11,6 +11,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface RequestScope {
+  /** The render's error reporter; server-only, never serialized into a page. */
+  reportError?: (error: unknown) => void;
   /** The CDN segment token for this request's page (the site's `pageCache` passes it to `render`), or undefined. */
   csegToken?: string;
   /** The draft this request renders (after the worker's host check). */
