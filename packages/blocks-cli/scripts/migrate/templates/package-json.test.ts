@@ -41,3 +41,10 @@ describe("generatePackageJson — generate scripts", () => {
     expect(pkg.scripts.build).toBe("npm run generate && tsr generate && vite build");
   }, 30_000);
 });
+
+describe("generatePackageJson — framework dependencies", () => {
+  it("depends on @decocms/apps-website, which the scaffolded __root.tsx imports", () => {
+    const pkg = JSON.parse(generatePackageJson(ctx));
+    expect(pkg.dependencies["@decocms/apps-website"]).toBe(pkg.dependencies["@decocms/blocks"]);
+  });
+});
