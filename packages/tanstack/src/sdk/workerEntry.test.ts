@@ -1412,3 +1412,80 @@ describe("/live/invoke alias (Fresh compat)", () => {
     expect(urls).toEqual(["https://example.com/deco/invoke/site/loaders/x.ts"]);
   });
 });
+
+/**
+ * The staff-only admin routes were hard-removed from the TanStack worker
+ * entry. Nothing in the worker answers them anymore: they reach the app like
+ * any other URL (which, with no matching route, 404s). A site still passing
+ * the old `admin` handlers object gets no admin behavior back from it.
+ */
+describe("removed staff-only admin routes", () => {
+  const REMOVED_PATHS = [
+    "/live/_meta",
+    "/.decofile",
+    "/live/previews",
+    "/live/previews/",
+    "/live/previews/site/sections/Hero.tsx",
+  ];
+
+  function makeWorker(extra: Record<string, unknown> = {}) {
+    const seen: string[] = [];
+    const serverEntry = {
+      fetch: async (req: Request) => {
+        seen.push(`${req.method} ${new URL(req.url).pathname}`);
+        return new Response("not found", { status: 404 });
+      },
+    };
+    const adminCalls: string[] = [];
+    const record = (name: string) => () => {
+      adminCalls.push(name);
+      return new Response(name);
+    };
+    const legacyAdmin = {
+      handleMeta: record("meta"),
+      handleDecofileRead: record("decofile.read"),
+      handleDecofileReload: record("decofile.reload"),
+      handleRender: record("render"),
+      corsHeaders: () => ({ "Access-Control-Allow-Origin": "*" }),
+    };
+    const worker = createDecoWorkerEntry(serverEntry, {
+      observability: false,
+      // Legacy wiring from before the removal; must be inert.
+      ...({ admin: legacyAdmin } as Record<string, unknown>),
+      ...extra,
+    });
+    return { worker, seen, adminCalls };
+  }
+
+  for (const path of REMOVED_PATHS) {
+    for (const method of ["GET", "POST", "OPTIONS"]) {
+      it(`${method} ${path} is not handled by the worker`, async () => {
+        const { worker, seen, adminCalls } = makeWorker();
+        const res = await worker.fetch(
+          new Request(`https://example.com${path}`, {
+            method,
+            body: method === "POST" ? "{}" : undefined,
+          }),
+          EMPTY_ENV,
+          MOCK_CTX,
+        );
+        expect(adminCalls).toEqual([]);
+        expect(res.status).toBe(404);
+        expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+        expect(seen).toEqual([`${method} ${path}`]);
+      });
+    }
+  }
+
+  it("still answers the /deco/_liveness probe", async () => {
+    const { worker } = makeWorker();
+    const res = await worker.fetch(
+      new Request("https://example.com/deco/_liveness"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("OK");
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+  });
+});

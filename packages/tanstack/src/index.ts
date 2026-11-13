@@ -3,8 +3,6 @@ export {
   cmsRouteConfig,
   CmsPage,
   decoInvokeRouteConfig,
-  decoMetaRouteConfig,
-  decoRenderRouteConfig,
   loadCmsHomePage,
   loadCmsPage,
   loadDeferredSection,
