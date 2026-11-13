@@ -64,6 +64,18 @@ export interface CachedLoaderOptions {
    * Default: every resolved result is stored.
    */
   shouldCache?: (result: unknown) => boolean;
+  /**
+   * Opt this loader's results out of the per-build key. When set, entries are
+   * keyed by `dataVersion` instead of the build hash and stored in the request's
+   * data scope — which, with `DECO_DATA_CACHE_ON_DEPLOY=preserve`, excludes the
+   * build hash and CMS revision, so results survive deploys and publishes
+   * (props are still part of the key). Without preserve it behaves as before.
+   *
+   * Only for loaders whose result is a pure function of props + upstream data.
+   * Bump the string whenever the result's shape/transform changes; purge with
+   * `DECO_DATA_CACHE_PURGE` or `cache:data-version` in DECO_KV.
+   */
+  dataVersion?: string;
 }
 
 /**
@@ -280,7 +292,9 @@ export function createCachedLoader<TProps, TResult>(
     staleWhileRevalidate = 300_000,
     keyFn = JSON.stringify,
     shouldCache,
+    dataVersion,
   } = resolved;
+  const keyVersion = dataVersion === undefined ? BUILD : `data:${dataVersion}`;
 
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
@@ -297,7 +311,10 @@ export function createCachedLoader<TProps, TResult>(
   if (policy === "no-store") return loaderFn;
 
   const cachedFn = async (props: TProps): Promise<TResult> => {
-    const cacheKey = cache.key(`${BUILD}::${name}::${keyFn(props)}`);
+    const cacheKey = cache.key(
+      `${keyVersion}::${name}::${keyFn(props)}`,
+      dataVersion === undefined ? "build" : "data",
+    );
     // Joining another caller's flight is bounded by a timer of THIS caller's
     // request (see `joinInflight`): if the owner's request was cancelled and
     // its Promise will never settle, evict the dead slot and run again.
