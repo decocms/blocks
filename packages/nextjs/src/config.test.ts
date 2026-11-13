@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DECO_REWRITES, withDeco } from "./config.cjs";
+import { withDeco } from "./config.cjs";
 
 // withDeco()'s declared return type is the standard (loosely typed) Next.js
 // NextConfig, whose `rewrites`/`transpilePackages` are optional and
@@ -7,36 +7,21 @@ import { DECO_REWRITES, withDeco } from "./config.cjs";
 // them), so tests assert that with `!` / casts rather than loosening the
 // public declaration.
 describe("withDeco", () => {
-  it("adds rewrites and transpilePackages to a bare config", async () => {
+  it("adds transpilePackages and no rewrites to a bare config", async () => {
     const cfg = withDeco({});
     expect(cfg.transpilePackages).toEqual(
       expect.arrayContaining(["@decocms/blocks", "@decocms/blocks-admin", "@decocms/nextjs"]),
     );
-    expect(await cfg.rewrites!()).toEqual(DECO_REWRITES);
+    // The staff-only admin rewrites (/.decofile, /live/_meta,
+    // /live/previews/*) were hard-removed; withDeco must not add any.
+    expect(cfg.rewrites).toBeUndefined();
   });
 
-  it("prepends deco rewrites to a user's array-returning rewrites()", async () => {
-    const cfg = withDeco({
-      rewrites: async () => [{ source: "/a", destination: "/b" }],
-    });
-    const out = (await cfg.rewrites!()) as Array<{ source: string; destination: string }>;
-    expect(out.slice(0, DECO_REWRITES.length)).toEqual(DECO_REWRITES);
-    expect(out.at(-1)).toEqual({ source: "/a", destination: "/b" });
-  });
-
-  it("merges into a user's object-form rewrites via beforeFiles", async () => {
-    const cfg = withDeco({
-      rewrites: async () => ({
-        beforeFiles: [{ source: "/x", destination: "/y" }],
-        afterFiles: [],
-        fallback: [],
-      }),
-    });
-    const out = (await cfg.rewrites!()) as {
-      beforeFiles: Array<{ source: string; destination: string }>;
-    };
-    expect(out.beforeFiles.slice(0, DECO_REWRITES.length)).toEqual(DECO_REWRITES);
-    expect(out.beforeFiles.at(-1)).toEqual({ source: "/x", destination: "/y" });
+  it("passes a user's rewrites() through untouched (no deco rewrites prepended)", async () => {
+    const userRewrites = async () => [{ source: "/a", destination: "/b" }];
+    const cfg = withDeco({ rewrites: userRewrites });
+    expect(cfg.rewrites).toBe(userRewrites);
+    expect(await cfg.rewrites!()).toEqual([{ source: "/a", destination: "/b" }]);
   });
 
   it("dedupes transpilePackages", () => {
