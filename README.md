@@ -50,11 +50,11 @@ v7 (`@decocms/tanstack` 7.x, `@decocms/nextjs` 7.x, `@decocms/blocks-admin`, `@d
 
 ## Packages
 
-All packages are versioned and released in lockstep, starting at 8.4.0 for the bindings and `@decocms/compat-v7`. The bindings, `@decocms/compat-v7` and the clients take `@decocms/blocks` as a peer dependency (`^8.6.0` for the bindings, `^8.4.0` for the others), so a site installs one copy of it.
+All packages are versioned and released in lockstep, starting at 8.4.0 for the bindings and `@decocms/compat-v7`. The bindings, `@decocms/compat-v7` and the clients take `@decocms/blocks` as a peer dependency (`^8.21.0` for the bindings; the clients retain their own API floors), so a site installs one copy of it.
 
 | Package | Purpose |
 | --- | --- |
-| [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`) and the `vite dev` content reload plugin (`/vite`). |
+| [`@decocms/blocks`](./packages/blocks) | Runtime (`createCMS`, `matchRoute`, loaders, built-in blocks), the `deco` CLI (`/cli`), the content protocol (`/protocol/*`), `createInstrumentedFetch` (`/fetch`), analytics (`/analytics`), error reporting (`/telemetry`) and the `vite dev` content reload plugin (`/vite`). |
 | [`@decocms/tanstack`](./packages/tanstack) | TanStack Start on Cloudflare Workers, deployed the Deco way: the edge worker (`/worker`), the root document (`/react`), the router (`/router`), the server-function fetch (`/start`), server helpers (`/server`) and the Vite plugin (`/vite`). |
 | [`@decocms/nextjs`](./packages/nextjs) | Any Next.js App Router app: draft previews in the proxy (`/proxy`) and the pages (`/server`), the preview badge and the Studio bridge (root), `withDeco()` for `next.config` (`/config`) and a next/image loader (`/image-loader`). |
 | [`@decocms/compat-v7`](./packages/compat-v7) | v7's pure helpers with v7's output, for sites moved from v7: section types and widget aliases (`/types`), device detection (`/device`), inline scripts (`/script`), `clx` (`/clx`), v7's matchers, with the sticky random (`/matchers`), v7's section loader runner with its mixins (`/sections`), `@decocms/apps-commerce`'s types and helpers (`/commerce/*`), and v7's device context and A/B cookie for each binding (`/tanstack`, `/nextjs`). No v7 runtime. |
@@ -157,6 +157,12 @@ bun .agents/skills/deco-v7-to-v8-migration/scripts/main.ts --root <site>
 It writes the block map with your v7 type names as aliases, vendors the app loaders your content calls, moves content to `.deco/blocks`, lists v7 secrets to move to your deploy platform's secrets and reports every v7 import with its replacement. See the skill's `SKILL.md` and the docs page "Migrating from v7" (`/next/renames-and-migrations`).
 
 Older migrations (Fresh to TanStack, `@decocms/start` 6.x to 7.x) target v7: use the playbooks on the [`7.x` branch](https://github.com/decocms/blocks/tree/7.x).
+
+## Error reporting
+
+The bindings send request/render failures through the CMS's sampled telemetry pipeline. TanStack reports before page-cache fallbacks can hide a failure; its optional [`/stream` handler](./packages/tanstack#error-reporting) also captures React errors after streaming starts. Next.js exposes the public `onRequestError` instrumentation hook. See each binding's README for integration and framework version requirements.
+
+`@decocms/blocks/telemetry` exports `reportError` for application-owned server catches and bounded `flushTelemetry` for awaited serverless hooks. Server exception messages and stacks are scrubbed for URL queries, fragments, userinfo and common credential patterns before export. Successful requests remain metrics; the CMS error sampling rate controls captured server errors. Reporting preserves the application's exception and response behavior.
 
 ## Development
 

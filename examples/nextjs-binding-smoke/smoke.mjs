@@ -38,14 +38,16 @@ await new Promise((resolve) => draftServer.listen(DRAFT_PORT, "127.0.0.1", resol
 
 // http.server.request.duration's data points, as the CMS sends them (OTLP/HTTP JSON, gzipped).
 const requests = [];
+const errors = [];
 const otlp = createServer((req, res) => {
   const chunks = [];
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
+    let body = Buffer.concat(chunks);
+    if (req.headers["content-encoding"] === "gzip") body = gunzipSync(body);
+    const payload = JSON.parse(body.toString());
     if (req.url === "/v1/metrics") {
-      let body = Buffer.concat(chunks);
-      if (req.headers["content-encoding"] === "gzip") body = gunzipSync(body);
-      for (const { scopeMetrics } of JSON.parse(body.toString()).resourceMetrics)
+      for (const { scopeMetrics } of payload.resourceMetrics)
         for (const { metrics } of scopeMetrics)
           for (const metric of metrics.filter((m) => m.name === "http.server.request.duration"))
             for (const point of metric.histogram.dataPoints)
@@ -54,6 +56,17 @@ const otlp = createServer((req, res) => {
                 count: Number(point.count),
                 sum: point.sum,
               });
+    }
+    if (req.url === "/v1/logs") {
+      for (const { scopeLogs } of payload.resourceLogs)
+        for (const { logRecords } of scopeLogs)
+          for (const record of logRecords)
+            errors.push({
+              ...record,
+              attributes: Object.fromEntries(
+                record.attributes.map((attribute) => [attribute.key, Object.values(attribute.value)[0]]),
+              ),
+            });
     }
     res.writeHead(200, { "content-type": "application/json" }).end("{}");
   });
@@ -320,6 +333,24 @@ try {
     !/CartButton|NumberFormat|useState|createElement|react-dom/.test(proxyCode),
     proxyCode.match(/CartButton|NumberFormat|useState|createElement|react-dom/)?.[0],
   );
+
+  // Real Next instrumentation, not a mocked hook. Rendering can already have
+  // sent 200 headers, so observe the ERROR rather than inventing a status.
+  await get("/smoke/render-error?token=never-export-this");
+  const renderErrors = () => errors.filter((error) =>
+    error.attributes["error.code"] === "UNCAUGHT_EXCEPTION" &&
+    error.attributes["http.route"]?.startsWith("/smoke/render-error"),
+  );
+  for (let i = 0; i < 50 && renderErrors().length === 0; i++) await sleep(100);
+  check(
+    "a server rendering failure reaches OTLP once with route context and no request query",
+    renderErrors().length === 1 &&
+      renderErrors()[0].attributes["error.source"] === "render" &&
+      renderErrors()[0].attributes["deco.framework"] === "nextjs" &&
+      !JSON.stringify(renderErrors()).includes("never-export-this"),
+    JSON.stringify(renderErrors()),
+  );
+
 } catch (error) {
   console.error(error);
   failures.push("crashed");

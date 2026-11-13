@@ -144,6 +144,11 @@
 			"types": "./dist/protocol/conformance/index.d.ts",
 			"source": "./src/protocol/conformance/index.ts",
 			"default": "./dist/protocol/conformance/index.js"
+		},
+		"./telemetry": {
+			"types": "./dist/v8/errorReporting.d.ts",
+			"source": "./src/v8/errorReporting.ts",
+			"default": "./dist/v8/errorReporting.js"
 		}
 	},
 	"scripts": {

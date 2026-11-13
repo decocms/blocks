@@ -8,6 +8,6 @@ const otlp = process.env.SMOKE_OTLP_ENDPOINT;
 // host the smoke previews on (x-forwarded-host) in code.
 export const cmsConfig = {
   content,
-  telemetry: otlp ? { endpoint: otlp } : (false as const),
+  telemetry: otlp ? { endpoint: otlp, defaults: { errorSampleRate: 1 } } : (false as const),
   preview: { hosts: ["binding-smoke.deco.site"] },
 };

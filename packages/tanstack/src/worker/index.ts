@@ -48,6 +48,7 @@
 import { type CMS, matchRoute, type Redirect } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
+import { reportError } from "@decocms/blocks/telemetry";
 import { runInScope } from "@decocms/tanstack/scope";
 import { ASSIGNMENTS_HEADER, serializeAssignments } from "../assignments.ts";
 import { draftResponseHeaders, RELEASE_CHECK_HEADER, VERSION_HEADER } from "../draft.ts";
@@ -279,6 +280,44 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     return match.kind === "match" ? match.entry.path : undefined;
   }
 
+  interface ErrorCapture {
+    rendered: boolean;
+    report(
+      error: unknown,
+      source: "render" | "request" | "action" | "route",
+      status?: number,
+      routed?: boolean,
+    ): void;
+  }
+
+  /** One request owns its deduplication: a reused Error can fail later requests too. */
+  function errorsFor(request: Request, ctx: ExecutionContextLike): ErrorCapture {
+    const reported = new Set<unknown>();
+    return {
+      rendered: false,
+      report(error, source, status, routed = false) {
+        if (request.signal.aborted || reported.has(error)) return;
+        reported.add(error);
+        try {
+          ctx.waitUntil(
+            reportError(error, {
+              framework: "tanstack",
+              source,
+              route: () => {
+                const url = new URL(request.url);
+                return fixedRoute(url.pathname) ?? (routed ? undefined : routeTemplate(url));
+              },
+              method: request.method,
+              status,
+            }),
+          );
+        } catch {
+          // Reporting never replaces the response or the error being thrown.
+        }
+      },
+    };
+  }
+
   /**
    * Records the request (`http.server.request.duration`). The route is a
    * function, found after the response and only while telemetry measures:
@@ -390,6 +429,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     ctx: ExecutionContextLike,
     decision: DraftDecision,
     preview: boolean,
+    errors: ErrorCapture,
   ): Promise<Served> {
     const draft = decision.version?.version ?? null;
     const url = new URL(request.url);
@@ -446,14 +486,20 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     }
 
     const visited = await withDecisions(request, decision);
-    const served = await page(visited.request, env, ctx, {
-      draft,
-      preview,
-      unavailable: decision.unavailable === true,
-      url,
-      visitor: visited.visitor,
-      assignments: visited.assignments,
-    });
+    const served = await page(
+      visited.request,
+      env,
+      ctx,
+      {
+        draft,
+        preview,
+        unavailable: decision.unavailable === true,
+        url,
+        visitor: visited.visitor,
+        assignments: visited.assignments,
+      },
+      errors,
+    );
     return visited.visitorCookie === undefined
       ? served
       : { ...served, visitorCookie: visited.visitorCookie };
@@ -476,19 +522,36 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       visitor: Visitor | null;
       assignments: RequestAssignments | undefined;
     },
+    errors: ErrorCapture,
   ): Promise<Served> {
     const { draft, preview, unavailable, url, visitor, assignments } = inputs;
-    const render = async (scope?: { csegToken?: string }): Promise<Response> =>
-      withPageStatus(
-        await runInScope(
-          {
-            csegToken: scope?.csegToken,
-            draft: draft ?? undefined,
-            ...(unavailable ? { draftUnavailable: true } : {}),
-          },
-          () => serverEntry.fetch(request, env, ctx),
-        ),
-      );
+    const render = async (scope?: { csegToken?: string }): Promise<Response> => {
+      const source = isServerFnPath(url.pathname) ? "action" : "render";
+      let reported = false;
+      const report = (error: unknown, status?: number) => {
+        reported = true;
+        errors.rendered = true;
+        errors.report(error, source, status);
+      };
+      try {
+        const response = withPageStatus(
+          await runInScope(
+            {
+              csegToken: scope?.csegToken,
+              draft: draft ?? undefined,
+              reportError: report,
+              ...(unavailable ? { draftUnavailable: true } : {}),
+            },
+            () => serverEntry.fetch(request, env, ctx),
+          ),
+        );
+        if (response.status >= 500 && !reported) report(undefined, response.status);
+        return response;
+      } catch (error) {
+        report(error, 500);
+        throw error;
+      }
+    };
 
     if (draft !== null || preview) return { response: await render() };
     // A signed request's page is that caller's: no shared cache may keep it,
@@ -523,6 +586,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     incoming: Request,
     env: Env,
     ctx: ExecutionContextLike,
+    errors: ErrorCapture,
   ): Promise<{ response: Response; served: Served; draft: boolean }> {
     // Any draft signal makes the request a preview, whatever the decision.
     const preview = hasDraftSignal(incoming);
@@ -547,7 +611,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
       request = new Request(incoming, { headers });
     }
 
-    const served = await handle(request, env, ctx, decision, preview);
+    const served = await handle(request, env, ctx, decision, preview, errors);
     const draft = decision.version !== null || preview;
     let response = served.response;
     // A WebSocket upgrade passes through untouched.
@@ -599,15 +663,25 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
   return {
     async fetch(incoming, env, ctx) {
       const clock = performance.now();
+      const errors = errorsFor(incoming, ctx);
       let result: Awaited<ReturnType<typeof serve>>;
       try {
-        result = await serve(incoming, env, ctx);
+        result = await serve(incoming, env, ctx, errors);
       } catch (error) {
         // The runtime answers a thrown request with a 500.
         measure(incoming, ctx, (performance.now() - clock) / 1000, 500, "BYPASS", undefined);
+        errors.report(error, "request", 500);
         throw error;
       }
       const { response, served, draft } = result;
+      if (response.status >= 500 && !errors.rendered) {
+        errors.report(
+          undefined,
+          served.routed ? "route" : "request",
+          response.status,
+          served.routed,
+        );
+      }
       measure(
         incoming,
         ctx,

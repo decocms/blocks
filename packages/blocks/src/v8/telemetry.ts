@@ -20,6 +20,7 @@
 import { hasBackgroundHook, later, runInBackground } from "./background.ts";
 import { rate, type SampleRates, TELEMETRY_DEFAULTS } from "./builtins/data.ts";
 import { isResolutionError } from "./errors.ts";
+import { scrubText } from "./telemetryText.ts";
 import type { CMSError, Telemetry, TelemetryConfig } from "./types.ts";
 
 /** The hosted Deco CMS collector, for `createCMS({ token })`. */
@@ -140,6 +141,7 @@ export class TelemetryPipeline {
   #spans: (SpanInput & { spanId: string })[] = [];
   #windowStart = Date.now();
   #scheduled = false;
+  #sending = new Set<Promise<void>>();
 
   constructor(destination: Destination) {
     this.#destination = destination;
@@ -169,6 +171,11 @@ export class TelemetryPipeline {
   /** Whether a histogram recorded now would be kept (telemetry and metrics on). */
   measuring(): boolean {
     return this.#settings.enabled && this.#settings.metrics;
+  }
+
+  /** Whether an error recorded now can be kept, independently of metrics. */
+  logging(): boolean {
+    return this.#settings.enabled && this.#settings.errorSampleRate > 0;
   }
 
   histogram(name: string, attributes: Attributes, seconds: number): void {
@@ -277,7 +284,10 @@ export class TelemetryPipeline {
   }
 
   /** Sends what's been collected since the last batch. Never throws. */
-  async flush(): Promise<void> {
+  async flush(options: { signal?: AbortSignal; waitForPending?: boolean } = {}): Promise<void> {
+    // Explicit serverless drains also wait for batches already detached by a
+    // background flush. Ordinary scheduled batches remain independent.
+    const pending = options.waitForPending ? [...this.#sending] : [];
     const now = Date.now();
     const start = this.#windowStart;
     this.#windowStart = now;
@@ -295,90 +305,109 @@ export class TelemetryPipeline {
       const byName = new Map<string, Histogram[]>();
       for (const h of histograms) byName.set(h.name, [...(byName.get(h.name) ?? []), h]);
       sends.push(
-        this.#send("metrics", {
-          resourceMetrics: [
-            {
-              resource,
-              scopeMetrics: [
-                {
-                  scope,
-                  metrics: [...byName].map(([name, points]) => ({
-                    name,
-                    unit: "s",
-                    histogram: {
-                      aggregationTemporality: 1, // DELTA
-                      dataPoints: points.map((h) => ({
-                        attributes: encode(h.attributes),
-                        startTimeUnixNano: nanos(start),
-                        timeUnixNano: nanos(now),
-                        count: String(h.count),
-                        sum: h.sum,
-                        min: h.min,
-                        max: h.max,
-                        bucketCounts: h.buckets.map(String),
-                        explicitBounds: BOUNDS,
-                      })),
-                    },
-                  })),
-                },
-              ],
-            },
-          ],
-        }),
+        this.#send(
+          "metrics",
+          {
+            resourceMetrics: [
+              {
+                resource,
+                scopeMetrics: [
+                  {
+                    scope,
+                    metrics: [...byName].map(([name, points]) => ({
+                      name,
+                      unit: "s",
+                      histogram: {
+                        aggregationTemporality: 1, // DELTA
+                        dataPoints: points.map((h) => ({
+                          attributes: encode(h.attributes),
+                          startTimeUnixNano: nanos(start),
+                          timeUnixNano: nanos(now),
+                          count: String(h.count),
+                          sum: h.sum,
+                          min: h.min,
+                          max: h.max,
+                          bucketCounts: h.buckets.map(String),
+                          explicitBounds: BOUNDS,
+                        })),
+                      },
+                    })),
+                  },
+                ],
+              },
+            ],
+          },
+          options.signal,
+        ),
       );
     }
     if (logs.length > 0) {
       sends.push(
-        this.#send("logs", {
-          resourceLogs: [
-            {
-              resource,
-              scopeLogs: [
-                {
-                  scope,
-                  logRecords: logs.map((log) => ({
-                    timeUnixNano: nanos(log.time),
-                    severityNumber: log.severity === "ERROR" ? 17 : 13,
-                    severityText: log.severity,
-                    body: { stringValue: scrubText(log.message) },
-                    attributes: encode(log.attributes),
-                  })),
-                },
-              ],
-            },
-          ],
-        }),
+        this.#send(
+          "logs",
+          {
+            resourceLogs: [
+              {
+                resource,
+                scopeLogs: [
+                  {
+                    scope,
+                    logRecords: logs.map((log) => ({
+                      timeUnixNano: nanos(log.time),
+                      severityNumber: log.severity === "ERROR" ? 17 : 13,
+                      severityText: log.severity,
+                      body: { stringValue: scrubText(log.message) },
+                      attributes: encode(log.attributes),
+                    })),
+                  },
+                ],
+              },
+            ],
+          },
+          options.signal,
+        ),
       );
     }
     if (spans.length > 0) {
       const kinds = { internal: 1, server: 2, client: 3 };
       sends.push(
-        this.#send("traces", {
-          resourceSpans: [
-            {
-              resource,
-              scopeSpans: [
-                {
-                  scope,
-                  spans: spans.map((span) => ({
-                    traceId: span.traceId,
-                    spanId: span.spanId,
-                    ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),
-                    name: span.name,
-                    kind: kinds[span.kind],
-                    startTimeUnixNano: nanos(span.start),
-                    endTimeUnixNano: nanos(span.end),
-                    attributes: encode(span.attributes),
-                    status: { code: span.error ? 2 : 0 },
-                  })),
-                },
-              ],
-            },
-          ],
-        }),
+        this.#send(
+          "traces",
+          {
+            resourceSpans: [
+              {
+                resource,
+                scopeSpans: [
+                  {
+                    scope,
+                    spans: spans.map((span) => ({
+                      traceId: span.traceId,
+                      spanId: span.spanId,
+                      ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),
+                      name: span.name,
+                      kind: kinds[span.kind],
+                      startTimeUnixNano: nanos(span.start),
+                      endTimeUnixNano: nanos(span.end),
+                      attributes: encode(span.attributes),
+                      status: { code: span.error ? 2 : 0 },
+                    })),
+                  },
+                ],
+              },
+            ],
+          },
+          options.signal,
+        ),
       );
     }
-    await Promise.all(sends);
+    for (const send of sends) {
+      this.#sending.add(send);
+      void send.then(
+        () => this.#sending.delete(send),
+        () => this.#sending.delete(send),
+      );
+    }
+    await Promise.all([...pending, ...sends]);
   }
 
   #schedule(): void {
@@ -416,7 +445,7 @@ export class TelemetryPipeline {
     };
   }
 
-  async #send(signal: Signal, payload: unknown): Promise<void> {
+  async #send(signal: Signal, payload: unknown, abortSignal?: AbortSignal): Promise<void> {
     const url = `${this.#destination.endpoint.replace(/\/+$/, "")}/v1/${signal}`;
     const { body, gzipped } = await gzip(JSON.stringify(payload));
     const headers: Record<string, string> = {
@@ -425,9 +454,15 @@ export class TelemetryPipeline {
     };
     if (gzipped) headers["content-encoding"] = "gzip";
     for (let attempt = 0; ; attempt++) {
+      if (abortSignal?.aborted) return;
       let response: Response;
       try {
-        response = await fetch(url, { method: "POST", headers, body });
+        response = await fetch(url, {
+          method: "POST",
+          headers,
+          body,
+          ...(abortSignal === undefined ? {} : { signal: abortSignal }),
+        });
       } catch {
         return; // a collector that's down loses this batch
       }
@@ -454,20 +489,6 @@ export function setCurrentTelemetry(pipeline: TelemetryPipeline | undefined): vo
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const QUERY = /(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/gi;
-const CREDENTIAL = /\b(Bearer|Basic)\s+[\w~+/.=-]+/gi;
-const SENSITIVE =
-  /\b(authorization|cookie|set-cookie|x-api-key|api[-_]?key|app[-_]?key|app[-_]?token|token|secret|password)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi;
-
-/** Removes query strings, credentials and cookie/token values from text before it's sent. */
-function scrubText(text: string): string {
-  return text
-    .replace(QUERY, "$1?[redacted]")
-    .replace(CREDENTIAL, "$1 [redacted]")
-    .replace(SENSITIVE, "$1$2[redacted]")
-    .slice(0, 1_000);
-}
 
 export function newTraceId(): string {
   return randomHex(16);

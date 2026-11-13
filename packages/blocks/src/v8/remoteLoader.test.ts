@@ -17,13 +17,31 @@ import { docsBlocks, docsSnapshot, fakeDelivery, fakeStudio, revisionId } from "
 import type { CMSError } from "./types";
 
 const SITE = "acme";
+const BACKGROUND_HOOK = Symbol.for("decocms.blocks.background");
+let queuedTasks: (() => Promise<void>)[];
+let startedTasks: Promise<void>[];
 
-beforeEach(() => resetForTests());
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
-  vi.restoreAllMocks();
-  vi.useRealTimers();
+beforeEach(() => {
+  resetForTests();
+  queuedTasks = [];
+  startedTasks = [];
+  (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK] = (task: () => Promise<void>) =>
+    queuedTasks.push(task);
+});
+afterEach(async () => {
+  // Work started by settle() still belongs to this CDN fixture. A deferred
+  // poll must never wake up against the next test's global fetch stub.
+  queuedTasks = [];
+  try {
+    await Promise.all(startedTasks);
+  } finally {
+    queuedTasks = [];
+    delete (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK];
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  }
 });
 
 /** The fake CDN, as the global fetch. */
@@ -43,8 +61,11 @@ function content(title = "Sunny!"): Record<string, unknown> {
 
 const hosted = () => remoteLoader(undefined, { site: SITE }) as unknown as HostedSource;
 
-/** Lets background work (polls, warming fetches) run. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+/** Starts background work without waiting for a deliberately held CDN read. */
+const settle = async () => {
+  for (const task of queuedTasks.splice(0)) startedTasks.push(Promise.resolve().then(task));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+};
 
 /** The `ContentUnavailableError` a promise rejected with, directly or as a `LOADER_FAILED` cause. */
 async function unavailable(promise: Promise<unknown>): Promise<ContentUnavailableError> {
