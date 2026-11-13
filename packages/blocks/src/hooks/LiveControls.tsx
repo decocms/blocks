@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { EDITOR_ORIGIN_CHECK_JS } from "../sdk/editorOrigin";
 import { getRequestNonce } from "../sdk/nonce";
 
 interface LiveControlsProps {
@@ -58,19 +59,13 @@ function LiveControlsScript() {
       if (window.__DECO_LIVE_CONTROLS__) return;
       window.__DECO_LIVE_CONTROLS__ = true;
 
-      var TRUSTED_ORIGINS = ["https://deco.cx", "https://admin.deco.cx", "https://play.deco.cx", "https://decocms.com", "https://studio.decocms.com"];
-      function isTrustedOrigin(origin) {
-        return TRUSTED_ORIGINS.indexOf(origin) !== -1 ||
-          (origin.startsWith("https://") && origin.endsWith(".deco.cx")) ||
-          (origin.startsWith("https://") && origin.endsWith(".decocms.com")) ||
-          origin === window.location.origin;
-      }
+      ${EDITOR_ORIGIN_CHECK_JS}
 
       var LIVE = JSON.parse(document.getElementById("__DECO_STATE")?.textContent || "{}");
       window.LIVE = { ...window.LIVE, ...LIVE };
 
       window.addEventListener("message", function(event) {
-        if (!isTrustedOrigin(event.origin)) return;
+        if (!isTrustedEditorOrigin(event.origin)) return;
 
         var data = event.data;
         if (!data || typeof data !== "object") return;

@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/admin/index.ts",
     "./setup": "./src/createAdminSetup.ts",
+    "./admin/liveControls": "./src/admin/liveControls.ts",
     "./admin/setup": "./src/admin/setup.ts",
     "./apps": "./src/apps/index.ts",
     "./apps/autoconfig": "./src/apps/autoconfig.ts",

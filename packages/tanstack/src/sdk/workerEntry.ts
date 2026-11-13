@@ -91,6 +91,7 @@ import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
 import { cleanPathForCacheKey, hasTrackingParams } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
+import { LIVE_CONTROLS_SCRIPT } from "@decocms/blocks-admin/admin/liveControls";
 import { getRenderShellConfig, setMetaAssetFetcher } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
@@ -709,24 +710,8 @@ export interface DecoWorkerEntryOptions {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PREVIEW_SHELL_SCRIPT = `(function() {
-    if (window.__DECO_LIVE_CONTROLS__) return;
-    window.__DECO_LIVE_CONTROLS__ = true;
-    addEventListener("message", function(event) {
-      var data = event.data;
-      if (!data || typeof data !== "object") return;
-      switch (data.type) {
-        case "editor::inject":
-          if (data.args && data.args.script) {
-            try { eval(data.args.script); } catch(e) { console.error("[deco] inject error:", e); }
-          }
-          break;
-      }
-    });
-  })();`;
-
 function buildPreviewShell(): string {
-  return buildHtmlShell({ script: PREVIEW_SHELL_SCRIPT });
+  return buildHtmlShell({ script: LIVE_CONTROLS_SCRIPT });
 }
 
 // ---------------------------------------------------------------------------
