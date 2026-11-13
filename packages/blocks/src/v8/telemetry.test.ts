@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK];
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -411,6 +412,33 @@ function wireLogs(payloads: string[]): WireLog[] {
 }
 
 describe("warning and error logs over OTLP", () => {
+  it.each([
+    "warn",
+    "error",
+  ] as const)("exports a lone %s after an immediately started host hook, without another request", async (severity) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline[severity]("only request", {});
+      expect(tasks).toHaveLength(1);
+      // Start the host task while the batch is young: do not advance its age
+      // before invoking it, as runBackground() does for the encoding tests.
+      const background = Promise.all(tasks.splice(0).map((task) => task()));
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(payloads).toEqual([]);
+      expect(tasks).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await background;
+      expect(wireLogs(payloads)).toMatchObject([
+        {
+          severityText: severity.toUpperCase(),
+          body: { stringValue: "only request" },
+        },
+      ]);
+      expect(payloads).toHaveLength(1);
+    });
+  });
+
   it("exports distinct severities and scrubs warning messages and attributes", async () => {
     await withLogCollector(async (pipeline, payloads) => {
       pipeline.warn(
@@ -443,6 +471,7 @@ describe("warning and error logs over OTLP", () => {
       pipeline.apply(settings);
       pipeline.warn("warning", {});
       pipeline.error("error", {});
+      expect(tasks).toHaveLength(0);
       await pipeline.flush();
       expect(payloads).toEqual([]);
     });
@@ -486,20 +515,41 @@ describe("warning and error logs over OTLP", () => {
     "warn",
     "error",
   ] as const)("exports a full %s buffer after an early host hook", async (severity) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
     await withLogCollector(async (pipeline, payloads) => {
       pipeline.apply({ metrics: false, errorSampleRate: 1, traceSampleRate: 0 });
       for (let index = 0; index < 200; index++) pipeline[severity](`log-${index}`, {});
-      // The host runs this response's work before the batch is old enough.
-      await Promise.all(tasks.splice(0).map((task) => task()));
+      const background = Promise.all(tasks.splice(0).map((task) => task()));
       expect(payloads).toEqual([]);
-
-      clock += 11_000;
       pipeline[severity]("overflow-log", {});
-      await Promise.all(tasks.splice(0).map((task) => task()));
+      expect(tasks).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await background;
       const logs = wireLogs(payloads);
       expect(logs.map((log) => log.body.stringValue)).toEqual(
         Array.from({ length: 200 }, (_, index) => `log-${index}`),
       );
+    });
+  });
+
+  it("keeps logs recorded after a manual flush while the host task is waiting", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
+    await withLogCollector(async (pipeline, payloads) => {
+      pipeline.error("before manual flush", {});
+      const background = Promise.all(tasks.splice(0).map((task) => task()));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await pipeline.flush();
+      pipeline.warn("after manual flush", {});
+      expect(tasks).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await background;
+      expect(wireLogs(payloads).map((log) => log.body.stringValue)).toEqual([
+        "before manual flush",
+        "after manual flush",
+      ]);
+      expect(payloads).toHaveLength(2);
     });
   });
 });
@@ -571,27 +621,104 @@ describe("sending", () => {
     await expect(runBackground()).resolves.toBeUndefined();
   });
 
-  it("with a binding's hook, a batch leaves once it's 10 s old, not after every request", async () => {
+  it("with a binding's hook, requests share a batch that leaves after 10 s without another request", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
     const { sent } = collector();
     createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
-    clock += 10_000; // the first batch window is already open
+    await vi.advanceTimersByTimeAsync(10_000); // the first batch window is already open
     await upstream("https://search.example/q");
     await Promise.all(tasks.splice(0).map((task) => task()));
     expect(sent).toHaveLength(1);
 
     await upstream("https://search.example/q"); // the next request, same window
-    await Promise.all(tasks.splice(0).map((task) => task()));
+    const background = Promise.all(tasks.splice(0).map((task) => task()));
+    await vi.advanceTimersByTimeAsync(5_000);
     await upstream("https://search.example/q");
-    await Promise.all(tasks.splice(0).map((task) => task()));
+    expect(tasks).toHaveLength(0);
     expect(sent).toHaveLength(1);
 
-    clock += 10_000;
-    await upstream("https://search.example/q");
-    await Promise.all(tasks.splice(0).map((task) => task()));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await background;
     expect(sent).toHaveLength(2);
     const point =
       sent[1]?.body.resourceMetrics[0].scopeMetrics[0].metrics[0].histogram.dataPoints[0];
-    expect(point.count).toBe("3");
+    expect(point.count).toBe("2");
+  });
+
+  it("waits only the remaining batch window when the host starts its task late", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
+    const { sent } = collector();
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
+    await upstream("https://search.example/q");
+    await vi.advanceTimersByTimeAsync(4_000);
+    const background = Promise.all(tasks.splice(0).map((task) => task()));
+    await vi.advanceTimersByTimeAsync(5_999);
+    expect(sent).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await background;
+    expect(sent).toHaveLength(1);
+  });
+
+  it("waits at most 10 s when the wall clock moves backwards before the host task starts", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
+    const { sent } = collector();
+    createCMS({ blocks: docsBlocks(), content: docsSnapshot(), telemetry: { endpoint: ENDPOINT } });
+    await upstream("https://search.example/q");
+    vi.setSystemTime(-5_000);
+    const background = Promise.all(tasks.splice(0).map((task) => task()));
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(sent).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await background;
+    expect(sent).toHaveLength(1);
+  });
+
+  it("schedules a new log while the previous batch is still exporting", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
+    const { sent, fetch } = collector();
+    const collect = fetch.getMockImplementation()!;
+    let received!: () => void;
+    const firstRequest = new Promise<void>((resolve) => {
+      received = resolve;
+    });
+    let respond!: () => void;
+    const firstResponse = new Promise<void>((resolve) => {
+      respond = resolve;
+    });
+    fetch.mockImplementationOnce(async (input, init) => {
+      const response = await collect(input, init);
+      received();
+      await firstResponse;
+      return response;
+    });
+    createCMS({
+      blocks: docsBlocks(),
+      content: docsSnapshot(),
+      telemetry: { endpoint: ENDPOINT, defaults: { errorSampleRate: 1 } },
+    });
+    const pipeline = currentTelemetry()!;
+    pipeline.error("first batch", {});
+    const firstBatch = Promise.all(tasks.splice(0).map((task) => task()));
+    try {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await firstRequest;
+      pipeline.error("during first export", {});
+      expect(tasks).toHaveLength(1);
+      const secondBatch = Promise.all(tasks.splice(0).map((task) => task()));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await secondBatch;
+      expect(sent).toHaveLength(2);
+      expect(
+        sent.map((batch) => batch.body.resourceLogs[0].scopeLogs[0].logRecords[0].body.stringValue),
+      ).toEqual(["first batch", "during first export"]);
+    } finally {
+      respond();
+      await firstBatch;
+    }
   });
 
   it("defaults the resource to service.version unknown and the production environment", async () => {
@@ -647,11 +774,11 @@ describe("sending", () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
   });
 
-  it("on Workers with no hook yet, batches go to waitUntil, never to a timer that won't fire", async () => {
-    // Workers run no timers once the response is done: a batch scheduled on
-    // `setTimeout` never left and kept the pipeline "scheduled" for good, so
-    // a site whose first measurement came before any other background work
-    // (no hosted release check) sent nothing at all.
+  it("on Workers with no hook yet, waitUntil keeps a lone log alive through the batch window", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
+    vi.setSystemTime(0);
+    // Exercise the automatic cloudflare:workers bootstrap, without a binding
+    // installing the hook or another request arriving to trigger the export.
     delete (globalThis as Record<symbol, unknown>)[BACKGROUND_HOOK];
     const queued: Promise<unknown>[] = [];
     const waitUntil = vi.fn((promise: Promise<unknown>) => void queued.push(promise));
@@ -659,31 +786,44 @@ describe("sending", () => {
     vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" });
     vi.resetModules();
     try {
-      const timers = vi.spyOn(globalThis, "setTimeout");
-      const { fetch } = collector();
+      const { sent, fetch } = collector();
       const cms = await import("./cms");
       const instrumented = await import("./fetch");
       cms.createCMS({
         blocks: docsBlocks(),
         content: docsSnapshot(),
-        telemetry: { endpoint: ENDPOINT },
+        telemetry: {
+          endpoint: ENDPOINT,
+          defaults: { errorSampleRate: 1 },
+        },
       });
       const workerUpstream = instrumented.createInstrumentedFetch({
         provider: "acme-search",
-        fetch: async () => new Response("{}", { status: 200 }),
+        fetch: async () => new Response("{}", { status: 503 }),
       });
       await workerUpstream("https://search.example/q");
-      await vi.waitFor(() => expect(waitUntil).toHaveBeenCalled());
-      await Promise.all(queued.splice(0));
-      expect(timers).not.toHaveBeenCalledWith(expect.any(Function), 10_000);
-      // The batch is younger than 10 s: it stays pending, and the next
-      // request's measurement, a window later, sends it.
+      // Importing cloudflare:workers completes asynchronously; advance no
+      // clock time while letting that bootstrap register its background task.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(waitUntil).toHaveBeenCalledTimes(1);
+      let settled = false;
+      const background = Promise.all(queued.splice(0)).then(() => {
+        settled = true;
+      });
       expect(fetch).not.toHaveBeenCalled();
-      clock += 10_000;
-      await workerUpstream("https://search.example/q");
-      await vi.waitFor(() => expect(queued.length).toBeGreaterThan(0));
-      await Promise.all(queued.splice(0));
-      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(settled).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await background;
+      expect(settled).toBe(true);
+      expect(waitUntil).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(2); // one metrics batch and one logs batch
+      const logs = sent.filter((batch) => batch.url.endsWith("/v1/logs"));
+      expect(logs).toHaveLength(1);
+      expect(logs[0]?.body.resourceLogs[0].scopeLogs[0].logRecords).toMatchObject([
+        { severityText: "ERROR", attributes: expect.any(Array) },
+      ]);
     } finally {
       vi.doUnmock("cloudflare:workers");
       vi.resetModules();

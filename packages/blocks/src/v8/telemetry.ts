@@ -212,8 +212,7 @@ export class TelemetryPipeline {
       const warningIndex =
         severity === "ERROR" ? this.#logs.findIndex((log) => log.severity === "WARN") : -1;
       if (warningIndex === -1) {
-        // An early host hook may have left this full batch waiting for the
-        // next request. Dropping a new log must not strand the retained ones.
+        // Dropping a new log must still arrange delivery of the retained batch.
         this.#schedule();
         return;
       }
@@ -392,15 +391,14 @@ export class TelemetryPipeline {
       });
       return;
     }
-    // With a host hook, or on Workers (whose timers never fire once the
-    // response is done, so `later` would leave #scheduled stuck and the
-    // isolate would never send again): after the response, in waitUntil,
-    // a batch goes out once it's FLUSH_MS old; a younger one stays pending
-    // and a later request's measurement schedules it again.
-    runInBackground(() => {
+    // Keep the batch window inside the host's background promise (Workers:
+    // waitUntil), so even one request exports without a later measurement.
+    runInBackground(async () => {
+      const remaining = Math.min(FLUSH_MS, FLUSH_MS - (Date.now() - this.#windowStart));
+      if (remaining > 0) await new Promise<void>((resolve) => later(remaining, resolve));
+      // Measurements during the send must be able to schedule their own batch.
       this.#scheduled = false;
-      if (Date.now() - this.#windowStart < FLUSH_MS) return;
-      return this.flush();
+      await this.flush();
     });
   }
 
