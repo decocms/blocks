@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildMetaAsset, decoVitePlugin, generateSchemaArgs } from "./plugin.js";
+import {
+  buildMetaAsset,
+  cacheVersionFor,
+  clientBundleHash,
+  decoVitePlugin,
+  generateSchemaArgs,
+} from "./plugin.js";
 
 /**
  * The Vite plugin's `resolveId` / `load` hooks are pure functions over their
@@ -80,14 +86,25 @@ describe("decoVitePlugin __DECO_BUILD_HASH__ injection", () => {
     vi.restoreAllMocks();
   });
 
+  // The define lives on the server environments, not on the shared config.
   function callConfig(command) {
     const p = getPlugin();
-    return p.config({}, { command });
+    const cfg = p.config({}, { command });
+    const ssr = {};
+    p.configEnvironment("ssr", ssr);
+    const client = {};
+    p.configEnvironment("client", client);
+    return { ...cfg, define: ssr.define, clientDefine: client.define };
   }
 
   it("injects the literal 'dev' for non-build commands", () => {
     const cfg = callConfig("serve");
     expect(cfg.define.__DECO_BUILD_HASH__).toBe(JSON.stringify("dev"));
+  });
+
+  it("keeps the build hash out of the client bundle (it renamed shared chunks on every deploy)", () => {
+    process.env.WORKERS_CI_COMMIT_SHA = "abcdef1234567890fedcba";
+    expect(callConfig("build").clientDefine?.__DECO_BUILD_HASH__).toBeUndefined();
   });
 
   it("uses WORKERS_CI_COMMIT_SHA (sliced to 12 chars) when set on a build", () => {
@@ -331,5 +348,38 @@ describe("decoVitePlugin({ metaAsset }) — admin schema as a static asset", () 
     expect(JSON.parse(asset.payload).etag).toBe(asset.etag);
     expect(buildMetaAsset("[1]")).toBeNull();
     expect(buildMetaAsset("not json")).toBeNull();
+  });
+});
+
+describe("decoVitePlugin __DECO_CACHE_VERSION__ (code + client bundle)", () => {
+  const css = (source) => ({
+    "assets/app.css": { type: "asset", source },
+    "assets/main.js": { type: "chunk", code: "x()" },
+  });
+
+  it("the client half changes when any emitted file changes, even under the same name", () => {
+    // Tailwind reading the decofile: a publish rebuilds the stylesheet.
+    expect(clientBundleHash(css(".a{}"))).not.toBe(clientBundleHash(css(".a{}.uppercase{}")));
+    expect(clientBundleHash(css(".a{}"))).toBe(clientBundleHash(css(".a{}")));
+  });
+
+  it("needs both halves — a code-only version could link a deleted client file", () => {
+    expect(cacheVersionFor("tabc", "cdef")).toBe("tabc.cdef");
+    expect(cacheVersionFor("tabc", null)).toBe("");
+    expect(cacheVersionFor(null, "cdef")).toBe("");
+  });
+
+  it("fills the identifier on the server only, keeping the TS declaration", () => {
+    const p = getPlugin();
+    const src = [
+      "declare const __DECO_CACHE_VERSION__: string | undefined;",
+      'const v = typeof __DECO_CACHE_VERSION__ !== "undefined" ? __DECO_CACHE_VERSION__ : "";',
+    ].join("\n");
+    // Before (or without) a client build the value is "" — the worker keys on the commit.
+    const out = p.transform.call({ environment: { name: "ssr" } }, src).code;
+    expect(out).toContain("declare const __DECO_CACHE_VERSION__: string | undefined;");
+    expect(out).toContain('const v = typeof "" !== "undefined" ? "" : "";');
+    expect(p.transform.call({ environment: { name: "client" } }, src)).toBeNull();
+    expect(p.transform.call({ environment: { name: "ssr" } }, "const a = 1;")).toBeNull();
   });
 });
