@@ -56,6 +56,7 @@ import {
   type StoredFlag,
   serializeSegmentCookie,
 } from "@decocms/blocks/sdk/flags";
+import { logger } from "@decocms/blocks/sdk/logger";
 import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
 import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
 import { createServerFn } from "@tanstack/react-start";
@@ -67,7 +68,7 @@ import {
   setCookie,
   setResponseHeader,
 } from "@tanstack/react-start/server";
-import { createElement } from "react";
+import { createElement, useEffect } from "react";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { createRequestSingleFlight } from "./requestSingleFlight";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
@@ -559,6 +560,79 @@ export function CmsPagePendingFallback() {
   );
 }
 
+/** Endpoint (handled by `createDecoWorkerEntry`) that receives the fallback beacon. */
+export const CLIENT_ERROR_PATH = "/deco/_client-error";
+
+const cut = (v: unknown, n: number) => String(v ?? "").slice(0, n);
+
+function describeError(error: unknown) {
+  const e = error as { name?: string; message?: string; stack?: string; cause?: any } | undefined;
+  return {
+    "error.name": cut(e?.name, 200),
+    "error.message": cut(e?.message ?? (typeof error === "string" ? error : ""), 2000),
+    "error.stack": cut(e?.stack, 6000),
+    "error.cause": cut(e?.cause?.message ?? e?.cause, 1000),
+  };
+}
+
+/**
+ * SSR path: the loader (or render) threw on the worker. Log it with the
+ * request-scoped logger so it lands next to the request's trace.
+ */
+function logErrorFallbackOnServer(error: unknown) {
+  try {
+    logger.error("cms.error_fallback", { ...describeError(error), "error.side": "server" });
+  } catch {
+    /* never break the fallback */
+  }
+}
+
+function referrerOrigin(): string {
+  try {
+    return document.referrer ? new URL(document.referrer).origin : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Client path: until this existed the fallback discarded `error`, so the
+ * "Estamos com uma instabilidade" screen left no trace when the failure was
+ * client-only (render/commit throw, SPA navigation loader throw). Reports to
+ * the worker (`CLIENT_ERROR_PATH`) → `logger.error`, full stack + context.
+ * Fired once per error instance; never throws.
+ */
+function reportErrorFallback(error: unknown) {
+  try {
+    const nav = performance.getEntriesByType?.("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    const payload = {
+      ...describeError(error),
+      "error.side": "client",
+      // No query/hash: they can carry e-mails, tokens, order ids.
+      "page.url": location.origin + location.pathname,
+      "page.referrer": referrerOrigin(),
+      // ~ small → broke during hydration / first load; large → later SPA nav.
+      "page.ms_since_load": Math.round(performance.now()),
+      "page.nav_type": nav?.type ?? "",
+      "page.history_length": history.length,
+      "page.visibility": document.visibilityState,
+      "client.ua": navigator.userAgent,
+      "client.viewport": `${innerWidth}x${innerHeight}`,
+      "client.online": navigator.onLine,
+      "client.connection": (navigator as any).connection?.effectiveType ?? "",
+      "client.ts": new Date().toISOString(),
+    };
+    navigator.sendBeacon?.(
+      CLIENT_ERROR_PATH,
+      new Blob([JSON.stringify(payload)], { type: "application/json" }),
+    );
+  } catch {
+    /* never break the fallback */
+  }
+}
+
 /**
  * Default branded error boundary for CMS routes. Rendered when page resolution
  * throws (as opposed to returning no match, which is a 404 / not-found path) —
@@ -570,7 +644,9 @@ export function CmsPagePendingFallback() {
  * worker serves it as `STALE-ERROR` before the request ever reaches here.
  * Sites override via `cmsRouteConfig({ errorComponent })`.
  */
-export function CmsPageErrorFallback(props: { reset?: () => void }) {
+export function CmsPageErrorFallback(props: { error?: unknown; reset?: () => void }) {
+  if (isServer) logErrorFallbackOnServer(props.error);
+  useEffect(() => reportErrorFallback(props.error), [props.error]);
   return createElement(
     "div",
     { className: "min-h-[60vh] flex items-center justify-center px-4 text-center" },
