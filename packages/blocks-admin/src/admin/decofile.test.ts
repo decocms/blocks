@@ -7,7 +7,7 @@ import {
   setBlocks,
   snapshotKey,
 } from "@decocms/blocks/cms";
-import { handleDecofileReload, setFastDeployKVGetter } from "./decofile";
+import { handleDecofileRead, handleDecofileReload, setFastDeployKVGetter } from "./decofile";
 
 /** Deployment id the write-through keys its snapshot under. */
 const ID = "sha-cafebabe";
@@ -65,6 +65,45 @@ function makeKV() {
 
 beforeEach(() => {
   setBlocks({ Site: { name: "base" }, "pages-home": { path: "/" } });
+});
+
+describe("handleDecofileRead — never serves secret material", () => {
+  // `/.decofile` is reachable unauthenticated. An unresolved secret block
+  // ({ __resolveType: ".../secret.ts", encrypted, name }) discloses ciphertext
+  // AND the plaintext env-var name to anonymous callers, and a resolved Secret
+  // ({ get }) could leak plaintext. Neither must appear in the served body.
+  it("strips encrypted secret envelopes (ciphertext + env-var name)", async () => {
+    setBlocks({
+      Site: {
+        name: "base",
+        keyResend: {
+          __resolveType: "website/loaders/secret.ts",
+          encrypted: "deadbeefcafef00d",
+          name: "RESEND_API_KEY",
+        },
+      },
+      "pages-home": { path: "/" },
+    });
+
+    const body = await handleDecofileRead().text();
+
+    expect(body).not.toContain("deadbeefcafef00d"); // ciphertext gone
+    expect(body).not.toContain("RESEND_API_KEY"); // env-var name gone
+    expect(body).not.toContain("website/loaders/secret.ts");
+
+    const parsed = JSON.parse(body) as Record<string, any>;
+    // The surrounding block is intact; only the secret field is dropped.
+    expect(parsed.Site.name).toBe("base");
+    expect(parsed.Site.keyResend).toBeUndefined();
+    expect(parsed["pages-home"]).toEqual({ path: "/" });
+  });
+
+  it("strips resolved Secret objects ({ get })", async () => {
+    setBlocks({ Site: { token: { get: () => "plaintext-secret" } } });
+    const body = await handleDecofileRead().text();
+    expect(body).not.toContain("plaintext-secret");
+    expect((JSON.parse(body) as Record<string, any>).Site.token).toBeUndefined();
+  });
 });
 
 describe("handleDecofileReload — full replacement (back-compat)", () => {

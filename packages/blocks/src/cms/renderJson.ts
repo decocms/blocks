@@ -265,8 +265,12 @@ export function isSecretValue(value: unknown): boolean {
   // Resolved Secret: an object whose only own key is a `get` function.
   if (typeof o.get === "function" && Object.keys(o).length === 1) return true;
   // Unresolved secret block (defensive — resolved props usually drop __resolveType).
+  // Match the actual secret-loader suffix (`.../secret.ts` and the deprecated
+  // `.../secretString.ts`), not any type that merely contains "secret", so
+  // legitimate blocks like `.../secretary.ts` or a `Secret`-named section are
+  // not dropped.
   const rt = o.__resolveType;
-  return typeof rt === "string" && /secret/i.test(rt);
+  return typeof rt === "string" && /(?:^|\/)secret(?:String)?\.ts$/i.test(rt);
 }
 
 /**
