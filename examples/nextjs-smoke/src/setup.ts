@@ -21,9 +21,8 @@ import { createNextSetup } from "@decocms/nextjs/setup";
 // `blocksDir: false` — this fixture has no `.deco/blocks` directory on
 // disk; all block content is supplied inline via `blocks` below.
 // `meta: () => Promise.resolve({})` wires a (trivial but present) admin
-// meta schema so `/deco/meta` (and its `/live/_meta` rewrite alias) 200s
-// instead of the "Schema not initialized" 503 `handleMeta` returns when no
-// meta has been set.
+// meta schema. The `/deco/meta` and `/live/_meta` HTTP routes are not
+// served by @decocms/nextjs (hard-removed staff-only admin routes).
 export const ensureSetup = createNextSetup({
   blocksDir: false,
   sections: {

@@ -14,25 +14,22 @@
  * "Class extends value undefined is not a constructor") before the handler
  * ever runs. This subpath keeps the route-handler graph free of all
  * component code.
+ *
+ * SURFACE: only `/deco/invoke/*` (POST) is served. The staff-only Studio
+ * admin routes — `/.decofile`, `/live/_meta`, `/deco/meta`, `/deco/render`,
+ * `/live/previews/*`, `/deco/previews/*`, the `/deco/preview` page, and
+ * `/live/inspect/*` / `/deco/inspect/*` — were hard-removed: they exposed
+ * the site's full decofile and block schema to anyone who requested them.
+ * There is deliberately no option to turn them back on.
  */
-import {
-  corsHeaders,
-  handleDecofileRead,
-  handleDecofileReload,
-  handleInvoke,
-  handleMeta,
-  handleRender,
-} from "@decocms/blocks-admin";
+import { corsHeaders, handleInvoke } from "@decocms/blocks-admin";
 
 /**
  * Stamp the admin CORS headers onto a handler response. The Studio is a
- * cross-origin browser client (decocms.com / admin.deco.cx fetching the
- * site's /live/_meta, /.decofile, ...), and its ETag flow sends
- * `If-None-Match` — a non-simple header, so requests preflight. On
- * TanStack this stamping lives in workerEntry/adminRoutes; on Next.js it
- * lives HERE, since these handlers/dispatcher are the only admin surface.
- * Response headers can be immutable (e.g. a cached/replayed body) — fall
- * back to cloning.
+ * cross-origin browser client (decocms.com / admin.deco.cx calling the
+ * site's /deco/invoke/*), and its JSON POSTs are non-simple requests, so
+ * they preflight. Response headers can be immutable (e.g. a cached/replayed
+ * body) — fall back to cloning.
  */
 function withCors(request: Request, response: Response): Response {
   const cors = corsHeaders(request);
@@ -50,39 +47,14 @@ function withCors(request: Request, response: Response): Response {
   }
 }
 
-/** Answer a CORS preflight for the admin protocol. */
+/** Answer a CORS preflight for the invoke endpoint. */
 function preflight(request: Request): Response {
   return new Response(null, { status: 204, headers: corsHeaders(request) });
-}
-
-/** For app/live/_meta/route.ts: `export { metaGET as GET } from "@decocms/nextjs/routeHandlers"` */
-export async function metaGET(request: Request): Promise<Response> {
-  return withCors(request, await handleMeta(request));
-}
-
-/** For app/.decofile/route.ts (or an equivalent rewritten path — Next.js route
- * segments can't literally start with a dot; see Task 9's fixture for the
- * rewrite-rule workaround). */
-export async function decofileGET(request: Request): Promise<Response> {
-  return withCors(request, await handleDecofileRead());
-}
-
-export async function decofilePOST(request: Request): Promise<Response> {
-  return withCors(request, await handleDecofileReload(request));
 }
 
 /** For app/deco/invoke/[...key]/route.ts */
 export async function invokePOST(request: Request): Promise<Response> {
   return withCors(request, await handleInvoke(request));
-}
-
-/** For app/live/previews/[...path]/route.ts */
-export async function renderGET(request: Request): Promise<Response> {
-  return withCors(request, await handleRender(request));
-}
-
-export async function renderPOST(request: Request): Promise<Response> {
-  return withCors(request, await handleRender(request));
 }
 
 export interface DecoRouteHandlersOptions {
@@ -93,14 +65,16 @@ export interface DecoRouteHandlersOptions {
   setup?: () => Promise<void>;
 }
 
-const PREVIEW_PAGE_PATH = "/deco/preview";
+function notFound(pathname: string): Response {
+  return new Response(JSON.stringify({ error: `Unknown deco route: ${pathname}` }), {
+    status: 404,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 /**
- * Single catch-all dispatcher for the whole Studio admin protocol. Mount
- * at `app/deco/[[...deco]]/route.ts` and wrap next.config with
- * `withDeco()` (@decocms/nextjs/config), whose rewrites map the protocol
- * URLs Next can't express as segments (`/.decofile`, `/live/_meta`,
- * `/live/previews/*`) into `/deco/*`:
+ * Catch-all dispatcher for the deco route segment. Mount at
+ * `app/deco/[[...deco]]/route.ts`:
  *
  * ```ts
  * import { createDecoRouteHandlers } from "@decocms/nextjs/routeHandlers";
@@ -111,112 +85,38 @@ const PREVIEW_PAGE_PATH = "/deco/preview";
  * });
  * ```
  *
- * `resolveAction` accepts BOTH the rewrite's public source path (e.g.
- * `/.decofile`, `/live/_meta`, `/live/previews/*`) AND the rewrite's own
- * destination path (`/deco/*`) — not just the latter. This is load-bearing:
- * verified empirically against a real `next build && next start` (both
- * dev and production servers) that a Next.js App Router route handler
- * reached via a `next.config.js`-level `rewrites()` entry sees
- * `request.url` (and `NextRequest.nextUrl.pathname`) as the ORIGINAL,
- * pre-rewrite path the client requested — rewrites are transparent to the
- * client and, in this respect, to the handler too. Only a *direct* request
- * to `/deco/*` (bypassing the rewrite, e.g. `/deco/invoke/*`, which has no
- * public alias) arrives with a `/deco/`-prefixed pathname. Matching only
- * the `/deco/*` form (as an earlier version of this dispatcher did) makes
- * every rewritten protocol URL 404 — the dispatcher never sees a
- * `/deco/decofile`-shaped path in that case, it sees `/.decofile` verbatim.
+ * Only `/deco/invoke/*` is served; every other path under `/deco/` 404s.
  */
-function resolveAction(pathname: string): string {
-  if (pathname.startsWith("/deco/")) return pathname.slice("/deco/".length);
-  if (pathname === "/.decofile") return "decofile";
-  if (pathname === "/live/_meta") return "meta";
-  if (pathname === "/live/previews") return "previews";
-  if (pathname.startsWith("/live/previews/")) {
-    return `previews/${pathname.slice("/live/previews/".length)}`;
-  }
-  return pathname;
-}
-
 export function createDecoRouteHandlers(options: DecoRouteHandlersOptions = {}): {
   GET(request: Request): Promise<Response>;
   POST(request: Request): Promise<Response>;
   OPTIONS(request: Request): Promise<Response>;
 } {
   async function dispatch(request: Request): Promise<Response> {
-    // CORS preflight: Studio fetches cross-origin and its ETag flow sends
-    // If-None-Match (non-simple header), so browsers preflight every meta
-    // request. Answer before setup — preflights carry no work and must not
-    // pay (or fail on) the site bootstrap.
-    if (request.method === "OPTIONS") return preflight(request);
-    await options.setup?.();
-
     const url = new URL(request.url);
-    const action = resolveAction(url.pathname);
+    if (!url.pathname.startsWith("/deco/invoke/")) return notFound(url.pathname);
 
-    if (action === "decofile") {
-      return request.method === "POST" ? handleDecofileReload(request) : handleDecofileRead();
-    }
-    if (action === "meta") {
-      // GET only: this is a read-only schema endpoint, no legitimate POST use.
-      if (request.method !== "GET") {
-        return new Response(JSON.stringify({ error: "Method not allowed: meta is GET-only" }), {
+    // CORS preflight: answer before setup — preflights carry no work and
+    // must not pay (or fail on) the site bootstrap.
+    if (request.method === "OPTIONS") return preflight(request);
+
+    // POST only: handleInvoke has no auth of its own and falls back to a
+    // `?props=<json>` query string for GET requests. A GET is a CORS
+    // "simple request" (no preflight), so an unauthenticated
+    // `<img src="https://site/deco/invoke/site/actions/...?props=...">`
+    // on a third-party page would be able to trigger mutating VTEX
+    // actions cross-site (CSRF).
+    if (request.method !== "POST") {
+      return new Response(
+        JSON.stringify({ error: "Method not allowed: invoke is POST-only (CSRF protection)" }),
+        {
           status: 405,
-          headers: { "Content-Type": "application/json", Allow: "GET" },
-        });
-      }
-      return handleMeta(request);
+          headers: { "Content-Type": "application/json", Allow: "POST" },
+        },
+      );
     }
-    if (action === "render") return handleRender(request);
-    if (action.startsWith("invoke/")) {
-      // POST only: handleInvoke has no auth of its own and falls back to a
-      // `?props=<json>` query string for GET requests. A GET is a CORS
-      // "simple request" (no preflight), so an unauthenticated
-      // `<img src="https://site/deco/invoke/site/actions/...?props=...">`
-      // on a third-party page would be able to trigger mutating VTEX
-      // actions cross-site (CSRF). The per-route `invokePOST` export this
-      // dispatcher replaces was POST-only for exactly this reason — keep
-      // that restriction here.
-      if (request.method !== "POST") {
-        return new Response(
-          JSON.stringify({ error: "Method not allowed: invoke is POST-only (CSRF protection)" }),
-          {
-            status: 405,
-            headers: { "Content-Type": "application/json", Allow: "POST" },
-          },
-        );
-      }
-      return handleInvoke(request);
-    }
-    if (action === "previews" || action.startsWith("previews/")) {
-      if (request.method === "GET") {
-        const rest = action === "previews" ? "" : action.slice("previews/".length);
-        const target = new URL(url);
-        target.pathname = rest ? `${PREVIEW_PAGE_PATH}/${rest}` : PREVIEW_PAGE_PATH;
-        return Response.redirect(target, 307);
-      }
-
-      // handleRender parses the literal "/live/previews/" prefix.
-      // `resolveAction` above already normalizes BOTH a direct
-      // `/deco/previews/*` hit and a rewritten `/live/previews/*` hit down
-      // to this same `action` shape, so rebuilding unconditionally here is
-      // a no-op in the rewrite case (rebuilt === original) and the
-      // necessary reconstruction in the direct-hit case.
-      const rest = action === "previews" ? "" : action.slice("previews/".length);
-      const rebuilt = new URL(url);
-      rebuilt.pathname = `/live/previews/${rest}`;
-      // `request` (a Request) is passed as the `init` argument here, not a
-      // plain object — the Request-as-init form clones headers/method/body
-      // (including the body *stream*) without needing an explicit `duplex`
-      // option. Rewriting this as `new Request(rebuilt, { ...request })` or
-      // any plain-object init would throw "duplex option is required" for
-      // POST bodies with a body stream — see the test below that posts a
-      // JSON body through this branch and asserts it still parses.
-      return handleRender(new Request(rebuilt, request));
-    }
-    return new Response(JSON.stringify({ error: `Unknown deco route: ${url.pathname}` }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
+    await options.setup?.();
+    return handleInvoke(request);
   }
 
   async function dispatchWithCors(request: Request): Promise<Response> {
