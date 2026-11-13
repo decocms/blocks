@@ -22,6 +22,13 @@ export interface RequestScope {
    * renders the release, and `DecoPreview` says so calmly (outside Studio's frame).
    */
   draftUnavailable?: boolean;
+  /**
+   * Each test of the saved `experiments` block on or off, as the worker
+   * decided them for this request: only on the live site (the current
+   * release, no draft signal), never a preview's switched tests.
+   * `DecoDocument` hands them to the Deco Analytics client.
+   */
+  experiments?: Readonly<Record<string, boolean>>;
 }
 
 const KEY = Symbol.for("decocms.tanstack.requestScope");

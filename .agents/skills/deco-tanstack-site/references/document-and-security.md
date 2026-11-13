@@ -33,6 +33,7 @@ route's `component`.
 | `editShortcut` | on | The "." shortcut that opens the page in Studio. `false` turns it off. |
 | `nonce` | none | The CSP nonce for its inline scripts. |
 | `studioOrigins` | see below | The Studio origins the page trusts. |
+| `analytics` | none | Starts the Deco Analytics client (`startAnalytics` options: `modules`, `key`, `endpoint`, …) with the tests the worker decided for the page, so every event carries each test's arm. A preview's events carry none. |
 | `children` | none | Rendered after the page (toasts, drawers, analytics). |
 
 **Set `lang`.** It defaults to `"en"`, so a Portuguese or Spanish store renders
@@ -76,7 +77,8 @@ import { DecoPreview } from "@decocms/tanstack/react";
 ```
 
 `DecoPreview` takes `site`, `editShortcut`, `nonce` and `studioOrigins`. It renders the draft
-script, the "." shortcut, `StudioChannel` and `DraftBadge`. You then own `<HeadContent />`, `<Scripts />`, `lang`, the events bus and the
+script, the "." shortcut, `StudioChannel` and `DraftBadge`. For analytics, render
+`<DecoAnalytics modules={["click"]} />` (the `analytics` prop's options) once in the body too. You then own `<HeadContent />`, `<Scripts />`, `lang`, the events bus and the
 progress bar.
 
 ## Studio inside the page

@@ -95,9 +95,10 @@ v7's cron matcher has no v8 counterpart. Write each occurrence as its own window
 
 ## Reading the results
 
-v8 decides who sees what. It does not record conversions, and its analytics module does not add the test arm to events. Send the arm yourself:
+v8 decides who sees what. It does not record conversions: Deco Analytics does, once the page hands it the arms it rendered.
 
-- On TanStack, `requestAssignments()` from `@decocms/tanstack/server` returns each test on or off for the request, as the worker decided it. Pass the arms the page rendered to your analytics events.
+- On TanStack, `<DecoDocument analytics={{ modules: ["click"] }} />` (or `DecoAnalytics` in your own document) starts the Deco Analytics client with the tests the worker decided for the page: every event, the first page view included, carries each test's arm (`on` or `off`) in `exp`. A preview's events carry none. Keep test names to lowercase letters, digits, `_` and `-`, and at most 8 tests: the collector drops any other name and the tests past the 8th.
+- For another analytics tool on TanStack, `requestAssignments()` from `@decocms/tanstack/server` returns each test on or off for the request, as the worker decided it. Pass the arms the page rendered to your analytics events.
 - On any binding, the page's own client gives the same answer: `const [tests] = await client.resolve("experiments")` gives each test's name and `true` or `false`, never a percentage.
 - In the browser, the `deco_vid` cookie holds the visitor; `parseVisitor` and `assign` from `@decocms/blocks/experiments` give the same answer as the server for a given `experiments` block.
 
