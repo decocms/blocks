@@ -351,45 +351,6 @@ try {
     JSON.stringify(renderErrors()),
   );
 
-  // Use localhost for this request and its Origin: Next normalizes loopback
-  // request URLs to localhost, and the intake deliberately enforces Origin.
-  const reportOrigin = `http://localhost:${PORT}`;
-  const browserReport = await fetch(`${reportOrigin}/deco/_errors`, {
-    method: "POST",
-    headers: { "content-type": "application/json", Origin: reportOrigin },
-    body: JSON.stringify({ name: "Error", message: "local browser smoke failed", source: "render", component: "SmokeBoundary" }),
-  });
-  await browserReport.body?.cancel();
-  const browserErrors = () => errors.filter((error) =>
-    error.attributes["error.code"] === "CLIENT_EXCEPTION" &&
-    error.attributes["deco.component"] === "SmokeBoundary",
-  );
-  for (let i = 0; i < 50 && browserErrors().length === 0; i++) await sleep(100);
-  check(
-    "a same-origin browser report reaches OTLP through the proxy without a rewrite or visitor cookie",
-    browserReport.status === 204 &&
-      !browserReport.headers.has("Set-Cookie") &&
-      !browserReport.headers.has("x-middleware-rewrite") &&
-      browserErrors().length === 1 &&
-      browserErrors()[0].attributes["error.runtime"] === "browser",
-    `${browserReport.status} ${JSON.stringify(browserErrors())}`,
-  );
-
-  const loopbackReport = await fetch(`${BASE}/deco/_errors`, {
-    method: "POST",
-    headers: { "content-type": "application/json", Origin: BASE, "Sec-Fetch-Site": "same-origin" },
-    body: JSON.stringify({ name: "Error", message: "local loopback render failed", source: "render", component: "LoopbackBoundary" }),
-  });
-  await loopbackReport.body?.cancel();
-  const loopbackErrors = errors.filter((error) =>
-    error.attributes["error.code"] === "CLIENT_EXCEPTION" &&
-    error.attributes["deco.component"] === "LoopbackBoundary",
-  );
-  check(
-    "a browser on127.0.0.1 reports despite Next's localhost URL normalization",
-    loopbackReport.status === 204 && loopbackErrors.length === 1,
-    `${loopbackReport.status} ${JSON.stringify(loopbackErrors)}`,
-  );
 } catch (error) {
   console.error(error);
   failures.push("crashed");

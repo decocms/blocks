@@ -48,7 +48,7 @@
 import { type CMS, matchRoute, type Redirect } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
 import { recordServerRequest } from "@decocms/blocks/metrics";
-import { ERROR_REPORT_PATH, handleErrorReport, reportError } from "@decocms/blocks/telemetry";
+import { reportError } from "@decocms/blocks/telemetry";
 import { runInScope } from "@decocms/tanstack/scope";
 import { ASSIGNMENTS_HEADER, serializeAssignments } from "../assignments.ts";
 import { draftResponseHeaders, RELEASE_CHECK_HEADER, VERSION_HEADER } from "../draft.ts";
@@ -182,7 +182,7 @@ const STATIC_PATHS = ["/fonts/"];
 const FINGERPRINTED_ASSET_RE = /(?:\/_build)?\/assets\/.*-[a-zA-Z0-9_-]{8,}\.\w+$/;
 const PRIVATE_NO_CACHE = "private, no-cache, no-store, must-revalidate";
 /** Paths the worker (or TanStack Start) serves under a fixed template, for `http.route`. */
-const FIXED_ROUTES = [LIVENESS_PATH, ERROR_REPORT_PATH];
+const FIXED_ROUTES = [LIVENESS_PATH];
 const PREFIX_ROUTES = ["/_serverFn/", "/_server/", "/_build/", "/assets/", "/fonts/"];
 
 /** The template of a path the worker knows without the content, or `null`. */
@@ -435,10 +435,6 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     const url = new URL(request.url);
     const method = request.method;
     const readOnly = method === "GET" || method === "HEAD";
-
-    if (url.pathname === ERROR_REPORT_PATH) {
-      return { response: await handleErrorReport(request), routed: true };
-    }
 
     if (url.pathname === LIVENESS_PATH) {
       return {

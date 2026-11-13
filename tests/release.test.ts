@@ -85,7 +85,6 @@ const BLOCKS_API_SINCE: Record<string, string> = {
   "@decocms/blocks/experiments": "8.6.0",
   "@decocms/blocks/metrics": "8.5.0",
   "@decocms/blocks/telemetry": "8.21.0",
-  "@decocms/blocks/telemetry/client": "8.21.0",
 };
 /** New exports on an existing subpath only raise their callers' peer floor. */
 const BLOCKS_SYMBOL_SINCE = [

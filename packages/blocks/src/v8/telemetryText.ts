@@ -1,4 +1,4 @@
-/** Shared by browser serialization and final OTLP encoding; no runtime state. */
+/** Scrubs server exception text before final OTLP encoding; no runtime state. */
 const URL_CREDENTIALS = /((?:[a-z][a-z0-9+.-]*:)?\/\/)[^\s/?#"'<>]*@/gi;
 // Relative URLs inside exceptions (`/cart?...`, `assets/chunk.js?...`) have
 // the same privacy boundary as absolute URLs.
@@ -12,7 +12,7 @@ export function scrubText(text: string): string {
   return text
     .replace(URL_CREDENTIALS, "$1")
     .replace(URL_DETAILS, (_url, path: string, separator: string, details: string) => {
-      // Browser stack frames append :line:column after a URL's query/hash.
+      // JavaScript stack frames can append :line:column after a URL's query/hash.
       const position = /(:\d+:\d+)$/.exec(details)?.[1] ?? "";
       return `${path}${separator}[redacted]${position}`;
     })

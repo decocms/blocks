@@ -13,24 +13,14 @@ interface ReportContext {
 
 const capture = vi.hoisted(() => ({
   report: vi.fn(async (_error: unknown, _context: ReportContext) => {}),
-  intake: vi.fn(async (_request: Request) => new Response(null, { status: 204 })),
 }));
 
 vi.mock("@decocms/blocks/telemetry", () => ({
-  ERROR_REPORT_PATH: "/deco/_errors",
   reportError: capture.report,
-  handleErrorReport: capture.intake,
 }));
 
 beforeEach(() => {
   capture.report.mockReset().mockResolvedValue(undefined);
-  capture.intake.mockReset().mockImplementation(
-    async (request) =>
-      new Response(null, {
-        status: request.method === "POST" ? 204 : 405,
-        headers: { "Cache-Control": "no-store" },
-      }),
-  );
 });
 
 afterEach(removeMetrics);
@@ -260,37 +250,6 @@ describe("request and render error capture", () => {
       throw reason;
     });
     await expect(fetch("/", { signal: controller.signal })).rejects.toBe(reason);
-    await ctx.settle();
-    expect(capture.report).not.toHaveBeenCalled();
-  });
-});
-
-describe("browser error intake routing", () => {
-  it("reaches the bounded intake before removed-admin, custom-route and page-cache handling", async () => {
-    const app = vi.fn(() => html());
-    const routes = vi.fn(() => html());
-    const pageCache = vi.fn(async () => html());
-    const { fetch, ctx } = setup(app, { routes, pageCache });
-    const response = await fetch("/deco/_errors", {
-      method: "POST",
-      headers: { Origin: "https://store.example", "Content-Type": "application/json" },
-      body: "{}",
-    });
-    await ctx.settle();
-    expect(response.status).toBe(204);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(response.headers.get("CDN-Cache-Control")).toBe("no-store");
-    expect(capture.intake).toHaveBeenCalledOnce();
-    expect(capture.intake.mock.calls[0]?.[0].method).toBe("POST");
-    expect(app).not.toHaveBeenCalled();
-    expect(routes).not.toHaveBeenCalled();
-    expect(pageCache).not.toHaveBeenCalled();
-    expect(capture.report).not.toHaveBeenCalled();
-  });
-
-  it("preserves the intake's method rejection", async () => {
-    const { fetch, ctx } = setup(() => html());
-    expect((await fetch("/deco/_errors")).status).toBe(405);
     await ctx.settle();
     expect(capture.report).not.toHaveBeenCalled();
   });

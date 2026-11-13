@@ -52,10 +52,6 @@
  */
 import type { CMS, RequestVersion } from "@decocms/blocks";
 import { readVisitor, serializeVisitor, type Visitor } from "@decocms/blocks/experiments";
-import {
-  ERROR_REPORT_PATH,
-  handleErrorReport as handleCoreErrorReport,
-} from "@decocms/blocks/telemetry";
 import { type NextRequest, NextResponse } from "next/server.js";
 import {
   ASSIGNMENTS_HEADER,
@@ -84,44 +80,6 @@ import {
 import { VISITOR_HEADER } from "../visitor.ts";
 
 export { requestLike } from "../drafts.ts";
-/** Browser error intake, also for a site with its own proxy. */
-export { ERROR_REPORT_PATH };
-
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
-/**
- * Next canonicalizes loopback request URLs to localhost. Restore only an
- * equivalent loopback Origin, attested by the browser's same-origin Fetch
- * Metadata header. Scheme and effective port must still agree; forwarded
- * host headers never participate. Core retains every other intake check.
- */
-export function handleErrorReport(request: Request): Promise<Response> {
-  let incoming = request;
-  if (request.headers.get("sec-fetch-site") === "same-origin") {
-    try {
-      const origin = request.headers.get("origin");
-      const page = new URL(origin ?? "");
-      const url = new URL(request.url);
-      const port = (value: URL) => value.port || (value.protocol === "https:" ? "443" : "80");
-      if (
-        origin === page.origin &&
-        url.origin !== page.origin &&
-        LOOPBACK_HOSTS.has(url.hostname) &&
-        LOOPBACK_HOSTS.has(page.hostname) &&
-        (url.protocol === "http:" || url.protocol === "https:") &&
-        url.protocol === page.protocol &&
-        port(url) === port(page)
-      ) {
-        url.hostname = page.hostname;
-        url.port = page.port;
-        incoming = new Request(url, request);
-      }
-    } catch {
-      // Invalid or unsupported requests retain core's strict rejection path.
-    }
-  }
-  return handleCoreErrorReport(incoming);
-}
 
 /**
  * What the draft decision needs from the CMS: its preview host check, the
@@ -494,13 +452,6 @@ export function draftProxy(
 ): (request: NextRequest) => Promise<NextResponse> {
   const { rewrite = () => true, assignments } = options;
   return async (request) => {
-    if (request.nextUrl.pathname === ERROR_REPORT_PATH) {
-      const response = await handleErrorReport(request);
-      return new NextResponse(response.body, {
-        status: response.status,
-        headers: response.headers,
-      });
-    }
     if (assignments && isAssignmentsRoutePath(request.nextUrl.pathname)) {
       return new NextResponse(null, { status: 404 });
     }

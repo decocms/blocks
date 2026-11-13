@@ -181,45 +181,7 @@ Next.js already measures every request it serves: one root span per request (`Ba
 - **The proxy**: under `next start` Next runs the proxy through a request span of its own; that one is not counted, and the request the proxy hands on is. A response the proxy makes itself (a redirect, a 404 for a direct `/_draft` hit) never reaches a page and is not counted.
 - **Edge runtime**: `register` does nothing there. Under `next start` an Edge route is still measured by the Node.js server that serves it (`unmatched`, no template); on a host that runs Edge functions on their own, nothing measures them.
 
-`onRequestError` uses Next's public instrumentation hook to report server rendering, route-handler, action and proxy failures. It sends the route template and method, without request paths, queries, headers or bodies, and awaits a bounded telemetry flush so a serverless host can finish exporting before it freezes the invocation. It never changes Next's error handling. Reports follow the CMS telemetry settings, independently of metrics; no configured destination means no report. Initialize the CMS in your instrumentation file if failures outside CMS pages should also be reported. The adapter module itself does not initialize a CMS or load the site's block map.
-
-### Browser rendering errors
-
-`StudioBridge` starts browser `error` and `unhandledrejection` capture after hydration. Reports use the same-origin `/deco/_errors` intake; the site token stays on the server. `draftProxy` handles that path before draft and visitor work. A site with its own proxy adds this branch before its normal routing, and includes `/deco/_errors` in its matcher:
-
-```ts
-import { ERROR_REPORT_PATH, handleErrorReport } from "@decocms/nextjs/proxy";
-import type { NextRequest } from "next/server";
-
-export async function proxy(request: NextRequest) {
-  if (request.nextUrl.pathname === ERROR_REPORT_PATH) return handleErrorReport(request);
-  // The site's normal draft, assignment and routing decisions.
-}
-```
-
-The intake accepts only bounded same-origin JSON reports. A site without `StudioBridge` can call `startErrorCapture()` from `@decocms/blocks/telemetry/client` in its own client setup. Importing that module starts nothing.
-
-React catches errors in an `error.tsx` or another error boundary before they reach a global listener. Report those explicitly without changing the boundary's fallback UI:
-
-```tsx
-"use client";
-import { captureException } from "@decocms/blocks/telemetry/client";
-import { useEffect } from "react";
-
-export default function ErrorPage({ error, reset }: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
-  useEffect(() => {
-    if (!error.digest) {
-      captureException(error, { source: "render", component: "AppErrorBoundary" });
-    }
-  }, [error]);
-  return <button onClick={reset}>Try again</button>;
-}
-```
-
-Keep the boundary's existing fallback in place; `captureException` is the reporting call. Next supplies a `digest` for sanitized Server Component errors, which `onRequestError` already reports. The guard prevents reporting those again from the browser; it never suppresses independent server requests with the same digest. Errors caught during browser rendering use the client path. No process-wide exception or rejection handler is installed on the server.
+`onRequestError` uses Next's public instrumentation hook to report server rendering, route-handler, action and proxy failures. It sends the route template and method, without request paths, queries, headers or bodies, and awaits a bounded telemetry flush so a serverless host can finish exporting before it freezes the invocation. It never changes Next's error handling. Reports follow the CMS telemetry settings, independently of metrics; no configured destination means no report. Initialize the CMS in your instrumentation file if failures outside CMS pages should also be reported. The adapter module itself does not initialize a CMS or load the site's block map. It installs no process-wide exception or rejection handlers.
 
 ## Images
 

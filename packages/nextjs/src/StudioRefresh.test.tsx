@@ -4,9 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const router = vi.hoisted(() => ({ refresh: vi.fn(), replace: vi.fn() }));
-const errors = vi.hoisted(() => ({ startErrorCapture: vi.fn() }));
 vi.mock("next/navigation.js", () => ({ useRouter: () => router }));
-vi.mock("@decocms/blocks/telemetry/client", () => errors);
 
 const { StudioRefresh } = await import("./StudioRefresh.tsx");
 const { STUDIO_PAGE_REFRESH } = await import("./studio.ts");
@@ -20,7 +18,6 @@ let root: Root;
 beforeEach(async () => {
   router.refresh.mockReset();
   router.replace.mockReset();
-  errors.startErrorCapture.mockClear();
   window.history.replaceState(null, "", "/shoes?__draft=a");
   root = createRoot(document.body.appendChild(document.createElement("div")));
   await act(async () => root.render(<StudioRefresh />));
@@ -31,10 +28,6 @@ afterEach(async () => {
 });
 
 describe("StudioRefresh", () => {
-  it("starts browser error capture when the Studio bridge mounts", () => {
-    expect(errors.startErrorCapture).toHaveBeenCalledTimes(1);
-  });
-
   it("puts the page's refresh where Studio's HTML swap looks for it", () => {
     expect(typeof slot()).toBe("function");
   });

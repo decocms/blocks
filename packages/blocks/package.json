@@ -149,11 +149,6 @@
 			"types": "./dist/v8/errorReporting.d.ts",
 			"source": "./src/v8/errorReporting.ts",
 			"default": "./dist/v8/errorReporting.js"
-		},
-		"./telemetry/client": {
-			"types": "./dist/v8/errorReporting.client.d.ts",
-			"source": "./src/v8/errorReporting.client.ts",
-			"default": "./dist/v8/errorReporting.client.js"
 		}
 	},
 	"scripts": {

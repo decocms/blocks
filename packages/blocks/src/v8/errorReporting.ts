@@ -1,13 +1,10 @@
 /**
- * Application errors on the CMS's existing sampled OTLP pipeline. Framework
+ * Server errors on the CMS's existing sampled OTLP pipeline. Framework
  * bindings call this at their own error boundaries; reporting never replaces
  * an exception, changes a response, or installs a process-wide handler.
  */
 import { isResolutionError } from "./errors.ts";
-import { currentTelemetry, type TelemetryPipeline } from "./telemetry.ts";
-
-/** Same-origin browser intake mounted by the framework bindings. */
-export const ERROR_REPORT_PATH = "/deco/_errors";
+import { currentTelemetry } from "./telemetry.ts";
 
 export interface ErrorReportContext {
   framework?: "tanstack" | "nextjs";
@@ -33,25 +30,7 @@ const METHODS = new Set([
   "TRACE",
   "PATCH",
 ]);
-const MAX_BODY_BYTES = 8_192;
 const FLUSH_TIMEOUT_MS = 2_000;
-const READ_TIMEOUT_MS = 5_000;
-const browserBudgets = new WeakMap<TelemetryPipeline, { start: number; count: number }>();
-
-function browserBudget(telemetry: TelemetryPipeline, consume: boolean): boolean {
-  const now = performance.now();
-  let budget = browserBudgets.get(telemetry);
-  if (budget === undefined || now - budget.start >= 10_000) {
-    budget = { start: now, count: 0 };
-    browserBudgets.set(telemetry, budget);
-  }
-  // The monotonic clock normally cannot go backwards; preserve the budget if
-  // a host replaces it rather than extending the window indefinitely.
-  if (now < budget.start) budget.start = now;
-  if (budget.count >= 200) return false;
-  if (consume) budget.count++;
-  return true;
-}
 
 /** Reads only a bounded string field, including from objects with hostile getters. */
 function field(value: unknown, key: string, max: number): string | undefined {
@@ -98,7 +77,6 @@ function component(value: unknown): string | undefined {
 async function recordError(
   error: unknown,
   context: ErrorReportContext,
-  browser: boolean,
   telemetry = currentTelemetry(),
 ): Promise<void> {
   if (!telemetry?.logging() || alreadyReported(error)) return;
@@ -120,11 +98,11 @@ async function recordError(
       ? context.framework
       : undefined;
   telemetry.error(`${source} failed: ${name}: ${errorText(error)}`, {
-    "error.code": browser ? "CLIENT_EXCEPTION" : "UNCAUGHT_EXCEPTION",
+    "error.code": "UNCAUGHT_EXCEPTION",
     "exception.type": name,
     "exception.stacktrace": field(error, "stack", 4_000),
     "error.source": source,
-    "error.runtime": browser ? "browser" : "server",
+    "error.runtime": "server",
     "deco.framework": framework,
     "deco.component": component(context.component),
     "http.route": routeTemplate,
@@ -138,12 +116,12 @@ async function recordError(
 }
 
 /**
- * Queue an application error using the CMS's current sampling and scrubbing.
+ * Queue a server error using the CMS's current sampling and scrubbing.
  * Safe for a catch handler: no error or rejected promise reaches its caller.
  */
 export async function reportError(error: unknown, context: ErrorReportContext = {}): Promise<void> {
   try {
-    await recordError(error, context, false);
+    await recordError(error, context);
   } catch {
     // Observability never becomes an application failure.
   }
@@ -155,10 +133,7 @@ export async function reportError(error: unknown, context: ErrorReportContext = 
  * Ordinary background batching is unchanged.
  */
 export async function flushTelemetry(): Promise<void> {
-  await flushPipeline(currentTelemetry());
-}
-
-async function flushPipeline(telemetry: TelemetryPipeline | undefined): Promise<void> {
+  const telemetry = currentTelemetry();
   if (telemetry === undefined) return;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -176,113 +151,5 @@ async function flushPipeline(telemetry: TelemetryPipeline | undefined): Promise<
     // A collector failure must not escape a framework's error hook.
   } finally {
     clearTimeout(timer);
-  }
-}
-
-class InvalidBody extends Error {
-  constructor(readonly status: number) {
-    super("invalid error report");
-  }
-}
-
-async function readReport(request: Request): Promise<unknown> {
-  if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) throw new InvalidBody(413);
-  if (request.body === null) throw new InvalidBody(400);
-  const reader = request.body.getReader();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new InvalidBody(408)), READ_TIMEOUT_MS);
-  });
-  try {
-    const chunks: Uint8Array[] = [];
-    let bytes = 0;
-    while (true) {
-      const { value, done } = await Promise.race([reader.read(), timeout]);
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > MAX_BODY_BYTES) throw new InvalidBody(413);
-      chunks.push(value);
-    }
-    const body = new Uint8Array(bytes);
-    let offset = 0;
-    for (const chunk of chunks) {
-      body.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
-  } finally {
-    clearTimeout(timer);
-    // Never await a peer-controlled stream's cancellation.
-    void reader.cancel().catch(() => {});
-  }
-}
-
-interface BrowserReport {
-  name: string;
-  message: string;
-  stack?: string;
-  source: "request" | "render";
-  component?: string;
-}
-
-function browserReport(value: unknown): value is BrowserReport {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const report = value as Record<string, unknown>;
-  const fields = new Set(["name", "message", "stack", "source", "component"]);
-  return (
-    Object.keys(report).every((key) => fields.has(key)) &&
-    typeof report.name === "string" &&
-    report.name.length > 0 &&
-    report.name.length <= 80 &&
-    typeof report.message === "string" &&
-    report.message.length <= 1_000 &&
-    (report.stack === undefined ||
-      (typeof report.stack === "string" && report.stack.length <= 2_000)) &&
-    (report.source === "request" || report.source === "render") &&
-    (report.component === undefined || component(report.component) !== undefined)
-  );
-}
-
-/**
- * The binding's browser intake. The browser supplies exception fields only;
- * destination, resource identity and credentials always stay on the server.
- * Origin prevents cross-site browser submissions, not forged nonbrowser
- * requests. A pipeline accepts at most 200 browser reports per ten seconds.
- */
-export async function handleErrorReport(request: Request): Promise<Response> {
-  const reply = (status: number) =>
-    new Response(null, {
-      status,
-      headers: { "Cache-Control": "no-store", ...(status === 405 ? { Allow: "POST" } : {}) },
-    });
-  try {
-    if (request.method !== "POST") return reply(405);
-    if (request.headers.get("origin") !== new URL(request.url).origin) return reply(403);
-    if (
-      request.headers.get("sec-fetch-site") &&
-      request.headers.get("sec-fetch-site") !== "same-origin"
-    )
-      return reply(403);
-    if (
-      request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
-      "application/json"
-    )
-      return reply(415);
-    const telemetry = currentTelemetry();
-    if (!telemetry?.logging()) return reply(204);
-    if (!browserBudget(telemetry, false)) return reply(429);
-    const report = await readReport(request);
-    if (!browserReport(report)) return reply(400);
-    if (!browserBudget(telemetry, true)) return reply(429);
-    await recordError(
-      report,
-      { source: report.source, component: report.component },
-      true,
-      telemetry,
-    );
-    await flushPipeline(telemetry);
-    return reply(204);
-  } catch (error) {
-    return reply(error instanceof InvalidBody ? error.status : 400);
   }
 }

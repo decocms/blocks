@@ -20,8 +20,6 @@ const capture = vi.hoisted(() => ({
 }));
 
 vi.mock("@decocms/blocks/telemetry", () => ({
-  ERROR_REPORT_PATH: "/deco/_errors",
-  handleErrorReport: async () => new Response(null, { status: 204 }),
   reportError: capture.report,
 }));
 

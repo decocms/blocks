@@ -1,11 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  ERROR_REPORT_PATH,
-  flushTelemetry,
-  handleErrorReport,
-  reportError,
-} from "./errorReporting";
+import { flushTelemetry, reportError } from "./errorReporting";
 import { errors } from "./errors";
 import { resolveDestination, setCurrentTelemetry, TelemetryPipeline } from "./telemetry";
 
@@ -64,22 +59,6 @@ function attrs(log: Log) {
   return Object.fromEntries(
     log.attributes.map((a) => [a.key, a.value.stringValue ?? a.value.intValue]),
   );
-}
-function request(
-  body: unknown = {
-    name: "TypeError",
-    message: "render crashed",
-    source: "render",
-    component: "hero",
-  },
-  options: RequestInit = {},
-) {
-  return new Request(`https://shop.example${ERROR_REPORT_PATH}`, {
-    method: "POST",
-    headers: { Origin: "https://shop.example", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    ...options,
-  });
 }
 
 describe("reportError", () => {
@@ -299,108 +278,5 @@ describe("flushTelemetry", () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error("collector offline"));
     await reportError(new Error("original failure"));
     await expect(flushTelemetry()).resolves.toBeUndefined();
-  });
-});
-
-describe("browser intake", () => {
-  it("exports one browser render error using server-owned identity", async () => {
-    const response = await handleErrorReport(request());
-    expect(response.status).toBe(204);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(logs()).toHaveLength(1);
-    expect(attrs(logs()[0]!)).toMatchObject({
-      "error.code": "CLIENT_EXCEPTION",
-      "error.runtime": "browser",
-      "error.source": "render",
-      "deco.component": "hero",
-    });
-    expect(attrs(logs()[0]!)).not.toHaveProperty("http.route");
-  });
-
-  it.each([
-    [405, { method: "GET", body: undefined }],
-    [403, { headers: { Origin: "https://other.example", "Content-Type": "application/json" } }],
-    [403, { headers: { "Content-Type": "application/json" } }],
-    [
-      403,
-      {
-        headers: {
-          Origin: "https://shop.example",
-          "Sec-Fetch-Site": "cross-site",
-          "Content-Type": "application/json",
-        },
-      },
-    ],
-    [415, { headers: { Origin: "https://shop.example", "Content-Type": "text/plain" } }],
-  ] as const)("rejects an invalid envelope with status %i and no collector call", async (status, options) => {
-    expect((await handleErrorReport(request(undefined, options))).status).toBe(status);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { name: "Error", message: "bad", source: "render", site: "other-tenant" },
-    { name: "Error", message: "bad", source: "render", headers: { authorization: "secret" } },
-    { name: "Error", message: "bad", source: "render", endpoint: "https://attacker.example" },
-    { name: "Error", message: "bad", source: "proxy" },
-    { name: "Error", message: "x".repeat(1_001), source: "render" },
-    { name: "Error", message: "bad", source: "render", component: "email=private" },
-    [],
-    null,
-  ])("rejects fields outside the bounded exception schema", async (body) => {
-    expect((await handleErrorReport(request(body))).status).toBe(400);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("enforces the byte ceiling with and without Content-Length", async () => {
-    const big = "x".repeat(8_193);
-    for (const options of [
-      { body: big },
-      {
-        body: big,
-        headers: {
-          Origin: "https://shop.example",
-          "Content-Type": "application/json",
-          "Content-Length": String(big.length),
-        },
-      },
-    ]) {
-      expect((await handleErrorReport(request(undefined, options))).status).toBe(413);
-    }
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("rejects an incomplete slow body without waiting for cancellation", async () => {
-    vi.useFakeTimers();
-    const body = new ReadableStream<Uint8Array>({ cancel: () => new Promise<void>(() => {}) });
-    const incoming = request(undefined, { body, duplex: "half" } as RequestInit);
-    const pending = handleErrorReport(incoming);
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect((await pending).status).toBe(408);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("bounds reports per pipeline, resets after ten seconds and preserves the cap across a backward clock", async () => {
-    const now = vi.spyOn(performance, "now").mockReturnValue(10_000);
-    // Intentionally isolate intake limits from export/network work here.
-    vi.spyOn(pipeline, "flush").mockResolvedValue();
-    for (let i = 0; i < 200; i++) expect((await handleErrorReport(request())).status).toBe(204);
-    expect((await handleErrorReport(request())).status).toBe(429);
-    now.mockReturnValue(9_000);
-    expect((await handleErrorReport(request())).status).toBe(429);
-    now.mockReturnValue(18_999);
-    expect((await handleErrorReport(request())).status).toBe(429);
-    now.mockReturnValue(19_000);
-    expect((await handleErrorReport(request())).status).toBe(204);
-    setCurrentTelemetry(newPipeline());
-    expect((await handleErrorReport(request())).status).toBe(204);
-  });
-
-  it("does not read or flush a body when telemetry is disabled", async () => {
-    pipeline.apply({ enabled: false });
-    const incoming = request();
-    const read = vi.spyOn(incoming, "body", "get");
-    expect((await handleErrorReport(incoming)).status).toBe(204);
-    expect(read).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
   });
 });

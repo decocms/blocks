@@ -13,8 +13,6 @@ vi.mock("@tanstack/react-router/ssr/server", () => ({
 }));
 vi.mock("react-dom/server.edge", () => ({ renderToReadableStream: renderer }));
 vi.mock("@decocms/blocks/telemetry", () => ({
-  ERROR_REPORT_PATH: "/deco/_errors",
-  handleErrorReport: async () => new Response(null, { status: 204 }),
   reportError: async () => {},
 }));
 

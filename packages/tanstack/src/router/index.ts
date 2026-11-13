@@ -4,7 +4,6 @@
  * Search params use plain `URLSearchParams`, not TanStack's JSON format, so
  * commerce URLs such as `?filter.size=M&filter.size=L` round-trip unchanged.
  */
-import { captureException } from "@decocms/blocks/telemetry/client";
 import {
   type AnyRoute,
   createRouter,
@@ -12,7 +11,7 @@ import {
   type SearchSerializer,
   type TrailingSlashOption,
 } from "@tanstack/react-router";
-import type { ErrorInfo, JSX } from "react";
+import type { JSX } from "react";
 
 export { PAGE_STATUS_HEADER } from "../shared.ts";
 
@@ -57,27 +56,16 @@ export interface DecoRouterOptions<TRouteTree extends AnyRoute> {
   /** Default `"intent"`. */
   defaultPreload?: "intent" | "viewport" | "render" | false;
   trailingSlash?: TrailingSlashOption;
-  /** Called after reporting an error caught by the router's React boundary. */
-  defaultOnCatch?: (error: unknown, errorInfo: ErrorInfo) => void;
 }
 
 /**
  * `createRouter` with Deco's defaults: `URLSearchParams` search params that
- * keep empty values, scroll restoration, preload on intent, and caught browser
- * render errors on the site's telemetry intake.
+ * keep empty values, scroll restoration, preload on intent.
  */
 export function createDecoRouter<TRouteTree extends AnyRoute>(
   options: DecoRouterOptions<TRouteTree>,
 ) {
-  const {
-    routeTree,
-    context,
-    Wrap,
-    nonce,
-    defaultPreload = "intent",
-    trailingSlash,
-    defaultOnCatch: onCatch,
-  } = options;
+  const { routeTree, context, Wrap, nonce, defaultPreload = "intent", trailingSlash } = options;
   return createRouter({
     routeTree,
     context: context as any,
@@ -87,14 +75,6 @@ export function createDecoRouter<TRouteTree extends AnyRoute>(
     trailingSlash,
     parseSearch: decoParseSearch,
     stringifySearch: decoStringifySearch,
-    defaultOnCatch(error, errorInfo) {
-      try {
-        captureException(error, { source: "render" });
-      } catch {
-        // Instrumentation must not prevent the application's callback.
-      }
-      onCatch?.(error, errorInfo);
-    },
     ...(nonce ? { ssr: { nonce } } : {}),
   });
 }
