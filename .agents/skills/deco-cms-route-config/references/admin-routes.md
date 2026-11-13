@@ -1,26 +1,16 @@
-# Admin protocol routes (`/deco/meta`, `/deco/render`, `/deco/invoke`)
+# Admin protocol routes (`/deco/invoke`)
 
-These routes enable the Deco CMS admin (admin.deco.cx) to communicate with the storefront:
+### Removed: `/deco/meta`, `/deco/render` and the worker admin routes
 
-### Meta Route — Schema & Manifest
+The staff-only admin routes are **hard-removed** from `@decocms/tanstack`:
+`/deco/meta` (`decoMetaRouteConfig`), `/deco/render` (`decoRenderRouteConfig`),
+and the worker-level `/live/_meta`, `/.decofile` and `/live/previews(/*)`
+(`createDecoWorkerEntry`'s `admin` and `previewShell` options). There is no
+flag or option to turn them back on. Delete `src/routes/deco/meta.ts` and
+`src/routes/deco/render.ts` and drop the `admin: { ... }` object from
+`createDecoWorkerEntry(...)` in the site's worker entry.
 
-```typescript
-// src/routes/deco/meta.ts
-import { createFileRoute } from "@tanstack/react-router";
-import { decoMetaRouteConfig } from "@decocms/tanstack";
-
-export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
-```
-
-### Render Route — Section Preview
-
-```typescript
-// src/routes/deco/render.ts
-import { createFileRoute } from "@tanstack/react-router";
-import { decoRenderRouteConfig } from "@decocms/tanstack";
-
-export const Route = createFileRoute("/deco/render")(decoRenderRouteConfig());
-```
+Only the invoke route remains, because Studio edits need it:
 
 ### Invoke Route — Loader/Action Execution
 
@@ -43,14 +33,14 @@ From 7.10.0 the admin routes are exported ONLY as the `*RouteConfig()` factories
 // re-execution of this file then throws
 // "Route cannot have both an 'id' and a 'path' option" — every route 500s
 // until the dev server restarts.
-export const Route = createFileRoute("/deco/meta")(decoMetaRoute);
+export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRoute);
 
 // GOOD — factory returns a fresh object per call (7.10.0+)
-export const Route = createFileRoute("/deco/meta")(decoMetaRouteConfig());
+export const Route = createFileRoute("/deco/invoke/$")(decoInvokeRouteConfig());
 
 // Historical: stuck on ≤7.9.0 (only the literals exist there)? Spread the
 // literal into a new object:
-export const Route = createFileRoute("/deco/meta")({ ...decoMetaRoute });
+export const Route = createFileRoute("/deco/invoke/$")({ ...decoInvokeRoute });
 ```
 
 The same rule applies to any route options you build yourself: never let two `createFileRoute` calls (or two executions of the same file) share one options object.
@@ -60,4 +50,4 @@ The same rule applies to any route options you build yourself: never let two `cr
 
 ### `Route cannot have both an 'id' and a 'path' option`
 
-A route file passed a shared config object by reference (e.g. the ≤7.9.0 pattern `createFileRoute("/deco/meta")(decoMetaRoute)`) and dev HMR re-executed it against the now-mutated object. Use the factory (`decoMetaRouteConfig()`, the only exported form since 7.10.0); on ≤7.9.0 spread the literal: `{ ...decoMetaRoute }`. Restart the dev server once after fixing — the polluted module stays cached until then.
+A route file passed a shared config object by reference (e.g. the ≤7.9.0 pattern `createFileRoute("/deco/invoke/$")(decoInvokeRoute)`) and dev HMR re-executed it against the now-mutated object. Use the factory (`decoInvokeRouteConfig()`, the only exported form since 7.10.0); on ≤7.9.0 spread the literal: `{ ...decoInvokeRoute }`. Restart the dev server once after fixing — the polluted module stays cached until then.

@@ -75,7 +75,7 @@ import {
   instrumentWorker,
   type OtelOptions,
 } from "@decocms/blocks/sdk/otel";
-import { getRuntimeEnv, setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
+import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { parseTraceparent } from "@decocms/blocks/sdk/otelHttpTracer";
 import {
   getRedirectSemantics,
@@ -91,10 +91,8 @@ import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
 import { cleanPathForCacheKey, hasTrackingParams } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
-import { LIVE_CONTROLS_SCRIPT } from "@decocms/blocks-admin/admin/liveControls";
-import { getRenderShellConfig, setMetaAssetFetcher } from "@decocms/blocks-admin/admin/setup";
+import { getRenderShellConfig } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
-import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
 import { getAppMiddleware } from "@decocms/blocks-admin/sdk/setupApps";
 import { CSEG_BAG_KEY, CSEG_PARAM, segmentToken } from "./cdnSegment";
 import {
@@ -218,31 +216,11 @@ export interface SegmentKey {
   [customField: string]: string | boolean | string[] | undefined;
 }
 
-/**
- * Admin route handlers injected by the site's worker-entry.ts.
- * Kept as a runtime option so the imports only exist in the SSR entry
- * (not pulled into the client Vite build).
- */
-export interface AdminHandlers {
-  handleMeta: (request: Request) => Response | Promise<Response>;
-  handleDecofileRead: () => Response;
-  handleDecofileReload: (request: Request) => Response | Promise<Response>;
-  handleRender: (request: Request) => Response | Promise<Response>;
-  corsHeaders: (request: Request) => Record<string, string>;
-}
-
 export interface DecoWorkerEntryOptions {
   /** Choose storage once per request using the app's runtime bindings. Null disables shared storage.
    * Omit to retain Web Cache API response caching and memory-only data caches.
    */
   cacheStorage?: (env: Record<string, unknown>, request: Request) => CacheStorage | null;
-
-  /**
-   * Admin route handlers (/live/_meta, /.decofile, /live/previews).
-   * Pass the handlers from `@decocms/start/admin` here.
-   * If not provided, admin routes are not handled.
-   */
-  admin?: AdminHandlers;
 
   /**
    * Override the default cache profile detection.
@@ -346,7 +324,7 @@ export interface DecoWorkerEntryOptions {
   /**
    * Paths that should always bypass the edge cache, even if the
    * profile detector would otherwise cache them.
-   * Defaults include `/_build`, `/deco/`, `/live/`, `/.decofile`.
+   * Defaults include `/_build`, `/deco/`, `/live/`.
    */
   bypassPaths?: string[];
 
@@ -355,13 +333,6 @@ export interface DecoWorkerEntryOptions {
    * Merged with the default bypass paths.
    */
   extraBypassPaths?: string[];
-
-  /**
-   * Custom HTML shell for the `/live/previews` iframe page.
-   * If not provided, a shell is generated from the render config
-   * (theme, CSS, fonts) set via setRenderShell().
-   */
-  previewShell?: string;
 
   /**
    * Regex for detecting fingerprinted static assets (content-hashed filenames).
@@ -382,7 +353,7 @@ export interface DecoWorkerEntryOptions {
    * Optional proxy handler for commerce backend routes
    * (checkout, account, API, login, etc.).
    *
-   * Called early in the request pipeline — after admin routes and cache
+   * Called early in the request pipeline — after the liveness probe and cache
    * purge, but before static assets and edge cache logic. This ensures
    * proxy requests never hit TanStack Start or the React SSR pipeline.
    *
@@ -710,10 +681,6 @@ export interface DecoWorkerEntryOptions {
 // Constants
 // ---------------------------------------------------------------------------
 
-function buildPreviewShell(): string {
-  return buildHtmlShell({ script: LIVE_CONTROLS_SCRIPT });
-}
-
 // ---------------------------------------------------------------------------
 // Cloudflare geo cookie injection
 // ---------------------------------------------------------------------------
@@ -917,7 +884,7 @@ export function buildEnforcedCsp(
   return out.join("; ");
 }
 
-const DEFAULT_BYPASS_PATHS = ["/_build", "/deco/", "/live/", "/.decofile"];
+const DEFAULT_BYPASS_PATHS = ["/_build", "/deco/", "/live/"];
 
 /**
  * Cookie names that are safe for caching — they carry anonymous/public
@@ -1280,20 +1247,7 @@ export function createDecoWorkerEntry(
   ): Promise<Response>;
 } {
   const claimRevalidation = createRevalidationClaims();
-  // `/live/_meta` reads the admin schema from the `ASSETS` binding when the
-  // build published it as a static asset (`decoVitePlugin({ metaAsset: true })`).
-  // Registered here so no site has to remember a setup call; inert for builds
-  // that keep the schema in the bundle, since they never ask for the asset.
-  setMetaAssetFetcher((assetPath) => {
-    const assets = getRuntimeEnv()?.ASSETS as
-      | { fetch(req: Request): Promise<Response> }
-      | undefined;
-    // Only the path matters to the binding; the host is a placeholder.
-    return assets ? assets.fetch(new Request(new URL(assetPath, "https://assets.invalid"))) : null;
-  });
-
   const {
-    admin,
     detectProfile: customDetect,
     deviceSpecificKeys = true,
     buildSegment: rawBuildSegment,
@@ -1303,7 +1257,6 @@ export function createDecoWorkerEntry(
     fingerprintedAssetPattern = FINGERPRINTED_ASSET_RE,
     stripTrackingParams: shouldStripTracking = true,
     redirects: redirectsOpt,
-    previewShell: customPreviewShell,
     cacheVersionEnv = "BUILD_HASH",
     dataCacheOnDeployEnv = "DECO_DATA_CACHE_ON_DEPLOY",
     securityHeaders: securityHeadersOpt,
@@ -1472,7 +1425,7 @@ export function createDecoWorkerEntry(
 
   // DEFAULT_BYPASS_PATHS is always included, even when a site passes its own
   // `bypassPaths`. It used to be replaced, so a site adding one path silently
-  // lost `/deco/`, `/live/` and `/.decofile` — framework routes that must never
+  // lost `/deco/` and `/live/` — framework routes that must never
   // be cached. Cache configuration from a site can tighten, never loosen.
   const allBypassPaths = [
     ...new Set([...DEFAULT_BYPASS_PATHS, ...(bypassPaths ?? []), ...extraBypassPaths]),
@@ -1994,101 +1947,24 @@ export function createDecoWorkerEntry(
       : null;
   }
 
-  // -- Admin route handler ---------------------------------------------------
+  // -- Liveness probe ---------------------------------------------------------
+  //
+  // The staff-only admin routes (`/live/_meta`, `/.decofile`,
+  // `/live/previews(/*)`) were hard-removed from this binding and are not
+  // handled here; those paths fall through to the app like any other URL.
+  // Only the liveness probe remains.
 
-  const ADMIN_NO_CACHE: Record<string, string> = {
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "CDN-Cache-Control": "no-store",
-    "Surrogate-Control": "no-store",
-  };
-
-  function addCors(response: Response, request: Request): Response {
-    if (!admin) return response;
-    const cors = admin.corsHeaders(request);
-    const resp = new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: new Headers(response.headers),
+  function tryLivenessRoute(request: Request): Response | null {
+    if (new URL(request.url).pathname !== "/deco/_liveness") return null;
+    return new Response("OK", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "CDN-Cache-Control": "no-store",
+        "Surrogate-Control": "no-store",
+      },
     });
-    for (const [k, v] of Object.entries({ ...cors, ...ADMIN_NO_CACHE })) {
-      resp.headers.set(k, v);
-    }
-    return resp;
-  }
-
-  async function tryAdminRoute(request: Request): Promise<Response | null> {
-    if (!admin) return null;
-
-    const url = new URL(request.url);
-    const { pathname } = url;
-    const method = request.method;
-
-    if (pathname === "/live/_meta") {
-      if (method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: { ...admin.corsHeaders(request), ...ADMIN_NO_CACHE },
-        });
-      }
-      const resp = await withTracing("deco.admin.meta", async () => admin.handleMeta(request));
-      return addCors(resp, request);
-    }
-
-    if (pathname === "/.decofile") {
-      if (method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: { ...admin.corsHeaders(request), ...ADMIN_NO_CACHE },
-        });
-      }
-      if (method === "POST") {
-        const resp = await withTracing("deco.admin.decofile.reload", () =>
-          Promise.resolve(admin.handleDecofileReload(request)),
-        );
-        return addCors(resp, request);
-      }
-      const resp = await withTracing("deco.admin.decofile.read", async () =>
-        admin.handleDecofileRead(),
-      );
-      return addCors(resp, request);
-    }
-
-    if (pathname === "/deco/_liveness") {
-      return new Response("OK", {
-        status: 200,
-        headers: { "Content-Type": "text/plain", ...ADMIN_NO_CACHE },
-      });
-    }
-
-    if ((pathname === "/live/previews" || pathname === "/live/previews/") && method === "GET") {
-      const shell = customPreviewShell ?? buildPreviewShell();
-      return new Response(shell, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ...admin.corsHeaders(request),
-          ...ADMIN_NO_CACHE,
-        },
-      });
-    }
-
-    if (pathname.startsWith("/live/previews/") && pathname !== "/live/previews/") {
-      if (method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: { ...admin.corsHeaders(request), ...ADMIN_NO_CACHE },
-        });
-      }
-      const pathComponent = pathname.slice("/live/previews/".length);
-      const resp = await withTracing(
-        "deco.admin.render",
-        () => Promise.resolve(admin.handleRender(request)),
-        { "cms.component": pathComponent || "(page)" },
-      );
-      return addCors(resp, request);
-    }
-
-    return null;
   }
 
   // -- Main fetch handler -----------------------------------------------------
@@ -2430,9 +2306,7 @@ export function createDecoWorkerEntry(
         request.headers.has("authorization") ||
         url.searchParams.has("__deco_preview") ||
         url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM) ||
-        request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM) ||
-        url.pathname.startsWith("/live/previews") ||
-        url.pathname.startsWith("/deco/render");
+        request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM);
       let storage: CacheStorage | null = null;
       try {
         storage =
@@ -2474,9 +2348,9 @@ export function createDecoWorkerEntry(
       });
     }
 
-    // Admin routes (/_meta, /.decofile, /live/previews) — always handled first
-    const adminResponse = await tryAdminRoute(request);
-    if (adminResponse) return adminResponse;
+    // Liveness probe — always handled first
+    const livenessResponse = tryLivenessRoute(request);
+    if (livenessResponse) return livenessResponse;
 
     // Purge endpoint
     if (url.pathname === "/_cache/purge" && request.method === "POST") {
