@@ -141,6 +141,65 @@ describe("createFetchCache — behavior", () => {
   });
 });
 
+describe("createFetchCache — SWR bounded inside SIE", () => {
+  // SIE (24h on VTEX) used to double as the SWR window: a rarely requested key
+  // answered with data up to SIE old on a healthy origin, and the caches above
+  // it stored that as fresh. Past fresh + SWR the caller now waits for origin.
+  const SWR = 2000;
+  const past = () => vi.setSystemTime(Date.now() + 1000 + SWR + 1);
+  const make = () => createFetchCache({ provider: "vtex", ...KNOBS, staleWhileRevalidateMs: SWR });
+  const prime = (cache: ReturnType<typeof make>) =>
+    cache.fetchWithCache("k", () => Promise.resolve(jsonResponse({ v: "old" })));
+
+  it("past SWR (inside SIE) refetches in the foreground", async () => {
+    vi.useFakeTimers();
+    const cache = make();
+    await prime(cache);
+    past();
+    expect(
+      await cache.fetchWithCache("k", () => Promise.resolve(jsonResponse({ v: "new" }))),
+    ).toEqual({ v: "new" });
+  });
+
+  it("past SWR with origin failing serves last-good (stale-if-error)", async () => {
+    vi.useFakeTimers();
+    const cache = make();
+    await prime(cache);
+    past();
+    expect(await cache.fetchWithCache("k", () => Promise.reject(new Error("down")))).toEqual({
+      v: "old",
+    });
+    expect(statuses()).toEqual(["MISS", "MISS", "STALE-HIT"]);
+  });
+
+  it("past SWR a 4xx does not downgrade the last-good 2xx", async () => {
+    vi.useFakeTimers();
+    const cache = make();
+    await prime(cache);
+    past();
+    expect(await cache.fetchWithCache("k", () => Promise.resolve(jsonResponse(null, 404)))).toEqual(
+      { v: "old" },
+    );
+    expect(await cache.fetchWithCache("k", () => Promise.reject(new Error("down")))).toEqual({
+      v: "old",
+    });
+  });
+
+  it("concurrent joiners of the in-flight refetch get the same fallback", async () => {
+    vi.useFakeTimers();
+    const cache = make();
+    await prime(cache);
+    past();
+    let fail!: (e: Error) => void;
+    const origin = () => new Promise<Response>((_, rej) => (fail = rej));
+    const a = cache.fetchWithCache("k", origin);
+    const b = cache.fetchWithCache("k", origin);
+    await vi.advanceTimersByTimeAsync(0);
+    fail(new Error("down"));
+    expect(await Promise.all([a, b])).toEqual([{ v: "old" }, { v: "old" }]);
+  });
+});
+
 describe("createFetchCache — telemetry labels", () => {
   it("stamps layer=swr and provider=<provider> on every emit (profile stays unset)", async () => {
     const cache = createFetchCache({ provider: "magento", ...KNOBS });
