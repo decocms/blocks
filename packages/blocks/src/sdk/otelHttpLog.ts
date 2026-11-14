@@ -138,6 +138,19 @@ const SEVERITY_NUMBER: Record<LogLevel, number> = {
   error: 17,
 };
 
+// SeverityText as the OTel SDKs and deco's Fresh runtime write it: the spec's
+// short display names, uppercase. See
+// https://opentelemetry.io/docs/specs/otel/logs/data-model/#displaying-severity
+// Lowercase put the worker's records in their own `error` bucket next to every
+// Fresh site's `ERROR`, so a `SeverityText IN ('ERROR')` filter — system-health's
+// severity facet — left them out.
+const SEVERITY_TEXT: Record<LogLevel, string> = {
+  debug: "DEBUG",
+  info: "INFO",
+  warn: "WARN",
+  error: "ERROR",
+};
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -217,7 +230,7 @@ export function createOtlpHttpLogAdapter(options: OtlpHttpLogOptions): OtlpHttpL
         timeUnixNano: t,
         observedTimeUnixNano: t,
         severityNumber: SEVERITY_NUMBER[level],
-        severityText: level,
+        severityText: SEVERITY_TEXT[level],
         body: msg,
         attributes: attrs ? { ...attrs } : {},
         traceId: spanCtx?.traceId ?? "",
