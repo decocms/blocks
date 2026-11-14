@@ -1,6 +1,8 @@
 import { getSection, type ResolvedSection } from "@decocms/blocks/cms";
+import { buildRenderCSP, generateCSPNonce } from "@decocms/blocks/sdk/csp";
 import { createElement } from "react";
 import { buildHtmlShell } from "../sdk/htmlShell";
+import { getAdminOrigins } from "./cors";
 import { LIVE_CONTROLS_SCRIPT } from "./liveControls";
 import { resolvePreviewRequest } from "./resolvePreview";
 import { getPreviewWrapper } from "./setup";
@@ -27,8 +29,37 @@ async function getRenderToString() {
   return _renderToString;
 }
 
-function wrapInHtmlShell(sectionHtml: string): string {
-  return buildHtmlShell({ body: sectionHtml, script: LIVE_CONTROLS_SCRIPT });
+function wrapInHtmlShell(sectionHtml: string, nonce: string): string {
+  return buildHtmlShell({
+    body: sectionHtml,
+    script: LIVE_CONTROLS_SCRIPT,
+    nonce,
+  });
+}
+
+/**
+ * Build the preview HTML `Response` with the hardened CSP.
+ *
+ * `/deco/render` is an unauthenticated endpoint that reflects fully
+ * caller-controlled section props into `text/html`, so a rich-text prop
+ * reaching an HTML sink is reflected XSS. The nonce-based CSP is the
+ * execution-layer mitigation — it blocks injected inline handlers / scripts
+ * while allowing the framework's own `nonce`-tagged preview script (see
+ * `buildRenderCSP`). Applied on EVERY response path so no branch (including
+ * the error/unknown fallbacks, which interpolate messages) ships without it.
+ */
+function htmlResponse(html: string, nonce: string, status = 200): Response {
+  return new Response(html, {
+    status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": buildRenderCSP({
+        nonce,
+        adminOrigins: getAdminOrigins(),
+      }),
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 /**
@@ -79,16 +110,18 @@ async function renderResolvedSection(section: ResolvedSection): Promise<string> 
  * - Per-request decofile override via AsyncLocalStorage
  */
 export async function handleRender(request: Request): Promise<Response> {
+  // One nonce per response, generated before the try so the catch path can
+  // reuse it. Every return below goes through htmlResponse(), which stamps the
+  // CSP built from this nonce.
+  const nonce = generateCSPNonce();
   try {
     const resolution = await resolvePreviewRequest(request);
     if (resolution.type === "unknown") {
       const unknownHtml = wrapInHtmlShell(
         `<div style="padding:20px;color:red;">Unknown section: ${escapeHtml(resolution.component)}</div>`,
+        nonce,
       );
-      return new Response(unknownHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html" },
-      });
+      return htmlResponse(unknownHtml, nonce);
     }
 
     if (resolution.previewType === "page") {
@@ -101,24 +134,16 @@ export async function handleRender(request: Request): Promise<Response> {
           }
         }),
       );
-      return new Response(wrapInHtmlShell(htmlParts.filter(Boolean).join("\n")), {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return htmlResponse(wrapInHtmlShell(htmlParts.filter(Boolean).join("\n"), nonce), nonce);
     }
 
     const sectionHtml = await renderResolvedSection(resolution.sections[0]);
-    return new Response(wrapInHtmlShell(sectionHtml), {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+    return htmlResponse(wrapInHtmlShell(sectionHtml, nonce), nonce);
   } catch (error) {
     const errorHtml = wrapInHtmlShell(
       `<div style="padding:20px;color:red;">Render error: ${escapeHtml((error as Error).message)}</div>`,
+      nonce,
     );
-    return new Response(errorHtml, {
-      status: 200,
-      headers: { "Content-Type": "text/html" },
-    });
+    return htmlResponse(errorHtml, nonce);
   }
 }
