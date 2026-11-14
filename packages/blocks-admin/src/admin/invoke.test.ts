@@ -15,6 +15,7 @@
  */
 
 import { clearDraftCache, loadBlocks, setBlocks } from "@decocms/blocks/cms";
+import { setRuntimeEnv } from "@decocms/blocks/sdk/otelAdapters";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearInvokeHandlers, handleInvoke, registerInvokeHandlers } from "./invoke";
@@ -348,5 +349,71 @@ describe("handleInvoke — Fresh-style ctx (3rd arg)", () => {
     expect(response.status).toBe(200);
     expect(invokeProxy.then).toBeUndefined();
     expect(invokeProxy.site.loaders.then).toBeUndefined();
+  });
+});
+
+describe("handleInvoke — built-in secrets/encrypt action (Studio's Secret field)", () => {
+  beforeEach(() => clearInvokeHandlers());
+  afterEach(() => clearInvokeHandlers());
+
+  async function makeCryptoKey() {
+    const rawKey = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(16));
+    const decoCryptoKey = btoa(JSON.stringify({ key: Array.from(rawKey), iv: Array.from(iv) }));
+    const key = await crypto.subtle.importKey("raw", rawKey, "AES-CBC", false, ["decrypt"]);
+    const decrypt = async (hex: string) => {
+      const bytes = new Uint8Array(hex.match(/../g)!.map((h) => parseInt(h, 16)));
+      return new TextDecoder().decode(
+        await crypto.subtle.decrypt({ name: "AES-CBC", iv }, key, bytes),
+      );
+    };
+    return { decoCryptoKey, decrypt };
+  }
+
+  function invokeWithEnv(request: Request, env: Record<string, string>) {
+    return RequestContext.run(request, () => {
+      setRuntimeEnv(env);
+      return handleInvoke(request);
+    });
+  }
+
+  it.each([
+    "website/actions/secrets/encrypt.ts",
+    "$live/actions/secrets/encrypt.ts",
+  ])("%s encrypts with the site key and answers { value: hex }", async (key) => {
+    const { decoCryptoKey, decrypt } = await makeCryptoKey();
+
+    const response = await invokeWithEnv(makeInvokeRequest(key, { value: "s3cret" }), {
+      DECO_CRYPTO_KEY: decoCryptoKey,
+    });
+
+    expect(response.status).toBe(200);
+    const { value } = await response.json();
+    expect(value).toMatch(/^(?:[0-9a-f]{2})+$/);
+    expect(value).not.toBe("s3cret");
+    expect(await decrypt(value)).toBe("s3cret");
+  });
+
+  it("fails without DECO_CRYPTO_KEY rather than echoing the plaintext", async () => {
+    const response = await invokeWithEnv(
+      makeInvokeRequest("website/actions/secrets/encrypt.ts", { value: "s3cret" }),
+      {},
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("s3cret");
+  });
+
+  it("a handler the site registers under the same key wins", async () => {
+    registerInvokeHandlers({
+      "website/actions/secrets/encrypt.ts": async () => ({ value: "aa" }),
+    });
+
+    const response = await invokeWithEnv(
+      makeInvokeRequest("website/actions/secrets/encrypt.ts", { value: "s3cret" }),
+      {},
+    );
+
+    expect(await response.json()).toEqual({ value: "aa" });
   });
 });

@@ -20,8 +20,9 @@ import { getRuntimeEnv } from "./otelAdapters";
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 
-// Cache the imported key
-let cachedKey: Promise<{ key: CryptoKey; iv: Uint8Array }> | null = null;
+// Cache the imported key, keyed by the DECO_CRYPTO_KEY value it came from
+let cachedKey: { envKey: string; key: Promise<{ key: CryptoKey; iv: Uint8Array }> } | null =
+	null;
 
 function hexToBytes(hex: string): Uint8Array {
 	const bytes = new Uint8Array(hex.length / 2);
@@ -31,6 +32,12 @@ function hexToBytes(hex: string): Uint8Array {
 	return bytes;
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+	let hex = "";
+	for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+	return hex;
+}
+
 /**
  * Get the AES key from DECO_CRYPTO_KEY environment variable.
  * Returns null if not set.
@@ -38,8 +45,9 @@ function hexToBytes(hex: string): Uint8Array {
 function getKeyFromEnv(): Promise<{ key: CryptoKey; iv: Uint8Array }> | null {
 	const envKey = getEnvVar("DECO_CRYPTO_KEY");
 	if (!envKey) return null;
+	if (cachedKey?.envKey === envKey) return cachedKey.key;
 
-	return cachedKey ??= (async () => {
+	const key = (async () => {
 		const parsed = JSON.parse(atob(envKey));
 		const keyBytes = new Uint8Array(
 			Array.isArray(parsed.key) ? parsed.key : Object.values(parsed.key),
@@ -53,11 +61,13 @@ function getKeyFromEnv(): Promise<{ key: CryptoKey; iv: Uint8Array }> | null {
 			keyBytes.buffer,
 			"AES-CBC",
 			false,
-			["decrypt"],
+			["encrypt", "decrypt"],
 		);
 
 		return { key: importedKey, iv };
 	})();
+	cachedKey = { envKey, key };
+	return key;
 }
 
 /**
@@ -92,6 +102,28 @@ export async function decryptSecret(encryptedHex: string): Promise<string | null
 		console.warn("[crypto] Failed to decrypt secret:", (e as Error).message);
 		return null;
 	}
+}
+
+/**
+ * Encrypt `value` to hex AES-CBC with DECO_CRYPTO_KEY — the inverse of
+ * {@link decryptSecret} and byte-for-byte what deco-cx/apps' `encryptToHex`
+ * produces with the same key, so the hex is interchangeable with a Fresh
+ * site's. Throws when the key is missing: unlike Fresh, there is no key to
+ * generate on first use, and returning anything else would let an editor
+ * store a value the runtime can never decrypt.
+ */
+export async function encryptSecret(value: string): Promise<string> {
+	const keyPromise = getKeyFromEnv();
+	if (!keyPromise) {
+		throw new Error("DECO_CRYPTO_KEY is not set: cannot encrypt secrets");
+	}
+	const { key, iv } = await keyPromise;
+	const encrypted = await crypto.subtle.encrypt(
+		{ name: "AES-CBC", iv } as AesCbcParams,
+		key,
+		textEncoder.encode(value),
+	);
+	return bytesToHex(new Uint8Array(encrypted));
 }
 
 // In-memory cache for resolved secrets
