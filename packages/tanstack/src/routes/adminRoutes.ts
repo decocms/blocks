@@ -115,8 +115,17 @@ const decoRenderRoute = {
 const decoInvokeRoute = {
   server: {
     handlers: {
-      GET: withCors(({ request }) =>
-        withTracing("deco.admin.invoke", () => handleInvoke(request), invokeAttrs(request)),
+      // POST only. `handleInvoke` has no auth of its own and honors a `?props=`
+      // query string on GET; a GET is a CORS "simple request" (no preflight), so
+      // an `<img src=".../deco/invoke/site/actions/...?props=...">` on a
+      // third-party page would fire mutating actions with the victim's cookies
+      // (CSRF). The Next dispatcher (routeHandlers.ts) rejects non-POST invoke
+      // for exactly this reason — mirror it here.
+      GET: withCors(() =>
+        new Response(
+          JSON.stringify({ error: "Method not allowed: invoke is POST-only (CSRF protection)" }),
+          { status: 405, headers: { "Content-Type": "application/json", Allow: "POST" } },
+        ),
       ),
       POST: withCors(({ request }) =>
         withTracing("deco.admin.invoke", () => handleInvoke(request), invokeAttrs(request)),
