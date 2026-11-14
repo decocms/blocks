@@ -5,6 +5,13 @@ export interface CacheStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, expiresAt: number): Promise<void>;
   delete(key: string): Promise<void>;
+  /**
+   * Optional opaque-bytes variant, for values that are bytes already (HTTP bodies).
+   * Storing those as strings costs a binary string, base64 and JSON copy of each body.
+   * `expiresAt` drives physical expiry; callers that need exact expiry encode it in the value.
+   */
+  getBytes?(key: string): Promise<Uint8Array<ArrayBuffer> | null>;
+  setBytes?(key: string, value: Uint8Array<ArrayBuffer>, expiresAt: number): Promise<void>;
 }
 
 export interface CacheStorageContext {
@@ -65,11 +72,22 @@ function decode(raw: string | null): string | null {
 /** Bounded LRU adapter, useful in Node, development and tests. */
 export function createMemoryCacheStorage(maxBytes = 32 * 1024 * 1024): CacheStorage {
   const entries = new Map<string, string>();
+  const binary = new Map<string, { value: Uint8Array<ArrayBuffer>; expiresAt: number }>();
   let bytes = 0;
   function remove(key: string) {
     const old = entries.get(key);
     if (old !== undefined) bytes -= (key.length + old.length) * 2;
     entries.delete(key);
+    const oldBinary = binary.get(key);
+    if (oldBinary) bytes -= key.length * 2 + oldBinary.value.byteLength;
+    binary.delete(key);
+  }
+  function evict() {
+    while (bytes > maxBytes) {
+      const oldest = entries.keys().next().value ?? binary.keys().next().value;
+      if (oldest === undefined) break;
+      remove(oldest);
+    }
   }
   return {
     async get(key) {
@@ -90,10 +108,29 @@ export function createMemoryCacheStorage(maxBytes = 32 * 1024 * 1024): CacheStor
       if (size > maxBytes) return;
       entries.set(key, raw);
       bytes += size;
-      while (bytes > maxBytes) remove(entries.keys().next().value!);
+      evict();
     },
     async delete(key) {
       remove(key);
+    },
+    async getBytes(key) {
+      const entry = binary.get(key);
+      if (!entry || Date.now() >= entry.expiresAt) {
+        remove(key);
+        return null;
+      }
+      binary.delete(key);
+      binary.set(key, entry);
+      return entry.value;
+    },
+    async setBytes(key, value, expiresAt) {
+      remove(key);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+      const size = key.length * 2 + value.byteLength;
+      if (size > maxBytes) return;
+      binary.set(key, { value: value.slice(), expiresAt });
+      bytes += size;
+      evict();
     },
   };
 }
@@ -104,6 +141,20 @@ export interface CacheKVNamespace {
   put(key: string, value: string, options: { expirationTtl: number }): Promise<void>;
   delete(key: string): Promise<void>;
 }
+
+/** The binary half of a Workers KV binding. Real bindings satisfy both; minimal fakes need not. */
+interface BinaryCacheKVNamespace {
+  get(key: string, type: "arrayBuffer"): Promise<ArrayBuffer | null>;
+  put(
+    key: string,
+    value: Uint8Array<ArrayBuffer>,
+    options: { expirationTtl: number },
+  ): Promise<void>;
+}
+
+// Leave space below KV's 25 MiB value limit. Oversized cache entries are optional.
+const KV_MAX_VALUE_BYTES = 25 * 1024 * 1024;
+const kvTtl = (expiresAt: number) => Math.max(60, Math.ceil((expiresAt - Date.now()) / 1000));
 
 export function createKVCacheStorage(
   kv: CacheKVNamespace,
@@ -117,14 +168,31 @@ export function createKVCacheStorage(
     async set(key, value, expiresAt) {
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
       const raw = JSON.stringify({ value, expiresAt });
-      // Leave space below KV's 25 MiB value limit. Oversized cache entries are optional.
-      if (new TextEncoder().encode(raw).byteLength > 25 * 1024 * 1024) return;
-      await kv.put(await keyFor(key), raw, {
-        expirationTtl: Math.max(60, Math.ceil((expiresAt - Date.now()) / 1000)),
-      });
+      // UTF-8 is at most 3 bytes per UTF-16 unit: only encode (a full copy) when that bound
+      // can exceed the limit. Encoding every value just to size it doubled each write.
+      if (
+        raw.length * 3 > KV_MAX_VALUE_BYTES &&
+        new TextEncoder().encode(raw).byteLength > KV_MAX_VALUE_BYTES
+      )
+        return;
+      await kv.put(await keyFor(key), raw, { expirationTtl: kvTtl(expiresAt) });
     },
     async delete(key) {
       await kv.delete(await keyFor(key));
+    },
+    async getBytes(key) {
+      const raw = await (kv as unknown as BinaryCacheKVNamespace).get(
+        await keyFor(key),
+        "arrayBuffer",
+      );
+      return raw ? new Uint8Array(raw) : null;
+    },
+    async setBytes(key, value, expiresAt) {
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+      if (value.byteLength > KV_MAX_VALUE_BYTES) return;
+      await (kv as unknown as BinaryCacheKVNamespace).put(await keyFor(key), value, {
+        expirationTtl: kvTtl(expiresAt),
+      });
     },
   };
 }
@@ -155,6 +223,113 @@ export function createWebCacheStorage(
     async delete(key) {
       await cache.delete(await requestFor(key));
     },
+    async getBytes(key) {
+      const response = await cache.match(await requestFor(key));
+      return response ? new Uint8Array(await response.arrayBuffer()) : null;
+    },
+    async setBytes(key, value, expiresAt) {
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+      await cache.put(
+        await requestFor(key),
+        new Response(value, {
+          headers: {
+            "Cache-Control": `public, max-age=${Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000))}`,
+          },
+        }),
+      );
+    },
+  };
+}
+
+/**
+ * Deadline every operation of a shared storage, reporting a miss (or a dropped write) when it
+ * is exceeded. A `DECO_KV.get` that never settled once held PLPs for 100 s until Cloudflare
+ * answered 524; the cache is an optimization and must never block a render.
+ * ponytail: Promise.race, not an abort — the KV binding takes no AbortSignal.
+ */
+export function timeBoxedCacheStorage(
+  storage: CacheStorage,
+  {
+    timeoutMs = 1_500,
+    onTimeout,
+  }: { timeoutMs?: number; onTimeout?: (operation: string) => void } = {},
+): CacheStorage {
+  function timeBox<T>(operation: string, work: Promise<T>, fallback: T): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      work.catch(() => fallback),
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => {
+          onTimeout?.(operation);
+          resolve(fallback);
+        }, timeoutMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  }
+  const { getBytes, setBytes } = storage;
+  return {
+    get: (key) => timeBox("get", storage.get(key), null),
+    set: (key, value, expiresAt) => timeBox("set", storage.set(key, value, expiresAt), undefined),
+    delete: (key) => timeBox("delete", storage.delete(key), undefined),
+    ...(getBytes && setBytes
+      ? {
+          getBytes: (key: string) => timeBox("get", getBytes.call(storage, key), null),
+          setBytes: (key: string, value: Uint8Array<ArrayBuffer>, expiresAt: number) =>
+            timeBox("set", setBytes.call(storage, key, value, expiresAt), undefined),
+        }
+      : {}),
+  };
+}
+
+/**
+ * A fast per-location tier (`caches.default`) in front of a shared one (KV): colo hits skip the
+ * KV round trip, colo misses still find what another location wrote. A value found only in the
+ * shared tier is copied to the colo for `backfillTtlMs` — `get` cannot see the real expiry, so
+ * consumers must judge freshness from the value itself (responses and loader entries do).
+ */
+export function tieredCacheStorage(
+  colo: CacheStorage,
+  shared: CacheStorage,
+  { backfillTtlMs = 60_000 }: { backfillTtlMs?: number } = {},
+): CacheStorage {
+  const tiered: CacheStorage = {
+    async get(key) {
+      const local = await colo.get(key).catch(() => null);
+      if (local !== null) return local;
+      const value = await shared.get(key);
+      if (value !== null) cacheBackground(colo.set(key, value, Date.now() + backfillTtlMs));
+      return value;
+    },
+    set: (key, value, expiresAt) =>
+      Promise.all([
+        colo.set(key, value, expiresAt).catch(() => {}),
+        shared.set(key, value, expiresAt),
+      ]).then(() => {}),
+    delete: (key) =>
+      Promise.all([colo.delete(key).catch(() => {}), shared.delete(key)]).then(() => {}),
+  };
+  if (!colo.getBytes || !colo.setBytes || !shared.getBytes || !shared.setBytes) return tiered;
+  const [coloGet, coloSet, sharedGet, sharedSet] = [
+    colo.getBytes,
+    colo.setBytes,
+    shared.getBytes,
+    shared.setBytes,
+  ];
+  return {
+    ...tiered,
+    async getBytes(key) {
+      const local = await coloGet.call(colo, key).catch(() => null);
+      if (local !== null) return local;
+      const value = await sharedGet.call(shared, key);
+      if (value !== null)
+        cacheBackground(coloSet.call(colo, key, value, Date.now() + backfillTtlMs));
+      return value;
+    },
+    setBytes: (key, value, expiresAt) =>
+      Promise.all([
+        coloSet.call(colo, key, value, expiresAt).catch(() => {}),
+        sharedSet.call(shared, key, value, expiresAt),
+      ]).then(() => {}),
   };
 }
 
