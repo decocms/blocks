@@ -28,6 +28,9 @@ import { isLayoutSection, markSectionDegraded, runSingleSectionLoader } from "./
 const G = globalThis as any;
 if (!G.__deco) G.__deco = {};
 if (!G.__deco.commerceLoaders) G.__deco.commerceLoaders = {};
+if (!G.__deco.commerceLoadersWithoutUrlParams) {
+  G.__deco.commerceLoadersWithoutUrlParams = new Set<string>();
+}
 if (!G.__deco.customMatchers) G.__deco.customMatchers = {};
 if (!G.__deco.eagerSectionKeys) G.__deco.eagerSectionKeys = new Set<string>();
 
@@ -633,12 +636,44 @@ const MAX_RESOLVE_DEPTH = 20;
 
 const commerceLoaders: Record<string, CommerceLoader> = G.__deco.commerceLoaders;
 
-export function registerCommerceLoader(key: string, loader: CommerceLoader) {
-  commerceLoaders[key] = loader;
+/** Keys registered with `injectUrlParams: false`. */
+const commerceLoadersWithoutUrlParams: Set<string> = G.__deco.commerceLoadersWithoutUrlParams;
+
+export interface CommerceLoaderOptions {
+  /**
+   * Copy the page URL's query params onto the loader's props when a page block
+   * resolves it (default `true`; see "Auto-inject URL search params" below).
+   *
+   * Pass `false` for loaders written for the deco runtime, where query params
+   * only become props on `/live/invoke`: they read the URL themselves through
+   * `__pageUrl`, and the injection only lets any `?<prop>=` in the address bar
+   * override a prop the block left unset — `?pathname=` swapping a
+   * notification bar, `?query=` turning a category page into a search. Every
+   * other enrichment (`__pageUrl`, `__pagePath`) is kept.
+   */
+  injectUrlParams?: boolean;
 }
 
-export function registerCommerceLoaders(loaders: Record<string, CommerceLoader>) {
+function setUrlParamInjection(key: string, options?: CommerceLoaderOptions) {
+  if (options?.injectUrlParams === false) commerceLoadersWithoutUrlParams.add(key);
+  else commerceLoadersWithoutUrlParams.delete(key);
+}
+
+export function registerCommerceLoader(
+  key: string,
+  loader: CommerceLoader,
+  options?: CommerceLoaderOptions,
+) {
+  commerceLoaders[key] = loader;
+  setUrlParamInjection(key, options);
+}
+
+export function registerCommerceLoaders(
+  loaders: Record<string, CommerceLoader>,
+  options?: CommerceLoaderOptions,
+) {
   Object.assign(commerceLoaders, loaders);
+  for (const key of Object.keys(loaders)) setUrlParamInjection(key, options);
 
   // Auto-register loader + action schemas for the admin manifest.
   // Separate actions (keys containing "/actions/") from loaders.
@@ -673,11 +708,13 @@ export function registerCommerceLoaders(loaders: Record<string, CommerceLoader>)
 /** Delete a single commerce loader by key. No-op if key is absent. */
 export function unregisterCommerceLoader(key: string): void {
   delete commerceLoaders[key];
+  commerceLoadersWithoutUrlParams.delete(key);
 }
 
 /** Clear all commerce loaders. Use with care — wipes site-registered entries too. */
 export function clearCommerceLoaders(): void {
   for (const key of Object.keys(commerceLoaders)) delete commerceLoaders[key];
+  commerceLoadersWithoutUrlParams.clear();
 }
 
 /**
@@ -691,6 +728,12 @@ export function clearCommerceLoaders(): void {
  */
 export function getCommerceLoader(resolveType: string): CommerceLoader | undefined {
   return commerceLoaders[resolveType] ?? commerceLoaders[resolveType.replace(/\.tsx?$/, "")];
+}
+
+/** Whether the loader `getCommerceLoader(resolveType)` returns takes URL params as props. */
+function injectsUrlParams(resolveType: string): boolean {
+  const key = resolveType in commerceLoaders ? resolveType : resolveType.replace(/\.tsx?$/, "");
+  return !commerceLoadersWithoutUrlParams.has(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,7 +1150,16 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
       // Shopping deep links, paid ads, email campaigns). Existing values
       // from the CMS block win — URL params are a fallback, not an
       // override.
-      if (URL.canParse(pageUrl)) {
+      if (!URL.canParse(pageUrl)) {
+        // Loud warning instead of silent swallow: matcherCtx.url should
+        // always be a fully-qualified URL (set from `getRequestUrl()` in
+        // cmsRoute.ts). If we see a malformed value here, something
+        // upstream is wrong — surface it so the caller can fix it.
+        console.warn(
+          `[CMS] malformed matcherCtx.url for "${resolveType}"; ` +
+            `skipping query-param injection: ${pageUrl}`,
+        );
+      } else if (injectsUrlParams(resolveType)) {
         const url = new URL(pageUrl);
         for (const [k, v] of url.searchParams.entries()) {
           if (resolvedProps[k] !== undefined) continue;
@@ -1125,15 +1177,6 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
           }
           resolvedProps[k] = v;
         }
-      } else {
-        // Loud warning instead of silent swallow: matcherCtx.url should
-        // always be a fully-qualified URL (set from `getRequestUrl()` in
-        // cmsRoute.ts). If we see a malformed value here, something
-        // upstream is wrong — surface it so the caller can fix it.
-        console.warn(
-          `[CMS] malformed matcherCtx.url for "${resolveType}"; ` +
-            `skipping query-param injection: ${pageUrl}`,
-        );
       }
     }
 

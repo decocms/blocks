@@ -91,6 +91,7 @@ export { isSecretValue, serializeRenderJson, stringifyWithoutSecrets } from "./r
 export type {
   AsyncRenderingConfig,
   CommerceLoader,
+  CommerceLoaderOptions,
   DanglingReferenceHandler,
   DecoPageResult,
   Deferred,
