@@ -153,6 +153,7 @@ const cache = createCacheStore<CacheEntry>(
   Infinity,
   Infinity,
   (entry) => entry.estimatedBytes,
+  "loader",
 );
 
 // Bumped by clearLoaderCache(). A loader invocation captures this at entry and

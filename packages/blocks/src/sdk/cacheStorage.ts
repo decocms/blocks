@@ -17,6 +17,15 @@ export interface CacheStorageContext {
    * and CMS revision so they survive deploys and publishes. Defaults to `scope`.
    */
   dataScope?: string;
+  /**
+   * Scope for registry loader results (`createCachedLoader`). Those loaders get
+   * only their props, so their output depends on the request through what the
+   * upstream reads (sales channel, price tables, region…), not on the device or
+   * the visitor's geo the page cache is split by. A site that knows which
+   * dimensions its commerce data varies on sets this narrower scope so every
+   * page segment shares one entry. Defaults to `scope`.
+   */
+  loaderScope?: string;
   /** Bypass both memory and shared storage for previews or private requests. */
   disabled?: boolean;
   waitUntil?: (work: Promise<unknown>) => void;
@@ -192,8 +201,11 @@ export function createCacheStore<T>(
   maxEntries = 200,
   maxBytes = 4 * 1024 * 1024,
   sizeOf?: (value: T) => number,
-  /** `"data"`: key by `dataScope` — only for values that don't depend on the build. */
-  kind: "build" | "data" = "build",
+  /**
+   * `"data"`: key by `dataScope` — only for values that don't depend on the build.
+   * `"loader"`: key by `loaderScope` — registry loader results (see `loaderScope`).
+   */
+  kind: "build" | "data" | "loader" = "build",
 ) {
   const local = new Map<string, { value: T; expiresAt: number; bytes: number }>();
   let bytes = 0;
@@ -234,7 +246,12 @@ export function createCacheStore<T>(
   return {
     key(raw: string): string {
       const context = getCacheStorageContext();
-      const scope = (kind === "data" ? context?.dataScope : undefined) ?? context?.scope;
+      const scope =
+        (kind === "data"
+          ? context?.dataScope
+          : kind === "loader"
+            ? context?.loaderScope
+            : undefined) ?? context?.scope;
       return JSON.stringify([scope ?? "local", namespace, raw]);
     },
     get,
