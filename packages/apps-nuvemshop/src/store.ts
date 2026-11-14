@@ -13,14 +13,14 @@ import { getNuvemshopConfig, nuvemshopFetch } from "./client";
 
 const STORE_COOKIE = /^store_/;
 
-export function storeOrigin(): string {
+function storeOrigin(): string {
   const { storeUrl } = getNuvemshopConfig();
   if (!storeUrl) throw new Error("Nuvemshop storeUrl is not configured (the store's own domain)");
   return new URL(storeUrl).origin;
 }
 
 /** `store_*` cookies of the current request, as a Cookie header ("" when none). */
-export function storeCookies(): string {
+function storeCookies(): string {
   const raw = RequestContext.current?.request.headers.get("cookie") ?? "";
   return raw
     .split(/;\s*/)
@@ -45,7 +45,7 @@ function mergeCookies(header: string, setCookies: string[]) {
   return [...jar.values()].join("; ");
 }
 
-export interface StoreResponse {
+interface StoreResponse {
   status: number;
   location: string | null;
   text: () => Promise<string>;
@@ -65,6 +65,10 @@ export async function storeFetch(
   const headers: Record<string, string> = { origin, referer: `${origin}${path}` };
   if (init.form) headers["content-type"] = "application/x-www-form-urlencoded";
   if (cookie) headers.cookie = cookie;
+  // The store's Cloudflare WAF challenges (403) UA-less requests, which is what a worker sends by default.
+  headers["user-agent"] =
+    RequestContext.current?.request.headers.get("user-agent") ||
+    "Mozilla/5.0 (compatible; deco-storefront)";
   const res = await nuvemshopFetch(`${origin}${path}`, {
     method: init.method ?? "GET",
     headers,
@@ -85,4 +89,33 @@ export async function storeFetch(
     text: () => res.text(),
     cookie: mergeCookies(cookie, setCookies),
   };
+}
+
+/**
+ * The logged-in customer id, from the store session (`LS.customer` on /account/);
+ * null when logged out. The ONLY source of a customer id for account loaders/actions —
+ * never take one from props. Fails closed: every `LS.customer = N;` in the page must
+ * agree, so user-controlled text rendered in the page can't override it.
+ */
+const sessionIds = new WeakMap<Request, Promise<number | null>>();
+export function sessionCustomerId(): Promise<number | null> {
+  // One /account/ fetch per request, however many account loaders run.
+  const req = RequestContext.current?.request;
+  if (!req) return lookupSessionCustomerId();
+  const hit = sessionIds.get(req);
+  if (hit) return hit;
+  const p = lookupSessionCustomerId();
+  sessionIds.set(req, p);
+  return p;
+}
+
+async function lookupSessionCustomerId(): Promise<number | null> {
+  if (!storeCookies()) return null;
+  const page = await storeFetch("/account/");
+  if (page.status !== 200) return null;
+  const ids = new Set(
+    [...(await page.text()).matchAll(/LS\.customer\s*=\s*(\d+)\s*;/g)].map((m) => m[1]),
+  );
+  const id = ids.size === 1 ? Number([...ids][0]) : 0;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
