@@ -173,15 +173,16 @@ const routeConfig = cmsRouteConfig({
   ignoreSearchParams: ["skuId"],
 });
 
+// Unknown URLs answer HTTP 404 with the CMS page at "/404" (Header, a message,
+// Footer — author it like any page), or a neutral message wrapped in the
+// homepage's Header/Footer until it exists: cmsRouteConfig's notFoundComponent.
 export const Route = createFileRoute("/$")({
   ...routeConfig,
   component: CmsPage,
-  notFoundComponent: NotFoundPage,
 });
 
 function CmsPage() {
-  const data = Route.useLoaderData() as Record<string, any> | null;
-  if (!data) return <NotFoundPage />;
+  const data = Route.useLoaderData() as Record<string, any>;
 
   return (
     <DecoPageRenderer
@@ -199,21 +200,6 @@ function PendingPage() {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <span className="loading loading-ring loading-xl" />
-    </div>
-  );
-}
-
-function NotFoundPage() {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-6xl font-bold text-base-content/20 mb-4">404</h1>
-        <h2 className="text-2xl font-bold mb-2">Page Not Found</h2>
-        <p className="text-base-content/60 mb-6">No CMS page block matches this URL.</p>
-        <a href="/" className="btn btn-primary">
-          Go Home
-        </a>
-      </div>
     </div>
   );
 }

@@ -88,3 +88,12 @@ describe("scaffolded page routes wire the deferred-loader shim, not the raw serv
     });
   }
 });
+
+describe("scaffolded catch-all route answers 404 with the framework's site-aware page", () => {
+  it("leaves notFoundComponent to cmsRouteConfig (CMS /404 page, or Header/Footer around a message)", () => {
+    const catchAll = generateRoutes(makeCtx("vtex"))["src/routes/$.tsx"];
+    expect(catchAll).toContain("...routeConfig");
+    expect(catchAll).not.toContain("notFoundComponent:");
+    expect(catchAll).not.toContain("No CMS page block matches this URL");
+  });
+});

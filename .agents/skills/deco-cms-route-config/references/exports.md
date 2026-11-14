@@ -10,8 +10,10 @@ export {
   loadCmsPage,           // Server function for CMS page resolution
   loadCmsHomePage,       // Server function for homepage resolution
   loadDeferredSection,   // Server function for on-scroll section loading
+  loadCmsNotFoundPage,   // Server function for the 404: CMS "/404" page, or Header/Footer chrome
   CmsPage,               // Generic CMS page component
-  NotFoundPage,          // Generic 404 component
+  CmsNotFoundPage,       // cmsRouteConfig's default notFoundComponent (renders loadCmsNotFoundPage data)
+  NotFoundPage,          // Neutral "page not found" message (no chrome)
   decoMetaRouteConfig,   // Admin meta route config factory (7.10.0+)
   decoRenderRouteConfig, // Admin render route config factory (7.10.0+)
   decoInvokeRouteConfig, // Admin invoke route config factory (7.10.0+)
