@@ -72,6 +72,12 @@ declare global {
 			view?: (params?: Record<string, string | boolean | number>) => void;
 			event?: (name: string, params?: Record<string, string | boolean | number>) => void;
 		};
+		/** Installed by the `@deco/ab-testing` SDK's blocking boot script — a SEPARATE
+		 *  experiment system from the CMS-native `deco_segment` cookie below, with its
+		 *  own bucketing id (`__ab_id`). See {@link readAbAssignments}. */
+		__ab?: {
+			assignments?: Record<string, string>;
+		};
 	}
 }
 
@@ -171,6 +177,43 @@ export function readFlagsFromCookie(
 	return flags;
 }
 
+/**
+ * Read A/B test assignments from `window.__ab` — the `@deco/ab-testing` SDK, a
+ * DIFFERENT experiment system from the `deco_segment` cookie above, with its own
+ * bucketing cookie (`__ab_id`) and its own KV-backed config. The two do not share
+ * a namespace, so a test with the same name in both systems would silently
+ * collide if merged as-is — every key from this function is prefixed with
+ * `ab_` before being merged into the OneDollar payload (see {@link initOneDollarStats}),
+ * mirroring `cms_` for {@link readFlagsFromCookie}.
+ *
+ * Not a hard SDK guarantee, just a timing argument: the SDK's `boot()` always
+ * calls `resolveApi()` (which sets `assignments`) inside its `try`/`finally`,
+ * bounded by `cfg.timeoutMs` — even on a slow/failed manifest fetch, that call
+ * happens before `boot()` returns. The mask's own failsafe reveal timer races
+ * that same `timeoutMs` window and can in principle win it, so "resolved
+ * before reveal" is NOT something this function can rely on in isolation.
+ * What makes this read safe is that it never runs that early: it only runs
+ * from `initOneDollarStats`, itself only called from a `useEffect` that fires
+ * after hydration — well after that whole boot window has closed in practice.
+ * If that assumption ever breaks (e.g. `timeoutMs` raised past typical
+ * hydration time), this simply reads a still-empty `assignments`, not a crash.
+ *
+ * Exported for testing.
+ */
+export function readAbAssignments(): Record<string, string> {
+	try {
+		return { ...(window.__ab?.assignments ?? {}) };
+	} catch {
+		return {};
+	}
+}
+
+function prefixKeys<T>(obj: Record<string, T>, prefix: string): Record<string, T> {
+	const out: Record<string, T> = {};
+	for (const [k, v] of Object.entries(obj)) out[`${prefix}${k}`] = v;
+	return out;
+}
+
 function parseCookies(cookieString: string): Record<string, string> {
 	return cookieString.split(";").reduce<Record<string, string>>((acc, c) => {
 		const idx = c.indexOf("=");
@@ -233,7 +276,13 @@ export function initOneDollarStats(): void {
 	if (initialized) return;
 	initialized = true;
 
-	const flags = readFlagsFromCookie();
+	// Two separate experiment systems, prefixed so neither can silently
+	// overwrite the other and so a downstream query can tell which one
+	// produced a given key. See readAbAssignments' comment for why.
+	const flags: Record<string, string | boolean> = {
+		...prefixKeys(readFlagsFromCookie(), "cms_"),
+		...prefixKeys(readAbAssignments(), "ab_"),
+	};
 
 	// 1) Initial pageview + SPA nav tracking, with flag enrichment.
 	//
