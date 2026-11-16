@@ -24,6 +24,8 @@ curl -X POST "https://site.com/_cache/purge" \
 
 **Important**: Use GET requests for testing (not `curl -I` which sends HEAD). The worker-entry only caches GET requests.
 
+**Low HIT rate in production?** Headers show one request; the `deco.http.request` span shows all of them: `deco.cache.key.hash` / `deco.cache.segment.shape` (distinct keys per page), `deco.http.region` (colo), `deco.cache.store` + `deco.cache.store.unsafe_cookies` (misses that were never stored, and why). Full list: `docs/observability.md` → "Edge cache telemetry".
+
 
 ## Cache Analysis & Debugging with Stats Lake
 
