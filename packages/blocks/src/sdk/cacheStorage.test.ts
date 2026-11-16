@@ -240,6 +240,28 @@ it("refuses to serialize private HTTP responses or cookies", async () => {
   expect(await cache.match(req)).toBeUndefined();
 });
 
+it("reports what each response put did, without changing what it stores", async () => {
+  const req = new Request("https://site.test/");
+  const publicHeaders = { "cache-control": "public, max-age=60" };
+  const cache = createResponseCache(createMemoryCacheStorage(), "site");
+  expect(await cache.put(req, new Response("ok", { headers: publicHeaders }))).toBe("stored");
+  expect(
+    await cache.put(
+      req,
+      new Response("p", { headers: { "cache-control": "private, max-age=60" } }),
+    ),
+  ).toBe("skipped:uncacheable");
+  const huge = new Uint8Array(8 * 1024 * 1024 + 1);
+  expect(await cache.put(req, new Response(huge, { headers: publicHeaders }))).toBe(
+    "skipped:too-large",
+  );
+  const failure = vi.fn(async () => {
+    throw new Error("storage down");
+  });
+  const broken = createResponseCache({ get: failure, set: failure, delete: failure }, "site");
+  expect(await broken.put(req, new Response("ok", { headers: publicHeaders }))).toBe("error");
+});
+
 it("bounds SWR separately from stale-if-error and stops serving at the final TTL", async () => {
   vi.useFakeTimers();
   const storage = createKVCacheStorage(fakeKV());

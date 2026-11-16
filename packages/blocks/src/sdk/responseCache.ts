@@ -8,6 +8,25 @@ interface StoredResponse {
   body: string;
 }
 
+/**
+ * What `put` did. Reported for observability only (the edge-cache telemetry in
+ * `@decocms/tanstack`); every outcome but `stored` used to be silent. The
+ * write semantics are the same as before: nothing here throws.
+ *
+ * - `skipped:uncacheable` — no `max-age`, a `private`/`no-store`/`no-cache`
+ *   `Cache-Control`, or a `Set-Cookie` on the copy to store.
+ * - `skipped:too-large` — the body passed the 8 MiB buffering bound.
+ * - `error` — the storage adapter threw.
+ *
+ * `stored` means the adapter accepted the write; an adapter may still drop it
+ * on its own limits (an already-expired entry, the KV value size).
+ */
+export type ResponseCachePutResult =
+  | "stored"
+  | "skipped:uncacheable"
+  | "skipped:too-large"
+  | "error";
+
 /** HTTP serialization belongs to the cache consumer, independent of its storage adapter. */
 export function createResponseCache(storage: CacheStorage, scope: string) {
   const keyFor = (request: Request) => JSON.stringify([scope, "responses", request.url]);
@@ -29,11 +48,11 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
         return undefined;
       }
     },
-    async put(request: Request, response: Response): Promise<void> {
+    async put(request: Request, response: Response): Promise<ResponseCachePutResult> {
       const cc = response.headers.get("Cache-Control") ?? "";
       const ttl = Number(/(?:^|[,\s])max-age=(\d+)/i.exec(cc)?.[1] ?? 0);
       if (!ttl || /(?:private|no-store|no-cache)/i.test(cc) || response.headers.has("set-cookie"))
-        return;
+        return "skipped:uncacheable";
       const expiresAt = Date.now() + ttl * 1000;
       // Bound buffering before serialization; an oversized page can still stream to its caller.
       const chunks: Uint8Array[] = [];
@@ -46,7 +65,7 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
           size += value.byteLength;
           if (size > 8 * 1024 * 1024) {
             void reader.cancel().catch(() => {});
-            return;
+            return "skipped:too-large";
           }
           chunks.push(value);
         }
@@ -69,8 +88,10 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
       };
       try {
         await storage.set(keyFor(request), JSON.stringify(value), expiresAt);
+        return "stored";
       } catch {
         /* Cache writes must not fail the response or its waitUntil task. */
+        return "error";
       }
     },
     async delete(request: Request): Promise<boolean> {
