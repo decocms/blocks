@@ -17,7 +17,13 @@
  * up with redirects in neither place.
  */
 
-import { getDeploymentId, redirectKey, type StoredRedirect } from "@decocms/blocks/cms";
+import {
+  getDeploymentId,
+  redirectIndexKey,
+  redirectKey,
+  redirectPathHash,
+  type StoredRedirect,
+} from "@decocms/blocks/cms";
 import { normalizePath, type Redirect, selectExactRedirect } from "@decocms/blocks/sdk/redirects";
 import { getFastDeployKV } from "./kvHydration";
 
@@ -48,7 +54,64 @@ interface CacheEntry {
 
 // globalThis-backed so every Vite server-function split-module copy shares one
 // cache (same reason as `loader.ts` and `kvHydration.ts`).
-const G = globalThis as unknown as { __decoRedirectCache?: Map<string, CacheEntry> };
+const G = globalThis as unknown as {
+  __decoRedirectCache?: Map<string, CacheEntry>;
+  __decoRedirectIndex?: RedirectIndex;
+};
+
+/**
+ * The deployment's `index:redirects:<id>`: which paths have a rule at all.
+ * Nearly every request is for a path that has none, and each of those used to
+ * be a billed KV read that found nothing (millions a day on one storefront).
+ * One read per isolate per `TTL_MS` replaces them. `hashes` is null when the
+ * deployment has no index (synced before the key existed) or the read failed:
+ * then every path is looked up as before.
+ */
+interface RedirectIndex {
+  id: string;
+  hashes: Uint32Array | null;
+  expiresAt: number;
+  pending?: Promise<Uint32Array | null>;
+}
+
+async function redirectIndex(
+  kv: { get(key: string): Promise<string | null> },
+  id: string,
+): Promise<Uint32Array | null> {
+  const current = G.__decoRedirectIndex;
+  if (current?.id === id) {
+    if (current.pending) return current.pending;
+    if (Date.now() < current.expiresAt) return current.hashes;
+  }
+  const entry: RedirectIndex = { id, hashes: null, expiresAt: 0 };
+  entry.pending = kv
+    .get(redirectIndexKey(id))
+    .then((raw) => {
+      const parsed = raw === null ? null : (JSON.parse(raw) as unknown);
+      return Array.isArray(parsed) ? Uint32Array.from(parsed as number[]).sort() : null;
+    })
+    .catch(() => null)
+    .then((hashes) => {
+      entry.hashes = hashes;
+      entry.expiresAt = Date.now() + TTL_MS;
+      entry.pending = undefined;
+      return hashes;
+    });
+  G.__decoRedirectIndex = entry;
+  return entry.pending;
+}
+
+function hasHash(sorted: Uint32Array, hash: number): boolean {
+  let lo = 0;
+  let hi = sorted.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] === hash) return true;
+    if (sorted[mid] < hash) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return false;
+}
 function cache(): Map<string, CacheEntry> {
   G.__decoRedirectCache ??= new Map();
   return G.__decoRedirectCache;
@@ -79,6 +142,7 @@ function peek(key: string): CacheEntry | undefined {
 /** Test seam — the cache is process-global, so suites must be able to reset it. */
 export function clearRedirectCache(): void {
   G.__decoRedirectCache = new Map();
+  G.__decoRedirectIndex = undefined;
 }
 
 /**
@@ -118,7 +182,11 @@ export async function lookupExactRedirect(
   const deploymentId = getDeploymentId(env);
   if (!deploymentId) return null;
 
-  const key = redirectKey(deploymentId, normalizePath(pathname));
+  const path = normalizePath(pathname);
+  const index = await redirectIndex(kv, deploymentId);
+  if (index && !hasHash(index, redirectPathHash(path))) return null;
+
+  const key = redirectKey(deploymentId, path);
   const cached = peek(key);
   const stored = cached !== undefined ? cached.value : await read(kv, key);
   if (cached === undefined) remember(key, stored);
