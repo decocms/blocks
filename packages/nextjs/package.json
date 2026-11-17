@@ -41,7 +41,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "knip": "^5.86.0",
-    "next": "^15.4.0",
+    "next": "^15.5.28",
     "typescript": "^5.9.0"
   },
   "publishConfig": {
