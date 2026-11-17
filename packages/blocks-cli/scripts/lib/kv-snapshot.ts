@@ -65,17 +65,28 @@ export function readKvDecofile(
 ): ReadDecofileResult & { exact: ExactRedirect[]; fresh: boolean } {
   const fresh = isFreshRepo(repoDir);
   const { blocks, collisions } = readDecofileFromDir(blocksDir, { fresh });
-  const split = splitExactRedirects(blocks);
-  if (!fresh) return { blocks: split.blocks, collisions, exact: split.exact, fresh };
+  if (!fresh) {
+    const split = splitExactRedirects(blocks);
+    return { blocks: split.blocks, collisions, exact: split.exact, fresh };
+  }
 
+  // Fresh reads a `/:param` source as a URLPattern (`isHref` in the website
+  // app's `redirects.ts`), never a literal path: it stays in the decofile.
+  const split = splitExactRedirects(blocks, { keepInDecofile: (from) => from.includes("/:") });
   const out: Record<string, unknown> = {};
   for (const [key, block] of Object.entries(blocks)) {
-    if (key in split.blocks) {
+    const original = block as Record<string, unknown>;
+    if (!Object.hasOwn(split.blocks, key)) {
+      const { redirect: _moved, ...rest } = original;
+      out[key] = { ...rest, redirects: [] };
+    } else if (original?.redirect !== undefined && original.redirects === undefined) {
+      // A kept singular block keeps its one rule, and Fresh's
+      // `website/loaders/redirect.ts` reads `props.redirect`, not the
+      // `redirects: [..]` the split rewrites it to.
+      out[key] = original;
+    } else {
       out[key] = split.blocks[key];
-      continue;
     }
-    const { redirect: _moved, ...rest } = block as Record<string, unknown>;
-    out[key] = { ...rest, redirects: [] };
   }
   return { blocks: out, collisions, exact: split.exact, fresh };
 }

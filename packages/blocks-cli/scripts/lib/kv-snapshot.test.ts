@@ -51,6 +51,30 @@ describe("readKvDecofile", () => {
     expect(out.exact.map((r) => r.path)).toEqual(["/old"]);
   });
 
+  it("keeps Fresh's singular blocks and /:param patterns in the decofile", () => {
+    fs.writeFileSync(path.join(repo, "deno.json"), "{}");
+    const singularGlob = {
+      __resolveType: "website/loaders/redirect.ts",
+      redirect: { from: "/blog/*", to: "/news", type: "temporary" },
+    };
+    const param = {
+      __resolveType: "website/loaders/redirect.ts",
+      redirect: { from: "/p/:id", to: "/produto/:id", type: "permanent" },
+    };
+    write("singular-glob.json", singularGlob);
+    write("param.json", param);
+    write("singular-exact.json", {
+      __resolveType: "website/loaders/redirect.ts",
+      redirect: { from: "/promo", to: "/sale", type: "temporary" },
+    });
+    const out = readKvDecofile(blocksDir, repo);
+
+    expect(out.blocks["singular-glob"]).toEqual(singularGlob);
+    expect(out.blocks.param).toEqual(param);
+    expect(out.blocks["singular-exact"]).toEqual({ __resolveType: "website/loaders/redirect.ts", redirects: [] });
+    expect(out.exact.map((r) => r.path).sort()).toEqual(["/old", "/promo"]);
+  });
+
   it("keeps today's output on a TanStack repo", () => {
     fs.writeFileSync(path.join(repo, "package.json"), "{}");
     fs.writeFileSync(path.join(repo, "deno.json"), "{}");

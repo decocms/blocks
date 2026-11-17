@@ -507,7 +507,13 @@ export interface SplitRedirectsResult {
 const MAX_KV_PATH_BYTES = 400;
 const utf8 = new TextEncoder();
 
-export function splitExactRedirects(blocks: Record<string, unknown>): SplitRedirectsResult {
+export function splitExactRedirects(
+  blocks: Record<string, unknown>,
+  opts: {
+    /** Also keep these sources in the decofile, e.g. Fresh's `/:param` patterns. */
+    keepInDecofile?: (from: string) => boolean;
+  } = {},
+): SplitRedirectsResult {
   const exact = new Map<string, ExactRedirect>();
   const out: Record<string, unknown> = {};
 
@@ -543,7 +549,8 @@ export function splitExactRedirects(blocks: Record<string, unknown>): SplitRedir
       if (
         from.includes("*") ||
         from.includes("?") ||
-        utf8.encode(path).length > MAX_KV_PATH_BYTES
+        utf8.encode(path).length > MAX_KV_PATH_BYTES ||
+        opts.keepInDecofile?.(from)
       ) {
         kept.push(entry);
         continue;
