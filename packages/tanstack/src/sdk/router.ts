@@ -99,7 +99,7 @@ export function createDecoRouter(options: CreateDecoRouterOptions) {
   // it. `undefined` in report-only mode and on the client, where it's a no-op.
   const nonce = getRequestNonce();
 
-  return createTanStackRouter({
+  const router = createTanStackRouter({
     routeTree,
     scrollRestoration,
     defaultPreload,
@@ -110,4 +110,47 @@ export function createDecoRouter(options: CreateDecoRouterOptions) {
     stringifySearch: decoStringifySearch,
     ...(nonce ? { ssr: { nonce } } : {}),
   });
+
+  // Registered after the constructor, where router-core adds its own
+  // `pageshow` listener, so this one runs after it in the same dispatch.
+  if (scrollRestoration && typeof window !== "undefined") keepBfcacheScroll(window);
+
+  return router;
+}
+
+/** How long the browser gets to restore a bfcache page before the router takes scroll back. */
+const BFCACHE_SCROLL_HANDBACK_MS = 1000;
+
+/**
+ * router-core sets `history.scrollRestoration = "auto"` on `pagehide` and back
+ * to `"manual"` on a persisted `pageshow` (scroll-restoration.js, from
+ * TanStack/router#8519). On iOS Safari that `pageshow` runs before WebKit
+ * restores the page's scroll, and with `"manual"` WebKit skips it: a page
+ * restored from the back/forward cache comes back at the top. No navigation
+ * happens on a bfcache resume, so the router does not restore it either.
+ *
+ * Put `"auto"` back for the resume, and hand scroll back to the router
+ * (`"manual"`) once the browser has restored it — on the first scroll event,
+ * or after {@link BFCACHE_SCROLL_HANDBACK_MS} when the page was at the top and
+ * nothing scrolls — so in-app traversals keep the router's restoration.
+ *
+ * Returns a function that removes the listener (for tests).
+ *
+ * @internal Exported for tests.
+ */
+export function keepBfcacheScroll(win: Window): () => void {
+  const onPageshow = (event: Event) => {
+    if (!(event as PageTransitionEvent).persisted) return;
+    win.history.scrollRestoration = "auto";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const handBack = () => {
+      win.removeEventListener("scroll", handBack);
+      if (timer !== undefined) clearTimeout(timer);
+      win.history.scrollRestoration = "manual";
+    };
+    win.addEventListener("scroll", handBack, { once: true, passive: true });
+    timer = setTimeout(handBack, BFCACHE_SCROLL_HANDBACK_MS);
+  };
+  win.addEventListener("pageshow", onPageshow);
+  return () => win.removeEventListener("pageshow", onPageshow);
 }
