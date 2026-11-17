@@ -447,8 +447,10 @@ export interface DecoWorkerEntryOptions {
    *     A raw response doesn't depend on the code or the decofile; the new
    *     code re-transforms it, so a deploy can't serve an old shape.
    *
-   * `cachedLoader` results, HTML responses and sections stay per-build in both
-   * modes: they hold code output. Segment/device and geo stay in every key.
+   * HTML responses, sections and `cachedLoader` results stay per-build in both
+   * modes: they hold code output. The one exception: under `"preserve"`, a
+   * `cachedLoader` that sets `dataVersion` is keyed like `fetch:*` and survives
+   * too. Segment/device and geo stay in every key.
    * Any other value falls back to `"invalidate"`.
    *
    * To drop preserved responses once, set `DECO_DATA_CACHE_PURGE` to a new value
@@ -2623,7 +2625,9 @@ export function createDecoWorkerEntry(
     // Loader/commerce cache purge (in-memory, this isolate only). Escape hatch
     // to invalidate loader results immediately after an out-of-band upstream
     // change (e.g. a Magento catalog sync) without waiting out the TTL. A
-    // redeploy is the global lever — loader cache keys are build-hash versioned.
+    // redeploy is the global lever for loaders keyed by build hash; one with
+    // `dataVersion` under DECO_DATA_CACHE_ON_DEPLOY=preserve survives it (bump
+    // its `dataVersion`, or use DECO_DATA_CACHE_PURGE).
     if (url.pathname === "/_cache/purge-loaders" && request.method === "POST") {
       return handlePurgeLoaders(request, env);
     }
