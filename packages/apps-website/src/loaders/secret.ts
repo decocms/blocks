@@ -23,13 +23,18 @@ export interface Props {
 
 /**
  * Resolve a secret value.
- * In local development, reads from process.env using the `name` field.
- * Deployed runtimes resolve through the framework's ResolveSecretFn and
- * the value provided on the block.
+ *
+ * - Local development: reads `process.env[name]` when set, so `.env` works.
+ * - Everywhere else: AES-CBC decrypts `encrypted` with the site's
+ *   `DECO_CRYPTO_KEY` (same as the legacy deco-cx/apps loader).
+ *
+ * Outside development the env var named by `name` is never read. Props can
+ * come from the client (`/deco/render`, `/deco/invoke`), so reading it would
+ * let any caller pick an env var and get its value.
  */
 const isDevelopment = () => process.env.NODE_ENV === "development";
 
-const getSecret = (props: Props): string | null => {
+const getSecret = async (props: Props): Promise<string | null> => {
 	const name = props?.name;
 	if (isDevelopment() && name && process.env[name] !== undefined) {
 		return process.env[name]!;
@@ -38,12 +43,16 @@ const getSecret = (props: Props): string | null => {
 	if (!encrypted) {
 		return null;
 	}
-	// In production, the encrypted value should already be resolved
-	// by the framework's ResolveSecretFn before reaching this loader.
-	// If we get here with an encrypted value in dev, warn.
+	const { decryptSecret } = await import("@decocms/blocks/sdk/crypto");
+	const decrypted = await decryptSecret(encrypted);
+	if (decrypted !== null) {
+		return decrypted;
+	}
+	// No DECO_CRYPTO_KEY, or the value is not ciphertext for this key. Keep the
+	// previous behavior and hand back the stored value as-is.
 	if (process.env.NODE_ENV !== "production") {
 		console.warn(
-			`Secret "${name ?? "anonymous"}" has encrypted value but no env var set. Set ${name} in .env.`,
+			`Secret "${name ?? "anonymous"}" could not be decrypted. Set ${name} in .env or DECO_CRYPTO_KEY.`,
 		);
 	}
 	return encrypted;
@@ -52,8 +61,8 @@ const getSecret = (props: Props): string | null => {
 /**
  * @title Secret
  */
-export default function SecretLoader(props: Props): Secret {
-	const secretValue = getSecret(props);
+export default async function SecretLoader(props: Props): Promise<Secret> {
+	const secretValue = await getSecret(props);
 	return {
 		get: (): string | null => {
 			return secretValue;
