@@ -47,17 +47,16 @@
 import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { redirectPrefix } from "@decocms/blocks/cms";
-import { splitExactRedirects } from "@decocms/blocks/sdk/redirects";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import {
   buildSnapshot,
+  readKvDecofile,
   recordAndGcDeployment,
   setLiveDeployment,
   syncRedirectsToKv,
   verifySnapshotInKv,
   writeSnapshotToKv,
 } from "./lib/kv-snapshot";
-import { readDecofileFromDir } from "./lib/read-decofile";
 import { changedBlockFiles, changedBlockKeys, purgePathsForChangedKeys } from "./lib/sync-helpers";
 
 const DEFAULT_RETAIN = 10;
@@ -155,20 +154,19 @@ async function main() {
     console.log(`${changed.length} changed block file(s) since ${opts.since}.`);
   }
 
-  let blocks: Record<string, unknown>;
-  try {
-    blocks = readDecofileFromDir(blocksDir).blocks;
-  } catch (e) {
-    console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
-    process.exit(2);
-  }
-
   // Exact redirects get ONE KV key each and are removed from the decofile. A
   // bulk-migration site can carry tens of thousands; inside the snapshot they
   // are resident in every isolate twice (parsed graph + RedirectMap) for data
   // that usually matches nothing. Globs stay — they must be scanned in order.
-  const split = splitExactRedirects(blocks);
-  const purgePaths = opts.all ? ["/"] : purgePathsForChangedKeys(blocks, changedKeys);
+  let split: ReturnType<typeof readKvDecofile>;
+  try {
+    split = readKvDecofile(blocksDir, process.cwd());
+  } catch (e) {
+    console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(2);
+  }
+  if (split.fresh) console.log("Fresh site: block keys decoded once, emptied redirect blocks kept.");
+  const purgePaths = opts.all ? ["/"] : purgePathsForChangedKeys(split.blocks, changedKeys);
   const snap = buildSnapshot(split.blocks);
   console.log(`decofile: ${snap.count} blocks, revision ${snap.revision} → deployment ${opts.deploymentId}`);
   if (split.exact.length > 0) {
@@ -212,7 +210,10 @@ async function main() {
   }
   console.log(`synced decofile:${opts.deploymentId} (rev ${snap.revision}) → KV.`);
 
-  if (opts.purgeUrl && opts.purgeToken) {
+  // A Fresh site has no `/_cache/purge` endpoint (it's the TanStack worker's).
+  if (opts.purgeUrl && split.fresh) {
+    console.log("Fresh site: no /_cache/purge endpoint — skipping purge.");
+  } else if (opts.purgeUrl && opts.purgeToken) {
     await purgeCache(opts.purgeUrl, opts.purgeToken, purgePaths);
   } else if (opts.purgeUrl) {
     console.warn("warning: --purge-url given without a token (PURGE_TOKEN/--purge-token) — skipping purge.");

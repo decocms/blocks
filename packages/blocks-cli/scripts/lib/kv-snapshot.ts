@@ -17,8 +17,11 @@ import {
   revisionKey,
   snapshotKey,
 } from "@decocms/blocks/cms";
-import { type ExactRedirect, storedExactRedirectValue } from "@decocms/blocks/sdk/redirects";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { type ExactRedirect, splitExactRedirects, storedExactRedirectValue } from "@decocms/blocks/sdk/redirects";
 import type { KvRestClient } from "./cf-kv-rest";
+import { type ReadDecofileResult, readDecofileFromDir } from "./read-decofile";
 
 export interface Snapshot {
   /** Serialized decofile written to `decofile:<id>`. */
@@ -33,6 +36,48 @@ export interface Snapshot {
 export interface DeploymentEntry {
   id: string;
   ts: number;
+}
+
+/**
+ * A Fresh + deco site: `deno.json(c)` at the root and no `package.json` — the
+ * same rule the cfworkers-builder uses to pick its Deno build. Detected here,
+ * not passed as a flag, so the builder and the operator's decofile-syncer keep
+ * calling the CLI unchanged for every framework.
+ */
+export function isFreshRepo(dir: string): boolean {
+  const hasDenoConfig = fs.existsSync(path.join(dir, "deno.json")) || fs.existsSync(path.join(dir, "deno.jsonc"));
+  return hasDenoConfig && !fs.existsSync(path.join(dir, "package.json"));
+}
+
+/**
+ * Read `blocksDir` and split it into the KV decofile and its exact redirects.
+ * The one place both `sync-blocks-to-kv` and `migrate-blocks-to-kv` build what
+ * they write, so the two can never disagree on the snapshot.
+ *
+ * On a Fresh repo, a redirect block whose rules ALL moved to KV is kept as an
+ * empty block instead of dropped: Fresh resolves blocks by name, and a routes
+ * config that references a dropped `std/x/redirects` block would fail to
+ * resolve. TanStack collects redirects by type, so it keeps dropping them.
+ */
+export function readKvDecofile(
+  blocksDir: string,
+  repoDir: string,
+): ReadDecofileResult & { exact: ExactRedirect[]; fresh: boolean } {
+  const fresh = isFreshRepo(repoDir);
+  const { blocks, collisions } = readDecofileFromDir(blocksDir, { fresh });
+  const split = splitExactRedirects(blocks);
+  if (!fresh) return { blocks: split.blocks, collisions, exact: split.exact, fresh };
+
+  const out: Record<string, unknown> = {};
+  for (const [key, block] of Object.entries(blocks)) {
+    if (key in split.blocks) {
+      out[key] = split.blocks[key];
+      continue;
+    }
+    const { redirect: _moved, ...rest } = block as Record<string, unknown>;
+    out[key] = { ...rest, redirects: [] };
+  }
+  return { blocks: out, collisions, exact: split.exact, fresh };
 }
 
 export function buildSnapshot(blocks: Record<string, unknown>): Snapshot {
