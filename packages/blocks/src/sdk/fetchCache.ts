@@ -60,6 +60,20 @@ export interface FetchCacheConfig {
    */
   staleIfErrorMs: number;
   /**
+   * Stale-while-revalidate window (ms) PAST the freshness TTL: inside it a
+   * stale 2xx entry is served immediately while a background refresh runs.
+   * Past it (but still inside `staleIfErrorMs`) the entry is NOT served on a
+   * healthy origin — the caller waits for a foreground refetch, and the stale
+   * body is only the fallback when that refetch fails or returns 4xx.
+   *
+   * Without this bound the SIE window doubled as the SWR window: a rarely
+   * requested key answered with data up to `staleIfErrorMs` old (24h for
+   * VTEX) on its first request, and every cache above it (cachedLoader, edge
+   * HTML) stored that as fresh. Optional; defaults to
+   * {@link DEFAULT_STALE_WHILE_REVALIDATE_MS}.
+   */
+  staleWhileRevalidateMs?: number;
+  /**
    * Inflight-slot backstop timeout (ms). Bounds how long a single hung
    * `fetch()` can hold a dedup entry alive. MUST stay ABOVE any per-call
    * timeout the underlying fetch owns — this is a last-resort leak backstop,
@@ -74,6 +88,9 @@ interface CacheEntry {
   createdAt: number;
   refreshing: boolean;
 }
+
+/** Default SWR window past freshness — see {@link FetchCacheConfig.staleWhileRevalidateMs}. */
+export const DEFAULT_STALE_WHILE_REVALIDATE_MS = 300_000;
 
 export interface FetchCacheOptions {
   /** Custom fresh TTL in ms. If provided, overrides status-based TTL. */
@@ -129,6 +146,7 @@ function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T>
  */
 export function createFetchCache(config: FetchCacheConfig): FetchCache {
   const { provider, maxEntries, freshTtlMs, staleIfErrorMs, inflightBackstopMs } = config;
+  const staleWhileRevalidateMs = config.staleWhileRevalidateMs ?? DEFAULT_STALE_WHILE_REVALIDATE_MS;
 
   const store = createCacheStore<CacheEntry>(
     `fetch:${provider}`,
@@ -176,6 +194,8 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
       ? await store.read(cacheKey)
       : store.get(cacheKey);
     const now = Date.now();
+    // Last-good body to fall back on when a foreground refetch fails (true SIE).
+    let staleFallback: CacheEntry | undefined;
 
     if (entry) {
       const maxAge = opts?.ttl ?? freshTtlForStatus(entry.status);
@@ -194,7 +214,14 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
       const sieMs = opts?.sieMs ?? staleIfErrorMs;
       const tooStale = age > maxAge + sieMs;
 
-      if (!tooStale) {
+      // Past the SWR window on a (presumably) healthy origin: refetch in the
+      // foreground and keep the entry only as the error fallback. The stale
+      // body is no longer handed out just because it is still inside SIE.
+      const pastSwr = age > maxAge + Math.min(staleWhileRevalidateMs, sieMs);
+
+      if (!tooStale && pastSwr && entry.status >= 200 && entry.status < 300) {
+        staleFallback = entry;
+      } else if (!tooStale) {
         if (!entry.refreshing) {
           entry.refreshing = true;
           // Background refresh: no retry — stale data is already being served.
@@ -230,15 +257,20 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
         return Promise.resolve(entry.body as T | null);
       }
 
-      store.delete(cacheKey);
-      // fall through to the cold path below with the dead entry removed
+      if (!staleFallback) {
+        store.delete(cacheKey);
+        // fall through to the cold path below with the dead entry removed
+      }
     }
 
     const existing = inflight.get(cacheKey);
     if (existing) {
       // Joined an in-flight upstream fetch — no upstream call of our own.
       emit("HIT");
-      return existing.then((e) => e.body as T | null);
+      // A joiner holding a last-good 2xx gets the same fallback as the owner.
+      return staleFallback
+        ? withStaleFallback<T>(existing, staleFallback)
+        : existing.then((e) => e.body as T | null);
     }
 
     // Cold miss: run the loader. Wrap with a timeout so `.finally()` always
@@ -251,7 +283,10 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
     )
       .then((fresh) => {
         const ttl = opts?.ttl ?? freshTtlForStatus(fresh.status);
-        if (ttl > 0) {
+        // Same no-downgrade rule as the background refresh: a 4xx never
+        // replaces a last-good 2xx the caller is still allowed to fall back on.
+        const wouldDowngrade = staleFallback !== undefined && fresh.status >= 400;
+        if (ttl > 0 && !wouldDowngrade) {
           store.set(cacheKey, fresh, fresh.createdAt + ttl + (opts?.sieMs ?? staleIfErrorMs));
         }
         return fresh;
@@ -259,7 +294,19 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
       .finally(() => inflight.delete(cacheKey));
 
     inflight.set(cacheKey, promise);
+    if (staleFallback) return withStaleFallback<T>(promise, staleFallback);
     return promise.then((e) => e.body as T | null);
+  }
+
+  // 4xx or a failed origin → last-good body (stale-if-error).
+  function withStaleFallback<T>(p: Promise<CacheEntry>, fallback: CacheEntry): Promise<T | null> {
+    return p.then(
+      (e) => (e.status >= 400 ? fallback.body : e.body) as T | null,
+      () => {
+        emit("STALE-HIT");
+        return fallback.body as T | null;
+      },
+    );
   }
 
   return {
