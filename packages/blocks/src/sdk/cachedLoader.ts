@@ -71,9 +71,12 @@ export interface CachedLoaderOptions {
    * build hash and CMS revision, so results survive deploys and publishes
    * (props are still part of the key). Without preserve it behaves as before.
    *
-   * Only for loaders whose result is a pure function of props + upstream data.
-   * Bump the string whenever the result's shape/transform changes; purge with
-   * `DECO_DATA_CACHE_PURGE` or `cache:data-version` in DECO_KV.
+   * Only for loaders whose result is a pure function of props + upstream data:
+   * a CMS publish no longer invalidates these entries, so a loader that reads
+   * decofile data outside its props would keep the old result until its TTL.
+   * Bump the string whenever the result's shape/transform changes: a forgotten
+   * bump serves the old shape to the new code until the entry expires. Purge
+   * with `DECO_DATA_CACHE_PURGE` or `cache:data-version` in DECO_KV.
    */
   dataVersion?: string;
 }

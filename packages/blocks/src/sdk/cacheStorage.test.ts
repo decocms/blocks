@@ -167,7 +167,8 @@ it("cachedLoader with dataVersion survives a deploy/publish; without it, it does
   await bind("build-B", () => build({ q: "a" }));
   expect(fn).toHaveBeenCalledTimes(3); // per-build entry is gone
   // Bumping dataVersion (shape change) or new props miss.
-  await bind("build-B", () => createCachedLoader("plp", fn, { ...opts, dataVersion: "2" })({ q: "a" }));
+  const bumped = createCachedLoader("plp", fn, { ...opts, dataVersion: "2" });
+  await bind("build-B", () => bumped({ q: "a" }));
   await bind("build-B", () => data({ q: "b" }));
   expect(fn).toHaveBeenCalledTimes(5);
 });
