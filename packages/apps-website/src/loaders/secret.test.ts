@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import SecretLoader from "./secret";
 
 describe("SecretLoader", () => {
-	it("reads from process.env when name is set", () => {
+	it("reads from process.env when name is set in development", () => {
+		const original = process.env.NODE_ENV;
+		process.env.NODE_ENV = "development";
 		process.env.MY_SECRET = "super-secret";
 		const result = SecretLoader({ encrypted: "xxx", name: "MY_SECRET" });
 		expect(result.get()).toBe("super-secret");
 		delete process.env.MY_SECRET;
+		process.env.NODE_ENV = original;
 	});
 
 	it("returns null when encrypted is empty", () => {
@@ -14,7 +17,7 @@ describe("SecretLoader", () => {
 		expect(result.get()).toBeNull();
 	});
 
-	it("returns encrypted value as fallback in dev", () => {
+	it("returns encrypted value as fallback outside development", () => {
 		const original = process.env.NODE_ENV;
 		process.env.NODE_ENV = "test";
 		const result = SecretLoader({ encrypted: "encrypted-value", name: "NONEXISTENT" });
@@ -22,10 +25,23 @@ describe("SecretLoader", () => {
 		process.env.NODE_ENV = original;
 	});
 
-	it("reads empty-string env var correctly", () => {
+	it("does not read process.env outside development", () => {
+		const original = process.env.NODE_ENV;
+		process.env.NODE_ENV = "production";
+		process.env.MY_SECRET = "super-secret";
+		const result = SecretLoader({ encrypted: "encrypted-value", name: "MY_SECRET" });
+		expect(result.get()).toBe("encrypted-value");
+		delete process.env.MY_SECRET;
+		process.env.NODE_ENV = original;
+	});
+
+	it("reads empty-string env var correctly in development", () => {
+		const original = process.env.NODE_ENV;
+		process.env.NODE_ENV = "development";
 		process.env.EMPTY_SECRET = "";
 		const result = SecretLoader({ encrypted: "fallback", name: "EMPTY_SECRET" });
 		expect(result.get()).toBe("");
 		delete process.env.EMPTY_SECRET;
+		process.env.NODE_ENV = original;
 	});
 });

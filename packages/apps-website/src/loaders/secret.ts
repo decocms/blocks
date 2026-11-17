@@ -23,13 +23,15 @@ export interface Props {
 
 /**
  * Resolve a secret value.
- * In local dev, reads from process.env using the `name` field.
- * In production, the framework's ResolveSecretFn handles decryption
- * before the value reaches this loader.
+ * In local development, reads from process.env using the `name` field.
+ * Deployed runtimes resolve through the framework's ResolveSecretFn and
+ * the value provided on the block.
  */
+const isDevelopment = () => process.env.NODE_ENV === "development";
+
 const getSecret = (props: Props): string | null => {
 	const name = props?.name;
-	if (name && process.env[name] !== undefined) {
+	if (isDevelopment() && name && process.env[name] !== undefined) {
 		return process.env[name]!;
 	}
 	const encrypted = props?.encrypted;
