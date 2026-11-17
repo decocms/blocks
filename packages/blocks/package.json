@@ -175,7 +175,7 @@
 		"@opentelemetry/api": "^1.9.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
-		"esbuild": "^0.27.3",
+		"esbuild": "^0.28.2",
 		"react-dom": "^19.0.0",
 		"vite": "^8.0.1"
 	},
