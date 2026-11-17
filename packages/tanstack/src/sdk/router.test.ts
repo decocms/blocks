@@ -1,5 +1,6 @@
+import { createRootRoute, createRouter } from "@tanstack/react-router";
 import { describe, expect, it } from "vitest";
-import { decoParseSearch, decoStringifySearch } from "./router";
+import { createDecoRouter, decoParseSearch, decoStringifySearch } from "./router";
 
 describe("decoStringifySearch ∘ decoParseSearch is a fixed point", () => {
   // TanStack Router redirects (307) on the server when
@@ -30,5 +31,42 @@ describe("decoStringifySearch ∘ decoParseSearch is a fixed point", () => {
 
   it("keeps an explicit empty string as key= and arrays as repeated keys", () => {
     expect(decoStringifySearch({ sort: "", f: ["a", "b"] })).toBe("?sort=&f=a&f=b");
+  });
+});
+
+describe("createDecoRouter options", () => {
+  const routeTree = createRootRoute();
+
+  it("keeps the Deco defaults and leaves TanStack's timing defaults alone", () => {
+    const { options } = createDecoRouter({ routeTree });
+    expect(options.defaultPreload).toBe("intent");
+    expect(options.scrollRestoration).toBe(true);
+    const plain = createRouter({ routeTree }).options;
+    expect(options.defaultPreloadStaleTime).toBe(plain.defaultPreloadStaleTime);
+    expect(options.defaultPendingMs).toBe(plain.defaultPendingMs);
+  });
+
+  it("passes the preload and pending timing through", () => {
+    const { options } = createDecoRouter({
+      routeTree,
+      defaultPreloadDelay: 80,
+      defaultPreloadStaleTime: 300_000,
+      defaultPreloadGcTime: 600_000,
+      defaultPendingMs: 0,
+      defaultPendingMinMs: 0,
+    });
+    expect(options).toMatchObject({
+      defaultPreloadDelay: 80,
+      defaultPreloadStaleTime: 300_000,
+      defaultPreloadGcTime: 600_000,
+      defaultPendingMs: 0,
+      defaultPendingMinMs: 0,
+    });
+  });
+
+  it("accepts the predicate form of scrollRestoration", () => {
+    const predicate = () => false;
+    const { options } = createDecoRouter({ routeTree, scrollRestoration: predicate });
+    expect(options.scrollRestoration).toBe(predicate);
   });
 });
