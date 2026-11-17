@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { computeRevision } from "./blockSource";
 import { setDraftOverrideGetter } from "./draftSource";
 import {
   findPageByPath,
   getAllPages,
+  getRevision,
   loadBlocks,
   matchPath,
   setBlocks,
@@ -95,26 +97,17 @@ describe("matchPath", () => {
     });
 
     it("matches with an optional prefix before a literal segment", () => {
-      expect(
-        matchPath(
-          "/{acme/}?campanhas/*",
-          "/acme/campanhas/destaques-2023",
-        ),
-      ).toEqual({
+      expect(matchPath("/{acme/}?campanhas/*", "/acme/campanhas/destaques-2023")).toEqual({
         "0": "destaques-2023",
       });
-      expect(
-        matchPath("/{acme/}?campanhas/*", "/campanhas/destaques-2023"),
-      ).toEqual({
+      expect(matchPath("/{acme/}?campanhas/*", "/campanhas/destaques-2023")).toEqual({
         "0": "destaques-2023",
       });
     });
 
     it("matches an optional suffix group present and absent", () => {
       expect(matchPath("/black-friday{/70-off}?", "/black-friday")).toEqual({});
-      expect(
-        matchPath("/black-friday{/70-off}?", "/black-friday/70-off"),
-      ).toEqual({});
+      expect(matchPath("/black-friday{/70-off}?", "/black-friday/70-off")).toEqual({});
     });
   });
 
@@ -134,9 +127,7 @@ describe("matchPath", () => {
       // biome-ignore lint/performance/noDelete: restoring exact global state
       delete g.URLPattern;
       try {
-        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(
-          /URLPattern.*Node\.js >= 24/s,
-        );
+        expect(() => matchPath("/foo/:slug", "/foo/bar")).toThrow(/URLPattern.*Node\.js >= 24/s);
       } finally {
         if (saved !== undefined) g.URLPattern = saved;
       }
@@ -432,9 +423,7 @@ describe("loadBlocks draft override — key percent-encoding", () => {
     }));
 
     // Exactly one page for "/" survives the merge — no encoded/raw duplicate.
-    const pageBlocks = Object.keys(loadBlocks()).filter((k) =>
-      k.startsWith("pages-"),
-    );
+    const pageBlocks = Object.keys(loadBlocks()).filter((k) => k.startsWith("pages-"));
     expect(pageBlocks).toHaveLength(1);
 
     const match = findPageByPath("/");
@@ -476,9 +465,7 @@ describe("loadBlocks draft override — key percent-encoding", () => {
     }));
 
     expect(findPageByPath("/")).toBeNull();
-    const pageBlocks = Object.keys(loadBlocks()).filter((k) =>
-      k.startsWith("pages-"),
-    );
+    const pageBlocks = Object.keys(loadBlocks()).filter((k) => k.startsWith("pages-"));
     expect(pageBlocks).toHaveLength(0);
   });
 });
@@ -534,10 +521,7 @@ describe("loadBlocks draft snapshot semantics", () => {
 
     // Merge (admin partial payloads): the base-only block survives.
     withBlocksOverride(draft, () => {
-      expect(Object.keys(loadBlocks()).sort()).toEqual([
-        "pages-home-1",
-        "pages-other-2",
-      ]);
+      expect(Object.keys(loadBlocks()).sort()).toEqual(["pages-home-1", "pages-other-2"]);
     });
   });
 
@@ -547,11 +531,27 @@ describe("loadBlocks draft snapshot semantics", () => {
       "pages-ambient-9": { name: "A", path: "/a", sections: [{}] },
     }));
 
-    withDraftBlocks(
-      { "pages-scoped-3": { name: "S", path: "/s", sections: [{}] } },
-      () => {
-        expect(Object.keys(loadBlocks())).toEqual(["pages-scoped-3"]);
-      },
-    );
+    withDraftBlocks({ "pages-scoped-3": { name: "S", path: "/s", sections: [{}] } }, () => {
+      expect(Object.keys(loadBlocks())).toEqual(["pages-scoped-3"]);
+    });
+  });
+});
+
+describe("setBlocks revision", () => {
+  it("uses a known revision without re-serializing the decofile", () => {
+    const stringify = vi.spyOn(JSON, "stringify");
+    setBlocks({ "pages/a.json": { name: "a" } }, "stored-rev");
+    expect(getRevision()).toBe("stored-rev");
+    expect(stringify).not.toHaveBeenCalled();
+    stringify.mockRestore();
+  });
+
+  it("computes the same revision as before when none is given", () => {
+    const blocks = { "pages/a.json": { name: "a" } };
+    setBlocks(blocks);
+    const computed = getRevision();
+    setBlocks(blocks, computed ?? undefined);
+    expect(getRevision()).toBe(computed);
+    expect(computed).toBe(computeRevision(blocks));
   });
 });

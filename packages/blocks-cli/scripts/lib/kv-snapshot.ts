@@ -12,7 +12,9 @@ import {
   computeRevision,
   DEPLOYMENTS_KEY,
   LIVE_KEY,
+  redirectIndexKey,
   redirectKey,
+  redirectPathHash,
   redirectPrefix,
   revisionKey,
   snapshotKey,
@@ -106,6 +108,10 @@ export async function syncRedirectsToKv(
   if (stale.length > 0) {
     await client.deleteMany(stale);
   }
+  // After the rules, so the index never names a path whose key isn't there yet.
+  // Written even when empty: that is what tells the worker to read nothing.
+  const hashes = [...new Set(redirects.map((r) => redirectPathHash(r.path)))].sort((a, b) => a - b);
+  await client.put(redirectIndexKey(id), JSON.stringify(hashes));
 
   return { written: desired.size, deleted: stale.length };
 }
@@ -160,6 +166,7 @@ export async function recordAndGcDeployment(
       }
       await client.delete(snapshotKey(entry.id));
       await client.delete(revisionKey(entry.id));
+      await client.delete(redirectIndexKey(entry.id));
       // The per-path redirect keys are keyed by deployment too, so they are
       // part of this snapshot and must go with it — otherwise every deploy
       // leaks tens of thousands of orphans into the namespace forever.

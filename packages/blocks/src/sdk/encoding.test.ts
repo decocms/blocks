@@ -1,10 +1,5 @@
-import { describe, expect, it } from "vitest";
-import {
-  decodeBase64,
-  decodeBase64Url,
-  encodeBase64,
-  encodeBase64Url,
-} from "./encoding";
+import { describe, expect, it, vi } from "vitest";
+import { decodeBase64, decodeBase64Url, encodeBase64, encodeBase64Url } from "./encoding";
 
 describe("encodeBase64 / decodeBase64", () => {
   it("round-trips ASCII strings", () => {
@@ -39,7 +34,30 @@ describe("encodeBase64 / decodeBase64", () => {
     const bytes = new Uint8Array(0x8000 + 7);
     for (let i = 0; i < bytes.length; i++) bytes[i] = i & 0xff;
     const b64 = encodeBase64(bytes);
+    expect(b64).toBe(Buffer.from(bytes).toString("base64"));
     expect(decodeBase64(b64)).toEqual(bytes);
+  });
+
+  it("uses the runtime's native Uint8Array base64 when present (workerd)", () => {
+    const proto = Uint8Array.prototype as unknown as { toBase64?: () => string };
+    const ctor = Uint8Array as unknown as { fromBase64?: (b64: string) => Uint8Array };
+    const had = { to: proto.toBase64, from: ctor.fromBase64 };
+    const toBase64 = vi.fn(function (this: Uint8Array) {
+      return Buffer.from(this).toString("base64");
+    });
+    const fromBase64 = vi.fn((b64: string) => new Uint8Array(Buffer.from(b64, "base64")));
+    proto.toBase64 = toBase64;
+    ctor.fromBase64 = fromBase64;
+    try {
+      const bytes = new Uint8Array([104, 105, 255, 0]);
+      expect(encodeBase64(bytes)).toBe("aGn/AA==");
+      expect(decodeBase64("aGn/AA==")).toEqual(bytes);
+      expect(toBase64).toHaveBeenCalledOnce();
+      expect(fromBase64).toHaveBeenCalledOnce();
+    } finally {
+      proto.toBase64 = had.to;
+      ctor.fromBase64 = had.from;
+    }
   });
 });
 
@@ -50,9 +68,7 @@ describe("encodeBase64Url / decodeBase64Url", () => {
     const standard = encodeBase64(bytes);
     const url = encodeBase64Url(bytes);
     // Every '+' becomes '-', '/' becomes '_', trailing '=' is stripped.
-    expect(url).toBe(
-      standard.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
-    );
+    expect(url).toBe(standard.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
     expect(url).not.toContain("+");
     expect(url).not.toContain("/");
     expect(url).not.toContain("=");

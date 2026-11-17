@@ -440,6 +440,38 @@ export async function proxyToFallback(
  * When no KV binding is available or no config exists for the hostname,
  * all traffic goes directly to the inner handler (no A/B).
  */
+/**
+ * How long a hostname's config (or its absence) is trusted inside one isolate.
+ * Without it every request pays a KV read, and a host with no config pays a
+ * miss on every one, for a value that changes
+ * when someone edits an A/B ratio. The TTL is that edit's propagation delay.
+ */
+const SITE_CONFIG_TTL_MS = 60_000;
+
+// Keyed by the binding, which is one object per isolate, so two namespaces
+// (and two tests) never share entries.
+const siteConfigs = new WeakMap<
+	KVNamespace,
+	Map<string, { value: SiteConfig | null; expiresAt: number }>
+>();
+
+async function readSiteConfig(
+	kv: KVNamespace,
+	hostname: string,
+): Promise<SiteConfig | null> {
+	let byHost = siteConfigs.get(kv);
+	if (!byHost) {
+		byHost = new Map();
+		siteConfigs.set(kv, byHost);
+	}
+	const cached = byHost.get(hostname);
+	if (cached && Date.now() < cached.expiresAt) return cached.value;
+	// A failed read throws as before and is not remembered.
+	const value = await kv.get<SiteConfig>(hostname, "json");
+	byHost.set(hostname, { value, expiresAt: Date.now() + SITE_CONFIG_TTL_MS });
+	return value;
+}
+
 export function withABTesting(
 	handler: WorkerHandler,
 	config: ABTestConfig = {},
@@ -472,7 +504,7 @@ export function withABTesting(
 				return handler.fetch(request, env, ctx);
 			}
 
-			const siteConfig = await kv.get<SiteConfig>(url.hostname, "json");
+			const siteConfig = await readSiteConfig(kv, url.hostname);
 			if (!siteConfig?.fallbackOrigin) {
 				return handler.fetch(request, env, ctx);
 			}
