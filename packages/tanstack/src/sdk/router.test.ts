@@ -45,12 +45,23 @@ describe("keepBfcacheScroll (iOS bfcache resume)", () => {
     window.dispatchEvent(event);
   };
 
+  let navigate: () => void;
+  let subscribed = 0;
   let dispose: () => void;
   beforeEach(() => {
     vi.useFakeTimers();
+    subscribed = 0;
+    navigate = () => {};
     window.history.scrollRestoration = "manual";
     window.addEventListener("pageshow", routerCoreListener);
-    dispose = keepBfcacheScroll(window);
+    dispose = keepBfcacheScroll(window, (handBack) => {
+      subscribed++;
+      navigate = handBack;
+      return () => {
+        subscribed--;
+        navigate = () => {};
+      };
+    });
   });
   afterEach(() => {
     dispose();
@@ -66,17 +77,26 @@ describe("keepBfcacheScroll (iOS bfcache resume)", () => {
   it("does nothing on a normal (not persisted) pageshow", () => {
     pageshow(false);
     expect(window.history.scrollRestoration).toBe("manual");
+    expect(subscribed).toBe(0);
   });
 
-  it("hands scroll back to the router on the restoring scroll", () => {
+  it("keeps 'auto' through scroll events and time (the restoration is not cut short)", () => {
     pageshow(true);
     window.dispatchEvent(new Event("scroll"));
-    expect(window.history.scrollRestoration).toBe("manual");
+    vi.advanceTimersByTime(5000);
+    expect(window.history.scrollRestoration).toBe("auto");
   });
 
-  it("hands scroll back to the router when nothing scrolls (page at the top)", () => {
+  it("hands scroll back to the router on its next navigation, once", () => {
     pageshow(true);
-    vi.advanceTimersByTime(1000);
+    navigate();
     expect(window.history.scrollRestoration).toBe("manual");
+    expect(subscribed).toBe(0);
+  });
+
+  it("does not stack subscriptions across repeated resumes", () => {
+    pageshow(true);
+    pageshow(true);
+    expect(subscribed).toBe(1);
   });
 });

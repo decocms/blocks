@@ -113,13 +113,12 @@ export function createDecoRouter(options: CreateDecoRouterOptions) {
 
   // Registered after the constructor, where router-core adds its own
   // `pageshow` listener, so this one runs after it in the same dispatch.
-  if (scrollRestoration && typeof window !== "undefined") keepBfcacheScroll(window);
+  if (scrollRestoration && typeof window !== "undefined") {
+    keepBfcacheScroll(window, (handBack) => router.subscribe("onBeforeNavigate", handBack));
+  }
 
   return router;
 }
-
-/** How long the browser gets to restore a bfcache page before the router takes scroll back. */
-const BFCACHE_SCROLL_HANDBACK_MS = 1000;
 
 /**
  * router-core sets `history.scrollRestoration = "auto"` on `pagehide` and back
@@ -130,27 +129,34 @@ const BFCACHE_SCROLL_HANDBACK_MS = 1000;
  * happens on a bfcache resume, so the router does not restore it either.
  *
  * Put `"auto"` back for the resume, and hand scroll back to the router
- * (`"manual"`) once the browser has restored it — on the first scroll event,
- * or after {@link BFCACHE_SCROLL_HANDBACK_MS} when the page was at the top and
- * nothing scrolls — so in-app traversals keep the router's restoration.
+ * (`"manual"`) only when the router starts its next navigation. Handing back
+ * earlier — on the first scroll event or after a timeout — cut WebKit's
+ * restoration short on a real iPhone: the page landed 170–1500 px off, where
+ * leaving `"auto"` landed exactly (10/10).
  *
+ * `onNextNavigation` registers the hand-back and returns its unsubscribe.
  * Returns a function that removes the listener (for tests).
  *
  * @internal Exported for tests.
  */
-export function keepBfcacheScroll(win: Window): () => void {
+export function keepBfcacheScroll(
+  win: Window,
+  onNextNavigation: (handBack: () => void) => () => void,
+): () => void {
+  let unsubscribe: (() => void) | undefined;
   const onPageshow = (event: Event) => {
     if (!(event as PageTransitionEvent).persisted) return;
     win.history.scrollRestoration = "auto";
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const handBack = () => {
-      win.removeEventListener("scroll", handBack);
-      if (timer !== undefined) clearTimeout(timer);
+    unsubscribe?.();
+    unsubscribe = onNextNavigation(() => {
+      unsubscribe?.();
+      unsubscribe = undefined;
       win.history.scrollRestoration = "manual";
-    };
-    win.addEventListener("scroll", handBack, { once: true, passive: true });
-    timer = setTimeout(handBack, BFCACHE_SCROLL_HANDBACK_MS);
+    });
   };
   win.addEventListener("pageshow", onPageshow);
-  return () => win.removeEventListener("pageshow", onPageshow);
+  return () => {
+    unsubscribe?.();
+    win.removeEventListener("pageshow", onPageshow);
+  };
 }
