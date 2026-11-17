@@ -40,11 +40,7 @@ export function withInflightTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(
-        new Error(
-          `[blocks] inflight cache entry "${label}" timed out after ${ms}ms`,
-        ),
-      );
+      reject(new Error(`[blocks] inflight cache entry "${label}" timed out after ${ms}ms`));
     }, ms);
   });
   return Promise.race([work, timeout]).finally(() => {
@@ -72,9 +68,17 @@ export function joinInflight<T>(
   shared: Promise<T>,
   onStall: () => Promise<T>,
   ms: number = DEFAULT_INFLIGHT_TIMEOUT_MS,
+  label?: string,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      // Observable signal: a joiner gave up on a shared flight. Steady volume
+      // means owners are being cancelled (client disconnects) or are slower
+      // than `ms`; a burst on one label is a poisoned key. Grep "[inflight] stall".
+      console.warn(
+        "[inflight] stall",
+        JSON.stringify({ label: label?.slice(0, 200) ?? null, waitedMs: ms }),
+      );
       // `onStall` may throw synchronously (a non-async loader wrapper); route it
       // into the Promise chain so the joiner rejects instead of hanging.
       Promise.resolve().then(onStall).then(resolve, reject);
