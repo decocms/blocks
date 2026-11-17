@@ -1292,7 +1292,10 @@ function sharedResolvedLayout(
       () => {
         if (resolvedLayoutInflight.get(cacheKey) === inflight)
           resolvedLayoutInflight.delete(cacheKey);
-        return sharedResolvedLayout(cacheKey, run);
+        // A newer flight may have filled the cache while this one stalled.
+        return getCachedResolvedLayout(cacheKey).then(
+          (cached) => cached ?? sharedResolvedLayout(cacheKey, run),
+        );
       },
       undefined,
       `resolvedLayout ${cacheKey}`,

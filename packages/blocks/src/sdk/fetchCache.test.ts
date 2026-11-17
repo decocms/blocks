@@ -240,4 +240,42 @@ describe("fetchCache — cancelled owner", () => {
     expect(res).toEqual({ ok: true });
     expect(calls).toBe(2);
   });
+
+  it("a joiner that stalls is counted once, by its retry, not as a HIT too", async () => {
+    const { adapter, counters } = captureMeter();
+    configureMeter(adapter);
+    try {
+      const fc = createFetchCache({
+        provider: "stalled-joiner",
+        maxEntries: 10,
+        freshTtlMs: { success: 60_000, notFound: 0, serverError: 0 },
+        staleIfErrorMs: 0,
+        inflightBackstopMs: 100,
+      });
+      let calls = 0;
+      const doFetch = () =>
+        ++calls === 1
+          ? new Promise<Response>(() => {})
+          : Promise.resolve(Response.json({ ok: true }));
+
+      const realSetTimeout = globalThis.setTimeout;
+      (globalThis as { setTimeout: unknown }).setTimeout = () => 0;
+      try {
+        void fc.fetchWithCache("k", doFetch);
+      } finally {
+        globalThis.setTimeout = realSetTimeout;
+      }
+      counters.length = 0;
+
+      await fc.fetchWithCache("k", doFetch);
+      const decisions = counters
+        .filter(
+          (c) => c.name === "deco.cache.requests" && c.labels?.["provider"] === "stalled-joiner",
+        )
+        .map((c) => c.labels?.["status"]);
+      expect(decisions).toEqual(["MISS"]);
+    } finally {
+      configureMeter({ counterInc: () => {} });
+    }
+  });
 });

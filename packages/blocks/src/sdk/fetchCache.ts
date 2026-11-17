@@ -239,13 +239,19 @@ export function createFetchCache(config: FetchCacheConfig): FetchCache {
     const existing = inflight.get(cacheKey);
     if (existing) {
       // Joined an in-flight upstream fetch — no upstream call of our own.
-      emit("HIT");
       // Bounded by THIS caller's timer: if the owner request was cancelled its
       // fetch (and its backstop timer) died with it and `existing` never
       // settles — evict the dead slot and fetch again (see `joinInflight`).
+      // The join counts as a HIT only when it is answered by the shared fetch:
+      // after a stall the retry records its own decision.
+      let stalled = false;
       return joinInflight(
-        existing.then((e) => e.body as T | null),
+        existing.then((e) => {
+          if (!stalled) emit("HIT");
+          return e.body as T | null;
+        }),
         () => {
+          stalled = true;
           if (inflight.get(cacheKey) === existing) inflight.delete(cacheKey);
           return fetchWithCache<T>(inputKey, doFetch, opts);
         },
