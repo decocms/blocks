@@ -70,25 +70,51 @@ export function readKvDecofile(
     return { blocks: split.blocks, collisions, exact: split.exact, fresh };
   }
 
-  // Fresh reads a `/:param` source as a URLPattern (`isHref` in the website
-  // app's `redirects.ts`), never a literal path: it stays in the decofile.
-  const split = splitExactRedirects(blocks, { keepInDecofile: (from) => from.includes("/:") });
-  const out: Record<string, unknown> = {};
+  return { ...splitFreshRedirects(blocks), collisions, fresh };
+}
+
+const FRESH_REDIRECT = "website/loaders/redirect.ts";
+const FRESH_COLLECTOR = `"__resolveType":"website/loaders/redirects.ts"`;
+
+/**
+ * Fresh applies a redirect only in two ways: a block its routes config
+ * references by name (`std/x/redirects`, a `website/loaders/redirects.ts`
+ * with props), or a `website/loaders/redirect.ts` block, which the
+ * `website/loaders/redirects.ts` collector gathers BY TYPE. A KV key applies
+ * to every request, so only the second kind moves: a referenced block, or an
+ * orphan one Fresh never applies, stays exactly as Fresh resolves it today.
+ *
+ * Moved: `website/loaders/redirect.ts` blocks with an exact source, and only
+ * when the collector is in the decofile. Kept: `/:param` sources (URLPatterns
+ * in Fresh) and absolute URLs (Fresh keys those by the full URL, which no
+ * request path matches). A moved block stays, emptied, in case something
+ * references it by name.
+ */
+function splitFreshRedirects(blocks: Record<string, unknown>): { blocks: Record<string, unknown>; exact: ExactRedirect[] } {
+  if (!JSON.stringify(blocks).includes(FRESH_COLLECTOR)) return { blocks, exact: [] };
+  const candidates: Record<string, unknown> = {};
   for (const [key, block] of Object.entries(blocks)) {
-    const original = block as Record<string, unknown>;
-    if (!Object.hasOwn(split.blocks, key)) {
-      const { redirect: _moved, ...rest } = original;
-      out[key] = { ...rest, redirects: [] };
-    } else if (original?.redirect !== undefined && original.redirects === undefined) {
-      // A kept singular block keeps its one rule, and Fresh's
-      // `website/loaders/redirect.ts` reads `props.redirect`, not the
-      // `redirects: [..]` the split rewrites it to.
-      out[key] = original;
-    } else {
-      out[key] = split.blocks[key];
+    if ((block as Record<string, unknown> | null)?.__resolveType === FRESH_REDIRECT) {
+      candidates[key] = block;
     }
   }
-  return { blocks: out, collisions, exact: split.exact, fresh };
+  const split = splitExactRedirects(candidates, {
+    keepInDecofile: (from) => from.includes("/:") || /^https?:\/\//.test(from.trim()),
+  });
+  const out: Record<string, unknown> = {};
+  for (const [key, block] of Object.entries(blocks)) {
+    // `Object.hasOwn`: a block named `constructor` must not look moved.
+    const moved = Object.hasOwn(candidates, key) && !Object.hasOwn(split.blocks, key);
+    if (moved) {
+      const { redirect: _moved, ...rest } = block as Record<string, unknown>;
+      out[key] = rest;
+    } else {
+      // Kept verbatim: Fresh's loader reads `props.redirect`, not the
+      // `redirects: [..]` the split rewrites a kept singular block to.
+      out[key] = block;
+    }
+  }
+  return { blocks: out, exact: split.exact };
 }
 
 export function buildSnapshot(blocks: Record<string, unknown>): Snapshot {

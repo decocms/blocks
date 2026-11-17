@@ -1,8 +1,8 @@
 /**
  * `readKvDecofile` builds what the KV sync writes. A Fresh + deco repo
  * (`deno.json`, no `package.json`) must get keys Fresh's runtime would produce
- * (one decode pass) and keep a redirect block whose rules all moved to KV, since
- * Fresh resolves blocks by name. A TanStack repo keeps today's output.
+ * (one decode pass), and only the redirects Fresh applies by type move to KV.
+ * A TanStack repo keeps today's output.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -13,8 +13,19 @@ import { isFreshRepo, readKvDecofile } from "./kv-snapshot";
 let repo: string;
 let blocksDir: string;
 
-const write = (file: string, content: unknown) =>
-  fs.writeFileSync(path.join(blocksDir, file), JSON.stringify(content));
+const write = (file: string, content: unknown) => fs.writeFileSync(path.join(blocksDir, file), JSON.stringify(content));
+const single = (from: string) => ({
+  __resolveType: "website/loaders/redirect.ts",
+  redirect: { from, to: "/to", type: "permanent" },
+});
+const std = {
+  __resolveType: "deco-sites/std/loaders/x/redirects.ts",
+  redirects: [{ from: "/old", to: "/new", type: "permanent" }],
+};
+const site = {
+  __resolveType: "website/mod.ts",
+  routes: [{ __resolveType: "website/loaders/pages.ts" }, { __resolveType: "website/loaders/redirects.ts" }],
+};
 
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), "kv-decofile-"));
@@ -22,67 +33,53 @@ beforeEach(() => {
   fs.mkdirSync(blocksDir, { recursive: true });
   // Double-encoded name: Fresh's parseBlockId decodes once → "Home%20Page".
   write("Home%2520Page.json", { __resolveType: "website/pages/Page.tsx", path: "/" });
-  // Every rule exact → moves to KV.
-  write("old-links.json", {
-    __resolveType: "deco-sites/std/loaders/x/redirects.ts",
-    redirects: [{ from: "/old", to: "/new", type: "permanent" }],
-  });
-  // Glob stays in the decofile.
-  write("globs.json", {
-    __resolveType: "website/loaders/redirects.ts",
-    redirects: [{ from: "/blog/*", to: "/news", type: "temporary" }],
-  });
+  write("std-redirects.json", std);
+  write("promo.json", single("/promo"));
+  write("blog.json", single("/blog/*"));
+  write("param.json", single("/p/:id"));
+  write("absolute.json", single("https://site.com/abs"));
 });
 
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
-describe("readKvDecofile", () => {
-  it("decodes keys once and keeps emptied redirect blocks on a Fresh repo", () => {
-    fs.writeFileSync(path.join(repo, "deno.json"), "{}");
+describe("readKvDecofile on a Fresh repo", () => {
+  beforeEach(() => fs.writeFileSync(path.join(repo, "deno.json"), "{}"));
+
+  it("moves only exact website/loaders/redirect.ts rules, when the collector is routed", () => {
+    write("Site.json", site);
     const out = readKvDecofile(blocksDir, repo);
 
     expect(out.fresh).toBe(true);
-    expect(Object.keys(out.blocks).sort()).toEqual(["Home%20Page", "globs", "old-links"]);
-    expect(out.blocks["old-links"]).toEqual({
-      __resolveType: "deco-sites/std/loaders/x/redirects.ts",
-      redirects: [],
-    });
-    expect((out.blocks.globs as { redirects: unknown[] }).redirects).toHaveLength(1);
-    expect(out.exact.map((r) => r.path)).toEqual(["/old"]);
+    expect(out.exact.map((r) => r.path)).toEqual(["/promo"]);
+    // Moved: emptied, still resolvable by name.
+    expect(out.blocks.promo).toEqual({ __resolveType: "website/loaders/redirect.ts" });
+    // Kept verbatim (singular shape): glob, URLPattern, absolute URL.
+    expect(out.blocks.blog).toEqual(single("/blog/*"));
+    expect(out.blocks.param).toEqual(single("/p/:id"));
+    expect(out.blocks.absolute).toEqual(single("https://site.com/abs"));
+    // Fresh applies a std block only if referenced: never moved.
+    expect(out.blocks["std-redirects"]).toEqual(std);
+    // One decode pass.
+    expect(out.blocks["Home%20Page"]).toBeDefined();
   });
 
-  it("keeps Fresh's singular blocks and /:param patterns in the decofile", () => {
-    fs.writeFileSync(path.join(repo, "deno.json"), "{}");
-    const singularGlob = {
-      __resolveType: "website/loaders/redirect.ts",
-      redirect: { from: "/blog/*", to: "/news", type: "temporary" },
-    };
-    const param = {
-      __resolveType: "website/loaders/redirect.ts",
-      redirect: { from: "/p/:id", to: "/produto/:id", type: "permanent" },
-    };
-    write("singular-glob.json", singularGlob);
-    write("param.json", param);
-    write("singular-exact.json", {
-      __resolveType: "website/loaders/redirect.ts",
-      redirect: { from: "/promo", to: "/sale", type: "temporary" },
-    });
+  it("moves nothing when no route collects the redirect blocks", () => {
     const out = readKvDecofile(blocksDir, repo);
-
-    expect(out.blocks["singular-glob"]).toEqual(singularGlob);
-    expect(out.blocks.param).toEqual(param);
-    expect(out.blocks["singular-exact"]).toEqual({ __resolveType: "website/loaders/redirect.ts", redirects: [] });
-    expect(out.exact.map((r) => r.path).sort()).toEqual(["/old", "/promo"]);
+    expect(out.exact).toEqual([]);
+    expect(out.blocks.promo).toEqual(single("/promo"));
   });
+});
 
-  it("keeps today's output on a TanStack repo", () => {
+describe("readKvDecofile on a TanStack repo", () => {
+  it("keeps today's output", () => {
     fs.writeFileSync(path.join(repo, "package.json"), "{}");
     fs.writeFileSync(path.join(repo, "deno.json"), "{}");
     const out = readKvDecofile(blocksDir, repo);
 
     expect(out.fresh).toBe(false);
-    expect(Object.keys(out.blocks).sort()).toEqual(["Home Page", "globs"]);
-    expect(out.exact.map((r) => r.path)).toEqual(["/old"]);
+    expect(Object.keys(out.blocks)).toContain("Home Page");
+    expect(out.blocks["std-redirects"]).toBeUndefined();
+    expect(out.exact.map((r) => r.path).sort()).toEqual(["/abs", "/old", "/p/:id", "/promo"]);
   });
 });
 
