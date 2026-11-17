@@ -2,6 +2,7 @@
  * `@decocms/tanstack/react`: the root document and its pieces, and the image
  * components. Safe in the browser bundle.
  */
+export { DecoAnalytics, type DecoAnalyticsProps } from "./DecoAnalytics.ts";
 export {
   DecoDocument,
   type DecoDocumentProps,

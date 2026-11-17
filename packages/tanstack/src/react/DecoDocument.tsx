@@ -25,14 +25,20 @@
  *   the window with `top` or `parent` in a form a test runner's
  *   "frame-busting" rewrite matches (Cypress's `modifyObstructiveCode`).
  *
+ * With `analytics`, it also starts the Deco Analytics client (`DecoAnalytics`)
+ * with the tests the worker decided for the page, so every event carries each
+ * test's arm; never a preview's switched tests.
+ *
  * A site that keeps its own document renders `DecoPreview` in its `<body>`
- * for the bridge, the badge and the draft they read.
+ * for the bridge, the badge and the draft they read, and `DecoAnalytics` for
+ * analytics.
  */
 import { DraftBadge, StudioChannel } from "@decocms/blocks/preview";
 import { HeadContent, Outlet, ScriptOnce, Scripts, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { studioOrigins } from "../studio.ts";
 import { StudioShortcut } from "../studioShortcut.ts";
+import { DecoAnalytics, type DecoAnalyticsProps } from "./DecoAnalytics.ts";
 import { pageValues, publishScript } from "./pageValues.ts";
 import { StudioRefresh } from "./StudioRefresh.ts";
 import { DATA_EVENT_OBSERVER, eventsBootstrap, PROGRESS_CSS } from "./scripts.ts";
@@ -219,6 +225,13 @@ export interface DecoDocumentProps {
    * the worker's `studioOrigins` too, so its CSP allows the same origins.
    */
   studioOrigins?: readonly string[];
+  /**
+   * Starts the Deco Analytics client after hydration with these options
+   * (`startAnalytics` from `@decocms/blocks/analytics/client`) and the tests
+   * the worker decided for the page: every event carries each test's arm in
+   * `exp`. A preview's events carry no tests. Default: no client.
+   */
+  analytics?: DecoAnalyticsProps;
   /** Rendered after the page (toasts, drawers, analytics). */
   children?: ReactNode;
 }
@@ -233,6 +246,7 @@ export function DecoDocument({
   editShortcut,
   nonce,
   studioOrigins,
+  analytics,
   children,
 }: DecoDocumentProps) {
   // Pages wait for this signal before running work that must follow hydration.
@@ -267,6 +281,7 @@ export function DecoDocument({
           <StableOutlet />
         </Outer>
         {children}
+        {analytics && <DecoAnalytics {...analytics} />}
         <StudioPieces
           site={site}
           editShortcut={editShortcut}

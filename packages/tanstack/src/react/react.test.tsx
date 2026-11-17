@@ -16,7 +16,7 @@ import { DecoDocument, DecoPreview } from "./DecoDocument.tsx";
 import { pageValues, publishScript } from "./pageValues.ts";
 
 async function render(
-  scope: { csegToken?: string; draft?: string },
+  scope: { csegToken?: string; draft?: string; experiments?: Record<string, boolean> },
   props = {},
   loader?: () => unknown,
 ) {
@@ -114,6 +114,14 @@ describe("DecoDocument", () => {
     );
   });
 
+  it("publishes the live page's tests, which the Deco Analytics client sends with every event", async () => {
+    const html = await render({ experiments: { "hero-copy": true, "buy-button": false } });
+    expect(html).toContain(
+      'window.__DECO_EXPERIMENTS=JSON.parse("{\\"hero-copy\\":true,\\"buy-button\\":false}")',
+    );
+    expect(await render({ experiments: {} })).not.toContain("__DECO_EXPERIMENTS");
+  });
+
   it("takes the site's language, body class, account and outlet element", async () => {
     const html = await render(
       {},
@@ -204,11 +212,19 @@ describe("page values", () => {
     runInScope({ csegToken: "t", draft: "d" }, () => {
       expect(pageValues()).toEqual({ cseg: "t", draft: "d" });
     });
+    // Only the boolean entries: anything else in the scope isn't a decided test.
+    runInScope({ experiments: { a: true, b: "on" } as unknown as Record<string, boolean> }, () => {
+      expect(pageValues().experiments).toEqual({ a: true });
+    });
     expect(pageValues()).toEqual({ cseg: undefined, draft: undefined });
   });
 
   it("publish as inert JS, nothing when empty", () => {
     expect(publishScript({})).toBeNull();
+    expect(publishScript({ experiments: {} })).toBeNull();
+    expect(publishScript({ experiments: { "</script>": true } })).toBe(
+      'window.__DECO_EXPERIMENTS=JSON.parse("{\\"\\u003c/script>\\":true}")',
+    );
     expect(publishScript({ draft: "</script><script>alert(1)</script>" })).toBe(
       'window.__DECO_DRAFT="\\u003c/script>\\u003cscript>alert(1)\\u003c/script>"',
     );

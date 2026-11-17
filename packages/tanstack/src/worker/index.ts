@@ -525,6 +525,9 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
     errors: ErrorCapture,
   ): Promise<Served> {
     const { draft, preview, unavailable, url, visitor, assignments } = inputs;
+    // The tests the page renders, for analytics: a preview's are no visitor's.
+    const live = draft === null && !preview && assignments?.version === null;
+    const experiments = live && assignments ? assignments.experiments : undefined;
     const render = async (scope?: { csegToken?: string }): Promise<Response> => {
       const source = isServerFnPath(url.pathname) ? "action" : "render";
       let reported = false;
@@ -541,6 +544,7 @@ export function createDecoWorker<Env = unknown>(options: DecoWorkerOptions<Env>)
               draft: draft ?? undefined,
               reportError: report,
               ...(unavailable ? { draftUnavailable: true } : {}),
+              ...(experiments ? { experiments } : {}),
             },
             () => serverEntry.fetch(request, env, ctx),
           ),
