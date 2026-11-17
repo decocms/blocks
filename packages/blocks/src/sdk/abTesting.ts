@@ -443,7 +443,7 @@ export async function proxyToFallback(
 /**
  * How long a hostname's config (or its absence) is trusted inside one isolate.
  * Without it every request pays a KV read, and a host with no config pays a
- * miss on every one: 12M reads/day across the fleet for a value that changes
+ * miss on every one, for a value that changes
  * when someone edits an A/B ratio. The TTL is that edit's propagation delay.
  */
 const SITE_CONFIG_TTL_MS = 60_000;

@@ -62,7 +62,7 @@ const G = globalThis as unknown as {
 /**
  * The deployment's `index:redirects:<id>`: which paths have a rule at all.
  * Nearly every request is for a path that has none, and each of those used to
- * be a billed KV read that found nothing (millions a day on one storefront).
+ * be a billed KV read that found nothing.
  * One read per isolate per `TTL_MS` replaces them. `hashes` is null when the
  * deployment has no index (synced before the key existed) or the read failed:
  * then every path is looked up as before.
