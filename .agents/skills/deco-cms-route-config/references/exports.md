@@ -1,6 +1,6 @@
 # What `@decocms/tanstack` and `@decocms/blocks/cms` export for routes
 
-Route code imports from the `@decocms/tanstack` root. The package's `exports` map (`packages/tanstack/package.json`) is `.`, `./vite`, `./daemon`, plus a few dedicated `./sdk/*` subpaths that are kept off the root on purpose: `./sdk/deferredSectionLoader`, `./sdk/createInvoke`, `./sdk/cookiePassthrough`, `./sdk/serverFnFetch`, `./sdk/startEntry`, `./sdk/cdnSegment`. There is no `./routes`, `./hooks` or `./cms` subpath. The root barrel is `packages/tanstack/src/index.ts`:
+Route code imports from the `@decocms/tanstack` root. The package's `exports` map (`packages/tanstack/package.json`) is `.`, `./vite`, plus a few dedicated `./sdk/*` subpaths that are kept off the root on purpose: `./sdk/deferredSectionLoader`, `./sdk/createInvoke`, `./sdk/cookiePassthrough`, `./sdk/serverFnFetch`, `./sdk/startEntry`, `./sdk/cdnSegment`. There is no `./routes`, `./hooks` or `./cms` subpath. The root barrel is `packages/tanstack/src/index.ts`:
 
 ```typescript
 // @decocms/tanstack

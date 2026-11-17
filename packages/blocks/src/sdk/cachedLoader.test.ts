@@ -119,4 +119,43 @@ describe("createCachedLoader", () => {
     expect(loaderFn).toHaveBeenCalledTimes(2);
     expect(getLoaderCacheStats().entries).toBe(0);
   });
+
+  it("shouldCache=false returns the result without storing it", async () => {
+    const loaderFn = vi.fn(async () => ({ products: [] as number[] }));
+    const cached = createCachedLoader("t/should-cache-miss", loaderFn, {
+      policy: "stale-while-revalidate",
+      maxAge: 60_000,
+      shouldCache: (r) => (r as { products: number[] }).products.length > 0,
+    });
+
+    expect(await cached({})).toEqual({ products: [] });
+    await cached({}); // not stored: goes to origin again
+
+    expect(loaderFn).toHaveBeenCalledTimes(2);
+    expect(getLoaderCacheStats().entries).toBe(0);
+  });
+
+  it("an uncacheable SWR refresh keeps the stale entry and retries on the next hit", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-18T16:00:00.000Z"));
+    const results = [[1], [], [2]];
+    const loaderFn = vi.fn(async () => ({ products: results.shift() ?? [] }));
+    const cached = createCachedLoader("t/should-cache-swr", loaderFn, {
+      policy: "stale-while-revalidate",
+      maxAge: 1_000,
+      shouldCache: (r) => (r as { products: number[] }).products.length > 0,
+    });
+
+    await cached({}); // MISS -> stores [1]
+    vi.setSystemTime(new Date("2026-05-18T16:00:05.000Z")); // now stale
+    expect(await cached({})).toEqual({ products: [1] }); // refresh returns [] -> not stored
+    await vi.runAllTimersAsync();
+    expect(await cached({})).toEqual({ products: [1] }); // still stale [1]; refresh runs again
+    await vi.runAllTimersAsync();
+
+    expect(loaderFn).toHaveBeenCalledTimes(3);
+    vi.setSystemTime(new Date("2026-05-18T16:00:05.500Z")); // within maxAge of the [2] write
+    expect(await cached({})).toEqual({ products: [2] });
+    vi.useRealTimers();
+  });
 });

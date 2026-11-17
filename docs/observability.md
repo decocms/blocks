@@ -64,10 +64,32 @@ All framework spans also carry the per-span attribute floor described under **Id
 
 When a request makes a cache decision, the **active span** is also stamped with:
 
-- `deco.cache.decision` — `HIT` | `STALE-HIT` | `STALE-ERROR` | `MISS` | `BYPASS`
+- `deco.cache.status` — `HIT` | `STALE-HIT` | `STALE-ERROR` | `MISS` | `BYPASS` (the metric label is `deco.cache.decision`; the span attribute is `deco.cache.status`)
 - `deco.cache.profile` — the cache profile name (`product`, `listing`, etc.)
 
 This makes it possible to filter traces by cache decision directly in ClickStack without joining to the metric tables. The stamp lives on the closest enclosing span — typically `deco.http.request` for the page-level decision, and the local `deco.cache.lookup` / `deco.cache.store` spans for cache operations they wrap.
+
+### Edge cache telemetry (`@decocms/tanstack`)
+
+Why a page's edge HIT rate is low — key fragmentation, colo spread, responses that never get stored — is answered from the `deco.http.request` span. `createDecoWorkerEntry` stamps, for every document / server-function request that reaches the cache layer (keys in `EdgeCacheAttr`, `packages/tanstack/src/sdk/edgeCacheTelemetry.ts`):
+
+| Attribute | When | Value |
+| --- | --- | --- |
+| `deco.cache.status` | always | lookup decision. A miss whose response is then refused (unsafe cookie, non-200, degraded) stays `MISS` here even though `X-Cache` says `BYPASS` |
+| `deco.cache.bypass_reason` | `BYPASS` | `logged-in`, `draft-preview`, `preview`, `path-template`, `matchers-override`, `bypass-path`, `method:<VERB>` |
+| `deco.cache.kind` | always | `html` (documents and GET server fns, keyed as their page) \| `serverFn` (POST, body-hash key) |
+| `deco.cache.profile` | always | cache profile |
+| `deco.cache.version` | looked up | first 8 chars of `__v` (build hash) |
+| `deco.http.region` | always | `request.cf.colo` — the Cache API is per data center |
+| `deco.cache.segment.hash` | `buildSegment` | fnv1a (hex, `Math.abs`) of the serialized segment = of the `X-Cache-Segment` header |
+| `deco.cache.segment.shape` | `buildSegment` | the segment with values reduced to field names; device, `auth`, `sc=<channel>` kept: `mobile\|sc=1\|r\|gps` |
+| `deco.cache.key.hash` | looked up | fnv1a of the full synthetic key URL — distinct keys per page |
+| `deco.cache.key.parts` | looked up | extra key dimensions present: `abf`, `bot`, `fetch`, `cf_geo`, `cf_device` (`""` for none) |
+| `deco.cache.store` | lookup did not serve | `put` \| `skipped:unsafe-cookie` \| `skipped:set-cookie` (POST server fn) \| `skipped:non-200` \| `skipped:degraded` \| `skipped:tracking` \| `skipped:profile` \| `skipped:not-cacheable` \| `skipped:no-cache` |
+| `deco.cache.store.unsafe_cookies` | cookie skip | cookie NAMES that kept the response out |
+| `deco.cache.store.outcome` | on the `deco.cache.store` span | `stored` \| `skipped:uncacheable` \| `skipped:too-large` (> 8 MiB) \| `error` — `put` runs in `waitUntil`, after the root span ended, so it lands on the child span of the same trace |
+
+Observation only: keys, TTLs and store decisions are identical with it off. No new span, metric point or log line — it rides the trace export at the configured head sampling (`DECO_OTEL_TRACES_SAMPLING_RATE`; `?__d=<any>` forces one request). No visitor value is recorded (segment values hashed or reduced to names; cookies by name). Opt out with `createDecoWorkerEntry(serverEntry, { edgeCacheTelemetry: false })`. Background revalidations (after a `STALE-HIT`) only show up through their `deco.cache.store` span.
 
 ## What's measured
 

@@ -1,11 +1,19 @@
-import { computeRevision, revisionKey, setBlocks, snapshotKey } from "@decocms/blocks/cms";
+import {
+  computeRevision,
+  redirectKey,
+  redirectPrefix,
+  revisionKey,
+  setBlocks,
+  snapshotKey,
+} from "@decocms/blocks/cms";
 import {
   __resetAutoconfigStateForTests,
   autoconfigApps,
 } from "@decocms/blocks-admin/apps/autoconfig";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { segmentToken } from "./cdnSegment";
 import { __resetKvHydrationStateForTests } from "./kvHydration";
+import { clearRedirectCache } from "./kvRedirects";
 import {
   aliasLiveInvoke,
   buildEnforcedCsp,
@@ -185,6 +193,23 @@ describe("detectLocationMatcher", () => {
 
   it("returns false for an empty decofile", () => {
     expect(detectLocationMatcher({})).toBe(false);
+  });
+
+  it("finds the matcher inside arrays and does not serialize the decofile", () => {
+    const stringify = vi.spyOn(JSON, "stringify");
+    const blocks = {
+      "pages/home.json": {
+        sections: [{ variants: [{ rule: { __resolveType: "website/matchers/location.ts" } }] }],
+      },
+    };
+    expect(detectLocationMatcher(blocks)).toBe(true);
+    expect(stringify).not.toHaveBeenCalled();
+    stringify.mockRestore();
+  });
+
+  it("ignores the path when it only appears inside a content string", () => {
+    const blocks = { "pages/a.json": { text: '"__resolveType":"website/matchers/location.ts"' } };
+    expect(detectLocationMatcher(blocks)).toBe(false);
   });
 
   it("returns true when the matcher is nested deeply", () => {
@@ -433,6 +458,137 @@ describe("CMS redirects", () => {
   });
 });
 
+describe("CMS redirects on a fast-deploy site (exact rules in KV)", () => {
+  const ID = "sha-redirects";
+  // Adding to the cart through the commerce proxy: the path is new for every
+  // cart, so a KV read for it is always a cold one.
+  const CART_ITEMS = "/api/checkout/pub/orderForm/5f1a0c2e9d/items";
+
+  beforeEach(() => {
+    __resetKvHydrationStateForTests();
+    clearRedirectCache();
+  });
+
+  afterEach(() => {
+    __resetKvHydrationStateForTests();
+    clearRedirectCache();
+    setBlocks({});
+  });
+
+  /**
+   * A fast-deploy env: KV holds the decofile (`blocks`) and one exact rule,
+   * `/old` → `/new`, under its own key, as the sync script writes it. Records
+   * every `redirect:` read with the options it was made with.
+   */
+  function fastDeploy(blocks: Record<string, unknown> = {}) {
+    const store = new Map<string, string>([
+      [snapshotKey(ID), JSON.stringify(blocks)],
+      [revisionKey(ID), computeRevision(blocks)],
+      [redirectKey(ID, "/old"), JSON.stringify({ from: "/old", to: "/new", status: 301 })],
+    ]);
+    const redirectReads: Array<{ key: string }> = [];
+    const env = {
+      DECO_KV: {
+        get: (key: string) => {
+          if (key.startsWith(redirectPrefix(ID))) redirectReads.push({ key });
+          return Promise.resolve(store.get(key) ?? null);
+        },
+        put: () => Promise.resolve(),
+        delete: () => Promise.resolve(),
+      },
+      DECO_FAST_DEPLOY: "1",
+      DECO_DEPLOYMENT_ID: ID,
+    };
+    return { env, redirectReads };
+  }
+
+  /** The site's commerce proxy: answers `/api/*` itself. */
+  const proxyHandler = (_request: Request, url: URL) =>
+    url.pathname.startsWith("/api/") ? new Response("proxied", { status: 200 }) : null;
+
+  it("a POST to a cart path reaches the proxy without a KV read", async () => {
+    const { env, redirectReads } = fastDeploy();
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false, proxyHandler });
+
+    const res = await worker.fetch(
+      new Request(`https://example.com${CART_ITEMS}`, { method: "POST", body: "{}" }),
+      env,
+      MOCK_CTX,
+    );
+
+    expect(await res.text()).toBe("proxied");
+    expect(redirectReads).toEqual([]);
+  });
+
+  it("a GET still redirects from the exact rule in KV", async () => {
+    const { env, redirectReads } = fastDeploy();
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false, proxyHandler });
+
+    const res = await worker.fetch(new Request("https://example.com/old"), env, MOCK_CTX);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe("/new");
+    expect(redirectReads).toEqual([{ key: redirectKey(ID, "/old") }]);
+  });
+
+  it("redirects.skip: a skipped request is not checked at all, in KV or in memory", async () => {
+    // A glob that would catch the proxied path: it stays in the decofile, so it
+    // is matched in memory, not in KV. `skip` must keep it from answering too.
+    const { env, redirectReads } = fastDeploy({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [{ from: "/api/*", to: "/gone", type: "permanent" }],
+      },
+    });
+    const asked: Array<[string, string]> = [];
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, {
+      observability: false,
+      proxyHandler,
+      redirects: {
+        skip: (url, request) => {
+          asked.push([url.pathname, request.method]);
+          return url.pathname.startsWith("/api/");
+        },
+      },
+    });
+
+    const api = await worker.fetch(
+      new Request("https://example.com/api/catalog_system/pub/products/search"),
+      env,
+      MOCK_CTX,
+    );
+    expect(await api.text()).toBe("proxied");
+    expect(redirectReads).toEqual([]);
+
+    // Every other request is checked as before.
+    const old = await worker.fetch(new Request("https://example.com/old"), env, MOCK_CTX);
+    expect(old.status).toBe(301);
+    expect(old.headers.get("Location")).toBe("/new");
+    expect(redirectReads.map((read) => read.key)).toEqual([redirectKey(ID, "/old")]);
+
+    expect(asked).toEqual([
+      ["/api/catalog_system/pub/products/search", "GET"],
+      ["/old", "GET"],
+    ]);
+  });
+
+  it("without redirects.skip, the in-memory glob still answers on a proxied path", async () => {
+    // The default is unchanged: only a site that opts in loses the check.
+    const { env } = fastDeploy({
+      "redirect-1": {
+        __resolveType: "website/loaders/redirects.ts",
+        redirects: [{ from: "/api/*", to: "/gone", type: "permanent" }],
+      },
+    });
+    const worker = createDecoWorkerEntry(MOCK_SERVER_ENTRY, { observability: false, proxyHandler });
+
+    const res = await worker.fetch(new Request("https://example.com/api/x"), env, MOCK_CTX);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe("/gone");
+  });
+});
+
 describe("degraded origin (anti-cache-poisoning)", () => {
   afterEach(() => {
     setBlocks({});
@@ -537,6 +693,29 @@ describe("security headers — frame-ancestors default", () => {
     const res = await worker.fetch(new Request("https://example.com/"), EMPTY_ENV, MOCK_CTX);
     expect(res.headers.get("Content-Security-Policy")).toBeNull();
     expect(res.headers.get("X-Content-Type-Options")).toBeNull();
+  });
+
+  it("sandboxes HTML from a server function, even with securityHeaders false (CVE-2026-102989)", async () => {
+    for (const securityHeaders of [undefined, false as const]) {
+      const worker = createDecoWorkerEntry(HTML_SERVER_ENTRY, { securityHeaders });
+      const res = await worker.fetch(
+        new Request("https://example.com/_serverFn/abc?payload=%7B%7D"),
+        EMPTY_ENV,
+        MOCK_CTX,
+      );
+      expect(res.headers.get("Content-Security-Policy")).toBe("sandbox");
+      expect(res.headers.get("CDN-Cache-Control")).toBe("no-store");
+    }
+  });
+
+  it("leaves a server function's JSON alone", async () => {
+    const worker = createDecoWorkerEntry({ fetch: async () => Response.json({ ok: true }) });
+    const res = await worker.fetch(
+      new Request("https://example.com/_serverFn/abc?payload=%7B%7D"),
+      EMPTY_ENV,
+      MOCK_CTX,
+    );
+    expect(res.headers.get("Content-Security-Policy")).toBeNull();
   });
 
   it("keeps report-only by default even when a site passes csp (cspMode unset)", async () => {

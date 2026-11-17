@@ -58,7 +58,18 @@ describe("generate-loaders — loader vs action emit", () => {
   });
 
   it("keeps actions as plain pass-throughs — never routed through createLoaderEntry", () => {
-    expect(out).toContain('"site/actions/addToCart": async (props: any, request?: Request) => {');
+    expect(out).toContain(
+      '"site/actions/addToCart": async (props: any, request?: Request, ctx?: any) => {',
+    );
     expect(out).not.toContain('createLoaderEntry("site/actions/addToCart"');
+  });
+
+  it("types entries with the 3-arg (props, request, ctx) signature", () => {
+    expect(out).toContain("(props: any, request?: Request, ctx?: any) => Promise<any>");
+  });
+
+  it("forwards ctx from action pass-throughs to the module default", () => {
+    expect(out).toContain("return (mod.default as any)(props, request, ctx);");
+    expect(out).not.toContain("return (mod.default as any)(props, request);");
   });
 });

@@ -169,6 +169,30 @@ it("retains non-JSON values locally without silently corrupting them in KV", asy
   });
 });
 
+it("serializes a cached value once per write and not at all on a storage hit", async () => {
+  const storage = createKVCacheStorage(fakeKV());
+  const value = { items: [{ id: 1 }, { id: 2 }] };
+  const stringify = vi.spyOn(JSON, "stringify");
+  const ofValue = () =>
+    stringify.mock.calls.filter(([v]) => v === value || (v as { value?: unknown })?.value === value)
+      .length;
+  const writer = createCacheStore<typeof value>("once");
+  await run(storage, "site", async () => {
+    writer.set(writer.key("k"), value, Date.now() + 60_000);
+    await flush();
+  });
+  expect(ofValue()).toBe(1);
+  stringify.mockClear();
+  const reader = createCacheStore<typeof value>("once");
+  const hit = await run(storage, "site", () => reader.read(reader.key("k")));
+  expect(hit).toEqual(value);
+  // Sizing the memory tier reuses the raw text it just parsed.
+  expect(
+    stringify.mock.calls.filter(([v]) => (v as { items?: unknown })?.items !== undefined),
+  ).toHaveLength(0);
+  stringify.mockRestore();
+});
+
 it("deduplicates a cold loader through slow storage and survives a memory wipe", async () => {
   const storage = createKVCacheStorage(fakeKV());
   const fn = vi.fn(async () => ({ product: 42 }));
@@ -238,6 +262,28 @@ it("refuses to serialize private HTTP responses or cookies", async () => {
     }),
   );
   expect(await cache.match(req)).toBeUndefined();
+});
+
+it("reports what each response put did, without changing what it stores", async () => {
+  const req = new Request("https://site.test/");
+  const publicHeaders = { "cache-control": "public, max-age=60" };
+  const cache = createResponseCache(createMemoryCacheStorage(), "site");
+  expect(await cache.put(req, new Response("ok", { headers: publicHeaders }))).toBe("stored");
+  expect(
+    await cache.put(
+      req,
+      new Response("p", { headers: { "cache-control": "private, max-age=60" } }),
+    ),
+  ).toBe("skipped:uncacheable");
+  const huge = new Uint8Array(8 * 1024 * 1024 + 1);
+  expect(await cache.put(req, new Response(huge, { headers: publicHeaders }))).toBe(
+    "skipped:too-large",
+  );
+  const failure = vi.fn(async () => {
+    throw new Error("storage down");
+  });
+  const broken = createResponseCache({ get: failure, set: failure, delete: failure }, "site");
+  expect(await broken.put(req, new Response("ok", { headers: publicHeaders }))).toBe("error");
 });
 
 it("bounds SWR separately from stale-if-error and stops serving at the final TTL", async () => {

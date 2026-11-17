@@ -11,6 +11,7 @@ import {
 import { Await, ClientOnly } from "@tanstack/react-router";
 import type { SectionOptions } from "@decocms/blocks/cms/client";
 import {
+  getDeferredRootMargin,
   getDeferredTrigger,
   getResolvedComponent,
   getSectionOptions,
@@ -380,7 +381,7 @@ function DeferredSectionWrapper({
             load();
           }
         },
-        { rootMargin: "300px" },
+        { rootMargin: getDeferredRootMargin() },
       );
       observer.observe(el);
     };

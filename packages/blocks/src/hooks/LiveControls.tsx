@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { EDITOR_ORIGIN_CHECK_JS } from "../sdk/editorOrigin";
 import { getRequestNonce } from "../sdk/nonce";
 
 interface LiveControlsProps {
@@ -13,7 +14,10 @@ interface LiveControlsProps {
  * Mirrors production behavior (apps/website/components/_Controls.tsx):
  * 1. Injects __DECO_STATE for the admin to read
  * 2. Listens for postMessage events from the admin (inject scripts, scroll, rerender)
- * 3. "." opens admin in same tab, Ctrl/Cmd+"." opens in new tab, Ctrl+Shift+E also works
+ * 3. "." opens admin in same tab, Ctrl/Cmd+"." opens in new tab, Ctrl+Shift+E also works.
+ *    Keys typed in a field are left alone, also in a field inside a shadow root
+ *    (a third-party widget's form): its events reach the document with the host
+ *    as their target, so the field is read from the event's composed path.
  */
 export function LiveControls({ site, page, flags }: LiveControlsProps) {
   // Keep `window.LIVE.page` in sync with the CURRENT page across SPA
@@ -55,19 +59,13 @@ function LiveControlsScript() {
       if (window.__DECO_LIVE_CONTROLS__) return;
       window.__DECO_LIVE_CONTROLS__ = true;
 
-      var TRUSTED_ORIGINS = ["https://deco.cx", "https://admin.deco.cx", "https://play.deco.cx", "https://decocms.com", "https://studio.decocms.com"];
-      function isTrustedOrigin(origin) {
-        return TRUSTED_ORIGINS.indexOf(origin) !== -1 ||
-          (origin.startsWith("https://") && origin.endsWith(".deco.cx")) ||
-          (origin.startsWith("https://") && origin.endsWith(".decocms.com")) ||
-          origin === window.location.origin;
-      }
+      ${EDITOR_ORIGIN_CHECK_JS}
 
       var LIVE = JSON.parse(document.getElementById("__DECO_STATE")?.textContent || "{}");
       window.LIVE = { ...window.LIVE, ...LIVE };
 
       window.addEventListener("message", function(event) {
-        if (!isTrustedOrigin(event.origin)) return;
+        if (!isTrustedEditorOrigin(event.origin)) return;
 
         var data = event.data;
         if (!data || typeof data !== "object") return;
@@ -103,7 +101,7 @@ function LiveControlsScript() {
 
       if (window.self === window.top) {
         document.addEventListener("keydown", function(e) {
-          var t = e.target;
+          var t = e.composedPath ? e.composedPath()[0] : e.target;
           if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
           if (e.defaultPrevented) return;
 

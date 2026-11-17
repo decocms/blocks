@@ -20,9 +20,16 @@ export interface Props {
 	name?: string;
 }
 
+/**
+ * Resolve an environment value.
+ * In local development, reads from process.env using the `name` field.
+ * Deployed runtimes use the value provided on the block.
+ */
+const isDevelopment = () => process.env.NODE_ENV === "development";
+
 const getEnvironment = (props: Props): string | null => {
 	const name = props?.name;
-	if (name && process.env[name] !== undefined) {
+	if (isDevelopment() && name && process.env[name] !== undefined) {
 		return process.env[name]!;
 	}
 	const value = props?.value;

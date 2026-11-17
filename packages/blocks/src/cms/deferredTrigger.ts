@@ -56,3 +56,22 @@ export function getDeferredTrigger(): DeferredTrigger {
   const config = (globalThis as any).__deco?.asyncConfig;
   return config?.deferredTrigger ?? DEFAULT_DEFERRED_TRIGGER;
 }
+
+/**
+ * How far outside the viewport a deferred (⚡) section's skeleton may be when
+ * `"intersection"` fetches it — the observer's `rootMargin`.
+ *
+ * Deco on Fresh's `DispatchAsyncRender` observes with `"200px"`. The default
+ * here stays `"300px"` so a framework bump changes nothing; a migrated site
+ * that needs Fresh's request timing sets
+ * `setAsyncRenderingConfig({ deferredRootMargin: "200px" })`. The 100px matter
+ * on a phone: a shelf placed just under a tall product page lands inside a
+ * 300px margin on load, and its request goes out before the shopper scrolls.
+ */
+export const DEFAULT_DEFERRED_ROOT_MARGIN = "300px";
+
+/** Read the configured `rootMargin`, falling back to `"300px"`. */
+export function getDeferredRootMargin(): string {
+  const config = (globalThis as any).__deco?.asyncConfig;
+  return config?.deferredRootMargin ?? DEFAULT_DEFERRED_ROOT_MARGIN;
+}

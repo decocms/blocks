@@ -11,13 +11,21 @@
  * Handlers can write to `RequestContext.responseHeaders` to forward
  * headers (e.g., Set-Cookie from VTEX checkout). The invoke endpoint
  * copies those headers into the final HTTP Response.
+ *
+ * Handlers are called Fresh-style as `(props, request, ctx)`, where `ctx` is
+ * the per-request AppContext built by {@link buildInvokeContext}.
  */
 
-import { resolveDraftForRequest, withDraftBlocks } from "@decocms/blocks/cms";
+import {
+  buildSectionLoaderContext,
+  resolveDraftForRequest,
+  type SectionLoaderContext,
+  withDraftBlocks,
+} from "@decocms/blocks/cms";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
 
-export type InvokeLoader = (props: any, request: Request) => Promise<any>;
-export type InvokeAction = (props: any, request: Request) => Promise<any>;
+export type InvokeLoader = (props: any, request: Request, ctx?: any) => Promise<any>;
+export type InvokeAction = (props: any, request: Request, ctx?: any) => Promise<any>;
 
 // Additive handler registry — registerInvokeHandlers() adds to this map.
 const handlerRegistry = new Map<string, InvokeLoader | InvokeAction>();
@@ -199,6 +207,58 @@ function findHandler(
   return null;
 }
 
+/** Like {@link findHandler}, tolerant of a present or missing `.ts` suffix. */
+function findHandlerLoose(key: string): ReturnType<typeof findHandler> {
+  return (
+    findHandler(key) ??
+    (key.endsWith(".ts") ? findHandler(key.slice(0, -3)) : findHandler(`${key}.ts`))
+  );
+}
+
+/**
+ * In-process `ctx.invoke` proxy: `ctx.invoke.site.loaders.foo(props)` resolves
+ * `site/loaders/foo` against the same registry `/deco/invoke` dispatches to
+ * and calls the handler directly with `(props, request, ctx)`.
+ *
+ * Not the HTTP self-fetch `buildSectionLoaderContext` uses: a Cloudflare Worker
+ * fetching its own hostname is refused (`error code: 1042`), so a nested
+ * invoke from inside an invoke would only ever fail in production. Calling in
+ * process also keeps the same RequestContext (response headers, draft binding).
+ */
+function createInProcessInvoke(request: Request, ctx: SectionLoaderContext): any {
+  function buildProxy(path: string[]): any {
+    return new Proxy(
+      Object.assign(async (props: any) => {
+        const key = path.join("/");
+        const found = findHandlerLoose(key);
+        if (!found) throw new Error(`invoke(${key}) failed: handler not found`);
+        return found.handler(props ?? {}, request, ctx);
+      }, {}),
+      {
+        get(_target: any, prop: string | symbol) {
+          if (typeof prop === "symbol") return undefined;
+          // Not thenable: `await ctx.invoke.x` must not be mistaken for a promise.
+          if (prop === "then" || prop === "catch" || prop === "finally") return undefined;
+          return buildProxy([...path, prop]);
+        },
+      },
+    );
+  }
+  return buildProxy([]);
+}
+
+/**
+ * Build the Fresh-style `ctx` (AppContext) handed to every `/deco/invoke`
+ * handler as its 3rd argument: device, per-app state (`ctx.vtex`, `ctx.cms`,
+ * … read from `RequestContext`), `ctx.response.headers` — all from
+ * {@link buildSectionLoaderContext} — plus an in-process `ctx.invoke`.
+ */
+export function buildInvokeContext(request: Request): SectionLoaderContext {
+  const ctx = buildSectionLoaderContext(request);
+  ctx.invoke = createInProcessInvoke(request, ctx);
+  return ctx;
+}
+
 // Track which missing keys we've already warned about so dev console doesn't
 // log the same warning every IntersectionObserver / nav loop iteration.
 const warnedMissingKeys = new Set<string>();
@@ -264,6 +324,9 @@ async function dispatchInvoke(request: Request): Promise<Response> {
     throw error;
   }
 
+  // One ctx per request, shared by every handler in a batch (as in deco).
+  const ctx = buildInvokeContext(request);
+
   // Single invoke by key
   if (invokeKey) {
     const found = findHandler(invokeKey);
@@ -273,7 +336,7 @@ async function dispatchInvoke(request: Request): Promise<Response> {
     }
 
     try {
-      const result = await found.handler(body, request);
+      const result = await found.handler(body, request, ctx);
       // Response passthrough: if the handler returns a Response object,
       // forward it as-is (preserving headers like Set-Cookie).
       if (result instanceof Response) {
@@ -303,7 +366,7 @@ async function dispatchInvoke(request: Request): Promise<Response> {
 
         if (found) {
           try {
-            let result = await found.handler(payload, request);
+            let result = await found.handler(payload, request, ctx);
             // If a loader returns a Response, extract its JSON body for batching.
             // Set-Cookie values from a handler-returned Response are *not*
             // forwarded — those leave the AsyncLocalStorage scope. Handlers

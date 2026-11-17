@@ -8,6 +8,7 @@ import {
   LIVE_KEY,
   revisionKey,
   snapshotKey,
+  redirectPathHash,
 } from "@decocms/blocks/cms";
 import { splitExactRedirects } from "@decocms/blocks/sdk/redirects";
 import { createKvRestClient, type KvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
@@ -475,6 +476,16 @@ describe("syncRedirectsToKv", () => {
 
     expect(out).toEqual({ written: 1, deleted: 0 });
     expect(store.get(`redirect:${ID}:/old`)).toBe('{"to":"/new","status":301}');
+  });
+
+  it("writes index:redirects:<id>, the sorted hashes of the paths, even when there are none", async () => {
+    const { client, store } = makeBulkClient();
+    await syncRedirectsToKv(client, [rule("/b", "/x"), rule("/a", "/y")], ID);
+    const hashes = [redirectPathHash("/a"), redirectPathHash("/b")].sort((a, b) => a - b);
+    expect(JSON.parse(store.get(`index:redirects:${ID}`)!)).toEqual(hashes);
+
+    await syncRedirectsToKv(client, [], ID);
+    expect(store.get(`index:redirects:${ID}`)).toBe("[]");
   });
 
   it("updates a changed target in place", async () => {

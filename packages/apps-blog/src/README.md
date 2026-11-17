@@ -56,6 +56,19 @@ the Deno app *threw* `"Deco Records not installed!"` on a view sort without the
 backend; degrading was chosen instead, since view sorting is an enhancement and
 a missing backend shouldn't blank a listing.
 
+## Draft preview (`?draft=true`)
+
+A post that isn't live (see `isLivePost`) only renders on its own page when
+the URL carries `?draft=true`: `BlogPostPage` and `BlogPostItem` answer `null`
+for it otherwise, as for a slug that doesn't exist, and mark it `noIndexing`
+in a preview. Only the literal `true` turns it on. Listings are unaffected:
+they never show a non-live post. `isDraftPreview(url)` is exported for a site
+that renders its own post page.
+
+Anyone who knows the parameter can open an unpublished post: it is a
+convenience for previews, not access control. Same behaviour as
+`deco-cx/apps` (deco-cx/apps#1698).
+
 ## Divergences from upstream worth knowing
 
 - **Title and view sorts are inverted** — `title_asc` yields Z-A, and
