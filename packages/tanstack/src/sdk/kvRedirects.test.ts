@@ -1,3 +1,4 @@
+import { redirectPathHash } from "@decocms/blocks/cms";
 import {
   loadRedirects,
   matchExactRedirect,
@@ -7,10 +8,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearRedirectCache, lookupExactRedirect } from "./kvRedirects";
 
-/** Minimal KV binding that records every read. */
+/** Minimal KV binding: `rules` records the `redirect:*` reads, `index` the
+ * reads of the deployment's `index:redirects:<id>`. */
 function makeKV(values: Record<string, string> = {}) {
-  const get = vi.fn((key: string) => Promise.resolve(values[key] ?? null));
-  return { get, put: vi.fn(), delete: vi.fn() };
+  const read = (key: string) => Promise.resolve(values[key] ?? null);
+  const rules = vi.fn(read);
+  const index = vi.fn(read);
+  const get = (key: string) => (key.startsWith("index:redirects:") ? index(key) : rules(key));
+  return { get, rules, index, put: vi.fn(), delete: vi.fn() };
 }
 
 const ID = "sha-abc";
@@ -39,9 +44,9 @@ describe("lookupExactRedirect", () => {
     const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' });
     await expect(lookupExactRedirect(enabled(kv), "/old", "POST")).resolves.toBeNull();
     await expect(lookupExactRedirect(enabled(kv), "/old", "PUT")).resolves.toBeNull();
-    expect(kv.get).not.toHaveBeenCalled();
+    expect(kv.rules).not.toHaveBeenCalled();
     await expect(lookupExactRedirect(enabled(kv), "/old", "HEAD")).resolves.toMatchObject({ to: "/new" });
-    expect(kv.get).toHaveBeenCalledTimes(1);
+    expect(kv.rules).toHaveBeenCalledTimes(1);
   });
 
   it("returns null for a missing key", async () => {
@@ -52,14 +57,14 @@ describe("lookupExactRedirect", () => {
     const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":307}' });
     await lookupExactRedirect(enabled(kv), "/old");
     await lookupExactRedirect(enabled(kv), "/old");
-    expect(kv.get).toHaveBeenCalledTimes(1);
+    expect(kv.rules).toHaveBeenCalledTimes(1);
   });
 
   it("caches a MISS too — that is the common case on every request", async () => {
     const kv = makeKV();
     await lookupExactRedirect(enabled(kv), "/nope");
     await lookupExactRedirect(enabled(kv), "/nope");
-    expect(kv.get).toHaveBeenCalledTimes(1);
+    expect(kv.rules).toHaveBeenCalledTimes(1);
   });
 
   it("re-reads after the TTL, which is how a redirect edit propagates", async () => {
@@ -71,20 +76,20 @@ describe("lookupExactRedirect", () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 61_000);
     await lookupExactRedirect(enabled(kv), "/soon");
-    expect(kv.get).toHaveBeenCalledTimes(2);
+    expect(kv.rules).toHaveBeenCalledTimes(2);
   });
 
   it("is inert when fast-deploy is off", async () => {
     const kv = makeKV({ [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' });
     const env = { DECO_KV: kv, DECO_DEPLOYMENT_ID: ID }; // no DECO_FAST_DEPLOY
     await expect(lookupExactRedirect(env, "/old")).resolves.toBeNull();
-    expect(kv.get).not.toHaveBeenCalled();
+    expect(kv.rules).not.toHaveBeenCalled();
   });
 
   it("never reads another deployment's keys when the id is unresolvable", async () => {
     const kv = makeKV();
     await lookupExactRedirect({ DECO_FAST_DEPLOY: "1", DECO_KV: kv }, "/old");
-    expect(kv.get).not.toHaveBeenCalled();
+    expect(kv.rules).not.toHaveBeenCalled();
   });
 
   it("treats a KV failure as no-redirect, never a throw", async () => {
@@ -109,6 +114,54 @@ describe("lookupExactRedirect", () => {
       to: "/new",
       status: 302,
     });
+  });
+});
+
+describe("lookupExactRedirect — index:redirects:<id>", () => {
+  const indexOf = (...paths: string[]) => JSON.stringify(paths.map(redirectPathHash).sort((a, b) => a - b));
+  const stored = { [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' };
+
+  it("a path outside the index reads no rule, and the index is read once", async () => {
+    const kv = makeKV({ ...stored, [`index:redirects:${ID}`]: indexOf("/old", "/other") });
+    await expect(lookupExactRedirect(enabled(kv), "/p/1")).resolves.toBeNull();
+    await expect(lookupExactRedirect(enabled(kv), "/p/2")).resolves.toBeNull();
+    expect(kv.rules).not.toHaveBeenCalled();
+    expect(kv.index).toHaveBeenCalledTimes(1);
+  });
+
+  it("a path in the index is still read and redirects", async () => {
+    const kv = makeKV({ ...stored, [`index:redirects:${ID}`]: indexOf("/old") });
+    await expect(lookupExactRedirect(enabled(kv), "/OLD/")).resolves.toMatchObject({ to: "/new" });
+    expect(kv.rules).toHaveBeenCalledTimes(1);
+  });
+
+  it("an empty index means no rule is ever read", async () => {
+    const kv = makeKV({ ...stored, [`index:redirects:${ID}`]: "[]" });
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toBeNull();
+    expect(kv.rules).not.toHaveBeenCalled();
+  });
+
+  it("without an index (a deployment synced before it existed) every path is read", async () => {
+    const kv = makeKV(stored);
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ to: "/new" });
+    await expect(lookupExactRedirect(enabled(kv), "/p/1")).resolves.toBeNull();
+    expect(kv.rules).toHaveBeenCalledTimes(2);
+  });
+
+  it("a malformed index is no index", async () => {
+    const kv = makeKV({ ...stored, [`index:redirects:${ID}`]: "not json" });
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ to: "/new" });
+  });
+
+  it("is read again after the TTL, so a rule added by a sync starts redirecting", async () => {
+    const values: Record<string, string> = { ...stored, [`index:redirects:${ID}`]: "[]" };
+    const kv = makeKV(values);
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toBeNull();
+    values[`index:redirects:${ID}`] = indexOf("/old");
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 61_000);
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ to: "/new" });
+    expect(kv.index).toHaveBeenCalledTimes(2);
   });
 });
 

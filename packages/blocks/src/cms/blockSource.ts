@@ -20,7 +20,7 @@
  * model needs.
  */
 
-import { djb2Hex } from "../sdk/djb2";
+import { djb2, djb2Hex } from "../sdk/djb2";
 
 /** A fully-loaded decofile snapshot: the blocks map and its revision hash. */
 export interface BlockSnapshot {
@@ -124,6 +124,7 @@ export interface KVNamespace {
 //   index:live             pointer to the currently-live <id> (set post-deploy)
 //   index:deployments      JSON [{id, ts}] (newest last) — GC bookkeeping
 //   redirect:<id>:<path>   ONE key per exact redirect (see below)
+//   index:redirects:<id>   sorted hashes of the paths that have one
 // ---------------------------------------------------------------------------
 
 /** KV key holding the full decofile JSON for deployment `id`. */
@@ -173,6 +174,23 @@ export function redirectPrefix(id: string): string {
  */
 export function redirectKey(id: string, path: string): string {
   return `${redirectPrefix(id)}${path}`;
+}
+
+/**
+ * KV key listing which paths of deployment `id` have an exact redirect: a JSON
+ * array of `redirectPathHash(path)`, sorted ascending. The worker loads it once
+ * per isolate and skips the `redirect:<id>:<path>` read for every path not in
+ * it, which is nearly all of them. Written by the sync after the rules; a
+ * deployment synced before this key existed has none and is read path by path.
+ */
+export function redirectIndexKey(id: string): string {
+  return `index:redirects:${id}`;
+}
+
+/** The hash `redirectIndexKey` stores for a normalized path. A collision only
+ * costs one KV read that finds nothing. */
+export function redirectPathHash(path: string): number {
+  return djb2(path);
 }
 
 /**
