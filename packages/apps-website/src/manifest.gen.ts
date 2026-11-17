@@ -4,7 +4,6 @@ import * as loaders_environment from "./loaders/environment";
 import * as loaders_fonts_googleFonts from "./loaders/fonts/googleFonts";
 import * as loaders_fonts_local from "./loaders/fonts/local";
 import * as loaders_secret from "./loaders/secret";
-import * as loaders_secretString from "./loaders/secretString";
 
 const sections_Analytics_Analytics = () => import("./sections/Analytics/Analytics");
 const sections_Seo_Seo = () => import("./sections/Seo/Seo");
@@ -17,7 +16,6 @@ const manifest = {
 		"website/loaders/fonts/googleFonts": loaders_fonts_googleFonts,
 		"website/loaders/fonts/local": loaders_fonts_local,
 		"website/loaders/secret": loaders_secret,
-		"website/loaders/secretString": loaders_secretString,
 	},
 	actions: {},
 	sections: {
