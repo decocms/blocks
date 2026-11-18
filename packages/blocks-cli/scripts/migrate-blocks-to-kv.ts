@@ -30,15 +30,14 @@
  */
 
 import * as path from "node:path";
-import { splitExactRedirects } from "@decocms/blocks/sdk/redirects";
 import { createKvRestClient, kvConfigFromEnv } from "./lib/cf-kv-rest";
 import {
   buildSnapshot,
+  readKvDecofile,
   syncRedirectsToKv,
   verifySnapshotInKv,
   writeSnapshotToKv,
 } from "./lib/kv-snapshot";
-import { readDecofileFromDir } from "./lib/read-decofile";
 
 function parseArgs(argv: string[]) {
   const has = (f: string) => argv.includes(f);
@@ -71,22 +70,19 @@ async function main() {
 
   const blocksDir = path.resolve(process.cwd(), opts.blocksDir);
 
-  let blocks: Record<string, unknown>;
+  // Exact redirects live under their own `redirect:<id>:<path>` keys, not in
+  // the decofile. `readKvDecofile` is shared with sync-blocks-to-kv, so a
+  // one-shot seed and a CI sync can't disagree on the snapshot.
+  let split: ReturnType<typeof readKvDecofile>;
   try {
-    const result = readDecofileFromDir(blocksDir);
-    blocks = result.blocks;
-    if (result.collisions.length) {
-      console.warn(`warning: ${result.collisions.length} filename collision(s) resolved by tie-break`);
+    split = readKvDecofile(blocksDir, process.cwd());
+    if (split.collisions.length) {
+      console.warn(`warning: ${split.collisions.length} filename collision(s) resolved by tie-break`);
     }
   } catch (e) {
     console.error(`error: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(2);
   }
-
-  // Exact redirects live under their own `redirect:<id>:<path>` keys, not in
-  // the decofile — see splitExactRedirects. Must match what sync-blocks-to-kv
-  // writes, or a one-shot seed and a CI sync would disagree on the snapshot.
-  const split = splitExactRedirects(blocks);
   const snap = buildSnapshot(split.blocks);
   console.log(`decofile: ${snap.count} blocks, revision ${snap.revision}, ${snap.snapshot.length} bytes`);
   if (split.exact.length > 0) {

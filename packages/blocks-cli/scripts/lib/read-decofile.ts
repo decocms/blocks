@@ -17,6 +17,7 @@ import {
   type CollisionRecord,
   decodeBlockNameWithPasses,
   mergeCandidates,
+  singleDecodeBlockName,
 } from "./blocks-dedupe";
 import { buildCsvRedirectBlocks } from "./csv-redirects";
 
@@ -32,7 +33,10 @@ export interface ReadDecofileResult {
  * Throws if the directory does not exist. Unparseable files are skipped
  * (logged unless `silent`).
  */
-export function readDecofileFromDir(blocksDir: string, opts: { silent?: boolean } = {}): ReadDecofileResult {
+export function readDecofileFromDir(
+  blocksDir: string,
+  opts: { silent?: boolean; fresh?: boolean } = {},
+): ReadDecofileResult {
   if (!fs.existsSync(blocksDir)) {
     throw new Error(`blocks directory not found: ${blocksDir}`);
   }
@@ -41,7 +45,12 @@ export function readDecofileFromDir(blocksDir: string, opts: { silent?: boolean 
   const candidatesWithKeys: Array<{ candidate: Candidate; key: string }> = [];
 
   for (const file of files) {
-    const { name, passes } = decodeBlockNameWithPasses(file);
+    const decoded = decodeBlockNameWithPasses(file);
+    const passes = decoded.passes;
+    // A Fresh site's runtime decodes the file name ONCE (`parseBlockId`), and
+    // its blocks reference each other by that key. Decoding further would turn
+    // `a%2520b.json` into `a b` where Fresh expects `a%20b`.
+    const name = opts.fresh ? singleDecodeBlockName(file) : decoded.name;
     const fp = path.join(blocksDir, file);
     let parsed: unknown;
     try {
@@ -74,6 +83,9 @@ export function readDecofileFromDir(blocksDir: string, opts: { silent?: boolean 
   // moment the bundled snapshot stops being the fallback (the fastDeploy stub
   // makes KV the only source), turning migration 301s into silent 404s.
   // Same precedence as the generator — a curated CMS redirect wins over CSV.
+  // A Fresh site loads its CSV redirects at runtime (`redirectsFromCsv`), so it
+  // gets no synthetic blocks.
+  if (opts.fresh) return { blocks, collisions };
   const csvBlocks = buildCsvRedirectBlocks(blocks, { blocksDir, silent: opts.silent });
   const merged = Object.keys(csvBlocks).length ? { ...csvBlocks, ...blocks } : blocks;
 
