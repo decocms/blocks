@@ -6,7 +6,9 @@
  * type `split-traffic`); a decision is arithmetic over the visitor's id. What
  * a visitor gets is never stored: it is recomputed from the percentage and the
  * id, so one id serves every test (each roll hashes `name:id`), a new test
- * needs no new state and two tests are independent.
+ * needs no new state and two tests are independent. A test named
+ * `<parent>/<child>` is drawn only among the visitors in `<parent>`, so a test
+ * can split its own arm (50% control, 25% A, 25% B).
  *
  * Pure functions over values and strings: no React, no framework, no module
  * state, no environment reads, no network. Nothing here is called for you:
@@ -21,8 +23,13 @@
  */
 
 import { newId, roll } from "./bucketing.ts";
+import { nestTests } from "./nested.ts";
 
-/** The saved block `experiments`: each test's name and the whole percentage of visitors in it, 0–100. */
+/**
+ * The saved block `experiments`: each test's name and the whole percentage of
+ * visitors in it, 0–100. For `<parent>/<child>`, the percentage of the
+ * visitors in `<parent>`.
+ */
 export type Experiments = Record<string, number>;
 
 /** What a visitor got: each test's name and whether they are in it. */
@@ -151,7 +158,12 @@ function roundPct(allocation: number): number {
  * nobody in, 100 everybody, and raising a percentage only adds people. A
  * fractional percentage is rounded. Without a visitor, or with an id that
  * isn't 22 base64url characters, every test is `false`. Entries that aren't
- * finite numbers are left out. Pure; never throws.
+ * finite numbers are left out.
+ *
+ * A test named `<parent>/<child>`, where `<parent>` is a test of the same
+ * block, is on only for visitors in `<parent>`: its own roll decides among
+ * them, so `{ a: 50, "a/b": 50 }` gives 50% neither, 25% `a` alone and 25%
+ * both. Pure; never throws.
  */
 export function assign(
   experiments: Experiments | null | undefined,
@@ -166,5 +178,5 @@ export function assign(
     if (typeof allocation !== "number" || !Number.isFinite(allocation)) continue;
     assignments[name] = known && roll(name, id as string) < roundPct(allocation);
   }
-  return assignments;
+  return nestTests(assignments);
 }

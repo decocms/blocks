@@ -226,6 +226,84 @@ describe("assign", () => {
   });
 });
 
+describe("a test within a test: <parent>/<child>", { timeout: 60_000 }, () => {
+  const population = ids(100_000);
+  const SPLIT = { "plp-optimizer": 50, "plp-optimizer/b": 50 };
+  const arm = (tests: Record<string, boolean>) =>
+    !tests["plp-optimizer"] ? "control" : tests["plp-optimizer/b"] ? "b" : "a";
+  const shares = (experiments: Record<string, number>) => {
+    const counts: Record<string, number> = { control: 0, a: 0, b: 0 };
+    for (const id of population) counts[arm(assign(experiments, visitor(id)))]++;
+    for (const k of Object.keys(counts)) counts[k] /= population.length;
+    return counts;
+  };
+
+  it("splits the parent's arm: 50% control, 25% A, 25% B", () => {
+    const got = shares(SPLIT);
+    expect(got.control).toBeCloseTo(0.5, 2);
+    expect(got.a).toBeCloseTo(0.25, 2);
+    expect(got.b).toBeCloseTo(0.25, 2);
+  });
+
+  it("is on only inside the parent: nobody outside it has the child", () => {
+    for (const id of population.slice(0, 5000)) {
+      const tests = assign(SPLIT, visitor(id));
+      if (tests["plp-optimizer/b"]) expect(tests["plp-optimizer"], id).toBe(true);
+    }
+  });
+
+  it("keeps the child's own roll: inside the parent, it is the child's percentage", () => {
+    for (const id of population.slice(0, 5000)) {
+      const tests = assign(SPLIT, visitor(id));
+      if (tests["plp-optimizer"]) {
+        expect(tests["plp-optimizer/b"], id).toBe(roll("plp-optimizer/b", id) < 50);
+      }
+    }
+  });
+
+  it("ramping the parent keeps its arm split evenly, and only adds people to each arm", () => {
+    const wider = { ...SPLIT, "plp-optimizer": 80 };
+    const got = shares(wider);
+    expect(got.a).toBeCloseTo(0.4, 2);
+    expect(got.b).toBeCloseTo(0.4, 2);
+    for (const id of population.slice(0, 5000)) {
+      const before = arm(assign(SPLIT, visitor(id)));
+      if (before !== "control") expect(arm(assign(wider, visitor(id))), id).toBe(before);
+    }
+  });
+
+  it("nests at any depth, to the nearest prefix that is a test", () => {
+    const id = population[0] as string;
+    const all = { a: 100, "a/b": 100, "a/b/c": 100, "a/x/y": 100 };
+    expect({ ...assign(all, visitor(id)) }).toEqual({
+      a: true,
+      "a/b": true,
+      "a/b/c": true,
+      "a/x/y": true,
+    });
+    expect({ ...assign({ ...all, a: 0 }, visitor(id)) }).toEqual({
+      a: false,
+      "a/b": false,
+      "a/b/c": false,
+      "a/x/y": false, // "a/x" is no test, so its parent is "a"
+    });
+    expect({ ...assign({ ...all, "a/b": 0 }, visitor(id)) }).toMatchObject({
+      a: true,
+      "a/b": false,
+      "a/b/c": false,
+      "a/x/y": true,
+    });
+  });
+
+  it("changes nothing for a / in a name whose prefix is no test", () => {
+    for (const id of population.slice(0, 2000)) {
+      const tests = assign({ "home/hero": 50, "/lead": 50 }, visitor(id));
+      expect(tests["home/hero"], id).toBe(roll("home/hero", id) < 50);
+      expect(tests["/lead"], id).toBe(roll("/lead", id) < 50);
+    }
+  });
+});
+
 describe("the visitor's stored form", () => {
   it("is the id itself, and round-trips", () => {
     const v = newVisitor();

@@ -38,6 +38,34 @@ What follows from that:
 - **0 is off, 100 is everyone.** A fractional percentage is rounded. An entry that is not a finite number is left out.
 - **No visitor, no test.** A client created without a visitor has every test off, unless the test is given to it.
 
+### A test within a test
+
+A name written `<parent>/<child>` is drawn only among the visitors in `<parent>`, so a test can split its own arm without touching the other one. For 50% control and the other 50% split evenly between two variants:
+
+```json
+{ "__resolveType": "split-traffic", "plp-optimizer": 50, "plp-optimizer/b": 50 }
+```
+
+```json
+{ "__resolveType": "multivariate",
+  "variants": [
+    { "rule": { "__resolveType": "experiment", "name": "plp-optimizer" },
+      "value": { "__resolveType": "lazy", "value": {
+        "__resolveType": "multivariate",
+        "variants": [
+          { "rule": { "__resolveType": "experiment", "name": "plp-optimizer/b" },
+            "value": { "__resolveType": "lazy", "value": "…variant B…" } },
+          { "rule": { "__resolveType": "always" },
+            "value": { "__resolveType": "lazy", "value": "…variant A…" } } ] } } },
+    { "rule": { "__resolveType": "always" },
+      "value": { "__resolveType": "lazy", "value": "…control…" } } ] }
+```
+
+- The child's percentage is a share of the parent's visitors: `plp-optimizer/b: 50` is 25% of all traffic. The child keeps its own roll, so ramping `plp-optimizer` to 80 gives 20/40/40 and keeps everyone already in A or B where they were.
+- The child is off for every visitor outside the parent, whatever it is given: switching on only `plp-optimizer/b` in a preview shows the control to a visitor outside `plp-optimizer`. Switch both on to see B, the parent alone to see A.
+- The parent is the nearest prefix before a `/` that is a test of the same block (`a/b/c` falls back to `a` when there is no `a/b`). A `/` in a name whose prefix is no test changes nothing.
+- Nothing else changes: the header, the cache key and the preview link carry the child as one more test.
+
 ### Who reads the visitor
 
 The binding does it, once per request. On `@decocms/tanstack`, `createDecoWorker` calls `readVisitor(request)` (the cookie, or a new visitor), decides every test and campaign, and hands both to the app on the `x-deco-visitor` and `x-deco-assignments` headers. It removes any copy of those headers sent from outside. `contentClient(cms)` from `@decocms/tanstack/server` builds the client from them, so the page decides nothing again. On `@decocms/nextjs`, the proxy does the same with `decideVisitor` and `rewriteToAssignmentsRoute` (or `decideAssignments`) from `@decocms/nextjs/proxy`. The cookie goes out only on a first visit, and never from a preview.
@@ -95,9 +123,9 @@ v7's cron matcher has no v8 counterpart. Write each occurrence as its own window
 
 ## Reading the results
 
-v8 decides who sees what. It does not record conversions, and its analytics module does not add the test arm to events. Send the arm yourself:
+v8 decides who sees what. It does not record conversions. Send the arm with every event:
 
-- On TanStack, `requestAssignments()` from `@decocms/tanstack/server` returns each test on or off for the request, as the worker decided it. Pass the arms the page rendered to your analytics events.
+- With `startAnalytics({ experiments })` from `@decocms/blocks/analytics/client`, pass the map that decided the page (on TanStack, `requestAssignments(request)?.experiments` from `@decocms/tanstack/server`; never on a preview). Every event then carries each test as `on` or `off` in `exp`. A child test is sent only while its parent is on, so `plp-optimizer` compares control with both variants, and `plp-optimizer/b` compares B with A with no filter to remember.
 - On any binding, the page's own client gives the same answer: `const [tests] = await client.resolve("experiments")` gives each test's name and `true` or `false`, never a percentage.
 - In the browser, the `deco_vid` cookie holds the visitor; `parseVisitor` and `assign` from `@decocms/blocks/experiments` give the same answer as the server for a given `experiments` block.
 

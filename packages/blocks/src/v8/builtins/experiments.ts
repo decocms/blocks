@@ -12,10 +12,13 @@
  * read it through `currentClient()`, before any `await`. A test the client
  * is given (`cms.client({ experiments })`) is on or off as given, whatever
  * the visitor and its percentage (a preview may switch on a test at 0%); a
- * name the block doesn't have stays out.
+ * name the block doesn't have stays out. A test `<parent>/<child>` is on only
+ * while `<parent>` is, given or not: switching on `plp-optimizer/b` in a
+ * preview shows B to a visitor in `plp-optimizer` (or with it switched on too).
  */
 import { currentClient, experimentOverrides } from "../current.ts";
 import { type Assignments, assign } from "../experiments.ts";
+import { nestTests } from "../nested.ts";
 
 /** The saved block every `experiment` rule reads, and its built-in type. */
 export const EXPERIMENTS_BLOCK = "experiments";
@@ -27,8 +30,9 @@ export const EXPERIMENT_RULE = "experiment";
 /**
  * `split-traffic`: each test and whether the current client's visitor is in
  * it (`assign` from `@decocms/blocks/experiments`), with the tests the
- * client was given applied on top. Without a visitor every test it wasn't
- * given is off.
+ * client was given applied on top, then each `<parent>/<child>` turned off
+ * where its parent is off. Without a visitor every test it wasn't given is
+ * off.
  */
 export const splitTraffic = (allocations: Record<string, number> = {}): Assignments => {
   const client = currentClient();
@@ -39,7 +43,7 @@ export const splitTraffic = (allocations: Record<string, number> = {}): Assignme
       if (Object.hasOwn(assignments, name)) assignments[name] = given[name] === true;
     }
   }
-  return assignments;
+  return nestTests(assignments);
 };
 
 /** Inputs of the built-in `experiment` rule. */

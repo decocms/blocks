@@ -107,6 +107,21 @@ describe("startAnalytics", () => {
     for (const post of posts) expect(Object.keys(post.body)).toEqual(["site", "events"]);
   });
 
+  it.each([
+    [{ plp: false, "plp/b": false }, { plp: "off" }],
+    [
+      { plp: true, "plp/b": false },
+      { plp: "on", "plp/b": "off" },
+    ],
+    [
+      { plp: true, "plp/b": true },
+      { plp: "on", "plp/b": "on" },
+    ],
+  ])("sends a test within a test only while its parent is on: %o → %o", async (experiments, exp) => {
+    await start({ experiments });
+    expect(events()[0][WIRE.exp]).toEqual(exp);
+  });
+
   it("keeps another script's tests on the page, and the rendered arm wins a shared name", async () => {
     w.__dq = { x: { "ab-sdk-test": "verde", "hero-copy": "off" } };
     await start({ experiments: { "hero-copy": true } });
