@@ -5,6 +5,33 @@ export interface CacheStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, expiresAt: number): Promise<void>;
   delete(key: string): Promise<void>;
+  /**
+   * Optional binary path. Large payloads (cached HTML) skip base64 + JSON: as
+   * strings they cost ~5 copies of the body on the JS heap per write.
+   */
+  getBytes?(key: string): Promise<Uint8Array<ArrayBuffer> | null>;
+  setBytes?(key: string, value: Uint8Array, expiresAt: number): Promise<void>;
+}
+
+/** Binary entry: 8-byte float64 `expiresAt` (little-endian) + payload. */
+function packBytes(value: Uint8Array, expiresAt: number): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(8 + value.byteLength);
+  new DataView(out.buffer).setFloat64(0, expiresAt, true);
+  out.set(value, 8);
+  return out;
+}
+
+function unpackBytes(raw: unknown): Uint8Array<ArrayBuffer> | null {
+  const bytes =
+    raw instanceof ArrayBuffer
+      ? new Uint8Array(raw)
+      : ArrayBuffer.isView(raw)
+        ? new Uint8Array(raw.buffer as ArrayBuffer, raw.byteOffset, raw.byteLength)
+        : null;
+  if (!bytes || bytes.byteLength < 8) return null;
+  const expiresAt = new DataView(bytes.buffer, bytes.byteOffset, 8).getFloat64(0, true);
+  if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) return null;
+  return bytes.subarray(8);
 }
 
 export interface CacheStorageContext {
@@ -101,7 +128,11 @@ export function createMemoryCacheStorage(maxBytes = 32 * 1024 * 1024): CacheStor
 /** Structural binding type; the core has no Cloudflare package dependency. */
 export interface CacheKVNamespace {
   get(key: string): Promise<string | null>;
-  put(key: string, value: string, options: { expirationTtl: number }): Promise<void>;
+  put(
+    key: string,
+    value: string | ArrayBuffer | Uint8Array,
+    options: { expirationTtl: number },
+  ): Promise<void>;
   delete(key: string): Promise<void>;
 }
 
@@ -127,7 +158,20 @@ export function createKVCacheStorage(
       });
     },
     async delete(key) {
-      await kv.delete(await keyFor(key));
+      const k = await keyFor(key);
+      await Promise.all([kv.delete(k), kv.delete(`b:${k}`)]);
+    },
+    async getBytes(key) {
+      // Real KV bindings take a type argument; the structural type above stays string-only.
+      const get = kv.get as unknown as (k: string, t: "arrayBuffer") => Promise<unknown>;
+      return unpackBytes(await get.call(kv, `b:${await keyFor(key)}`, "arrayBuffer"));
+    },
+    async setBytes(key, value, expiresAt) {
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+      if (value.byteLength + 8 > 25 * 1024 * 1024) return;
+      await kv.put(`b:${await keyFor(key)}`, packBytes(value, expiresAt), {
+        expirationTtl: Math.max(60, Math.ceil((expiresAt - Date.now()) / 1000)),
+      });
     },
   };
 }
@@ -156,7 +200,25 @@ export function createWebCacheStorage(
       );
     },
     async delete(key) {
-      await cache.delete(await requestFor(key));
+      await Promise.all([
+        cache.delete(await requestFor(key)),
+        cache.delete(await requestFor(`b:${key}`)),
+      ]);
+    },
+    async getBytes(key) {
+      const response = await cache.match(await requestFor(`b:${key}`));
+      return unpackBytes(response ? await response.arrayBuffer() : null);
+    },
+    async setBytes(key, value, expiresAt) {
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+      await cache.put(
+        await requestFor(`b:${key}`),
+        new Response(packBytes(value, expiresAt), {
+          headers: {
+            "Cache-Control": `public, max-age=${Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000))}`,
+          },
+        }),
+      );
     },
   };
 }

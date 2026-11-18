@@ -63,13 +63,16 @@ function deepNormalize(val: unknown): unknown {
   }
 
   if (Array.isArray(val)) {
-    let changed = false;
-    const result = val.map((item) => {
-      const normalized = deepNormalize(item);
-      if (normalized !== item) changed = true;
-      return normalized;
-    });
-    return changed ? result : val;
+    let result: unknown[] | undefined;
+    for (let i = 0; i < val.length; i++) {
+      const normalized = deepNormalize(val[i]);
+      if (result) result.push(normalized);
+      else if (normalized !== val[i]) {
+        result = val.slice(0, i);
+        result.push(normalized);
+      }
+    }
+    return result ?? val;
   }
 
   if (typeof val === "object") {
@@ -77,14 +80,22 @@ function deepNormalize(val: unknown): unknown {
     const proto = Object.getPrototypeOf(val);
     if (proto !== Object.prototype && proto !== null) return val;
 
-    let changed = false;
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(val as Record<string, unknown>)) {
+    // Copy-on-write: only allocate a new object once a value actually changes.
+    const obj = val as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    let result: Record<string, unknown> | undefined;
+    for (let i = 0; i < keys.length; i++) {
+      const value = obj[keys[i]];
       const normalized = deepNormalize(value);
-      result[key] = normalized;
-      if (normalized !== value) changed = true;
+      if (result) {
+        result[keys[i]] = normalized;
+      } else if (normalized !== value) {
+        result = {};
+        for (let j = 0; j < i; j++) result[keys[j]] = obj[keys[j]];
+        result[keys[i]] = normalized;
+      }
     }
-    return changed ? result : val;
+    return result ?? val;
   }
 
   return val;
