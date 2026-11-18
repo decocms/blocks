@@ -1,6 +1,6 @@
 import { nuvemshopAdmin } from "../admin";
 import { getNuvemshopConfig } from "../client";
-import { storeCookies, storeFetch } from "../store";
+import { sessionCustomerId } from "../store";
 
 export interface NuvemshopUser {
   id: number;
@@ -15,10 +15,7 @@ export interface NuvemshopUser {
  * Reads the customer id from the store's account page and the profile from the Admin API.
  */
 export default async function user(_props: unknown): Promise<NuvemshopUser | null> {
-  if (!storeCookies()) return null;
-  const page = await storeFetch("/account/");
-  if (page.status !== 200) return null;
-  const id = Number((await page.text()).match(/LS\.customer\s*=\s*(\d+)/)?.[1]);
+  const id = await sessionCustomerId();
   if (!id) return null;
   if (!getNuvemshopConfig().adminToken) return { id };
   const res = await nuvemshopAdmin(`/customers/${id}`);
