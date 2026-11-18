@@ -109,7 +109,7 @@ All packages are versioned and released in lockstep.
 | Package | Target | Highlights |
 | --- | --- | --- |
 | [`@decocms/tanstack`](./packages/tanstack) | TanStack Start + Cloudflare Workers | CMS routes, worker entry, Vite plugin, deferred sections, and KV-backed fast deploy. |
-| [`@decocms/nextjs`](./packages/nextjs) | Next.js 15+ App Router | RSC-native pages and previews, route handlers, root layout, and one-call setup. |
+| [`@decocms/nextjs`](./packages/nextjs) | Next.js 15+ App Router | RSC-native pages, the invoke route handler, root layout, and one-call setup. |
 | [`@decocms/eitri`](./packages/eitri) | Eitri mobile stack | Generates self-contained Studio schema and decofile artifacts; rendering remains native. |
 
 ### Apps and integrations
@@ -169,7 +169,7 @@ The Next.js binding has four required integration points:
 
 1. wrap `next.config` with `withDeco()`;
 2. create an `ensureSetup` function with `createNextSetup()`;
-3. mount the Studio catch-all route and RSC preview page;
+3. mount the Studio catch-all route (it serves only `POST /deco/invoke/*`; the staff-only admin routes are not exposed on Next.js);
 4. await setup from the root layout and render CMS pages with `createDecoPage()`.
 
 The complete copy-ready setup is in the [`@decocms/nextjs` guide](./packages/nextjs/README.md). A minimal end-to-end implementation lives in [`nextjs-smoke`](./examples/nextjs-smoke).

@@ -1,23 +1,31 @@
 # `@decocms/nextjs`
 
 Deco framework binding for Next.js App Router — the Next.js sibling of
-`@decocms/tanstack`. Four surfaces, composed together:
+`@decocms/tanstack`. Three surfaces, composed together:
 
 - **`@decocms/nextjs/config`** — `withDeco(nextConfig)`, a `next.config`
-  wrapper that adds the rewrites and `transpilePackages` Deco's admin
-  protocol needs.
+  wrapper that adds the `transpilePackages` and draft-preview cache headers
+  Deco needs.
 - **`@decocms/nextjs/routeHandlers`** — `createDecoRouteHandlers({ setup })`,
-  a single catch-all dispatcher for the whole Studio admin protocol
-  (decofile read/reload, meta schema, invoke, live previews).
-- **`@decocms/nextjs`** — `createDecoPreviewPage({ setup })`, an App Router
-  Server Component that renders live previews through Next's RSC pipeline,
-  including sections marked with `"use client"`.
+  a catch-all dispatcher for `/deco/*` that serves only `POST /deco/invoke/*`
+  (used by Studio edits).
 - **`@decocms/nextjs/setup`** — `createNextSetup(options)`, a one-call site
   bootstrap: the Next.js analogue of Vite's
   `createSiteSetup` + `createAdminSetup` + `import.meta.glob`.
 
+> **Removed staff-only admin routes (breaking).** The Studio admin routes
+> `/.decofile`, `/live/_meta`, `/deco/meta`, `/live/release`,
+> `/live/previews/*`, `/deco/previews/*`, `/deco/render`, the
+> `/deco/preview` page factory (`createDecoPreviewPage`), and
+> `/live/inspect/*` / `/deco/inspect/*` are no longer served by this
+> package. They exposed the site's full decofile and block schema publicly.
+> The `metaGET`, `decofileGET`, `decofilePOST`, `renderGET` and `renderPOST`
+> exports and `withDeco`'s rewrites for those URLs are gone too. There is no
+> option to turn them back on. Delete any `app/deco/preview/` page and any
+> route file that re-exported the removed handlers.
+
 This document is the complete recipe a new Next.js site follows to wire all
-all four together. Every code block below is meant to be copied, not
+three together. Every code block below is meant to be copied, not
 paraphrased.
 
 ## Install
@@ -33,10 +41,9 @@ has them.
 
 ## 1. `next.config` — `withDeco`
 
-`withDeco` adds three rewrites (mapping the Studio-protocol URLs Next.js
-cannot express as route segments onto `/deco/*`, where the catch-all route
-below serves them) and appends the three `@decocms/*` packages (which ship
-raw TypeScript, not a prebuilt `dist/`) to `transpilePackages`.
+`withDeco` appends the three `@decocms/*` packages (which ship raw
+TypeScript, not a prebuilt `dist/`) to `transpilePackages` and adds the
+draft-preview no-store headers. It adds no rewrites.
 
 TypeScript (`next.config.ts`):
 
@@ -64,17 +71,14 @@ const nextConfig = {
 module.exports = withDeco(nextConfig);
 ```
 
-`withDeco` merges with a `rewrites`/`transpilePackages` you already have —
-it never replaces them. If your own `rewrites()` returns the array form,
-Deco's rewrites are prepended; if it returns the `{ beforeFiles, afterFiles,
-fallback }` object form, Deco's rewrites are prepended to `beforeFiles`.
+`withDeco` merges with a `transpilePackages`/`headers` you already have —
+it never replaces them. Your own `rewrites` pass through untouched.
 
 ## 2. The catch-all route
 
 Mount `createDecoRouteHandlers` at `app/deco/[[...deco]]/route.ts` — this
-one file serves the entire admin protocol (decofile, meta, invoke, live
-previews) for both the rewritten public URLs (`/.decofile`, `/live/_meta`,
-`/live/previews/*`) and their `/deco/*` destinations directly.
+one file serves `POST /deco/invoke/*` (Studio edits call it). Every other
+path under `/deco/` answers 404.
 
 ```ts
 // src/app/deco/[[...deco]]/route.ts
@@ -89,43 +93,7 @@ export const { GET, POST, OPTIONS } = createDecoRouteHandlers({
 ```
 
 `dynamic = "force-dynamic"` is required — this route must never be
-statically cached (decofile reloads, invoke calls, and previews all need a
-fresh response per request).
-
-### The RSC preview page
-
-Mount `createDecoPreviewPage` at the framework-owned `/deco/preview` path.
-This path is intentionally not configurable: preview GET requests are always
-redirected from the catch-all route to this App Router page, with the query
-string preserved. Other admin requests, including `POST /deco/render`, remain
-on the catch-all handler.
-
-```tsx
-// src/app/deco/preview/[[...path]]/page.tsx
-import { createDecoPreviewPage } from "@decocms/nextjs";
-import { ensureSetup } from "../../../../deco/setup";
-
-export const dynamic = "force-dynamic";
-
-export default createDecoPreviewPage({ setup: ensureSetup });
-```
-
-The page boundary is essential for Client Components. A route handler can
-produce plain HTML with `react-dom/server`, but that renderer cannot execute
-the client-reference proxies Next creates for modules marked
-`"use client"`. An App Router page is rendered by Next's React Server
-Components pipeline, so it can render a server section tree containing
-Client Components and preserve their hydration metadata.
-
-Do not work around this error by removing `"use client"` from interactive
-components. Keep sections and wrappers as Server Components when they only
-render markup, but retain a Client Component boundary wherever hooks, event
-handlers, browser APIs, or client-only context are required. The RSC preview
-page exists so those two kinds of component can compose exactly as they do in
-the storefront.
-
-Importing the root barrel is correct in this `page.tsx`; the subpath-only
-rule below applies specifically to `route.ts` files.
+statically cached (invoke calls need a fresh response per request).
 
 ### Route-handler import rule: subpaths, never the root barrel
 
@@ -210,10 +178,9 @@ read:
 
 Trade-offs to know about:
 
-- **Content is baked at build time** in production. Studio's
-  `POST /.decofile` still overrides the in-memory snapshot at runtime
-  (live preview/publish keeps working on a warm instance); the baked
-  manifest is the cold-start baseline.
+- **Content is baked at build time** in production. The runtime
+  `POST /.decofile` reload was hard-removed with the other staff-only admin
+  routes, so publishing content means rebuilding/redeploying.
 - **Adding or removing a block *file* requires re-running the generator**
   (content edits to existing files do not). Wire it into the site's
   `generate` chain — see the scripts section below.
@@ -231,10 +198,10 @@ successful bootstrap is cached for the life of the warm serverless
 instance; a *rejected* bootstrap clears the memo so the next call retries
 from scratch (the triggering call still rejects with the original error).
 
-Three call sites need `ensureSetup()`:
+Two call sites need `ensureSetup()`:
 
 1. **The catch-all route** (above) passes it as `{ setup: ensureSetup }` —
-   `createDecoRouteHandlers` awaits it before dispatching every admin
+   `createDecoRouteHandlers` awaits it before dispatching an invoke
    request.
 2. **The root layout** (`app/layout.tsx`) must await it directly before
    rendering, since page rendering (`createDecoPage`'s resolver) has no
@@ -253,9 +220,9 @@ Three call sites need `ensureSetup()`:
 
    (`app/layout.tsx` is a Server Component, not a route handler, so it's
    fine to import the root barrel here — see the rule above.)
-3. **The RSC preview page** passes it to `createDecoPreviewPage`, as shown
-   above. The setup function is memoized, so these call sites share one
-   successful bootstrap per warm process.
+
+The setup function is memoized, so these call sites share one successful
+bootstrap per warm process.
 
 ### `NextSetupOptions` at a glance
 
@@ -265,7 +232,7 @@ Three call sites need `ensureSetup()`:
 | `blocks` | Extra/override blocks, merged **over** the directory's blocks. Pass the manifest's default export here (with `blocksDir: false`) to make it the sole block source. |
 | `sections` | The lazy section registry — `sectionImports` from `generate-sections --registry` (see below). |
 | `conventions` | `{ meta, syncComponents, loadingFallbacks }` from `sections.gen.ts` — wires the `export const sync/layout/seo/cache/eager/clientOnly` conventions (see below). |
-| `meta` | Lazy admin meta schema loader: `() => import("deco/meta.gen.json").then(m => m.default)`. Wire this even with a trivial schema — without it, `/deco/meta` (and its `/live/_meta` alias) 503s with `"Schema not initialized"`. |
+| `meta` | Lazy admin meta schema loader: `() => import("deco/meta.gen.json").then(m => m.default)`. The meta HTTP routes were removed from this package; the schema is still registered for in-process consumers. |
 | `renderShell` | Admin preview shell config (`{ css, fonts }`). |
 | `previewWrapper` | Admin preview wrapper component. |
 | `productionOrigins`, `customMatchers`, `onResolveError`, `onDanglingReference` | Passed through to `createSiteSetup`. |
@@ -362,8 +329,6 @@ implementation file) can opt into these, each read as a literal
 ## Verifying your setup
 
 `examples/nextjs-smoke` in this monorepo is a minimal, real Next.js App
-Router build exercising all four surfaces end to end — `withDeco` rewrites,
-the catch-all route, the RSC preview page, `createNextSetup`, and a resolved
-page render. Its preview fixture is a real interactive Client Component, so
-the build also guards the server/client boundary described above. Use it as
+Router build exercising all three surfaces end to end — `withDeco`, the
+catch-all invoke route, `createNextSetup`, and a resolved page render. Use it as
 a working reference if any of the above doesn't compose the way you expect.
