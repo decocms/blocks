@@ -30,15 +30,18 @@ import type {
 import {
   extractSeoFromProps,
   extractSeoFromSections,
+  findPageByPath,
   getDeferredRawProps,
   getDegradedSections,
   getSiteSeo,
   isEagerRequest,
+  isLayoutRawSection,
   preloadSectionComponents,
   reExtractRawProps,
   resolveDecoPage,
   resolveDeferredSection,
   resolveDeferredSectionFull,
+  resolvePageSections,
   runSectionLoaders,
   runSingleSectionLoader,
 } from "@decocms/blocks/cms";
@@ -58,6 +61,7 @@ import {
 } from "@decocms/blocks/sdk/flags";
 import { normalizeUrlsInObject } from "@decocms/blocks/sdk/normalizeUrls";
 import { type Device, detectDevice } from "@decocms/blocks/sdk/useDevice";
+import { notFound } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import {
   getCookies,
@@ -68,6 +72,7 @@ import {
   setResponseHeader,
 } from "@tanstack/react-start/server";
 import { createElement } from "react";
+import { CmsNotFoundPage } from "./components";
 import { derivePageUrl, isClientNavigation } from "./pageUrl";
 import { createRequestSingleFlight } from "./requestSingleFlight";
 import { dedupeGlobals, resolveSiteGlobals } from "./withSiteGlobals";
@@ -217,7 +222,7 @@ export async function enrichGlobals(
   return runSectionLoaders(kept, request);
 }
 
-async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
+function pageRequestContext(fullPath: string) {
   const [basePath] = fullPath.split("?");
   // On client-side navigation getRequestUrl() is the /_serverFn/... endpoint,
   // not the page being loaded — derivePageUrl rebuilds the real page URL so
@@ -235,6 +240,11 @@ async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
     isClientNavigation: isClientNavigation(fullPath, serverUrl),
     flags: [],
   };
+  return { basePath, urlWithSearch, originRequest, matcherCtx };
+}
+
+async function loadCmsPageInternal(fullPath: string, resolveGlobals: boolean) {
+  const { basePath, urlWithSearch, originRequest, matcherCtx } = pageRequestContext(fullPath);
   const page = await resolveDecoPage(basePath, matcherCtx);
   if (!page) return null;
 
@@ -348,6 +358,58 @@ export const loadCmsPage = createServerFn({ method: "GET" })
       loadCmsPageInternal(fullPath, resolveGlobals),
     );
   });
+
+/**
+ * What a CMS route renders, with status 404, when no page matches the URL:
+ * - the CMS page at `notFoundPath` (default `/404`) when the site has one —
+ *   the branded 404, authored like any page (Header, message, Footer);
+ * - otherwise the site's chrome around the default message: site globals
+ *   (Theme) plus the homepage's layout sections (`export const layout = true`,
+ *   e.g. Header and Footer), split at `messageAt`. Only those sections are
+ *   resolved — never the homepage content — and layout loaders are cached.
+ */
+async function loadCmsNotFoundInternal(notFoundPath: string, resolveGlobals: boolean) {
+  const page = await loadCmsPageInternal(notFoundPath, resolveGlobals);
+  if (page) return { ...page, messageAt: undefined };
+
+  const { basePath, urlWithSearch, originRequest, matcherCtx } = pageRequestContext(notFoundPath);
+  const home = findPageByPath("/")?.page.sections;
+  const raw: unknown[] = Array.isArray(home) ? home : [];
+  const isChrome = (s: unknown) => isLayoutRawSection(s, matcherCtx);
+  // Chrome before the first content section is the header; the rest, the footer.
+  const firstContent = raw.findIndex((s) => !isChrome(s));
+  const split = firstContent === -1 ? raw.length : firstContent;
+  const request = new Request(urlWithSearch, { headers: originRequest.headers });
+
+  const [before, after, globals] = await Promise.all([
+    resolvePageSections(raw.slice(0, split).filter(isChrome), matcherCtx),
+    resolvePageSections(raw.slice(split).filter(isChrome), matcherCtx),
+    resolveGlobals ? resolveSiteGlobals(matcherCtx) : EMPTY_GLOBALS,
+  ]);
+  const chrome = [...before, ...after];
+  const [enrichedGlobals, enrichedChrome] = await Promise.all([
+    enrichGlobals(globals.resolvedSections, chrome, request),
+    runSectionLoaders(chrome, request),
+  ]);
+  const sections = [...enrichedGlobals, ...enrichedChrome];
+  await preloadSectionComponents(sections.map((s) => s.component));
+
+  return {
+    resolvedSections: normalizeUrlsInObject(sections),
+    deferredSections: [] as DeferredSection[],
+    pagePath: basePath,
+    pageUrl: urlWithSearch,
+    device: detectDevice(getRequestHeader("user-agent") ?? ""),
+    messageAt: enrichedGlobals.length + before.length,
+  };
+}
+
+/** Page data a CMS route hands to its `notFoundComponent` (see {@link CmsNotFoundPage}). */
+export type CmsNotFoundData = Awaited<ReturnType<typeof loadCmsNotFoundInternal>>;
+
+export const loadCmsNotFoundPage = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => data as { path: string; resolveGlobals?: boolean })
+  .handler(async (ctx) => loadCmsNotFoundInternal(ctx.data.path, ctx.data.resolveGlobals ?? true));
 
 /** Accepted by `loadCmsHomePage` — optional so existing no-arg callers keep working. */
 export type LoadCmsHomePageInput = { resolveGlobals?: boolean } | undefined;
@@ -676,6 +738,17 @@ export interface CmsRouteOptions {
    * so the site's own `:root` CSS fallbacks apply instead.
    */
   resolveGlobals?: boolean;
+  /**
+   * CMS page rendered, with HTTP status 404, when no page matches the URL.
+   * Default `"/404"`: create a page at that path in the CMS (Header, a
+   * message, Footer) and every unknown URL renders it. Without one, the
+   * default message is wrapped in the homepage's layout sections (Header,
+   * Footer). Visiting the path itself also answers 404.
+   *
+   * `false` restores the old contract: the loader resolves `null` on a miss and
+   * the site's `component` decides (status 200 unless it throws `notFound()`).
+   */
+  notFoundPath?: string | false;
 }
 
 type CmsPageLoaderData = {
@@ -812,7 +885,8 @@ function buildHead(
   const description = seo?.description || defaultDescription;
   const image = seo?.image;
   const canonical = seo?.canonical;
-  const noIndex = seo?.noIndexing;
+  // No loader data is a 404 (or a miss with `notFoundPath: false`): never index it.
+  const noIndex = seo?.noIndexing || !loaderData;
 
   const meta: Record<string, string>[] = [{ title }];
 
@@ -892,6 +966,7 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     ssr: ssrMode,
     errorComponent = CmsPageErrorFallback,
     resolveGlobals,
+    notFoundPath = "/404",
   } = options;
 
   const ignoreSet = new Set(ignoreSearchParams);
@@ -922,10 +997,18 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
       const searchStr = deps.search
         ? "?" + new URLSearchParams(deps.search as Record<string, string>).toString()
         : "";
-      const page = await loadCmsPage({
-        data: { path: basePath + searchStr, resolveGlobals },
-      });
-      if (!page) return page;
+      const page =
+        basePath === notFoundPath
+          ? null
+          : await loadCmsPage({ data: { path: basePath + searchStr, resolveGlobals } });
+      if (!page) {
+        if (notFoundPath === false) return page;
+        // A thrown notFound() is what makes TanStack Start answer 404 — returning
+        // null rendered a soft 404 (status 200) that crawlers index.
+        throw notFound({
+          data: await loadCmsNotFoundPage({ data: { path: notFoundPath, resolveGlobals } }),
+        });
+      }
 
       if (!isServer && page.resolvedSections) {
         const keys = page.resolvedSections.map((s: ResolvedSection) => s.component);
@@ -952,11 +1035,15 @@ export function cmsRouteConfig(options: CmsRouteOptions) {
     pendingMs,
     pendingMinMs,
     errorComponent,
+    notFoundComponent: CmsNotFoundPage,
     ...(ssrMode !== undefined ? { ssr: ssrMode } : {}),
 
     ...routeCacheDefaults("product"),
 
     headers: ({ loaderData }: { loaderData?: CmsPageLoaderData }) => {
+      // A 404 must not be edge-cached as a listing: publishing the page would
+      // keep answering 404 for the whole window.
+      if (!loaderData) return cacheHeaders("none");
       const profile = loaderData?.cacheProfile ?? "listing";
       const headers = cacheHeaders(profile);
       // Emit the degraded flag on the DOCUMENT response via the route headers
