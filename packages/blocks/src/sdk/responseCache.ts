@@ -32,6 +32,25 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
   const keyFor = (request: Request) => JSON.stringify([scope, "responses", request.url]);
   return {
     async match(request: Request): Promise<Response | undefined> {
+      if (storage.getBytes) {
+        const packed = await storage.getBytes(keyFor(request));
+        if (packed === null) return undefined;
+        try {
+          const view = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
+          const headLen = view.getUint32(0, true);
+          const head = JSON.parse(
+            new TextDecoder().decode(packed.subarray(4, 4 + headLen)),
+          ) as Omit<StoredResponse, "body">;
+          const body = packed.subarray(4 + headLen); // zero-copy view
+          return new Response([204, 205, 304].includes(head.status) ? null : body, {
+            status: head.status,
+            statusText: head.statusText,
+            headers: head.headers,
+          });
+        } catch {
+          return undefined;
+        }
+      }
       const raw = await storage.get(keyFor(request));
       if (raw === null) return undefined;
       try {
@@ -68,6 +87,31 @@ export function createResponseCache(storage: CacheStorage, scope: string) {
             return "skipped:too-large";
           }
           chunks.push(value);
+        }
+      }
+      if (storage.setBytes) {
+        // [u32 head length][head JSON][body]: the body is copied once, never base64'd or escaped.
+        const head = new TextEncoder().encode(
+          JSON.stringify({
+            status: response.status,
+            statusText: response.statusText,
+            headers: [...response.headers.entries()],
+          }),
+        );
+        const packed = new Uint8Array(4 + head.byteLength + size);
+        new DataView(packed.buffer).setUint32(0, head.byteLength, true);
+        packed.set(head, 4);
+        let at = 4 + head.byteLength;
+        for (const chunk of chunks) {
+          packed.set(chunk, at);
+          at += chunk.byteLength;
+        }
+        chunks.length = 0;
+        try {
+          await storage.setBytes(keyFor(request), packed, expiresAt);
+          return "stored";
+        } catch {
+          return "error";
         }
       }
       const bytes = new Uint8Array(size);
