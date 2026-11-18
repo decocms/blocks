@@ -155,6 +155,7 @@ interface ISProductSearchResult {
 	correction?: { misspelled?: boolean };
 	operator?: string;
 	redirect?: string;
+	searchId?: string;
 }
 
 interface ISFacetValueBoolean {
@@ -536,6 +537,8 @@ export default async function vtexProductListingPage(
 				currentPage: page + currentPageoffset,
 				records: recordsFiltered,
 				recordPerPage: pagination.perPage,
+				// A redirected search shows no results, and Activity Flow must not track it.
+				searchId: productsResult.redirect ? undefined : productsResult.searchId || undefined,
 			},
 			sortOptions: [
 				{ value: "", label: "relevance:desc" },

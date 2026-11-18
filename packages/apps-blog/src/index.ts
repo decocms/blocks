@@ -53,6 +53,7 @@ export type {
 export { isLivePost, isPublishedStatus } from "./types";
 export { blocksToSections } from "./utils/blocksToSections";
 export { dateToTime, scheduledTime } from "./utils/date";
+export { DRAFT_PREVIEW_PARAM, isDraftPreview } from "./utils/draftPreview";
 export { hardSanitize } from "./utils/hardSanitize";
 export { toBlogPosting, toBreadcrumbList, toOrganization, withCanonicalBase } from "./utils/jsonLD";
 export { sanitizeHref, sanitizeHtml } from "./utils/sanitizeHtml";

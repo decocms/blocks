@@ -55,6 +55,30 @@ export interface CachedLoaderOptions {
   staleWhileRevalidate?: number;
   /** Key function to generate a cache key from loader props. Default: JSON.stringify. */
   keyFn?: (props: unknown) => string;
+  /**
+   * Whether a resolved result is stored. Returning `false` hands the value to
+   * the caller without writing it — e.g. an empty search that may just be the
+   * index rebuilding, which would otherwise be served as "not found" for the
+   * whole window. On a background SWR refresh the stale entry is kept. Use this
+   * instead of throwing to skip the write: a throw is counted as a loader error.
+   * Default: every resolved result is stored.
+   */
+  shouldCache?: (result: unknown) => boolean;
+  /**
+   * Opt this loader's results out of the per-build key. When set, entries are
+   * keyed by `dataVersion` instead of the build hash and stored in the request's
+   * data scope — which, with `DECO_DATA_CACHE_ON_DEPLOY=preserve`, excludes the
+   * build hash and CMS revision, so results survive deploys and publishes
+   * (props are still part of the key). Without preserve it behaves as before.
+   *
+   * Only for loaders whose result is a pure function of props + upstream data:
+   * a CMS publish no longer invalidates these entries, so a loader that reads
+   * decofile data outside its props would keep the old result until its TTL.
+   * Bump the string whenever the result's shape/transform changes: a forgotten
+   * bump serves the old shape to the new code until the entry expires. Purge
+   * with `DECO_DATA_CACHE_PURGE` or `cache:data-version` in DECO_KV.
+   */
+  dataVersion?: string;
 }
 
 /**
@@ -270,7 +294,10 @@ export function createCachedLoader<TProps, TResult>(
     staleIfError = 0,
     staleWhileRevalidate = 300_000,
     keyFn = JSON.stringify,
+    shouldCache,
+    dataVersion,
   } = resolved;
+  const keyVersion = dataVersion === undefined ? BUILD : `data:${dataVersion}`;
 
   const env = typeof globalThis.process !== "undefined" ? globalThis.process.env : undefined;
   const isDev = env?.DECO_CACHE_DISABLE === "true" || env?.NODE_ENV === "development";
@@ -287,15 +314,23 @@ export function createCachedLoader<TProps, TResult>(
   if (policy === "no-store") return loaderFn;
 
   const cachedFn = async (props: TProps): Promise<TResult> => {
-    const cacheKey = cache.key(`${BUILD}::${name}::${keyFn(props)}`);
+    const cacheKey = cache.key(
+      `${keyVersion}::${name}::${keyFn(props)}`,
+      dataVersion === undefined ? "build" : "data",
+    );
     // Joining another caller's flight is bounded by a timer of THIS caller's
     // request (see `joinInflight`): if the owner's request was cancelled and
     // its Promise will never settle, evict the dead slot and run again.
     const join = (shared: Promise<unknown>): Promise<TResult> =>
-      joinInflight(shared as Promise<TResult>, () => {
-        releaseSlot(inflightRequests, cacheKey, shared);
-        return cachedFn(props);
-      });
+      joinInflight(
+        shared as Promise<TResult>,
+        () => {
+          releaseSlot(inflightRequests, cacheKey, shared);
+          return cachedFn(props);
+        },
+        undefined,
+        `cachedLoader ${cacheKey}`,
+      );
     const retention =
       maxAge +
       Math.max(staleIfError, policy === "stale-while-revalidate" ? staleWhileRevalidate : 0);
@@ -381,6 +416,11 @@ export function createCachedLoader<TProps, TResult>(
               // Skip the write if a purge cleared the cache mid-refresh — otherwise
               // we'd re-insert pre-purge data the purge was meant to drop.
               if (gen !== cacheGeneration) return;
+              // Uncacheable result: keep serving the stale entry, retry on the next hit.
+              if (shouldCache && !shouldCache(result)) {
+                entry.refreshing = false;
+                return;
+              }
               setCacheEntry(
                 cacheKey,
                 {
@@ -429,7 +469,8 @@ export function createCachedLoader<TProps, TResult>(
         recordLoaderMetric(name, performance.now() - loaderStart, "MISS");
         // Skip caching if a purge landed while this loader was in flight — still
         // return the fresh value to the caller, just don't persist a raced entry.
-        if (gen === cacheGeneration) {
+        // Same for a result the caller marked uncacheable.
+        if (gen === cacheGeneration && (!shouldCache || shouldCache(result))) {
           setCacheEntry(
             cacheKey,
             {
@@ -533,10 +574,15 @@ export function createCachedLoaderFromModule<TProps, TResult>(
     if (existing) {
       // Bounded by this caller's own timer: a flight whose owner request was
       // cancelled never settles — evict it and run again (see `joinInflight`).
-      return joinInflight(existing, () => {
-        releaseSlot(moduleInflight, key, existing);
-        return dedupedFn(props, req, ctx);
-      });
+      return joinInflight(
+        existing,
+        () => {
+          releaseSlot(moduleInflight, key, existing);
+          return dedupedFn(props, req, ctx);
+        },
+        undefined,
+        `dedupLoader ${key}`,
+      );
     }
 
     const promise: Promise<TResult> = Promise.resolve(mod.default(props, req, ctx)).finally(() => {

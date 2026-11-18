@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { computeRevision, type KVNamespace, revisionKey, snapshotKey } from "@decocms/blocks/cms";
+import { describe, expect, it, vi } from "vitest";
 import { KVBlockSource } from "./kvBlockSource";
 
 const ID = "sha-abc123";
@@ -37,16 +37,26 @@ describe("KVBlockSource.loadSnapshot", () => {
     await expect(src.loadSnapshot()).resolves.toBeNull();
   });
 
-  it("returns blocks with the stored revision", async () => {
+  it("uses the stored revision when it matches the snapshot, without re-serializing it", async () => {
     const blocks = { Site: { name: "x" } };
-    const src = new KVBlockSource(
-      makeKV({
-        [SNAP]: JSON.stringify(blocks),
-        [REV]: "stored-rev",
-      }),
-      ID,
-    );
-    await expect(src.loadSnapshot()).resolves.toEqual({ blocks, revision: "stored-rev" });
+    const kv = makeKV({ [SNAP]: JSON.stringify(blocks), [REV]: computeRevision(blocks) });
+    const stringify = vi.spyOn(JSON, "stringify");
+    const snapshot = await new KVBlockSource(kv, ID).loadSnapshot();
+    expect(stringify).not.toHaveBeenCalled();
+    stringify.mockRestore();
+    expect(snapshot).toEqual({ blocks, revision: computeRevision(blocks) });
+  });
+
+  it("ignores a stored revision from another write (torn read) and hashes what it loaded", async () => {
+    // KV keys are independent: a PoP can return the new revision with the old snapshot.
+    // Trusting it would pin the isolate to stale content under the new revision's cache scope.
+    const oldBlocks = { Site: { name: "old" } };
+    const newBlocks = { Site: { name: "new" } };
+    const kv = makeKV({ [SNAP]: JSON.stringify(oldBlocks), [REV]: computeRevision(newBlocks) });
+    await expect(new KVBlockSource(kv, ID).loadSnapshot()).resolves.toEqual({
+      blocks: oldBlocks,
+      revision: computeRevision(oldBlocks),
+    });
   });
 
   it("recomputes the revision when only the snapshot is stored", async () => {

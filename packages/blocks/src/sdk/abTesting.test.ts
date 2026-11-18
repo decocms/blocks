@@ -296,6 +296,27 @@ describe("withABTesting — outer-catch defense", () => {
 // Ratio-fingerprinted cookie
 // ---------------------------------------------------------------------------
 
+describe("withABTesting — site config memo", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("reads the hostname's config once per isolate, a missing one included, until the TTL", async () => {
+    const handler: WorkerHandler = { fetch: vi.fn(async () => new Response("ok")) };
+    const kv = makeFakeKv(null);
+    const env = { KV: kv } as unknown as Record<string, unknown>;
+    const wrapped = withABTesting(handler, { kvBinding: "KV" });
+
+    await wrapped.fetch(new Request(`https://${REAL_HOST}/a`), env, makeCtx());
+    await wrapped.fetch(new Request(`https://${REAL_HOST}/b`), env, makeCtx());
+    expect(kv.get).toHaveBeenCalledTimes(1);
+    expect(handler.fetch).toHaveBeenCalledTimes(2);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 61_000);
+    await wrapped.fetch(new Request(`https://${REAL_HOST}/c`), env, makeCtx());
+    expect(kv.get).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("getStableBucket — ratio fingerprint", () => {
   it("honors the cookie when its ratio fingerprint matches the current ratio", () => {
     const request = new Request(`https://${REAL_HOST}/`, {

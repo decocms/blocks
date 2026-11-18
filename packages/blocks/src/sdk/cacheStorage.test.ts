@@ -139,6 +139,40 @@ it("data stores key by dataScope and survive a deploy; build stores do not", asy
   expect(await run(storage, "site:build-B", () => data2.read(data2.key("item")))).toBeUndefined();
 });
 
+it("cachedLoader with dataVersion survives a deploy/publish; without it, it does not", async () => {
+  const storage = createKVCacheStorage(fakeKV());
+  const bind = <T,>(build: string, fn: () => T): T =>
+    RequestContext.run(new Request("https://site.test/"), () => {
+      bindCacheStorage({
+        storage,
+        scope: `site:${build}`,
+        dataScope: "site:data:1",
+        waitUntil: (work) => pending.push(work),
+      });
+      return fn();
+    });
+  const opts = { policy: "stale-while-revalidate", maxAge: 60_000 } as const;
+  const fn = vi.fn(async (p: { q: string }) => ({ q: p.q }));
+  const data = createCachedLoader("plp", fn, { ...opts, dataVersion: "1" });
+  const build = createCachedLoader("plp-build", fn, opts);
+  await bind("build-A", async () => {
+    await data({ q: "a" });
+    await build({ q: "a" });
+    await flush();
+  });
+  expect(fn).toHaveBeenCalledTimes(2);
+  clearLoaderCache();
+  await bind("build-B", () => data({ q: "a" }));
+  expect(fn).toHaveBeenCalledTimes(2); // preserved across the new build
+  await bind("build-B", () => build({ q: "a" }));
+  expect(fn).toHaveBeenCalledTimes(3); // per-build entry is gone
+  // Bumping dataVersion (shape change) or new props miss.
+  const bumped = createCachedLoader("plp", fn, { ...opts, dataVersion: "2" });
+  await bind("build-B", () => bumped({ q: "a" }));
+  await bind("build-B", () => data({ q: "b" }));
+  expect(fn).toHaveBeenCalledTimes(5);
+});
+
 it("does not switch bindings between concurrent requests", async () => {
   const a = createMemoryCacheStorage();
   const b = createMemoryCacheStorage();
@@ -167,6 +201,30 @@ it("retains non-JSON values locally without silently corrupting them in KV", asy
     await flush();
     expect(kv.put).not.toHaveBeenCalled();
   });
+});
+
+it("serializes a cached value once per write and not at all on a storage hit", async () => {
+  const storage = createKVCacheStorage(fakeKV());
+  const value = { items: [{ id: 1 }, { id: 2 }] };
+  const stringify = vi.spyOn(JSON, "stringify");
+  const ofValue = () =>
+    stringify.mock.calls.filter(([v]) => v === value || (v as { value?: unknown })?.value === value)
+      .length;
+  const writer = createCacheStore<typeof value>("once");
+  await run(storage, "site", async () => {
+    writer.set(writer.key("k"), value, Date.now() + 60_000);
+    await flush();
+  });
+  expect(ofValue()).toBe(1);
+  stringify.mockClear();
+  const reader = createCacheStore<typeof value>("once");
+  const hit = await run(storage, "site", () => reader.read(reader.key("k")));
+  expect(hit).toEqual(value);
+  // Sizing the memory tier reuses the raw text it just parsed.
+  expect(
+    stringify.mock.calls.filter(([v]) => (v as { items?: unknown })?.items !== undefined),
+  ).toHaveLength(0);
+  stringify.mockRestore();
 });
 
 it("deduplicates a cold loader through slow storage and survives a memory wipe", async () => {
@@ -238,6 +296,28 @@ it("refuses to serialize private HTTP responses or cookies", async () => {
     }),
   );
   expect(await cache.match(req)).toBeUndefined();
+});
+
+it("reports what each response put did, without changing what it stores", async () => {
+  const req = new Request("https://site.test/");
+  const publicHeaders = { "cache-control": "public, max-age=60" };
+  const cache = createResponseCache(createMemoryCacheStorage(), "site");
+  expect(await cache.put(req, new Response("ok", { headers: publicHeaders }))).toBe("stored");
+  expect(
+    await cache.put(
+      req,
+      new Response("p", { headers: { "cache-control": "private, max-age=60" } }),
+    ),
+  ).toBe("skipped:uncacheable");
+  const huge = new Uint8Array(8 * 1024 * 1024 + 1);
+  expect(await cache.put(req, new Response(huge, { headers: publicHeaders }))).toBe(
+    "skipped:too-large",
+  );
+  const failure = vi.fn(async () => {
+    throw new Error("storage down");
+  });
+  const broken = createResponseCache({ get: failure, set: failure, delete: failure }, "site");
+  expect(await broken.put(req, new Response("ok", { headers: publicHeaders }))).toBe("error");
 });
 
 it("bounds SWR separately from stale-if-error and stops serving at the final TTL", async () => {

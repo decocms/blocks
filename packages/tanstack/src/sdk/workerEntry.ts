@@ -88,9 +88,13 @@ import {
   setRedirectSemantics,
 } from "@decocms/blocks/sdk/redirects";
 import { RequestContext } from "@decocms/blocks/sdk/requestContext";
-import { createResponseCache } from "@decocms/blocks/sdk/responseCache";
+import {
+  createResponseCache,
+  type ResponseCachePutResult,
+} from "@decocms/blocks/sdk/responseCache";
 import { cleanPathForCacheKey, hasTrackingParams } from "@decocms/blocks/sdk/urlUtils";
 import { type Device, isMobileUA } from "@decocms/blocks/sdk/useDevice";
+import { LIVE_CONTROLS_SCRIPT } from "@decocms/blocks-admin/admin/liveControls";
 import { getRenderShellConfig, setMetaAssetFetcher } from "@decocms/blocks-admin/admin/setup";
 import { reconfigureAppsOnce } from "@decocms/blocks-admin/apps/autoconfig";
 import { buildHtmlShell } from "@decocms/blocks-admin/sdk/htmlShell";
@@ -105,6 +109,16 @@ import {
   registerDraftOverride,
   requestCarriesDraft,
 } from "./draft";
+import {
+  cacheKeyParts,
+  EdgeCacheAttr,
+  type EdgeCacheBypassReason,
+  type EdgeCacheKind,
+  type EdgeCacheStoreDecision,
+  fnv1aHex,
+  segmentShape,
+  unsafeCookieNames,
+} from "./edgeCacheTelemetry";
 import { ensureBlocksHydrated, getDataCacheVersion, maybePollRevision } from "./kvHydration";
 import { lookupExactRedirect } from "./kvRedirects";
 import { DECO_POWERED_BY, installDefaultUserAgent } from "./outboundHeaders";
@@ -433,8 +447,10 @@ export interface DecoWorkerEntryOptions {
    *     A raw response doesn't depend on the code or the decofile; the new
    *     code re-transforms it, so a deploy can't serve an old shape.
    *
-   * `cachedLoader` results, HTML responses and sections stay per-build in both
-   * modes: they hold code output. Segment/device and geo stay in every key.
+   * HTML responses, sections and `cachedLoader` results stay per-build in both
+   * modes: they hold code output. The one exception: under `"preserve"`, a
+   * `cachedLoader` that sets `dataVersion` is keyed like `fetch:*` and survives
+   * too. Segment/device and geo stay in every key.
    * Any other value falls back to `"invalidate"`.
    *
    * To drop preserved responses once, set `DECO_DATA_CACHE_PURGE` to a new value
@@ -638,6 +654,25 @@ export interface DecoWorkerEntryOptions {
   observability?: OtelOptions | false;
 
   /**
+   * Edge cache telemetry on the request span (`deco.http.request`): for every
+   * document / server-function request that reaches the cache layer, the
+   * decision and bypass reason, profile, short cache-key version, colo,
+   * segment hash and shape, a hash of the full key, which extra key parts
+   * applied (`__abf`, `__bot`, `__fetch`, `__cf_geo`, `__cf_device`) and, on a
+   * miss, what happened to the store. Attribute keys are in
+   * `EdgeCacheAttr` (`./edgeCacheTelemetry`).
+   *
+   * Observation only — keys, TTLs and store decisions are identical either
+   * way. Rides the existing trace export and its head sampling
+   * (`DECO_OTEL_TRACES_SAMPLING_RATE`); adds no span, metric point or log line.
+   * No visitor value is recorded: segment values are hashed or reduced to
+   * field names, cookies to names. Inert when no tracer is configured.
+   *
+   * @default true
+   */
+  edgeCacheTelemetry?: boolean;
+
+  /**
    * Default `User-Agent` for OUTBOUND `fetch` calls (loaders, commerce
    * APIs, proxies). Cloudflare Workers sends no User-Agent at all, and
    * UA-less requests are blocked by common WAF setups (Cloudflare managed
@@ -657,45 +692,60 @@ export interface DecoWorkerEntryOptions {
   outboundUserAgent?: string | false;
 
   /**
-   * How CMS redirects (`website/loaders/redirect(s).ts`, `redirectsFromCsv`)
-   * match and answer — see `@decocms/blocks/sdk/redirects`.
-   *
-   * - `"legacy"` (default): case- and trailing-slash-insensitive match,
-   *   temporary → 302, the request's query dropped from `Location`. What every
-   *   `@decocms/*` site has answered so far.
-   * - `"fresh"`: what the Fresh site a migration came from answered — source
-   *   matched byte for byte (`pathname + search` first), temporary → 307, the
-   *   request's query appended to `Location` unless `discardQueryParameters`.
-   *
-   * Both drop self-redirects and never double-encode `Location`.
+   * CMS redirects (`website/loaders/redirect(s).ts`, `redirectsFromCsv`): how
+   * they match and answer, and which requests check them.
    *
    * @default { semantics: "legacy" }
    */
-  redirects?: { semantics?: RedirectSemantics };
+  redirects?: {
+    /**
+     * How the rules match and answer — see `@decocms/blocks/sdk/redirects`.
+     *
+     * - `"legacy"` (default): case- and trailing-slash-insensitive match,
+     *   temporary → 302, the request's query dropped from `Location`. What every
+     *   `@decocms/*` site has answered so far.
+     * - `"fresh"`: what the Fresh site a migration came from answered — source
+     *   matched byte for byte (`pathname + search` first), temporary → 307, the
+     *   request's query appended to `Location` unless `discardQueryParameters`.
+     *
+     * Both drop self-redirects and never double-encode `Location`.
+     */
+    semantics?: RedirectSemantics;
+
+    /**
+     * Requests that are never a CMS redirect source — typically the paths
+     * `proxyHandler` forwards to the commerce platform. Return `true` and the
+     * worker does not check CMS redirects for that request at all: no KV read
+     * on a fast-deploy site (a cart path is new on every request, so each one
+     * paid a cold read before reaching the proxy), and no in-memory rule
+     * either, so the answer for those paths does not depend on the deploy mode.
+     *
+     * Runs on nearly every request, ahead of `?asJson`, the proxy and the page:
+     * keep it a cheap, synchronous test of the URL. Unset, every request is
+     * checked. Match whole path segments: a bare `/login` prefix also matches
+     * a page such as `/loginpedido.aspx`, whose CMS redirect would then never
+     * answer.
+     *
+     * @example
+     * ```ts
+     * // What proxyHandler forwards to the commerce platform.
+     * const PROXIED = /^\/(?:api|files|arquivos|_v)\/|^\/(?:checkout|account|login)(?:\/|$)/;
+     *
+     * createDecoWorkerEntry(serverEntry, {
+     *   redirects: { skip: (url) => PROXIED.test(url.pathname) },
+     * });
+     * ```
+     */
+    skip?: (url: URL, request: Request) => boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const PREVIEW_SHELL_SCRIPT = `(function() {
-    if (window.__DECO_LIVE_CONTROLS__) return;
-    window.__DECO_LIVE_CONTROLS__ = true;
-    addEventListener("message", function(event) {
-      var data = event.data;
-      if (!data || typeof data !== "object") return;
-      switch (data.type) {
-        case "editor::inject":
-          if (data.args && data.args.script) {
-            try { eval(data.args.script); } catch(e) { console.error("[deco] inject error:", e); }
-          }
-          break;
-      }
-    });
-  })();`;
-
 function buildPreviewShell(): string {
-  return buildHtmlShell({ script: PREVIEW_SHELL_SCRIPT });
+  return buildHtmlShell({ script: LIVE_CONTROLS_SCRIPT });
 }
 
 // ---------------------------------------------------------------------------
@@ -729,7 +779,20 @@ function buildPreviewShell(): string {
  * the path.
  */
 export function detectLocationMatcher(blocks: Record<string, unknown>): boolean {
-  return JSON.stringify(blocks).includes('"__resolveType":"website/matchers/location.ts"');
+  // Walk instead of `JSON.stringify(blocks).includes(...)`: stringifying a 10 MB
+  // decofile allocated ~21 MB on every isolate boot just to find one resolver.
+  // ponytail: no visited set — a decofile is a JSON tree (the old stringify threw on cycles).
+  const stack: object[] = [blocks];
+  while (stack.length) {
+    const value = stack.pop() as Record<string, unknown>;
+    if (value.__resolveType === "website/matchers/location.ts" && !Array.isArray(value))
+      return true;
+    for (const key in value) {
+      const child = value[key];
+      if (child && typeof child === "object") stack.push(child);
+    }
+  }
+  return false;
 }
 
 /**
@@ -1299,6 +1362,7 @@ export function createDecoWorkerEntry(
     staticPaths: staticPathsOpt = DEFAULT_STATIC_PATHS,
     cdnCacheControl: cdnCacheControlOpt = "serverfn-segment",
     observability: observabilityOpt,
+    edgeCacheTelemetry: edgeCacheTelemetryOpt = true,
     outboundUserAgent: outboundUserAgentOpt,
     speculationRules: speculationRulesOpt,
   } = options;
@@ -1306,6 +1370,7 @@ export function createDecoWorkerEntry(
   // Before the first request builds the redirect map — the map keys its rules
   // for the semantics in force when it is built.
   setRedirectSemantics(redirectsOpt?.semantics ?? "legacy");
+  const skipCmsRedirects = redirectsOpt?.skip;
 
   // Speculation Rules — store the site-wide config in the shared singleton so
   // DecoRootLayout (SSR) emits the tag in <head>. Inert unless the site opts in.
@@ -1484,20 +1549,111 @@ export function createDecoWorkerEntry(
     return staticPathsOpt.some((sp) => pathname.startsWith(sp));
   }
 
-  function isCacheable(request: Request, url: URL): boolean {
-    if (request.method !== "GET") return false;
-    if (isBypassPath(url.pathname)) return false;
+  /** Why a request skips the edge cache, or `null` when it is cacheable. */
+  function nonCacheableReason(request: Request, url: URL): EdgeCacheBypassReason | null {
+    if (request.method !== "GET") return `method:${request.method}`;
+    if (isBypassPath(url.pathname)) return "bypass-path";
     // Draft preview: never cache a request in draft mode. Keys on the real
     // `?__draft=` param OR the navigation cookie (SPA nav after entry), gated
     // on an allowed preview host — see requestCarriesDraft.
-    if (requestCarriesDraft(request, url)) return false;
-    if (url.searchParams.has("__deco_preview")) return false;
-    if (url.searchParams.has("pathTemplate")) return false;
+    if (requestCarriesDraft(request, url)) return "draft-preview";
+    if (url.searchParams.has("__deco_preview")) return "preview";
+    if (url.searchParams.has("pathTemplate")) return "path-template";
     // Forced matcher results must never be served from (or stored in) the
     // shared edge cache.
-    if (url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM)) return false;
-    if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) return false;
-    return true;
+    if (url.searchParams.has(DECO_MATCHERS_OVERRIDE_PARAM)) return "matchers-override";
+    if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) return "matchers-override";
+    return null;
+  }
+
+  // -- Edge cache telemetry (observation only, see ./edgeCacheTelemetry) ------
+
+  function requestColo(request: Request): string | undefined {
+    const colo = (request as unknown as { cf?: { colo?: unknown } }).cf?.colo;
+    return typeof colo === "string" && colo ? colo : undefined;
+  }
+
+  /**
+   * Stamp edge-cache attributes on the active span (the request root span).
+   * Skipped entirely — no hashing — when disabled or when there is no span.
+   * Never throws: observability must not fail the request.
+   */
+  function stampEdgeCache(build: () => Record<string, string | undefined>): void {
+    if (!edgeCacheTelemetryOpt || !getActiveSpan()) return;
+    try {
+      for (const [k, v] of Object.entries(build())) {
+        if (v !== undefined) setSpanAttribute(k, v);
+      }
+    } catch {
+      /* swallow — observability must never fail the request */
+    }
+  }
+
+  /** The dimensions of the key a request was looked up under. */
+  function stampEdgeCacheKey(
+    request: Request,
+    env: Record<string, unknown>,
+    kind: EdgeCacheKind,
+    profile: string,
+    keyUrl: string,
+    segment: SegmentKey | undefined,
+  ): void {
+    stampEdgeCache(() => {
+      const serialized = segment ? hashSegment(segment) : undefined;
+      return {
+        [EdgeCacheAttr.KIND]: kind,
+        [EdgeCacheAttr.PROFILE]: profile,
+        [EdgeCacheAttr.VERSION]: getBuildHash(env).slice(0, 8) || undefined,
+        [EdgeCacheAttr.COLO]: requestColo(request),
+        [EdgeCacheAttr.SEGMENT_HASH]: serialized !== undefined ? fnv1aHex(serialized) : undefined,
+        [EdgeCacheAttr.SEGMENT_SHAPE]:
+          serialized !== undefined ? segmentShape(serialized) : undefined,
+        [EdgeCacheAttr.KEY_HASH]: fnv1aHex(keyUrl),
+        [EdgeCacheAttr.KEY_PARTS]: cacheKeyParts(keyUrl),
+      };
+    });
+  }
+
+  function stampEdgeCacheBypass(
+    request: Request,
+    kind: EdgeCacheKind,
+    reason: EdgeCacheBypassReason,
+    profile?: string,
+  ): void {
+    stampEdgeCache(() => ({
+      [EdgeCacheAttr.STATUS]: "BYPASS",
+      [EdgeCacheAttr.BYPASS_REASON]: reason,
+      [EdgeCacheAttr.KIND]: kind,
+      [EdgeCacheAttr.PROFILE]: profile,
+      [EdgeCacheAttr.COLO]: requestColo(request),
+    }));
+  }
+
+  function stampEdgeCacheStore(decision: EdgeCacheStoreDecision, unsafeCookies?: string): void {
+    stampEdgeCache(() => ({
+      [EdgeCacheAttr.STORE]: decision,
+      [EdgeCacheAttr.STORE_UNSAFE_COOKIES]: unsafeCookies,
+    }));
+  }
+
+  /**
+   * `cache.put` inside the `deco.cache.store` span, with what the put did on
+   * that span (`stored`, `skipped:too-large`, `error`, …). It runs in
+   * `waitUntil`, after the root span has ended, so the outcome cannot go on the
+   * root — the child shares its trace id. Returns what `put` returned.
+   */
+  async function putWithOutcome(
+    put: () => Promise<ResponseCachePutResult>,
+  ): Promise<ResponseCachePutResult> {
+    try {
+      const result = await put();
+      if (edgeCacheTelemetryOpt) setSpanAttribute(EdgeCacheAttr.STORE_OUTCOME, result);
+      return result;
+    } catch (err) {
+      // Not expected: `put` swallows adapter errors itself.
+      if (edgeCacheTelemetryOpt) setSpanAttribute(EdgeCacheAttr.STORE_OUTCOME, "error");
+      throw err;
+    }
   }
 
   function getProfile(url: URL): CacheProfileName {
@@ -2278,6 +2434,19 @@ export function createDecoWorkerEntry(
         response.headers.set("CDN-Cache-Control", "no-store");
       }
 
+      // A server function never answers a page: HTML there is a forged response
+      // (CVE-2026-102989: TanStack Start ≤1.168.59 returned a client-injected
+      // `result`, which h3 accepts as a response by its constructor's name). A
+      // sandboxed opaque origin runs no script and reads no cookie, and the CDN
+      // keeps no copy. Not covered by `securityHeaders: false` on purpose.
+      if (
+        isServerFnPathname(new URL(request.url).pathname) &&
+        (response.headers.get("content-type") ?? "").includes("text/html")
+      ) {
+        response.headers.set("Content-Security-Policy", "sandbox");
+        response.headers.set("CDN-Cache-Control", "no-store");
+      }
+
       let finalResponse = applySecurityHeaders(response, cspNonce);
 
       // Echo request.id + trace.id back to the client / tail worker.
@@ -2456,38 +2625,47 @@ export function createDecoWorkerEntry(
     // Loader/commerce cache purge (in-memory, this isolate only). Escape hatch
     // to invalidate loader results immediately after an out-of-band upstream
     // change (e.g. a Magento catalog sync) without waiting out the TTL. A
-    // redeploy is the global lever — loader cache keys are build-hash versioned.
+    // redeploy is the global lever for loaders keyed by build hash; one with
+    // `dataVersion` under DECO_DATA_CACHE_ON_DEPLOY=preserve survives it (bump
+    // its `dataVersion`, or use DECO_DATA_CACHE_PURGE).
     if (url.pathname === "/_cache/purge-loaders" && request.method === "POST") {
       return handlePurgeLoaders(request, env);
     }
 
     // CMS redirects (website/loaders/redirect.ts blocks) — checked before
-    // ?asJson and commerce proxy so every request path respects redirects.
-    // Revision-keyed so cross-bundle setBlocks() calls are detected even when
-    // onChange listeners don't fire across Vite split-bundle module instances.
-    // The semantics are part of the key: a map keys its rules for the
-    // semantics in force when it is built.
-    const currentRevision = `${getRevision()}:${getRedirectSemantics()}`;
-    if (_redirectMapRevision !== currentRevision) {
-      _redirectMap = loadRedirects(loadBlocks());
-      _redirectMapRevision = currentRevision;
-    }
-    // Exact before glob, across BOTH sources. On a fast-deploy site the exact
-    // rules live under their own `redirect:<id>:<path>` KV keys and are absent
-    // from the decofile, so the in-memory exact hit is the non-fast-deploy
-    // case. Going straight to `matchRedirect` and only then to KV would let a
-    // glob win over an exact rule, inverting the precedence.
-    // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
-    // stays one read, keyed by pathname.
-    const cmsRedirect =
-      matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
-      (await lookupExactRedirect(env as Record<string, unknown>, url.pathname)) ??
-      matchPatternRedirect(url.pathname, _redirectMap!);
-    if (cmsRedirect) {
-      return new Response(null, {
-        status: cmsRedirect.status,
-        headers: { Location: redirectLocation(cmsRedirect, url.search) },
-      });
+    // ?asJson and commerce proxy so every request path respects redirects,
+    // except requests the site's `redirects.skip` marks as never a redirect
+    // source (typically its proxied paths).
+    if (!skipCmsRedirects?.(url, request)) {
+      // Revision-keyed so cross-bundle setBlocks() calls are detected even when
+      // onChange listeners don't fire across Vite split-bundle module instances.
+      // The semantics are part of the key: a map keys its rules for the
+      // semantics in force when it is built.
+      const currentRevision = `${getRevision()}:${getRedirectSemantics()}`;
+      if (_redirectMapRevision !== currentRevision) {
+        _redirectMap = loadRedirects(loadBlocks());
+        _redirectMapRevision = currentRevision;
+      }
+      // Exact before glob, across BOTH sources. On a fast-deploy site the exact
+      // rules live under their own `redirect:<id>:<path>` KV keys and are absent
+      // from the decofile, so the in-memory exact hit is the non-fast-deploy
+      // case. Going straight to `matchRedirect` and only then to KV would let a
+      // glob win over an exact rule, inverting the precedence.
+      // Query-scoped rules (`/x?map=ft`) live in memory only, so the KV lookup
+      // stays one read, keyed by pathname.
+      // That precedence holds for navigations (GET/HEAD) only: other methods
+      // skip the KV read (see `lookupExactRedirect`), so for a POST a glob can
+      // answer where a KV-only exact rule would have.
+      const cmsRedirect =
+        matchExactRedirect(url.pathname, _redirectMap!, url.search) ??
+        (await lookupExactRedirect(env as Record<string, unknown>, url.pathname, request.method)) ??
+        matchPatternRedirect(url.pathname, _redirectMap!);
+      if (cmsRedirect) {
+        return new Response(null, {
+          status: cmsRedirect.status,
+          headers: { Location: redirectLocation(cmsRedirect, url.search) },
+        });
+      }
     }
 
     // ?renderJson — structured JSON of the page for the mobile app. Lean shape
@@ -2790,6 +2968,7 @@ export function createDecoWorkerEntry(
       // body-hash cache key does not vary on the cookie, so it must bypass the
       // shared cache entirely or it would leak drafts / serve stale published.
       if (requestCarriesDraft(request, url)) {
+        stampEdgeCacheBypass(request, "serverFn", "draft-preview");
         const origin = await serverEntry.fetch(request, env, ctx);
         const resp = new Response(origin.body, origin);
         resp.headers.set("Cache-Control", "no-store, private");
@@ -2803,6 +2982,7 @@ export function createDecoWorkerEntry(
 
       // Logged-in users always bypass — personalized content must not leak
       if (sfnSegment?.loggedIn) {
+        stampEdgeCacheBypass(request, "serverFn", "logged-in");
         const origin = await serverEntry.fetch(request, env, ctx);
         const resp = new Response(origin.body, origin);
         resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
@@ -2816,6 +2996,7 @@ export function createDecoWorkerEntry(
       // (QS overrides travel inside the payload's pageUrl, so they already
       // produce a distinct body hash.)
       if (request.headers.has(DECO_MATCHERS_OVERRIDE_PARAM)) {
+        stampEdgeCacheBypass(request, "serverFn", "matchers-override");
         const origin = await serverEntry.fetch(request, env, ctx);
         const resp = new Response(origin.body, origin);
         resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
@@ -2864,6 +3045,7 @@ export function createDecoWorkerEntry(
       // Use "listing" profile for server function responses
       const sfnProfile: CacheProfileName = "listing";
       const sfnEdge = edgeCacheConfig(sfnProfile);
+      stampEdgeCacheKey(request, env, "serverFn", sfnProfile, sfnCacheKey.url, sfnSegment);
 
       // Check edge cache
       let sfnCached: Response | undefined;
@@ -2960,6 +3142,13 @@ export function createDecoWorkerEntry(
         origin.status === 200;
 
       if (!isCacheableResponse) {
+        // Same precedence as the X-Cache-Reason below. This path refuses ANY
+        // Set-Cookie, so every name is listed.
+        if (origin.headers.has("set-cookie")) {
+          stampEdgeCacheStore("skipped:set-cookie", unsafeCookieNames(origin, new Set()));
+        } else {
+          stampEdgeCacheStore(origin.status !== 200 ? "skipped:non-200" : "skipped:not-cacheable");
+        }
         const resp = new Response(origin.body, origin);
         resp.headers.delete("X-Deco-Cacheable");
         resp.headers.set("X-Cache", "BYPASS");
@@ -2971,6 +3160,9 @@ export function createDecoWorkerEntry(
       }
 
       // Store in edge cache (see sfnCarriesTracking above)
+      stampEdgeCacheStore(
+        sfnCarriesTracking ? "skipped:tracking" : serverFnCache ? "put" : "skipped:no-cache",
+      );
       if (serverFnCache && !sfnCarriesTracking) {
         try {
           const ttl = sfnEdge.fresh + Math.max(sfnEdge.swr, sfnEdge.sie);
@@ -2980,10 +3172,14 @@ export function createDecoWorkerEntry(
           toStore.headers.delete("CDN-Cache-Control");
           toStore.headers.delete("X-Deco-Cacheable");
           ctx.waitUntil(
-            withTracing("deco.cache.store", () => serverFnCache.put(sfnCacheKey, toStore), {
-              "cache.profile": sfnProfile,
-              "cache.kind": "serverFn",
-            }),
+            withTracing(
+              "deco.cache.store",
+              () => putWithOutcome(() => serverFnCache.put(sfnCacheKey, toStore)),
+              {
+                "cache.profile": sfnProfile,
+                "cache.kind": "serverFn",
+              },
+            ),
           );
         } catch {
           /* Cache API unavailable */
@@ -3003,9 +3199,16 @@ export function createDecoWorkerEntry(
     }
 
     // Non-cacheable requests — pass through but protect against accidental caching
-    if (!isCacheable(request, url)) {
+    const bypassReason = nonCacheableReason(request, url);
+    if (bypassReason !== null) {
       const origin = await serverEntry.fetch(request, env, ctx);
       const profile = getProfile(url);
+      stampEdgeCacheBypass(
+        request,
+        isServerFnPathname(url.pathname) ? "serverFn" : "html",
+        bypassReason,
+        profile,
+      );
 
       if (profile === "private" || profile === "none" || profile === "cart") {
         const resp = new Response(origin.body, origin);
@@ -3053,6 +3256,7 @@ export function createDecoWorkerEntry(
 
     // Logged-in users always bypass the cache (personalized content)
     if (segment?.loggedIn) {
+      stampEdgeCacheBypass(request, "html", "logged-in", getProfile(url));
       const origin = await serverEntry.fetch(request, env, ctx);
       const resp = new Response(origin.body, origin);
       resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
@@ -3066,6 +3270,8 @@ export function createDecoWorkerEntry(
 
     const profile = getProfile(url);
     const edgeConfig = edgeCacheConfig(profile);
+    // A GET server fn (SPA navigation data) is keyed and profiled as its page.
+    stampEdgeCacheKey(request, env, "html", profile, cacheKey.url, segment);
 
     // Helper: dress a response with proper client-facing headers
     function dressResponse(
@@ -3141,10 +3347,14 @@ export function createDecoWorkerEntry(
         toStore.headers.set("Cache-Control", `public, max-age=${storageTtl}`);
         toStore.headers.set("X-Deco-Stored-At", String(Date.now()));
         toStore.headers.delete("CDN-Cache-Control");
-        const stored = withTracing("deco.cache.store", () => cache.put(cacheKey, toStore), {
-          "cache.profile": profile,
-          "cache.kind": "html",
-        });
+        const stored = withTracing(
+          "deco.cache.store",
+          () => putWithOutcome(() => cache.put(cacheKey, toStore)),
+          {
+            "cache.profile": profile,
+            "cache.kind": "html",
+          },
+        );
         ctx.waitUntil(stored);
         return stored;
       } catch {
@@ -3285,6 +3495,7 @@ export function createDecoWorkerEntry(
     }
 
     if (origin.status !== 200) {
+      stampEdgeCacheStore("skipped:non-200");
       // Non-200 origin — SIE fallback on 5xx/429
       if (origin.status >= 500 || origin.status === 429) {
         if (cached && edgeConfig.sie > 0) {
@@ -3315,6 +3526,9 @@ export function createDecoWorkerEntry(
     // Safe/public cookies (IS session, segment, etc.) are stripped from the
     // cached copy but kept on the response served to the current user.
     if (origin.headers.has("set-cookie") && !hasOnlySafeCookies(origin, safeCookieSet)) {
+      // Looked up as a MISS; the response says BYPASS. The span keeps the
+      // MISS and records why nothing was stored.
+      stampEdgeCacheStore("skipped:unsafe-cookie", unsafeCookieNames(origin, safeCookieSet));
       const resp = new Response(origin.body, origin);
       resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
       resp.headers.delete("CDN-Cache-Control");
@@ -3331,6 +3545,7 @@ export function createDecoWorkerEntry(
     // for the full retention window and stale-if-error would never fire —
     // turning a seconds-long blip into hours of empty pages.
     if (origin.headers.get("X-Deco-Degraded") === "true") {
+      stampEdgeCacheStore("skipped:degraded");
       if (cached && edgeConfig.sie > 0) {
         const storedAtStr = cached.headers.get("X-Deco-Stored-At");
         const storedAt = storedAtStr ? Number(storedAtStr) : 0;
@@ -3359,6 +3574,7 @@ export function createDecoWorkerEntry(
     const profileConfig = getCacheProfile(profile);
 
     if (!profileConfig.isPublic || profileConfig.edge.fresh === 0) {
+      stampEdgeCacheStore("skipped:profile");
       const resp = new Response(origin.body, origin);
       resp.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
       resp.headers.set("X-Cache", "BYPASS");
@@ -3378,7 +3594,14 @@ export function createDecoWorkerEntry(
       : origin;
     // This render saw the tracked URL and embedded it — never store it under
     // the clean key. The next clean visitor fills the entry.
-    if (!skipStoreTracking) storeInCache(cacheOrigin);
+    // (Stamped here, not in storeInCache: background revalidation also stores,
+    // after this request's span has ended.)
+    if (skipStoreTracking) {
+      stampEdgeCacheStore("skipped:tracking");
+    } else {
+      stampEdgeCacheStore(cache ? "put" : "skipped:no-cache");
+      storeInCache(cacheOrigin);
+    }
     return dressResponse(
       origin,
       "MISS",

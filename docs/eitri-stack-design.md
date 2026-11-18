@@ -225,7 +225,7 @@ how those page decofiles reach the Eitri device is the delivery epic (Open Q3).
 | `blocksManifest.gen.ts`, `sections.gen.ts`, `loaders.gen.ts`, `invoke.gen.ts`, `blocks.gen.ts` | ❌ **No** — React/Vite/Next/TanStack runtime-loading glue; dead weight for Eitri (`blocks.gen.ts` is the Vite load-stub sibling of the snapshot — harmless byproduct if it appears) |
 
 **Delivery to Studio:** the FS reaches Studio via a **running daemon that mounts
-the workspace** (the model of `packages/tanstack/src/daemon/`) — not hosting or
+the workspace** — not hosting or
 upload. So an Eitri daemon (or reuse) exposes `.deco` to the FS-based Studio.
 
 ## Gaps to close

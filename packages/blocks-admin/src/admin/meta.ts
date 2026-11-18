@@ -2,8 +2,8 @@ import { djb2Hex } from "@decocms/blocks/sdk/djb2";
 import { composeMeta, type MetaResponse } from "@decocms/blocks/cms";
 
 // Use globalThis to share meta state across module instances.
-// The daemon middleware imports this module via native import() (outside Vite SSR),
-// while setup.ts calls setMetaData() via Vite SSR — these are different module instances.
+// A module loaded via native import() (outside Vite SSR) and setup.ts, which calls
+// setMetaData() via Vite SSR, see different module instances of this file.
 // globalThis bridges them so both see the same metaData.
 const G = globalThis as unknown as {
   __deco_meta_data?: MetaResponse | null;

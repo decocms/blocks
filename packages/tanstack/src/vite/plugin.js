@@ -498,13 +498,13 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // out above), so this plugin's no-invalidation delta machinery below
       // stays the TanStack dev-reload path until that's fixed upstream.
       //
-      // Generator is loaded lazily via tsImport (same pattern as the daemon
-      // below) so we don't depend on the consumer's TS loader.
+      // Generator is loaded lazily via tsImport so we don't depend on the
+      // consumer's TS loader.
       const cwd = process.cwd();
 
       // Vite's CORS middleware ends every preflight itself and, since Vite 6,
       // allows only localhost origins, so a cross-origin admin read that needs
-      // one (Studio's conditional `/live/_meta` through the tunnel) never
+      // one (Studio's conditional `/live/_meta`) never
       // reaches the worker's own answer. Vite installs it before running
       // configureServer, hence the front of the stack rather than `use()`.
       // That stack is connect's, not Vite's API: without it, only this
@@ -527,9 +527,8 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       const jsonFile = outFile.replace(/\.ts$/, ".json");
 
       // Lazily load the block generator module (generateBlocks for the cold-start
-      // bootstrap, readBlockDelta for live edits). Same tsImport pattern as the
-      // daemon loader below — keeps `tsx` scoped to this single import instead of
-      // registering a global hook.
+      // bootstrap, readBlockDelta for live edits). tsImport keeps `tsx` scoped to
+      // this single import instead of registering a global hook.
       let genModule;
       const loadGenModule = () => {
         if (genModule) return Promise.resolve(genModule);
@@ -913,53 +912,6 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       server.watcher.on("add", (file) => {
         if (isSchemaSource(file)) scheduleScaffoldGen();
       });
-
-      // Tunnel + daemon: connect local dev to admin.deco.cx
-      // Activated only when both DECO_SITE_NAME and DECO_ENV_NAME are set.
-      // Omitting DECO_ENV_NAME runs Vite fully local (no tunnel registration),
-      // since DECO_SITE_NAME alone is also consumed by site builds via vite's
-      // `define` for `process.env.DECO_SITE_NAME` and shouldn't force a tunnel.
-      const siteName = process.env.DECO_SITE_NAME;
-      const envName = process.env.DECO_ENV_NAME;
-      if (siteName && envName) {
-        // Daemon files are .ts and live inside node_modules. Node's
-        // experimental strip-types refuses to transpile node_modules, so
-        // a plain dynamic `import()` blows up under `vite dev`. Use tsx's
-        // ad-hoc loader (`tsImport`) — scoped to this import, doesn't
-        // register a global hook.
-        const loadDaemon = (specifier) =>
-          import("tsx/esm/api").then(({ tsImport }) => tsImport(specifier, import.meta.url));
-
-        // Add daemon middleware (x-daemon-api interception + auth + volumes + SSE + admin routes)
-        loadDaemon("../daemon/middleware.ts")
-          .then(({ createDaemonMiddleware }) => {
-            server.middlewares.use(createDaemonMiddleware({ site: siteName, server }));
-          })
-          .catch((err) => {
-            console.warn("[deco] Failed to load daemon middleware:", err.message);
-          });
-
-        // Start tunnel after HTTP server is listening (so we know the real port)
-        server.httpServer?.once("listening", async () => {
-          const addr = server.httpServer?.address();
-          const port = typeof addr === "object" && addr ? addr.port : 5173;
-          try {
-            const { startTunnel } = await loadDaemon("../daemon/tunnel.ts");
-            const tunnel = await startTunnel({
-              site: siteName,
-              env: envName,
-              port,
-              // Default to the .deco.host relay (matches startTunnel's documented
-              // default). Set DECO_HOST=false to opt back into the legacy
-              // simpletunnel.deco.site relay.
-              decoHost: process.env.DECO_HOST !== "false",
-            });
-            server.httpServer?.on("close", () => tunnel.close());
-          } catch (err) {
-            console.warn("[deco] Failed to start tunnel:", err.message);
-          }
-        });
-      }
     },
 
     config(_cfg, { command }) {
@@ -996,13 +948,12 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         };
       }
 
-      // Allow tunnel domains through Vite's host check.
-      // .deco.studio is the new admin frontend; multiple real-world Deco sites
-      // duplicated this list to include it — bundling it here removes that
-      // boilerplate.
+      // Let Studio's hosts through Vite's host check. .deco.studio is the admin
+      // frontend; multiple real-world Deco sites duplicated this list to include
+      // it — bundling it here removes that boilerplate.
       if (process.env.DECO_SITE_NAME) {
         cfg.server = {
-          allowedHosts: [".deco.host", ".decocdn.com", ".deco.studio"],
+          allowedHosts: [".decocdn.com", ".deco.studio"],
         };
       }
 

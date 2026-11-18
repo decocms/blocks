@@ -832,6 +832,8 @@ export interface PageInfo {
 	records?: number | undefined;
 	recordPerPage?: number | undefined;
 	pageTypes?: PageType[];
+	/** Identifies the search for analytics, when the platform returns one (VTEX Activity Flow). */
+	searchId?: string;
 }
 export interface ProductListingPage {
 	"@type": "ProductListingPage";

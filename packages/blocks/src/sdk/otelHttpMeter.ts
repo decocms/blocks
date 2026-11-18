@@ -9,10 +9,15 @@
  * ingestor's per-POST charge is captured in the cost model in
  * `docs/observability.md`.
  *
- * **Aggregation model.** Buffers are per-isolate, accumulated forever (until
- * the isolate dies), and exported with `AggregationTemporality = CUMULATIVE`
- * (matching the `clickhouseexporter` schema used by the ingestor's
- * `otel_metrics_{sum,gauge,histogram}` tables).
+ * **Aggregation model.** Buffers are per-isolate and exported with
+ * `AggregationTemporality = DELTA`: every flush sends only what was recorded
+ * since the previous flush, then starts an empty window. Cumulative export
+ * re-sent every series an isolate had ever seen on every flush — one
+ * histogram row per series per 5 s for the isolate's whole life — and forced
+ * a per-isolate `service.instance.id` on the resource to keep the running
+ * totals apart, which made every isolate its own set of series. Measured in
+ * stats-lake: ~600M rows/day in `otel_metrics_histogram` (decocms/blocks#750).
+ * Delta points from different isolates sum correctly without an instance id.
  *
  * **Flush triggers.**
  *  1. `flush()` — caller-driven, used by `workerEntry` inside
@@ -177,10 +182,14 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   const onError = options.onError;
   const metricMetadata = options.metricMetadata ?? {};
 
-  // Buffer state — per-isolate, never reset (CUMULATIVE temporality).
+  // Buffer state — per-isolate, swapped out on every flush (DELTA temporality).
   const metrics = new Map<string, MetricEntry>();
-  // Isolate boot wall-clock — counters/histograms anchor their startTime here.
-  const isolateStartMs = now();
+  // Kind each name was first recorded as. Outlives the per-flush reset so a
+  // name can't come back as a different kind in a later window.
+  const kinds = new Map<string, MetricKind>();
+  // Start of the current delta window — counters/histograms report it as
+  // their startTime. Advances when a flush snapshots the buffer.
+  let windowStartMs = now();
   // Per-isolate flush throttle.
   let lastFlushAt = 0;
   let inflight: Promise<void> | null = null;
@@ -209,16 +218,13 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     name: string,
     kind: MetricKind,
   ): { entry: MetricEntry | null; isNewName: boolean } {
-    const existing = metrics.get(name);
-    if (!existing) return { entry: null, isNewName: true };
-    if (existing.kind !== kind) {
-      onError?.(
-        "kind-mismatch",
-        new Error(`metric "${name}" already registered as ${existing.kind}`),
-      );
+    const registered = kinds.get(name);
+    if (registered && registered !== kind) {
+      onError?.("kind-mismatch", new Error(`metric "${name}" already registered as ${registered}`));
       return { entry: null, isNewName: false };
     }
-    return { entry: existing, isNewName: false };
+    const existing = metrics.get(name);
+    return existing ? { entry: existing, isNewName: false } : { entry: null, isNewName: true };
   }
 
   function materializeEntry(name: string, kind: MetricKind): MetricEntry {
@@ -227,6 +233,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
     else if (kind === "gauge") entry.gauge = new Map();
     else entry.histogram = new Map();
     metrics.set(name, entry);
+    kinds.set(name, kind);
     return entry;
   }
 
@@ -256,7 +263,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
       point = {
         value: 0,
         attrs: labels ? { ...labels } : {},
-        startTimeUnixNano: msToNs(isolateStartMs),
+        startTimeUnixNano: msToNs(windowStartMs),
       };
       entry.counter.set(key, point);
     }
@@ -303,7 +310,7 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
         max: Number.NEGATIVE_INFINITY,
         bucketCounts: new Array(bounds.length + 1).fill(0),
         attrs: labels ? { ...labels } : {},
-        startTimeUnixNano: msToNs(isolateStartMs),
+        startTimeUnixNano: msToNs(windowStartMs),
       };
       entry.histogram.set(key, point);
     }
@@ -325,8 +332,16 @@ export function createOtlpHttpMeterAdapter(options: OtlpHttpMeterOptions): OtlpH
   async function doFlush(): Promise<void> {
     if (metrics.size === 0) return;
 
-    const flushAtNs = msToNs(now());
-    const payload = serializeOtlp(metrics, {
+    // Snapshot and reset synchronously, before the first await, so points
+    // recorded while the POST is in flight land in the next window.
+    // ponytail: a failed POST drops its window (≤ minFlushIntervalMs of data)
+    // instead of merging it back; add a retry buffer if loss shows up.
+    const snapshot = new Map(metrics);
+    metrics.clear();
+    const flushAt = now();
+    windowStartMs = flushAt;
+    const flushAtNs = msToNs(flushAt);
+    const payload = serializeOtlp(snapshot, {
       resourceAttributes,
       scopeName,
       scopeVersion,
@@ -459,7 +474,7 @@ function serializeOtlp(
         description,
         unit,
         sum: {
-          aggregationTemporality: 2, // CUMULATIVE
+          aggregationTemporality: 1, // DELTA
           isMonotonic: true,
           dataPoints,
         },
@@ -501,7 +516,7 @@ function serializeOtlp(
         description,
         unit,
         histogram: {
-          aggregationTemporality: 2, // CUMULATIVE
+          aggregationTemporality: 1, // DELTA
           dataPoints,
         },
       });

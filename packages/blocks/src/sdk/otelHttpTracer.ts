@@ -21,9 +21,8 @@
  * exported regardless of the rate.
  *
  * **Buffer.** Spans are buffered per-isolate until `flush()` ships them.
- * Unlike metrics (CUMULATIVE temporality, lifelong buffer), traces are
- * one-shot per span: buffer drains on flush and starts empty for the next
- * window. Cap (`maxBufferSpans`) protects against runaway trace volume.
+ * Like metrics (DELTA temporality), the buffer drains on flush and starts
+ * empty for the next window; each span is exported once. Cap (`maxBufferSpans`) protects against runaway trace volume.
  *
  * **Parent linkage.** `startSpan` reads the active span from a caller-
  * supplied accessor (`getActiveSpanForParent`) — the framework wires this
