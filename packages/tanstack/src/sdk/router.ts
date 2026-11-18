@@ -99,7 +99,7 @@ export function createDecoRouter(options: CreateDecoRouterOptions) {
   // it. `undefined` in report-only mode and on the client, where it's a no-op.
   const nonce = getRequestNonce();
 
-  return createTanStackRouter({
+  const router = createTanStackRouter({
     routeTree,
     scrollRestoration,
     defaultPreload,
@@ -110,4 +110,53 @@ export function createDecoRouter(options: CreateDecoRouterOptions) {
     stringifySearch: decoStringifySearch,
     ...(nonce ? { ssr: { nonce } } : {}),
   });
+
+  // Registered after the constructor, where router-core adds its own
+  // `pageshow` listener, so this one runs after it in the same dispatch.
+  if (scrollRestoration && typeof window !== "undefined") {
+    keepBfcacheScroll(window, (handBack) => router.subscribe("onBeforeNavigate", handBack));
+  }
+
+  return router;
+}
+
+/**
+ * router-core sets `history.scrollRestoration = "auto"` on `pagehide` and back
+ * to `"manual"` on a persisted `pageshow` (scroll-restoration.js, from
+ * TanStack/router#8519). On iOS Safari that `pageshow` runs before WebKit
+ * restores the page's scroll, and with `"manual"` WebKit skips it: a page
+ * restored from the back/forward cache comes back at the top. No navigation
+ * happens on a bfcache resume, so the router does not restore it either.
+ *
+ * Put `"auto"` back for the resume, and hand scroll back to the router
+ * (`"manual"`) only when the router starts its next navigation. Handing back
+ * earlier — on the first scroll event or after a timeout — cut WebKit's
+ * restoration short on a real iPhone: the page landed 170–1500 px off, where
+ * leaving `"auto"` landed exactly (10/10).
+ *
+ * `onNextNavigation` registers the hand-back and returns its unsubscribe.
+ * Returns a function that removes the listener (for tests).
+ *
+ * @internal Exported for tests.
+ */
+export function keepBfcacheScroll(
+  win: Window,
+  onNextNavigation: (handBack: () => void) => () => void,
+): () => void {
+  let unsubscribe: (() => void) | undefined;
+  const onPageshow = (event: Event) => {
+    if (!(event as PageTransitionEvent).persisted) return;
+    win.history.scrollRestoration = "auto";
+    unsubscribe?.();
+    unsubscribe = onNextNavigation(() => {
+      unsubscribe?.();
+      unsubscribe = undefined;
+      win.history.scrollRestoration = "manual";
+    });
+  };
+  win.addEventListener("pageshow", onPageshow);
+  return () => {
+    unsubscribe?.();
+    win.removeEventListener("pageshow", onPageshow);
+  };
 }
