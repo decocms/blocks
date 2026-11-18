@@ -7,6 +7,7 @@
  * claim.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { roll } from "../bucketing";
 import { createCMS, resetForTests } from "../cms";
 import { currentClient } from "../current";
 import { newVisitor, type Visitor } from "../experiments";
@@ -233,12 +234,27 @@ describe("a test within a test", () => {
     expect(await plpTitle(forged)).toBe("Control");
   });
 
-  it("exp-16: a preview switching on the parent and the child shows B; the parent alone, A", async () => {
+  it("exp-16: a preview switching on the parent and the child shows B; the parent and not the child, A", async () => {
     const cms = plpCMS({ plp: 0, "plp/b": 0 });
     const both = cms.client({ experiments: { plp: true, "plp/b": true } });
     expect(await plpTitle(both)).toBe("B");
     const parent = cms.client({ experiments: { plp: true, "plp/b": false } });
     expect(await plpTitle(parent)).toBe("A");
+  });
+
+  it("exp-17: a preview switching on the parent alone shows each visitor their own arm of the child", async () => {
+    const cms = plpCMS({ plp: 0, "plp/b": 50 });
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const visitor = newVisitor();
+      const shown = await plpTitle(cms.client({ visitor, experiments: { plp: true } }));
+      // the child's own roll, though every visitor rolled out of the parent (0%)
+      expect(shown).toBe(roll("plp/b", visitor.id) < 50 ? "B" : "A");
+      seen.add(shown as string);
+    }
+    expect([...seen].sort()).toEqual(["A", "B"]);
+    // without a visitor the child is off: A
+    expect(await plpTitle(cms.client({ experiments: { plp: true } }))).toBe("A");
   });
 });
 

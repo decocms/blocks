@@ -34,6 +34,7 @@ import {
 } from "../../builtins/experiments.ts";
 import { isBlock, own } from "../../json.ts";
 import { findRouteConflicts } from "../../matchRoute.ts";
+import { parentTest } from "../../nested.ts";
 import { BUILT_IN_BLOCKS, BUILT_IN_USES, isBuiltIn, storesPlainVariants } from "../builtins.ts";
 import { paint } from "../color.ts";
 import { readSavedBlocks, type SavedBlocks } from "../content.ts";
@@ -1044,6 +1045,26 @@ class Checker {
             `"${SPLIT_TRAFFIC_TYPE}"; with type "${entry.__resolveType}" every experiment rule is false`,
           "warning",
         );
+      }
+      if (
+        name === EXPERIMENTS_BLOCK &&
+        this.canonicalType(entry.__resolveType) === SPLIT_TRAFFIC_TYPE
+      ) {
+        // Before 8.x every name was its own test: say which ones now run within another.
+        const has = (test: string) => test !== "__resolveType" && Object.hasOwn(entry, test);
+        for (const test of Object.keys(entry)) {
+          if (test === "__resolveType") continue;
+          const parent = parentTest(test, has);
+          if (parent === undefined) continue;
+          this.report(
+            ctx,
+            test,
+            `"${test}" is a test within "${parent}": it runs only for the visitors in "${parent}", ` +
+              `and its percentage is a share of them; if the two are separate tests, rename it so ` +
+              `it doesn't start with "${parent}/"`,
+            "warning",
+          );
+        }
       }
       if (name === CAMPAIGNS_BLOCK && this.isOwnBuiltIn(CALENDAR_TYPE)) {
         if (this.canonicalType(entry.__resolveType) !== CALENDAR_TYPE) {

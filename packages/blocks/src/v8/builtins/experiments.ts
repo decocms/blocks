@@ -13,8 +13,11 @@
  * is given (`cms.client({ experiments })`) is on or off as given, whatever
  * the visitor and its percentage (a preview may switch on a test at 0%); a
  * name the block doesn't have stays out. A test `<parent>/<child>` is on only
- * while `<parent>` is, given or not: switching on `plp-optimizer/b` in a
- * preview shows B to a visitor in `plp-optimizer` (or with it switched on too).
+ * while `<parent>` is, given or not, and is otherwise the child's own roll or
+ * what it was given: a preview switching on `plp-optimizer` alone shows the
+ * visitor's own arm of `plp-optimizer/b` (A without a visitor), and one
+ * switching on `plp-optimizer/b` alone shows B only to visitors in
+ * `plp-optimizer`.
  */
 import { currentClient, experimentOverrides } from "../current.ts";
 import { type Assignments, assign } from "../experiments.ts";
@@ -33,10 +36,19 @@ export const EXPERIMENT_RULE = "experiment";
  * client was given applied on top, then each `<parent>/<child>` turned off
  * where its parent is off. Without a visitor every test it wasn't given is
  * off.
+ *
+ * Each test is drawn on its own first, so the nesting sees the given parent
+ * rather than the visitor's: a child's roll still counts when a preview
+ * switches its parent on.
  */
 export const splitTraffic = (allocations: Record<string, number> = {}): Assignments => {
   const client = currentClient();
-  const assignments = assign(allocations, client.visitor);
+  const assignments = Object.create(null) as Assignments;
+  for (const name of Object.keys(allocations).sort()) {
+    // One test per call: nothing to nest within, so this is the test's own roll.
+    const own = assign({ [name]: allocations[name] as number }, client.visitor);
+    if (Object.hasOwn(own, name)) assignments[name] = own[name] === true;
+  }
   const given = experimentOverrides(client);
   if (given !== undefined) {
     for (const name of Object.keys(given)) {

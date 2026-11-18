@@ -177,6 +177,14 @@ describe("startAnalytics", () => {
     ]);
   });
 
+  it("hands the tag no test within a test whose parent is off", async () => {
+    const setExperiment = vi.fn();
+    w.__dqBooted = true;
+    w.__dq = { track: vi.fn(), setExperiment };
+    await start({ experiments: { plp: false, "plp/b": false } });
+    expect(setExperiment.mock.calls).toEqual([["plp", "off"]]);
+  });
+
   it("collects nothing, and loads no module, when collection is off for this visitor", async () => {
     const { startAnalytics } = await import("./client.ts");
     // A development host without `dev`: the same skip the tag applies.

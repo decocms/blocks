@@ -28,7 +28,7 @@ Put the control last, under `always`.
 
 - A visitor has an id: 16 random bytes as 22 base64url characters, stored in the `deco_vid` cookie for a year. The cookie is not `HttpOnly`, so an analytics script can read it.
 - For each test, the visitor's roll is a hash of `<test name>:<id>` (MurmurHash3, in `bucketing.ts`), a fixed number from 0 to 99.99. The visitor is in the test when the roll is below the percentage.
-- Nothing per test is stored. One id serves every test, a new test needs no new state, and two tests are independent of each other.
+- Nothing per test is stored. One id serves every test, a new test needs no new state, and two tests are independent of each other, unless one is named within the other (see [A test within a test](#a-test-within-a-test)).
 - The decision is the same on a server, in a browser and in an app: `assign(experiments, visitor)` is a pure function.
 
 What follows from that:
@@ -62,7 +62,8 @@ A name written `<parent>/<child>` is drawn only among the visitors in `<parent>`
 ```
 
 - The child's percentage is a share of the parent's visitors: `plp-optimizer/b: 50` is 25% of all traffic. The child keeps its own roll, so ramping `plp-optimizer` to 80 gives 20/40/40 and keeps everyone already in A or B where they were.
-- The child is off for every visitor outside the parent, whatever it is given: switching on only `plp-optimizer/b` in a preview shows the control to a visitor outside `plp-optimizer`. Switch both on to see B, the parent alone to see A.
+- The child is off for every visitor outside the parent, whatever it is given: switching on only `plp-optimizer/b` in a preview shows the control to a visitor outside `plp-optimizer`. Switch both on to see B, the parent on and the child off to see A. The parent alone shows the visitor's own arm of the child.
+- **A name already saved with a `/`** whose prefix is also a test now runs within it. `deco check` warns on every test it reads that way: rename one if the two are separate tests.
 - The parent is the nearest prefix before a `/` that is a test of the same block (`a/b/c` falls back to `a` when there is no `a/b`). A `/` in a name whose prefix is no test changes nothing.
 - Nothing else changes: the header, the cache key and the preview link carry the child as one more test.
 

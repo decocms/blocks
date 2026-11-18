@@ -1177,6 +1177,24 @@ describe("the saved block experiments and the experiment rule", () => {
     ]);
   });
 
+  it("warns on each test it reads as within another, so a saved name with a / doesn't change meaning silently", () => {
+    const out = lines(
+      run({
+        experiments: {
+          __resolveType: "split-traffic",
+          checkout: 50,
+          "checkout/v2": 50,
+          "checkout/v2/copy": 50,
+          "home/hero": 50,
+        },
+      }),
+    );
+    expect(out).toEqual([
+      'experiments.json warning checkout/v2: "checkout/v2" is a test within "checkout": it runs only for the visitors in "checkout", and its percentage is a share of them; if the two are separate tests, rename it so it doesn\'t start with "checkout/"',
+      'experiments.json warning checkout/v2/copy: "checkout/v2/copy" is a test within "checkout/v2": it runs only for the visitors in "checkout/v2", and its percentage is a share of them; if the two are separate tests, rename it so it doesn\'t start with "checkout/v2/"',
+    ]);
+  });
+
   it("fails a rule naming a test the experiments block doesn't have", () => {
     expect(lines(run({ experiments, Rule: rule("gone") }))).toEqual([
       'Rule.json name: no test "gone" in the saved block "experiments": this rule is always false',
