@@ -11,7 +11,10 @@
  * In a frame it answers only messages from the parent window whose origin is
  * one of `trustedOrigins`. On a page that isn't framed it answers no message;
  * there it only listens for the "." shortcut (`editShortcut`), which opens the
- * page in Studio's editor, as v7's `LiveControls` did. Studio signs the editor
+ * page in Studio's editor, as v7's `LiveControls` did. A key typed in a field
+ * is left alone, also in a field inside a shadow root (a third-party widget's
+ * form), whose events reach the document with the host as their target, so the
+ * script reads the field from the event's composed path. Studio signs the editor
  * in: `/choose-editor` sends a visitor who isn't signed in to Studio's login
  * and back.
  * The binding passes Studio's origins in (`@decocms/blocks` holds no list of
@@ -117,7 +120,7 @@ if(window.self!==window.top){
   });
 }else if(s.hasAttribute("data-shortcut")){
   document.addEventListener("keydown",function(e){
-    var t=e.target;
+    var t=e.composedPath?e.composedPath()[0]:e.target;
     if(e.defaultPrevented||(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"||t.isContentEditable)))return;
     if(e.key!=="."&&!(e.ctrlKey&&e.shiftKey&&e.key==="E"))return;
     e.preventDefault();
