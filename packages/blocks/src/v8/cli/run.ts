@@ -102,7 +102,8 @@ Commands:
             a site: createCMS({ blocks, content }))
   schema    turn the types in .deco/index.ts into .deco/schema.gen.json
             (--check: write nothing, fail when the file is out of date; for CI)
-            schema push: upload it so Studio can draw forms (CI, on production deploys)
+            schema push: upload it so Studio can draw forms (CI, on production deploys);
+            DECO_TOKEN may be the site's site token (the one createCMS({ token }) takes)
   skills    skills install: copy the agent skills of this @decocms/blocks into the site,
             one folder per skill in .claude/skills (or --dir, relative to the folder that
             contains .deco/); replaces those folders, leaves other skills alone; offline
