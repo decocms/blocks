@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { roll } from "../bucketing";
 import { createCMS, resetForTests } from "../cms";
 import { currentClient } from "../current";
+import { parseVersion, readVersion } from "../draft";
 import { newVisitor, type Visitor } from "../experiments";
 import { docsBlocks, docsSnapshot, fakeStudio } from "../testFixtures";
 import type { Blocks, Client, Snapshot } from "../types";
@@ -255,6 +256,49 @@ describe("a test within a test", () => {
     expect([...seen].sort()).toEqual(["A", "B"]);
     // without a visitor the child is off: A
     expect(await plpTitle(cms.client({ experiments: { plp: true } }))).toBe("A");
+  });
+});
+
+describe("a test within a test in a preview link", () => {
+  const enc = encodeURIComponent;
+  const REVISION = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
+  const DRAFT = "delivery.decocms.com/sites/acme/drafts/x.json?v=2";
+  const AT = `__at=${enc("2026-11-28T09:00:00-03:00")}`;
+
+  it("exp-18: __test keeps the / of a child's name, encoded or not, next to __at, on a draft and a release", () => {
+    for (const tests of [
+      `__test=${enc("plp-optimizer=on")}&__test=${enc("plp-optimizer/b=on")}`,
+      "__test=plp-optimizer=on&__test=plp-optimizer/b=on",
+    ]) {
+      for (const [link, version] of [
+        [`${DRAFT}&${AT}&${tests}@v1`, `${DRAFT}@v1`],
+        [`${REVISION}?${AT}&${tests}`, REVISION],
+      ]) {
+        const read = parseVersion(link as string);
+        expect(read?.version, link).toBe(version);
+        expect(read?.date?.toISOString(), link).toBe("2026-11-28T12:00:00.000Z");
+        expect({ ...read?.experiments }, link).toEqual({
+          "plp-optimizer": true,
+          "plp-optimizer/b": true,
+        });
+      }
+    }
+  });
+
+  it("exp-19: the same link inside a page URL's __draft reads the same, and its client shows B", async () => {
+    const link = `${REVISION}?${AT}&__test=${enc("plp-optimizer=on")}&__test=${enc("plp-optimizer/b=on")}`;
+    const read = readVersion({
+      url: `https://shop.example/plp?__draft=${enc(link)}`,
+      headers: new Headers(),
+    });
+    expect({ ...read?.experiments }).toEqual({ "plp-optimizer": true, "plp-optimizer/b": true });
+    expect(read?.date?.toISOString()).toBe("2026-11-28T12:00:00.000Z");
+    const content = snapshotWith({ "plp-optimizer": 0, "plp-optimizer/b": 0 });
+    const cms = createCMS({ blocks: docsBlocks(), content });
+    const [tests] = await cms
+      .client({ experiments: read?.experiments })
+      .resolve<Record<string, boolean>>("experiments");
+    expect({ ...tests }).toEqual({ "plp-optimizer": true, "plp-optimizer/b": true });
   });
 });
 
