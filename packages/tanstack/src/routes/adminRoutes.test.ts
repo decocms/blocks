@@ -3,8 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@decocms/blocks-admin", () => ({
   corsHeaders: vi.fn(() => ({})),
   handleInvoke: vi.fn(),
-  handleMeta: vi.fn(),
-  handleRender: vi.fn(),
 }));
 
 vi.mock("@decocms/blocks/middleware/observability", () => ({
@@ -12,7 +10,7 @@ vi.mock("@decocms/blocks/middleware/observability", () => ({
 }));
 
 import * as adminRoutes from "./adminRoutes";
-import { decoInvokeRouteConfig, decoMetaRouteConfig, decoRenderRouteConfig } from "./adminRoutes";
+import { decoInvokeRouteConfig } from "./adminRoutes";
 
 /**
  * Regression guard for the dev-HMR brick:
@@ -31,16 +29,6 @@ import { decoInvokeRouteConfig, decoMetaRouteConfig, decoRenderRouteConfig } fro
  */
 describe("admin route config factories", () => {
   const cases = [
-    {
-      name: "decoMetaRouteConfig",
-      factory: decoMetaRouteConfig,
-      methods: ["GET", "OPTIONS"],
-    },
-    {
-      name: "decoRenderRouteConfig",
-      factory: decoRenderRouteConfig,
-      methods: ["GET", "POST", "OPTIONS"],
-    },
     {
       name: "decoInvokeRouteConfig",
       factory: decoInvokeRouteConfig,
@@ -90,10 +78,24 @@ describe("admin route config factories", () => {
     for (const name of removed) {
       expect(adminRoutes, `"${name}" must not be exported`).not.toHaveProperty(name);
     }
-    expect(Object.keys(adminRoutes).sort()).toEqual([
-      "decoInvokeRouteConfig",
-      "decoMetaRouteConfig",
-      "decoRenderRouteConfig",
-    ]);
+    expect(Object.keys(adminRoutes).sort()).toEqual(["decoInvokeRouteConfig"]);
+  });
+});
+
+/**
+ * The staff-only admin routes were hard-removed from the TanStack binding.
+ * Only the invoke route (which Studio edits need) remains; nothing may bring
+ * the meta/render route configs back.
+ */
+describe("removed staff-only admin routes", () => {
+  it("does not export the meta or render route config factories", async () => {
+    for (const name of ["decoMetaRouteConfig", "decoRenderRouteConfig"]) {
+      expect(adminRoutes, `"${name}" must not be exported`).not.toHaveProperty(name);
+    }
+    const root = await import("./index");
+    for (const name of ["decoMetaRouteConfig", "decoRenderRouteConfig"]) {
+      expect(root, `"${name}" must not be re-exported`).not.toHaveProperty(name);
+    }
+    expect(root).toHaveProperty("decoInvokeRouteConfig");
   });
 });

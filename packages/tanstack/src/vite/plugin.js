@@ -85,33 +85,6 @@ function resolveBuildHash() {
   return Date.now().toString(36);
 }
 
-/**
- * Admin routes whose preflight the worker answers (`tryAdminRoute` in
- * `sdk/workerEntry.ts`).
- * @param {string | undefined} url
- */
-function isAdminPreflightPath(url) {
-  const pathname = new URL(url ?? "/", "http://localhost").pathname;
-  return (
-    pathname === "/live/_meta" ||
-    pathname === "/.decofile" ||
-    (pathname.startsWith("/live/previews/") && pathname !== "/live/previews/")
-  );
-}
-
-/**
- * The worker's preflight answer (`corsHeaders` in `@decocms/blocks-admin`).
- * @param {string | undefined} origin
- */
-function adminPreflightHeaders(origin) {
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, If-None-Match",
-    "Access-Control-Allow-Credentials": "true",
-  };
-}
-
 // Virtual id for meta.gen.json on the server: the real path wrapped so the id
 // does NOT end in `.json` (Vite's `vite:json` would re-parse our JS output).
 const META_GEN_PREFIX = "\0deco-meta:";
@@ -483,10 +456,11 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
     configureServer(server) {
       // Watch `.deco/blocks/**/*.json` and regenerate `blocks.gen.json` when
       // CMS content changes (manual edit, sync-decofile, daemon PATCH).
-      // After regen, we POST the new blocks to the dev server's own
-      // /.decofile endpoint — this calls setBlocks() inside the workerd SSR
-      // runtime without any module invalidation (which breaks TanStack
-      // Start/Router state).
+      // After regen, we send a Vite `full-reload`, which re-evaluates the SSR
+      // entry and re-seeds setBlocks() from the fresh `blocks.gen.json`, without
+      // any module invalidation (which breaks TanStack Start/Router state).
+      // (This used to also POST the delta to the worker's `/.decofile` route;
+      // that staff-only route was hard-removed from the TanStack binding.)
       //
       // NOTE: @decocms/nextjs takes the opposite approach — a generated
       // static-import manifest (blocks-cli's generate-blocks-manifest.ts,
@@ -502,26 +476,6 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       // consumer's TS loader.
       const cwd = process.cwd();
 
-      // Vite's CORS middleware ends every preflight itself and, since Vite 6,
-      // allows only localhost origins, so a cross-origin admin read that needs
-      // one (Studio's conditional `/live/_meta`) never
-      // reaches the worker's own answer. Vite installs it before running
-      // configureServer, hence the front of the stack rather than `use()`.
-      // That stack is connect's, not Vite's API: without it, only this
-      // preflight is lost, never the dev server.
-      if (Array.isArray(server.middlewares?.stack)) {
-        server.middlewares.stack.unshift({
-          route: "",
-          handle: (req, res, next) => {
-            if (req.method !== "OPTIONS" || !isAdminPreflightPath(req.url)) return next();
-            res.statusCode = 204;
-            for (const [name, value] of Object.entries(adminPreflightHeaders(req.headers.origin))) {
-              res.setHeader(name, value);
-            }
-            res.end();
-          },
-        });
-      }
       const blocksDir = path.resolve(cwd, ".deco/blocks");
       const outFile = path.resolve(cwd, ".deco/blocks.gen.ts");
       const jsonFile = outFile.replace(/\.ts$/, ".json");
@@ -574,30 +528,15 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
         return { merged: mergedBlocks, result };
       };
 
-      // The workerd SSR runtime's decofile reload (handleDecofileReload).
-      const postDecofileDelta = async (blocks) => {
-        const addr = server.httpServer?.address();
-        const port = typeof addr === "object" && addr ? addr.port : 5173;
-        return fetch(`http://localhost:${port}/.decofile`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ blocks }),
-        });
-      };
-
       // Live block edits are applied as a DELTA. The Studio daemon (or a manual
       // edit) writes a single `.deco/blocks/*.json` file; re-reading and
       // re-merging the whole directory on every write blocks the Node/Vite event
-      // loop for seconds. Instead we read only the changed file(s) and:
-      //   1. patch the in-memory merged map and rewrite `blocks.gen.json` — this
-      //      keeps the on-disk snapshot authoritative, because Vite's
-      //      `full-reload` re-evaluates the SSR entry, which re-seeds
-      //      setBlocks() from `blocks.gen.json`. A stale file here renders stale
-      //      content on the auto-reload (only a later manual refresh, which does
-      //      NOT re-evaluate, would show the edit).
-      //   2. POST a delta envelope to `/.decofile` so the live isolate's
-      //      in-memory snapshot is updated too (covers reloads that don't
-      //      re-evaluate) — merged via applyDelta(), no module invalidation.
+      // loop for seconds. Instead we read only the changed file(s), patch the
+      // in-memory merged map and rewrite `blocks.gen.json` — this keeps the
+      // on-disk snapshot authoritative, because Vite's `full-reload`
+      // re-evaluates the SSR entry, which re-seeds setBlocks() from
+      // `blocks.gen.json`. A stale file here renders stale content on the
+      // auto-reload.
       let regenTimer = null;
       let regenInFlight = false;
       let regenQueued = false;
@@ -638,17 +577,9 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
             console.warn("[deco] failed to write blocks.gen.json:", writeErr?.message ?? writeErr);
           }
 
-          // POST a delta envelope ({ blocks: {...} }) so handleDecofileReload
-          // merges it over the current snapshot instead of replacing the whole
-          // decofile. setBlocks() runs inside the workerd SSR runtime.
-          const res = await postDecofileDelta(delta);
           const ms = Date.now() - start;
-          if (res.ok) {
-            console.log(`[deco] applied ${keys.length}-block delta in ${ms}ms`);
-            server.hot?.send({ type: "full-reload", path: "*" });
-          } else {
-            console.warn(`[deco] block delta reload failed: ${res.status}`);
-          }
+          console.log(`[deco] applied ${keys.length}-block delta in ${ms}ms`);
+          server.hot?.send({ type: "full-reload", path: "*" });
         } catch (err) {
           console.warn("[deco] failed to apply block delta:", err?.message ?? err);
         } finally {
@@ -701,8 +632,7 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
       //   mtime-"fresh" — the old `source.mtime > artifact.mtime` gate then
       //   served the stale snapshot (the double-render bug in branch previews).
       //   Regen is cheap (tens of ms) and fire-and-forget, so it never blocks
-      //   startup. No POST /.decofile here — the SSR runtime isn't listening
-      //   yet; `setup.ts` reads the freshly-written .json on the first request
+      //   startup. `setup.ts` reads the freshly-written .json on the first request
       //   (the watch-driven path above handles live edits, with reload).
       if (existsSync(blocksDir)) {
         if (!existsSync(jsonFile)) {
@@ -775,16 +705,6 @@ export function decoVitePlugin({ fastDeploy = "auto", metaAsset = false } = {}) 
               if (mod) {
                 server.environments.ssr.moduleGraph.invalidateModule(mod);
               }
-              // The isolate keeps the composed schema on globalThis, which
-              // outlives the module above; only the decofile reload clears it
-              // (invalidateMetaCache). An empty delta changes no block.
-              postDecofileDelta({})
-                .then((res) => {
-                  if (!res.ok) console.warn(`[deco] meta cache invalidation failed: ${res.status}`);
-                })
-                .catch((err) => {
-                  console.warn("[deco] meta cache invalidation failed:", err?.message ?? err);
-                });
             }
             if (schemaQueued) {
               schemaQueued = false;
