@@ -7,8 +7,10 @@
  * claim.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { roll } from "../bucketing";
 import { createCMS, resetForTests } from "../cms";
 import { currentClient } from "../current";
+import { parseVersion, readVersion } from "../draft";
 import { newVisitor, type Visitor } from "../experiments";
 import { docsBlocks, docsSnapshot, fakeStudio } from "../testFixtures";
 import type { Blocks, Client, Snapshot } from "../types";
@@ -162,6 +164,141 @@ describe("the experiment rule", () => {
     const cms = createCMS({ blocks, content });
     expect((await cms.client({ visitor: newVisitor() }).resolve("Label"))[0]).toBe("Buy!");
     expect((await cms.client().resolve("Label"))[0]).toBe("Buy");
+  });
+});
+
+describe("a test within a test", () => {
+  /** The PLP slot: control for visitors outside `plp`, A inside it, B inside `plp/b`. */
+  const PLP = {
+    __resolveType: "multivariate",
+    variants: [
+      {
+        rule: { __resolveType: "experiment", name: "plp" },
+        value: lazy({
+          __resolveType: "multivariate",
+          variants: [
+            {
+              rule: { __resolveType: "experiment", name: "plp/b" },
+              value: lazy({ __resolveType: "hero", title: "B" }),
+            },
+            {
+              rule: { __resolveType: "always" },
+              value: lazy({ __resolveType: "hero", title: "A" }),
+            },
+          ],
+        }),
+      },
+      {
+        rule: { __resolveType: "always" },
+        value: lazy({ __resolveType: "hero", title: "Control" }),
+      },
+    ],
+  };
+
+  function plpCMS(experiments: Record<string, number>) {
+    const content = snapshotWith(experiments);
+    content.blocks.Plp = PLP;
+    return createCMS({ blocks: docsBlocks(), content });
+  }
+
+  const plpTitle = async (client: Client) => {
+    const [value] = await client.resolve("Plp");
+    return (value as { props?: { title?: string } } | undefined)?.props?.title;
+  };
+
+  it("exp-14: <parent>/<child> splits the parent's arm, so one slot serves control, A and B", async () => {
+    const cms = plpCMS({ plp: 50, "plp/b": 50 });
+    const seen: Record<string, number> = { Control: 0, A: 0, B: 0 };
+    for (let i = 0; i < 4000; i++) {
+      const client = cms.client({ visitor: newVisitor() });
+      const [tests] = await client.resolve<Record<string, boolean>>("experiments");
+      const shown = (await plpTitle(client)) as string;
+      seen[shown]++;
+      // what the page shows is exactly what the map says
+      expect(shown).toBe(!tests?.plp ? "Control" : tests["plp/b"] ? "B" : "A");
+      if (tests?.["plp/b"]) expect(tests.plp).toBe(true);
+    }
+    expect(seen.Control / 4000).toBeGreaterThan(0.45);
+    expect(seen.Control / 4000).toBeLessThan(0.55);
+    expect(seen.A / 4000).toBeGreaterThan(0.21);
+    expect(seen.B / 4000).toBeGreaterThan(0.21);
+  });
+
+  it("exp-15: a child given on stays off while its parent is off, given or decided", async () => {
+    const cms = plpCMS({ plp: 0, "plp/b": 50 });
+    const childOnly = cms.client({ visitor: newVisitor(), experiments: { "plp/b": true } });
+    expect(await plpTitle(childOnly)).toBe("Control");
+    const [tests] = await childOnly.resolve<Record<string, boolean>>("experiments");
+    expect({ ...tests }).toEqual({ plp: false, "plp/b": false });
+    // a forged map from outside can't show B to the control either
+    const forged = cms.client({ experiments: { plp: false, "plp/b": true } });
+    expect(await plpTitle(forged)).toBe("Control");
+  });
+
+  it("exp-16: a preview switching on the parent and the child shows B; the parent and not the child, A", async () => {
+    const cms = plpCMS({ plp: 0, "plp/b": 0 });
+    const both = cms.client({ experiments: { plp: true, "plp/b": true } });
+    expect(await plpTitle(both)).toBe("B");
+    const parent = cms.client({ experiments: { plp: true, "plp/b": false } });
+    expect(await plpTitle(parent)).toBe("A");
+  });
+
+  it("exp-17: a preview switching on the parent alone shows each visitor their own arm of the child", async () => {
+    const cms = plpCMS({ plp: 0, "plp/b": 50 });
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const visitor = newVisitor();
+      const shown = await plpTitle(cms.client({ visitor, experiments: { plp: true } }));
+      // the child's own roll, though every visitor rolled out of the parent (0%)
+      expect(shown).toBe(roll("plp/b", visitor.id) < 50 ? "B" : "A");
+      seen.add(shown as string);
+    }
+    expect([...seen].sort()).toEqual(["A", "B"]);
+    // without a visitor the child is off: A
+    expect(await plpTitle(cms.client({ experiments: { plp: true } }))).toBe("A");
+  });
+});
+
+describe("a test within a test in a preview link", () => {
+  const enc = encodeURIComponent;
+  const REVISION = "fe6c5e0d97f1-0193a1f2-6800-7c3e-9d2a-4b8e1f0c7a51";
+  const DRAFT = "delivery.decocms.com/sites/acme/drafts/x.json?v=2";
+  const AT = `__at=${enc("2026-11-28T09:00:00-03:00")}`;
+
+  it("exp-18: __test keeps the / of a child's name, encoded or not, next to __at, on a draft and a release", () => {
+    for (const tests of [
+      `__test=${enc("plp-optimizer=on")}&__test=${enc("plp-optimizer/b=on")}`,
+      "__test=plp-optimizer=on&__test=plp-optimizer/b=on",
+    ]) {
+      for (const [link, version] of [
+        [`${DRAFT}&${AT}&${tests}@v1`, `${DRAFT}@v1`],
+        [`${REVISION}?${AT}&${tests}`, REVISION],
+      ]) {
+        const read = parseVersion(link as string);
+        expect(read?.version, link).toBe(version);
+        expect(read?.date?.toISOString(), link).toBe("2026-11-28T12:00:00.000Z");
+        expect({ ...read?.experiments }, link).toEqual({
+          "plp-optimizer": true,
+          "plp-optimizer/b": true,
+        });
+      }
+    }
+  });
+
+  it("exp-19: the same link inside a page URL's __draft reads the same, and its client shows B", async () => {
+    const link = `${REVISION}?${AT}&__test=${enc("plp-optimizer=on")}&__test=${enc("plp-optimizer/b=on")}`;
+    const read = readVersion({
+      url: `https://shop.example/plp?__draft=${enc(link)}`,
+      headers: new Headers(),
+    });
+    expect({ ...read?.experiments }).toEqual({ "plp-optimizer": true, "plp-optimizer/b": true });
+    expect(read?.date?.toISOString()).toBe("2026-11-28T12:00:00.000Z");
+    const content = snapshotWith({ "plp-optimizer": 0, "plp-optimizer/b": 0 });
+    const cms = createCMS({ blocks: docsBlocks(), content });
+    const [tests] = await cms
+      .client({ experiments: read?.experiments })
+      .resolve<Record<string, boolean>>("experiments");
+    expect({ ...tests }).toEqual({ "plp-optimizer": true, "plp-optimizer/b": true });
   });
 });
 

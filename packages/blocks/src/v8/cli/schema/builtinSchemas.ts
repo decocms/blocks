@@ -55,7 +55,7 @@ const BUILT_IN_DOCS: Record<string, { title: string; description: string; icon?:
   "split-traffic": {
     title: "Split traffic",
     description:
-      "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); resolves to whether the visitor is in each. The type of the saved block experiments",
+      "A/B tests: each name with the percentage of visitors in it (0 off, 100 everyone); a name parent/child takes that percentage of parent's visitors; resolves to whether the visitor is in each. The type of the saved block experiments",
     icon: "flask",
   },
   calendar: {

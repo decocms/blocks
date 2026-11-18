@@ -16,7 +16,7 @@ Code is in `packages/blocks/src/v8/builtins/` (`multivariate.ts`, `matchers.ts`,
 | Reference | Load it when |
 |---|---|
 | [`references/multivariate.md`](./references/multivariate.md) | Writing or reading variant JSON; a variant never shows, always shows, or a slot is empty; `deco check` says "a variant's value must be a lazy block"; v7 `website/flags/multivariate*.ts` content |
-| [`references/experiments-and-campaigns.md`](./references/experiments-and-campaigns.md) | Setting up an A/B test or a scheduled promotion; ramping a test; a campaign that never starts; `deco check` says "no test" or "no campaign"; tagging analytics with the test arm |
+| [`references/experiments-and-campaigns.md`](./references/experiments-and-campaigns.md) | Setting up an A/B test or a scheduled promotion; ramping a test; splitting one arm of a test (`parent/child`, 50% control, 25% A, 25% B); a campaign that never starts; `deco check` says "no test" or "no campaign"; tagging analytics with the test arm |
 | [`references/v7-matchers.md`](./references/v7-matchers.md) | Content migrated from v7 uses `website/matchers/device.ts`, `cookie.ts`, `location.ts`, `random.ts` and others; `UNKNOWN_BLOCK` on a v7 matcher; wiring `matcherContext`; moving a v7 random test to `experiments` |
 | [`references/custom-matchers.md`](./references/custom-matchers.md) | Writing a site's own rule; a rule that needs the request, the visitor or the date; a rule that does not appear in Studio's rule picker |
 | [`references/draft-preview.md`](./references/draft-preview.md) | Previewing one variant, a test switched on, or a future date from a Studio link; a preview link that shows the saved content instead |

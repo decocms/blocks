@@ -9,6 +9,8 @@
  * failure is "analytics stopped", never "the page broke".
  */
 
+import { parentTest } from "../nested.ts";
+
 /** The optional modules, by the names the collector's site config uses. */
 export type AnalyticsModule =
   | "click"
@@ -49,20 +51,29 @@ export interface AnalyticsClientOptions {
    * arm, `on` or `off`, in `exp`, the first page view included, and the collector stores it as
    * it stores any `exp`. Passing the decision rather than an id keeps what is measured equal to
    * what was shown, a preview's switched tests and a release change included. Leave it unset
-   * on a preview, whose switched tests are no visitor's.
+   * on a preview, whose switched tests are no visitor's. A test within a test
+   * (`plp-optimizer/b`) is sent only while its parent is on, so its `on`/`off` compares the
+   * parent's own arms (B against A) and the control carries the parent alone.
    */
   experiments?: Readonly<Record<string, boolean>>;
 }
 
-/** The decided tests as the collector's `exp` values, `on` or `off`; non-boolean entries left out. */
+/**
+ * The decided tests as the collector's `exp` values, `on` or `off`; non-boolean entries left
+ * out, and so is a `<parent>/<child>` test whose parent is off: that visitor never saw either arm.
+ */
 function armsOf(
   experiments: Readonly<Record<string, boolean>> | undefined,
 ): Record<string, string> {
   const arms = Object.create(null) as Record<string, string>;
   if (typeof experiments !== "object" || experiments === null) return arms;
+  const has = (name: string) => typeof experiments[name] === "boolean";
   for (const name of Object.keys(experiments)) {
     const on = experiments[name];
-    if (typeof on === "boolean") arms[name] = on ? "on" : "off";
+    if (typeof on !== "boolean") continue;
+    const parent = parentTest(name, has);
+    if (parent !== undefined && experiments[parent] !== true) continue;
+    arms[name] = on ? "on" : "off";
   }
   return arms;
 }
