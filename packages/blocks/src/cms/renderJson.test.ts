@@ -162,6 +162,16 @@ describe("isSecretValue / stringifyWithoutSecrets", () => {
     expect(isSecretValue(null)).toBe(false);
   });
 
+  it("matches the secret-loader suffix, not a 'secret' substring", () => {
+    // Deprecated secretString loader returns plaintext too → must match.
+    expect(isSecretValue({ __resolveType: "website/loaders/secretString.ts" })).toBe(true);
+    expect(isSecretValue({ __resolveType: "site/loaders/secret.ts" })).toBe(true);
+    // Substrings that are NOT the secret loader must be preserved.
+    expect(isSecretValue({ __resolveType: "apps/foo/loaders/secretary.ts" })).toBe(false);
+    expect(isSecretValue({ __resolveType: "website/sections/SecretSanta.tsx" })).toBe(false);
+    expect(isSecretValue({ __resolveType: "site/loaders/mysecret.ts" })).toBe(false);
+  });
+
   it("strips Secret-shaped values anywhere in the tree", () => {
     const payload = {
       title: "keep",
