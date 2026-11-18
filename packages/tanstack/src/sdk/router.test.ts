@@ -100,3 +100,44 @@ describe("keepBfcacheScroll (iOS bfcache resume)", () => {
     expect(subscribed).toBe(1);
   });
 });
+
+describe("createDecoRouter wires keepBfcacheScroll after router-core", () => {
+  // A real router (minimal route tree, jsdom): proves the wiring, and the
+  // listener order against router-core's own pageshow handler, which the
+  // keepBfcacheScroll unit tests stand in for with a fake.
+  const pageshow = (persisted: boolean) => {
+    const event = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(event, "persisted", { value: persisted });
+    window.dispatchEvent(event);
+  };
+  const makeRouter = async (scrollRestoration: boolean) => {
+    const { createRootRoute, createRoute } = await import("@tanstack/react-router");
+    const { createDecoRouter } = await import("./router");
+    const rootRoute = createRootRoute();
+    const routeTree = rootRoute.addChildren([
+      createRoute({ getParentRoute: () => rootRoute, path: "/" }),
+      createRoute({ getParentRoute: () => rootRoute, path: "/other" }),
+    ]);
+    return createDecoRouter({ routeTree, scrollRestoration } as Parameters<
+      typeof createDecoRouter
+    >[0]);
+  };
+
+  // Runs first: the window listeners of a router created with scroll
+  // restoration on are never removed (like router-core's own), so a later
+  // case would see them.
+  it("does not touch scrollRestoration when scroll restoration is off", async () => {
+    await makeRouter(false);
+    window.history.scrollRestoration = "manual";
+    pageshow(true);
+    expect(window.history.scrollRestoration).toBe("manual");
+  });
+  it("leaves 'auto' on a persisted pageshow, then hands back 'manual' on the next navigation", async () => {
+    const router = await makeRouter(true);
+    window.history.scrollRestoration = "manual";
+    pageshow(true);
+    expect(window.history.scrollRestoration).toBe("auto");
+    await router.navigate({ to: "/other" });
+    expect(window.history.scrollRestoration).toBe("manual");
+  });
+});
