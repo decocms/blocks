@@ -13,6 +13,13 @@ export interface HtmlShellOptions {
   body?: string;
   /** Inline <script> content to inject in <head>. */
   script?: string;
+  /**
+   * Nonce applied to the injected inline `<script>` so it survives a
+   * `script-src 'nonce-…'` CSP (see `buildRenderCSP` in
+   * `@decocms/blocks/sdk/csp`). Without it the framework's own preview script
+   * would be blocked by the same policy that neutralizes injected scripts.
+   */
+  nonce?: string;
 }
 
 /**
@@ -33,9 +40,12 @@ export function buildHtmlShell(options: HtmlShellOptions = {}): string {
     .filter(Boolean)
     .join("\n    ");
 
-  const scriptTag = options.script ? `<script>${options.script}</script>` : "";
+  const nonceAttr = options.nonce ? ` nonce="${options.nonce}"` : "";
+  const scriptTag = options.script ? `<script${nonceAttr}>${options.script}</script>` : "";
 
-  const bodyContent = options.body ?? `<div id="preview-root" style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui;color:#666;">
+  const bodyContent =
+    options.body ??
+    `<div id="preview-root" style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui;color:#666;">
         Loading preview...
     </div>`;
 
