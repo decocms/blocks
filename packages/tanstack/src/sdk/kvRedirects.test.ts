@@ -6,7 +6,7 @@ import {
   setRedirectSemantics,
 } from "@decocms/blocks/sdk/redirects";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearRedirectCache, lookupExactRedirect } from "./kvRedirects";
+import { clearRedirectCache, lookupExactRedirect, REDIRECT_INDEX_TIMEOUT_MS } from "./kvRedirects";
 
 /** Minimal KV binding: `rules` records the `redirect:*` reads, `index` the
  * reads of the deployment's `index:redirects:<id>`. */
@@ -45,7 +45,9 @@ describe("lookupExactRedirect", () => {
     await expect(lookupExactRedirect(enabled(kv), "/old", "POST")).resolves.toBeNull();
     await expect(lookupExactRedirect(enabled(kv), "/old", "PUT")).resolves.toBeNull();
     expect(kv.rules).not.toHaveBeenCalled();
-    await expect(lookupExactRedirect(enabled(kv), "/old", "HEAD")).resolves.toMatchObject({ to: "/new" });
+    await expect(lookupExactRedirect(enabled(kv), "/old", "HEAD")).resolves.toMatchObject({
+      to: "/new",
+    });
     expect(kv.rules).toHaveBeenCalledTimes(1);
   });
 
@@ -118,7 +120,8 @@ describe("lookupExactRedirect", () => {
 });
 
 describe("lookupExactRedirect — index:redirects:<id>", () => {
-  const indexOf = (...paths: string[]) => JSON.stringify(paths.map(redirectPathHash).sort((a, b) => a - b));
+  const indexOf = (...paths: string[]) =>
+    JSON.stringify(paths.map(redirectPathHash).sort((a, b) => a - b));
   const stored = { [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' };
 
   it("a path outside the index reads no rule, and the index is read once", async () => {
@@ -162,6 +165,85 @@ describe("lookupExactRedirect — index:redirects:<id>", () => {
     vi.setSystemTime(Date.now() + 61_000);
     await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toMatchObject({ to: "/new" });
     expect(kv.index).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("lookupExactRedirect — an index read that never settles", () => {
+  // The read in flight belongs to the request that opened it. When that
+  // request is canceled its `kv.get` never settles; the requests that joined
+  // it must not wait forever, and the isolate must not keep handing it out.
+  const stored = { [`redirect:${ID}:/old`]: '{"to":"/new","status":301}' };
+
+  /** KV whose first `index:redirects:*` read never settles; later ones answer `index`. */
+  function makeDeadIndexKV(index: string) {
+    const kv = makeKV({ ...stored, [`index:redirects:${ID}`]: index });
+    const answer = kv.index.getMockImplementation()!;
+    kv.index.mockImplementationOnce(() => new Promise<never>(() => {}));
+    kv.index.mockImplementation(answer);
+    return kv;
+  }
+
+  it("the request that opened it goes on without the index after the timeout", async () => {
+    vi.useFakeTimers();
+    const kv = makeDeadIndexKV("[]");
+    const lookup = lookupExactRedirect(enabled(kv), "/old");
+    await vi.advanceTimersByTimeAsync(REDIRECT_INDEX_TIMEOUT_MS);
+    // No index ⇒ the path is read by key, as before the index existed.
+    await expect(lookup).resolves.toMatchObject({ to: "/new" });
+    expect(kv.rules).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests that joined it are released too, not held forever", async () => {
+    vi.useFakeTimers();
+    const kv = makeDeadIndexKV("[]");
+    const owner = lookupExactRedirect(enabled(kv), "/old");
+    const joined = [
+      lookupExactRedirect(enabled(kv), "/a"),
+      lookupExactRedirect(enabled(kv), "/old"),
+    ];
+    expect(kv.index).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(REDIRECT_INDEX_TIMEOUT_MS);
+    await expect(owner).resolves.toMatchObject({ to: "/new" });
+    await expect(Promise.all(joined)).resolves.toEqual([
+      null,
+      expect.objectContaining({ to: "/new" }),
+    ]);
+  });
+
+  it("the dead read is dropped: the next request opens a fresh one and uses it", async () => {
+    vi.useFakeTimers();
+    const kv = makeDeadIndexKV("[]");
+    const first = lookupExactRedirect(enabled(kv), "/old");
+    await vi.advanceTimersByTimeAsync(REDIRECT_INDEX_TIMEOUT_MS);
+    await first;
+    kv.rules.mockClear();
+    // Fresh index read answers `[]`: no rule is read for any path.
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toBeNull();
+    await expect(lookupExactRedirect(enabled(kv), "/p/1")).resolves.toBeNull();
+    expect(kv.index).toHaveBeenCalledTimes(2);
+    expect(kv.rules).not.toHaveBeenCalled();
+  });
+
+  it("a read older than the timeout is not joined, even before anyone timed out", async () => {
+    vi.useFakeTimers();
+    const kv = makeDeadIndexKV("[]");
+    void lookupExactRedirect(enabled(kv), "/x");
+    // The clock moves past the deadline without the owner's timer having run
+    // (e.g. the owner's context is gone): a newcomer must not join it.
+    vi.setSystemTime(Date.now() + REDIRECT_INDEX_TIMEOUT_MS);
+    await expect(lookupExactRedirect(enabled(kv), "/old")).resolves.toBeNull();
+    expect(kv.index).toHaveBeenCalledTimes(2);
+  });
+
+  it("a healthy read in flight is still shared by concurrent requests", async () => {
+    const kv = makeKV({ ...stored, [`index:redirects:${ID}`]: "[]" });
+    await Promise.all([
+      lookupExactRedirect(enabled(kv), "/a"),
+      lookupExactRedirect(enabled(kv), "/b"),
+      lookupExactRedirect(enabled(kv), "/c"),
+    ]);
+    expect(kv.index).toHaveBeenCalledTimes(1);
+    expect(kv.rules).not.toHaveBeenCalled();
   });
 });
 

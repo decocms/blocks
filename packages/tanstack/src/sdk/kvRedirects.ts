@@ -72,7 +72,23 @@ interface RedirectIndex {
   hashes: Uint32Array | null;
   expiresAt: number;
   pending?: Promise<Uint32Array | null>;
+  /** When `pending` was opened, so a read nobody can finish is not joined. */
+  startedAt: number;
 }
+
+/**
+ * How long a request waits for the index read, its own or the one in flight.
+ * Same budget as `cache:data-version` (`DATA_VERSION_TIMEOUT_MS`): the index
+ * only saves reads, so past this the request goes on without it.
+ *
+ * The read in flight belongs to the request that opened it. If that request is
+ * canceled (client gone), its `kv.get` never settles, and before this every
+ * later navigation of the isolate awaited it forever — the runtime cancels
+ * them as "code had hung and would never generate a response". Same failure
+ * `ensureBlocksHydrated` (`HYDRATION_STALE_MS`) and `getDataCacheVersion`
+ * already guard against.
+ */
+export const REDIRECT_INDEX_TIMEOUT_MS = 1_000;
 
 async function redirectIndex(
   kv: { get(key: string): Promise<string | null> },
@@ -80,11 +96,18 @@ async function redirectIndex(
 ): Promise<Uint32Array | null> {
   const current = G.__decoRedirectIndex;
   if (current?.id === id) {
-    if (current.pending) return current.pending;
-    if (Date.now() < current.expiresAt) return current.hashes;
+    if (current.pending) {
+      // Joined only while the owner could still deliver it; an older one is
+      // dropped and read again below.
+      if (Date.now() - current.startedAt < REDIRECT_INDEX_TIMEOUT_MS) {
+        return awaitIndex(current, current.pending);
+      }
+    } else if (Date.now() < current.expiresAt) {
+      return current.hashes;
+    }
   }
-  const entry: RedirectIndex = { id, hashes: null, expiresAt: 0 };
-  entry.pending = kv
+  const entry: RedirectIndex = { id, hashes: null, expiresAt: 0, startedAt: Date.now() };
+  const pending = kv
     .get(redirectIndexKey(id))
     .then((raw) => {
       const parsed = raw === null ? null : (JSON.parse(raw) as unknown);
@@ -97,8 +120,34 @@ async function redirectIndex(
       entry.pending = undefined;
       return hashes;
     });
+  entry.pending = pending;
   G.__decoRedirectIndex = entry;
-  return entry.pending;
+  return awaitIndex(entry, pending);
+}
+
+/**
+ * `pending`, or `null` (no index: the path is looked up by key, as before the
+ * index existed) after `REDIRECT_INDEX_TIMEOUT_MS` on this request's own timer.
+ * A read that missed the deadline is dropped from the isolate so the next
+ * request opens a fresh one instead of joining it.
+ */
+function awaitIndex(
+  entry: RedirectIndex,
+  pending: Promise<Uint32Array | null>,
+): Promise<Uint32Array | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), REDIRECT_INDEX_TIMEOUT_MS);
+  });
+  return Promise.race([pending, late])
+    .finally(() => clearTimeout(timer))
+    .then((r) => {
+      if (r !== "late") return r;
+      if (G.__decoRedirectIndex === entry && entry.pending === pending) {
+        G.__decoRedirectIndex = undefined;
+      }
+      return null;
+    });
 }
 
 function hasHash(sorted: Uint32Array, hash: number): boolean {
