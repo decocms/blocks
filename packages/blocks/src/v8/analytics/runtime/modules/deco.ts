@@ -26,6 +26,20 @@ window.__dqRegister?.((enqueue, api: Record<string, unknown>) => {
   // false", which IS the control group: recording only the active flags would leave an
   // experiment with a treatment arm and no baseline to compare it against, and a
   // conversion rate with nothing to compare it to is not a result.
+  //
+  // A flag name is the matcher's block name in the CMS (`TestePLPIA`), written for people,
+  // while an experiment key must match `[a-z0-9][a-z0-9_-]*` or the Worker drops it and
+  // flags `exp.charset`. Passed through raw, every capitalised matcher lost its arm on every
+  // event, silently. Folded here, where the name is known to be a label rather than a
+  // contract: accents off, lower case, anything else to `_`. A key that is already valid
+  // (`plp-ranking`) passes through unchanged.
+  const key = (name: string) =>
+    name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "_")
+      .replace(/^[^a-z0-9]+/, "");
   try {
     const raw = document.cookie
       .split(";")
@@ -34,8 +48,8 @@ window.__dqRegister?.((enqueue, api: Record<string, unknown>) => {
     if (raw) {
       const json = JSON.parse(decodeURIComponent(atob(raw.slice("deco_segment=".length))));
       const set = (name: string, variant: string) => {
-        // Experiment keys allow hyphens; anything else the Worker normalises and flags.
-        if (name && name.length <= LIMITS.expKeyLen) setExperiment?.(name, variant);
+        const k = key(name);
+        if (k && k.length <= LIMITS.expKeyLen) setExperiment?.(k, variant);
       };
       for (const name of json.active ?? []) set(String(name), "on");
       for (const name of json.inactiveDrawn ?? []) set(String(name), "off");
