@@ -362,9 +362,10 @@ describe("deco-hosted preview domains (setDecoSiteHost)", () => {
       expect(isDraftHostAllowed("acme-storefront-pr-1-site.deco.site", {})).toBe(true);
       // Another site's pull request.
       expect(isDraftHostAllowed("other-site-pr-298-site.deco.site", {})).toBe(false);
-      // The number is digits only: no label, no leading zero, not empty, no dot.
+      // The number is a positive integer: no label, no leading zero, not 0, empty or dotted.
       expect(isDraftHostAllowed("acme-storefront-pr-abc-site.deco.site", {})).toBe(false);
       expect(isDraftHostAllowed("acme-storefront-pr-012-site.deco.site", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-storefront-pr-0-site.deco.site", {})).toBe(false);
       expect(isDraftHostAllowed("acme-storefront-pr--site.deco.site", {})).toBe(false);
       expect(isDraftHostAllowed("acme-storefront-pr-1.x-site.deco.site", {})).toBe(false);
       // Missing the `-site` suffix, or off deco's apex.
