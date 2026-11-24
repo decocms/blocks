@@ -3,6 +3,7 @@ import {
   WIRE,
   CAMPAIGN_KEYS,
   campaignKey,
+  expKey,
   isSampleable,
   type Props,
 } from "../../shared/contract.ts";
@@ -346,10 +347,13 @@ const api = {
   unset: (keys: string[]) => {
     for (const k of keys) delete superProps[k];
   },
+  // Folded, so `TestePLPIA` is the arm `testeplpia` rather than a key the Worker drops (see
+  // `expKey`). A name with nothing left after folding is skipped, never recorded as `""`.
   setExperiment: (id: string, variant: string) => {
-    cfg.x = { ...(cfg.x ?? {}), [id]: variant };
+    const k = expKey(id);
+    if (k) cfg.x = { ...(cfg.x ?? {}), [k]: variant };
   },
-  variant: (id: string) => cfg.x?.[id],
+  variant: (id: string) => cfg.x?.[expKey(id)],
   captureException: (err: unknown, props?: Props) => {
     const e = err as Error;
     enqueue("$error", props, {

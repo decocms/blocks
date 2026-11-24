@@ -542,6 +542,29 @@ export function normalizeExp(input: unknown, flag: Sink): Record<string, string>
   return out;
 }
 
+/** The browser's side of `normalizeExp`: a test name as people write it (`TestePLPIA`, the
+ *  matcher's block name in the CMS; `plp-optimizer/b`, a test within a test) folded into a key
+ *  the Worker keeps. Accents off, lower case, anything outside `[a-z0-9_-]` to `_`, leading
+ *  junk dropped. A key that is already valid comes back unchanged, so `plp-ranking` stays the
+ *  key its history is stored under; a name with nothing foldable left comes back empty and
+ *  the caller skips it.
+ *
+ *  Folded in core's `setExperiment`/`variant`, the one place every caller goes through,
+ *  because two callers folding differently is worse than none: the deco adapter and a page's
+ *  own arms overwrite each other only while they agree on the key. Not silent about it
+ *  either -- the Worker still drops and flags what reaches it unfolded (a page writing
+ *  `window.__dq.x` itself), and the coercion stays out of the Worker, where `plp-ranking` is a
+ *  frozen contract rather than a label. Many names fold to one key (`Teste A`, `teste_a`);
+ *  whoever writes several at once decides which wins. */
+export function expKey(name: string): string {
+  return String(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^[^a-z0-9]+/, "");
+}
+
 /** ISO 4217, three letters. Anything else is emptied and flagged: a half-valid currency on
  *  a revenue row is worse than a missing one. */
 export function normalizeCurrency(input: unknown, flag: Sink): string {

@@ -109,13 +109,15 @@ describe("startAnalytics", () => {
 
   it.each([
     [{ plp: false, "plp/b": false }, { plp: "off" }],
+    // `plp/b` travels as `plp_b`: `/` is outside the collector's key charset, and sent raw the
+    // child's arm was dropped from every event.
     [
       { plp: true, "plp/b": false },
-      { plp: "on", "plp/b": "off" },
+      { plp: "on", plp_b: "off" },
     ],
     [
       { plp: true, "plp/b": true },
-      { plp: "on", "plp/b": "on" },
+      { plp: "on", plp_b: "on" },
     ],
   ])("sends a test within a test only while its parent is on: %o → %o", async (experiments, exp) => {
     await start({ experiments });
@@ -150,6 +152,83 @@ describe("startAnalytics", () => {
       // biome-ignore lint/suspicious/noDocumentCookie: clears the cookie the test wrote
       document.cookie = "deco_segment=; path=/; max-age=0";
     }
+  });
+
+  it("keeps the rendered arm over a stale deco_segment when the names differ only in case", async () => {
+    // The CMS matcher is `TestePLPIA`. The deco module folds the cookie's name to `testeplpia`; the
+    // page's arm has to land on the same key, or the event carries the v7 arm the page did not show.
+    const v7 = btoa(
+      encodeURIComponent(JSON.stringify({ active: ["TestePLPIA"], inactiveDrawn: [] })),
+    );
+    // biome-ignore lint/suspicious/noDocumentCookie: the deco module reads the raw cookie
+    document.cookie = `deco_segment=${v7}; path=/`;
+    try {
+      const api = await start({ experiments: { TestePLPIA: false }, modules: ["deco", "click"] });
+      document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      api!.flush();
+      expect(names()).toEqual(["$pageview", "experiment_click"]);
+      for (const event of events()) expect(event[WIRE.exp]).toEqual({ testeplpia: "off" });
+    } finally {
+      // biome-ignore lint/suspicious/noDocumentCookie: clears the cookie the test wrote
+      document.cookie = "deco_segment=; path=/; max-age=0";
+    }
+  });
+
+  it("lets the first of two flag names that fold to one key keep it", async () => {
+    // `Teste A` (on) and `teste_a` (off) are one key once folded: the later one must not
+    // overwrite the earlier, or one experiment's control would land on another's treatment.
+    const v7 = btoa(
+      encodeURIComponent(JSON.stringify({ active: ["Teste A"], inactiveDrawn: ["teste_a"] })),
+    );
+    // biome-ignore lint/suspicious/noDocumentCookie: the deco module reads the raw cookie
+    document.cookie = `deco_segment=${v7}; path=/`;
+    try {
+      const api = await start({ modules: ["deco"] });
+      api!.track("after_segment");
+      api!.flush();
+      expect(events().at(-1)?.[WIRE.exp]).toEqual({ teste_a: "on" });
+    } finally {
+      // biome-ignore lint/suspicious/noDocumentCookie: clears the cookie the test wrote
+      document.cookie = "deco_segment=; path=/; max-age=0";
+    }
+  });
+
+  it("writes the storefront side before the segment, ahead of the collector's entry budget", async () => {
+    const v7 = btoa(
+      encodeURIComponent(
+        JSON.stringify({ active: ["TesteFlag0", "TesteFlag1"], inactiveDrawn: [] }),
+      ),
+    );
+    // biome-ignore lint/suspicious/noDocumentCookie: the deco module reads the raw cookie
+    document.cookie = `deco_segment=${v7}; path=/`;
+    // biome-ignore lint/suspicious/noDocumentCookie: the deco module reads the raw cookie
+    document.cookie = "_deco_bucket=worker:50; path=/";
+    try {
+      const api = await start({ modules: ["deco"] });
+      api!.track("after_segment");
+      api!.flush();
+      // The collector keeps the first `expEntries` keys; first is where the storefront side goes.
+      expect(Object.keys(events().at(-1)?.[WIRE.exp] as object)).toEqual([
+        "storefront",
+        "testeflag0",
+        "testeflag1",
+      ]);
+    } finally {
+      // biome-ignore lint/suspicious/noDocumentCookie: clears the cookies the test wrote
+      document.cookie = "deco_segment=; path=/; max-age=0";
+      // biome-ignore lint/suspicious/noDocumentCookie: clears the cookies the test wrote
+      document.cookie = "_deco_bucket=; path=/; max-age=0";
+    }
+  });
+
+  it("folds a name the page passes to setExperiment, and variant reads it back by either name", async () => {
+    const api = await start();
+    api!.setExperiment("PLP-Optimizer/B", "on");
+    expect(api!.variant("PLP-Optimizer/B")).toBe("on");
+    expect(api!.variant("plp-optimizer_b")).toBe("on");
+    api!.track("after_set");
+    api!.flush();
+    expect(events().at(-1)?.[WIRE.exp]).toEqual({ "plp-optimizer_b": "on" });
   });
 
   it("sends no exp without experiments, so other sites' events are unchanged", async () => {

@@ -10,6 +10,7 @@
  */
 
 import { parentTest } from "../nested.ts";
+import { expKey } from "./shared/contract.ts";
 
 /** The optional modules, by the names the collector's site config uses. */
 export type AnalyticsModule =
@@ -53,7 +54,9 @@ export interface AnalyticsClientOptions {
    * what was shown, a preview's switched tests and a release change included. Leave it unset
    * on a preview, whose switched tests are no visitor's. A test within a test
    * (`plp-optimizer/b`) is sent only while its parent is on, so its `on`/`off` compares the
-   * parent's own arms (B against A) and the control carries the parent alone.
+   * parent's own arms (B against A) and the control carries the parent alone. Each test is
+   * stored under its name folded into a key the collector keeps (`expKey`): `TestePLPIA` as
+   * `testeplpia`, `plp-optimizer/b` as `plp-optimizer_b`, a valid key unchanged.
    */
   experiments?: Readonly<Record<string, boolean>>;
 }
@@ -61,6 +64,9 @@ export interface AnalyticsClientOptions {
 /**
  * The decided tests as the collector's `exp` values, `on` or `off`; non-boolean entries left
  * out, and so is a `<parent>/<child>` test whose parent is off: that visitor never saw either arm.
+ * Keyed by `expKey`, as core's `setExperiment` keys them: the arms written into `x` before boot
+ * and the ones written through `setExperiment` after the modules must land on the same key, or
+ * v7's `deco_segment` arm (the `deco` module) is never overwritten by the one the page rendered.
  */
 function armsOf(
   experiments: Readonly<Record<string, boolean>> | undefined,
@@ -73,7 +79,8 @@ function armsOf(
     if (typeof on !== "boolean") continue;
     const parent = parentTest(name, has);
     if (parent !== undefined && experiments[parent] !== true) continue;
-    arms[name] = on ? "on" : "off";
+    const key = expKey(name);
+    if (key) arms[key] = on ? "on" : "off";
   }
   return arms;
 }
