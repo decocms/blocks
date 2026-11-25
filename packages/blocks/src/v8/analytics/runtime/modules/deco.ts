@@ -9,12 +9,45 @@
  *  including the pageview. Waiting for the bus would attribute the landing pageview to no
  *  variant, which is the one event an experiment most needs attributed.
  */
-import { LIMITS, STOREFRONT_EXP } from "../../shared/contract.ts";
+import { LIMITS, STOREFRONT_EXP, expKey } from "../../shared/contract.ts";
 
 type Props = Record<string, string | number | boolean>;
 
 window.__dqRegister?.((enqueue, api: Record<string, unknown>) => {
   const setExperiment = api.setExperiment as ((k: string, v: string) => void) | undefined;
+  // Keys this adapter has written, so a second name that folds onto one does not overwrite it.
+  const taken = new Set<string>();
+
+  // ---- the side of a Fresh x TanStack split ------------------------------------
+  //
+  // `withABTesting` keeps the side in `_deco_bucket` as `<side>:<percent>` (`worker:50`), set at
+  // the edge before the document reaches the browser, so it too is on the first event. Recorded
+  // as the `storefront` experiment with the names the store Worker stamps on what it sends
+  // through `EdgeIngest` -- the two halves of the funnel only group together if they agree, and
+  // `STOREFRONT_EXP` is where they do. An unknown side is skipped rather than recorded raw: a
+  // third variant nobody emits at the edge would be a funnel with no ruler.
+  //
+  // Written BEFORE the segment below. The Worker keeps the first `LIMITS.expEntries` keys of an
+  // event and cuts the rest as `exp.count`, and since flag names are folded every capitalised
+  // matcher takes one of those slots, where it used to be dropped without taking any. Written
+  // after, a visitor with enough flags lost the storefront arm, the one this adapter exists to
+  // record on every deco site.
+  try {
+    const raw = document.cookie
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith(`${STOREFRONT_EXP.cookie}=`));
+    const side = raw
+      ? decodeURIComponent(raw.slice(STOREFRONT_EXP.cookie.length + 1)).split(":")[0]
+      : "";
+    const variant = STOREFRONT_EXP.variants[side];
+    if (variant) {
+      setExperiment?.(STOREFRONT_EXP.name, variant);
+      taken.add(STOREFRONT_EXP.name);
+    }
+  } catch {
+    // A bad cookie costs the arm, never the collection.
+  }
 
   // ---- assignment, from the cookie the origin already set ---------------------
   //
@@ -26,6 +59,22 @@ window.__dqRegister?.((enqueue, api: Record<string, unknown>) => {
   // false", which IS the control group: recording only the active flags would leave an
   // experiment with a treatment arm and no baseline to compare it against, and a
   // conversion rate with nothing to compare it to is not a result.
+  //
+  // A flag name is the matcher's block name in the CMS (`TestePLPIA`), written for people,
+  // and core's `setExperiment` folds it into a key the Worker keeps (`expKey`). Folded here
+  // too, only to know which key a name lands on: FIRST WRITE WINS. `Teste A` and `teste_a` are
+  // one key, and `inactiveDrawn` runs after `active`, so letting the later name overwrite would
+  // put one experiment's `off` on another's `on`, on every event, silently. Only among this
+  // adapter's own writes: an arm the page set itself is still overwritten by the cookie, as it
+  // always was.
+  //
+  // A name longer than `LIMITS.expKeyLen` once folded is skipped, not truncated: the Worker
+  // would cut it to 60 characters, and two long CMS names sharing their first 60 would land on
+  // one key. Slug keys never get there; human-written names can.
+  //
+  // Not capped against `LIMITS.expEntries`: how many names a real segment carries is not known,
+  // and a cap would only choose which arm is lost. The storefront side, written above, is not
+  // one of them.
   try {
     const raw = document.cookie
       .split(";")
@@ -34,36 +83,16 @@ window.__dqRegister?.((enqueue, api: Record<string, unknown>) => {
     if (raw) {
       const json = JSON.parse(decodeURIComponent(atob(raw.slice("deco_segment=".length))));
       const set = (name: string, variant: string) => {
-        // Experiment keys allow hyphens; anything else the Worker normalises and flags.
-        if (name && name.length <= LIMITS.expKeyLen) setExperiment?.(name, variant);
+        const k = expKey(name);
+        if (!k || k.length > LIMITS.expKeyLen || taken.has(k)) return;
+        setExperiment?.(k, variant);
+        taken.add(k);
       };
       for (const name of json.active ?? []) set(String(name), "on");
       for (const name of json.inactiveDrawn ?? []) set(String(name), "off");
     }
   } catch {
     // A malformed cookie is a site problem, not a reason to stop collecting.
-  }
-
-  // ---- the side of a Fresh x TanStack split ------------------------------------
-  //
-  // `withABTesting` keeps the side in `_deco_bucket` as `<side>:<percent>` (`worker:50`), set at
-  // the edge before the document reaches the browser, so it too is on the first event. Recorded
-  // as the `storefront` experiment with the names the store Worker stamps on what it sends
-  // through `EdgeIngest` -- the two halves of the funnel only group together if they agree, and
-  // `STOREFRONT_EXP` is where they do. An unknown side is skipped rather than recorded raw: a
-  // third variant nobody emits at the edge would be a funnel with no ruler.
-  try {
-    const raw = document.cookie
-      .split(";")
-      .map((c) => c.trim())
-      .find((c) => c.startsWith(`${STOREFRONT_EXP.cookie}=`));
-    const side = raw
-      ? decodeURIComponent(raw.slice(STOREFRONT_EXP.cookie.length + 1)).split(":")[0]
-      : "";
-    const variant = STOREFRONT_EXP.variants[side];
-    if (variant) setExperiment?.(STOREFRONT_EXP.name, variant);
-  } catch {
-    // Same as above: a bad cookie costs the arm, never the collection.
   }
 
   // ---- events, from the bus the framework already has -------------------------
