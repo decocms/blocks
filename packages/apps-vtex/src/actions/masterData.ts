@@ -4,6 +4,21 @@
  */
 import { getVtexConfig, getVtexFetch, vtexFetch, vtexFetchResponse } from "../client";
 
+/**
+ * MasterData path segments (entity acronym, document id, field name) are
+ * interpolated into the request URL that carries the app's appKey/appToken.
+ * Restrict them to a safe charset so a value like "../../api/oms/pvt/orders"
+ * can't steer the credentialed request at another VTEX admin API.
+ */
+const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
+
+function segment(name: string, value: unknown): string {
+	if (typeof value !== "string" || !SAFE_SEGMENT.test(value)) {
+		throw new Error(`Invalid MasterData ${name}`);
+	}
+	return value;
+}
+
 function removeEmptyFields(obj: Record<string, any>): Record<string, any> {
 	return Object.fromEntries(
 		Object.entries(obj).filter(
@@ -23,7 +38,7 @@ export interface CreateDocumentProps {
 
 export async function createDocument(props: CreateDocumentProps): Promise<CreateDocumentResult> {
 	const { entity, data } = props;
-	return vtexFetch<CreateDocumentResult>(`/api/dataentities/${entity}/documents`, {
+	return vtexFetch<CreateDocumentResult>(`/api/dataentities/${segment("entity", entity)}/documents`, {
 		method: "POST",
 		body: JSON.stringify(removeEmptyFields(data)),
 	});
@@ -36,7 +51,9 @@ export interface GetDocumentProps {
 
 export async function getDocument<T = unknown>(props: GetDocumentProps): Promise<T> {
 	const { entity, documentId } = props;
-	return vtexFetch<T>(`/api/dataentities/${entity}/documents/${documentId}`);
+	return vtexFetch<T>(
+		`/api/dataentities/${segment("entity", entity)}/documents/${segment("documentId", documentId)}`,
+	);
 }
 
 export interface PatchDocumentProps {
@@ -47,7 +64,7 @@ export interface PatchDocumentProps {
 
 export async function patchDocument(props: PatchDocumentProps): Promise<void> {
 	const { entity, documentId, data } = props;
-	await vtexFetch<any>(`/api/dataentities/${entity}/documents/${documentId}`, {
+	await vtexFetch<any>(`/api/dataentities/${segment("entity", entity)}/documents/${segment("documentId", documentId)}`, {
 		method: "PATCH",
 		body: JSON.stringify(removeEmptyFields(data)),
 	});
@@ -73,7 +90,9 @@ export async function searchDocuments<T = MasterDataSearchResult>(
 	props: SearchDocumentsProps,
 ): Promise<T[]> {
 	const { entity, filter } = props;
-	return vtexFetch<T[]>(`/api/dataentities/${entity}/search?_where=${encodeURIComponent(filter)}`);
+	return vtexFetch<T[]>(
+		`/api/dataentities/${segment("entity", entity)}/search?_where=${encodeURIComponent(filter)}`,
+	);
 }
 
 /**
@@ -111,7 +130,7 @@ export async function searchDocumentsFull<T = Record<string, unknown>>(
 		"REST-Range": `resources=${from}-${to}`,
 	};
 
-	return vtexFetchResponse(`/api/dataentities/${acronym}/search?${params}`, {
+	return vtexFetchResponse(`/api/dataentities/${segment("acronym", acronym)}/search?${params}`, {
 		headers,
 	}).then((res) => res.json());
 }
@@ -137,7 +156,7 @@ export interface UploadAttachmentOpts {
 export async function uploadAttachment(opts: UploadAttachmentOpts): Promise<{ ok: true }> {
 	const { entity, documentId, field, fileName, fileBase64, contentType } = opts;
 	const config = getVtexConfig();
-	const url = `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}/api/dataentities/${entity}/documents/${documentId}/${field}/attachments`;
+	const url = `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}/api/dataentities/${segment("entity", entity)}/documents/${segment("documentId", documentId)}/${segment("field", field)}/attachments`;
 
 	const binary = atob(fileBase64);
 	const bytes = new Uint8Array(binary.length);
