@@ -13,7 +13,12 @@ import { registerSection, resolveValue, setBlocks } from "@decocms/blocks/cms";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupApps } from "../sdk/setupApps";
-import { clearInvokeHandlers, handleInvoke, registerInvokeHandlers } from "./invoke";
+import {
+  clearInvokeHandlers,
+  handleInvoke,
+  registerInvokeHandlers,
+  registerServerOnlyInvokeKeys,
+} from "./invoke";
 import { resolvePreviewRequest } from "./resolvePreview";
 
 const secretRead = vi.fn(async () => ({ leaked: true }));
@@ -193,5 +198,29 @@ describe("serverOnly entry normalization", () => {
     ]);
     expect((await handleInvoke(post("/fake/actions/masterData/explicit"))).status).toBe(404);
     expect(explicit).not.toHaveBeenCalled();
+  });
+});
+
+describe("manually registered server-only keys", () => {
+  it("survive setupApps re-running (hot reload / first-request reinit)", async () => {
+    const manual = vi.fn(async () => ({ manual: true }));
+    registerServerOnlyInvokeKeys(["site/actions/manualSecret"]);
+    registerInvokeHandlers({ "site/actions/manualSecret": manual });
+    expect((await handleInvoke(post("/site/actions/manualSecret"))).status).toBe(404);
+
+    // What autoconfig's onChange / pendingReinit does: clear + setupApps again.
+    clearInvokeHandlers();
+    await setupApps([app as any]);
+    registerInvokeHandlers({ "site/actions/manualSecret": manual });
+
+    expect((await handleInvoke(post("/fake/actions/cart/ping"))).status).toBe(200);
+    expect((await handleInvoke(post("/site/actions/manualSecret"))).status).toBe(404);
+    expect(manual).not.toHaveBeenCalled();
+  });
+
+  it("app-derived marks are still dropped when the app stops declaring them", async () => {
+    clearInvokeHandlers();
+    await setupApps([{ ...app, serverOnly: [] } as any]);
+    expect((await handleInvoke(post("/fake/actions/masterData/read"))).status).toBe(200);
   });
 });

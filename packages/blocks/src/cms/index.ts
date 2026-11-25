@@ -101,6 +101,7 @@ export type {
   PageSeo,
   ResolvedSection,
   ResolveErrorHandler,
+  ServerOnlyScope,
 } from "./resolve";
 export {
   addSkipResolveType,

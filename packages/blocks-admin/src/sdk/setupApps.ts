@@ -21,8 +21,8 @@
 
 import {
   clearInvokeHandlers,
+  markAppServerOnlyKeys,
   registerInvokeHandlers,
-  registerServerOnlyInvokeKeys,
 } from "../admin/invoke";
 import {
   registerSections,
@@ -230,7 +230,7 @@ export async function setupApps(
     //    These also go into the commerce-loaders map so the CMS resolve path
     //    (src/cms/resolve.ts) can dispatch to them by __resolveType.
     if (appWithHandlers.handlers) {
-      registerServerOnlyInvokeKeys(
+      markAppServerOnlyKeys(
         Object.keys(appWithHandlers.handlers).filter(isServerOnly),
       );
       registerInvokeHandlers(appWithHandlers.handlers);
@@ -263,7 +263,7 @@ export async function setupApps(
           // it), but refused when a request names it (HTTP /deco/invoke,
           // preview/render input).
           if (isServerOnly(key)) {
-            registerServerOnlyInvokeKeys([key]);
+            markAppServerOnlyKeys([key]);
           }
           const handler = (props: any, req: Request) =>
             (fn as Function)(props, req);

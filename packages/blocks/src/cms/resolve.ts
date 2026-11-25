@@ -32,6 +32,8 @@ if (!G.__deco.commerceLoaders) G.__deco.commerceLoaders = {};
 if (!G.__deco.customMatchers) G.__deco.customMatchers = {};
 if (!G.__deco.eagerSectionKeys) G.__deco.eagerSectionKeys = new Set<string>();
 if (!G.__deco.serverOnlyResolveTypes) G.__deco.serverOnlyResolveTypes = new Set<string>();
+if (!G.__deco.serverOnlyResolveTypesPersistent)
+  G.__deco.serverOnlyResolveTypesPersistent = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // onBeforeResolveProps helper — eagerly loads the section module if needed
@@ -709,21 +711,38 @@ export function getCommerceLoader(resolveType: string): CommerceLoader | undefin
 // refuses these keys at any depth.
 // ---------------------------------------------------------------------------
 
-const serverOnlyResolveTypes: Set<string> = G.__deco.serverOnlyResolveTypes;
+/**
+ * Two scopes, so a reload can't drop a mark nobody re-adds:
+ * - `"app"`: derived from `AppDefinition.serverOnly`; cleared and rebuilt by
+ *   setupApps() on every (re)configure.
+ * - `"persistent"`: registered by site code directly; never cleared by app
+ *   reconfiguration.
+ */
+export type ServerOnlyScope = "app" | "persistent";
+
+const serverOnlyResolveTypes: Record<ServerOnlyScope, Set<string>> = {
+  app: G.__deco.serverOnlyResolveTypes,
+  persistent: G.__deco.serverOnlyResolveTypesPersistent,
+};
 
 const stripResolveTypeExt = (key: string) => key.replace(/\.tsx?$/, "");
 
 /** Mark resolve types as server-only. Matching ignores a `.ts`/`.tsx` suffix. */
-export function registerServerOnlyResolveTypes(keys: Iterable<string>): void {
-  for (const key of keys) serverOnlyResolveTypes.add(stripResolveTypeExt(key));
+export function registerServerOnlyResolveTypes(
+  keys: Iterable<string>,
+  scope: ServerOnlyScope = "persistent",
+): void {
+  for (const key of keys) serverOnlyResolveTypes[scope].add(stripResolveTypeExt(key));
 }
 
-export function clearServerOnlyResolveTypes(): void {
-  serverOnlyResolveTypes.clear();
+/** Clear one scope's marks (default: the app-derived ones setupApps rebuilds). */
+export function clearServerOnlyResolveTypes(scope: ServerOnlyScope = "app"): void {
+  serverOnlyResolveTypes[scope].clear();
 }
 
 export function isServerOnlyResolveType(key: string): boolean {
-  return serverOnlyResolveTypes.has(stripResolveTypeExt(key));
+  const k = stripResolveTypeExt(key);
+  return serverOnlyResolveTypes.app.has(k) || serverOnlyResolveTypes.persistent.has(k);
 }
 
 interface UntrustedALSLike {
@@ -741,7 +760,18 @@ const untrustedResolveStorage: UntrustedALSLike = UntrustedALS
  * resolve type reached while it runs (including inside nested props or an
  * injected decofile) throws instead of executing.
  */
+let warnedNoUntrustedALS = false;
+
 export function withUntrustedResolveInput<T>(fn: () => T): T {
+  if (!UntrustedALS && !warnedNoUntrustedALS) {
+    // Without AsyncLocalStorage the scope can't be tracked, so server-only
+    // resolve types are NOT refused for request input. Workers need
+    // `nodejs_compat` (the decofile loader already depends on it).
+    warnedNoUntrustedALS = true;
+    console.warn(
+      "[deco] AsyncLocalStorage unavailable: server-only resolve types are not enforced for request input",
+    );
+  }
   return untrustedResolveStorage.run(true, fn);
 }
 

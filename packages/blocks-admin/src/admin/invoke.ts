@@ -71,18 +71,26 @@ export function registerInvokeHandlers(
  * so both surfaces read the same source.
  */
 export function registerServerOnlyInvokeKeys(keys: string[]): void {
-  registerServerOnlyResolveTypes(keys);
+  // Persistent scope: survives clearInvokeHandlers() / setupApps() reinit.
+  registerServerOnlyResolveTypes(keys, "persistent");
+}
+
+/** setupApps-only: marks derived from AppDefinition.serverOnly, rebuilt on reinit. */
+export function markAppServerOnlyKeys(keys: string[]): void {
+  registerServerOnlyResolveTypes(keys, "app");
 }
 
 const isServerOnlyKey = isServerOnlyResolveType;
 
 /**
- * Clear all registered invoke handlers (and their server-only marks).
+ * Clear all registered invoke handlers and the app-derived server-only marks
+ * (setupApps() re-adds both). Marks a site registered via
+ * registerServerOnlyInvokeKeys() are kept.
  * Called by setupApps() before re-registering on hot-reload.
  */
 export function clearInvokeHandlers(): void {
   handlerRegistry.clear();
-  clearServerOnlyResolveTypes();
+  clearServerOnlyResolveTypes("app");
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
