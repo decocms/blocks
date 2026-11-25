@@ -168,6 +168,12 @@ export async function configure(
 		manifest,
 		state: { config },
 		middleware: vtexMiddleware,
+		// Generic Master Data CRUD takes a caller-chosen entity and runs with the
+		// store's appKey/appToken: over HTTP it would expose any entity (e.g.
+		// `searchDocumentsFull({ acronym: "CL" })` dumps customer PII). Same
+		// policy as PRIVILEGED_ACTIONS in blocks-cli's generate-invoke.ts, for
+		// the /deco/invoke surface. Server-side code can still call it.
+		serverOnly: ["vtex/actions/masterData"],
 	};
 }
 

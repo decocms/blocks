@@ -58,11 +58,34 @@ export function registerInvokeHandlers(
 }
 
 /**
+ * Handler keys that exist for server-side use only and must never be
+ * dispatched from an HTTP `/deco/invoke` request (single or batch). The
+ * handlers stay in the registry, so CMS resolution and the in-process
+ * `ctx.invoke` proxy keep working. Stored without a `.ts` suffix.
+ */
+const serverOnlyKeys = new Set<string>();
+
+const stripTs = (key: string) => (key.endsWith(".ts") ? key.slice(0, -3) : key);
+
+/**
+ * Mark handler keys as server-only (see {@link serverOnlyKeys}). setupApps()
+ * calls this for every key an app lists in `AppDefinition.serverOnly`.
+ */
+export function registerServerOnlyInvokeKeys(keys: string[]): void {
+  for (const key of keys) serverOnlyKeys.add(stripTs(key));
+}
+
+function isServerOnlyKey(key: string): boolean {
+  return serverOnlyKeys.has(stripTs(key));
+}
+
+/**
  * Clear all registered invoke handlers.
  * Called by setupApps() before re-registering on hot-reload.
  */
 export function clearInvokeHandlers(): void {
   handlerRegistry.clear();
+  serverOnlyKeys.clear();
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
@@ -329,7 +352,9 @@ async function dispatchInvoke(request: Request): Promise<Response> {
 
   // Single invoke by key
   if (invokeKey) {
-    const found = findHandler(invokeKey);
+    // Server-only handlers answer exactly like a missing one, so the HTTP
+    // surface doesn't reveal they exist.
+    const found = isServerOnlyKey(invokeKey) ? null : findHandler(invokeKey);
     if (!found) {
       warnMissingHandlerOnce(invokeKey);
       return errorResponse(unknownHandlerMessage(invokeKey), 404);
@@ -362,7 +387,7 @@ async function dispatchInvoke(request: Request): Promise<Response> {
     await Promise.all(
       entries.map(async ([key, payload]) => {
         const resolveType = (payload as any)?.__resolveType || key;
-        const found = findHandler(resolveType);
+        const found = isServerOnlyKey(resolveType) ? null : findHandler(resolveType);
 
         if (found) {
           try {

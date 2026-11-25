@@ -19,7 +19,11 @@
  * ```
  */
 
-import { clearInvokeHandlers, registerInvokeHandlers } from "../admin/invoke";
+import {
+  clearInvokeHandlers,
+  registerInvokeHandlers,
+  registerServerOnlyInvokeKeys,
+} from "../admin/invoke";
 import {
   registerSections,
   registerCommerceLoaders,
@@ -48,6 +52,16 @@ export interface AppDefinition<TState = unknown> {
   state: TState;
   middleware?: AppMiddleware;
   dependencies?: AppDefinition[];
+  /**
+   * Manifest keys that must never be callable over HTTP (`/deco/invoke`,
+   * single or batch). Either a module key (`"vtex/actions/masterData"`, covers
+   * every export) or a full handler key (`"vtex/actions/masterData/getDocument"`).
+   * They stay available to server-side code: CMS `__resolveType` resolution
+   * and the in-process `ctx.invoke` proxy. Use for generic, privileged
+   * operations (e.g. Master Data CRUD with a caller-chosen entity) that run
+   * with the app's credentials and have no per-caller authorization.
+   */
+  serverOnly?: string[];
 }
 
 /**
@@ -219,6 +233,8 @@ export async function setupApps(
     //         → keys "vtex/actions/checkout/getOrCreateCart", ".../addItemsToCart"
     //     - Each key also gets a `.ts` sibling for callers that include the
     //       extension (admin invoke path, some __resolveType producers).
+    const serverOnly = new Set(app.serverOnly ?? []);
+
     for (const category of ["loaders", "actions"] as const) {
       const modules = app.manifest[category];
       if (!modules) continue;
@@ -231,6 +247,11 @@ export async function setupApps(
           const key = fnName === "default"
             ? moduleKey
             : `${moduleKey}/${fnName}`;
+          // Still registered (server-side resolve + in-process ctx.invoke need
+          // it), but refused when the call comes in over HTTP /deco/invoke.
+          if (serverOnly.has(moduleKey) || serverOnly.has(key)) {
+            registerServerOnlyInvokeKeys([key]);
+          }
           const handler = (props: any, req: Request) =>
             (fn as Function)(props, req);
           registerInvokeHandlers({
