@@ -1,15 +1,19 @@
-/** View mode: the heatmap drawn over the LIVE site, inside Studio's iframe.
+/** View mode: the heatmap drawn over the LIVE site, in Studio's iframe or in a window it opened.
  *
- *  Loaded by core ONLY when the page is framed and its URL carries `dq_view=1` (core then
- *  collects nothing at all: no pageview, no module, no beacon). A normal visitor never downloads
- *  this file. Everything here runs on the site's own origin, so it can hash the live DOM with the
- *  same `shared/anchor.ts` the runtime used on the click, measure boxes, and read element labels --
- *  which go to the parent frame and nowhere else.
+ *  Loaded by core ONLY when the page is framed or has an opener, and its URL carries `dq_view=1`
+ *  (core then collects nothing at all: no pageview, no module, no beacon). A normal visitor never
+ *  downloads this file. Everything here runs on the site's own origin, so it can hash the live DOM
+ *  with the same `shared/anchor.ts` the runtime used on the click, measure boxes, and read element
+ *  labels -- which go to the parent and nowhere else.
  *
  *  Trust: nothing is sent and nothing is accepted until a parent from the allow-list
  *  (`https://*.decocms.com`, localhost for development) sends `init`. From then on that one
  *  origin is pinned: every outgoing message is addressed to it, every incoming one must come from
- *  it and from `window.parent`. Protocol, versioned: docs/RUNTIME_API.md -> "View mode".
+ *  it and from the parent: `window.parent` when framed, else `window.opener` (a store whose
+ *  `frame-ancestors` cannot list Studio is opened in a window). An opener must be Studio itself:
+ *  a window carries the visitor's cookies and needs nothing from the store's `frame-ancestors`,
+ *  so the wildcard that frames allow would let any page on `*.decocms.com` (sandbox previews
+ *  included) read a logged-in store. Protocol, versioned: docs/RUNTIME_API.md -> "View mode".
  *
  *  The drawing is the insights-mcp PAGE_HEATMAP viewer's (heat-core.ts ported verbatim, heat-child
  *  adapted from a static snapshot to a live page): Gaussian density with p99 normalisation, the
@@ -21,6 +25,8 @@ import { heatCore } from "./heat-core.ts";
 export const VIEW_PROTOCOL = 1;
 export const ALLOWED_PARENT =
   /^(https:\/\/([a-z0-9-]+\.)*decocms\.com|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+export const ALLOWED_OPENER =
+  /^(https:\/\/studio(-stg)?\.decocms\.com|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 
 type Row = Record<string, unknown>;
 type Mode = "clicks" | "scroll" | "attention" | "sections";
@@ -63,8 +69,11 @@ export function startView(win: Window = window) {
   const doc = win.document,
     root = doc.documentElement;
   let origin = "";
+  const framed = win.parent !== win;
+  const parent: Window | null = framed ? win.parent : win.opener;
+  const allowed = framed ? ALLOWED_PARENT : ALLOWED_OPENER;
   const post = (m: Row) => {
-    if (origin) win.parent.postMessage({ dq: "hm", v: VIEW_PROTOCOL, ...m }, origin);
+    if (origin) parent?.postMessage({ dq: "hm", v: VIEW_PROTOCOL, ...m }, origin);
   };
 
   const css = doc.createElement("style");
@@ -537,10 +546,10 @@ export function startView(win: Window = window) {
 
   // ---- the protocol ---------------------------------------------------------------------------
   win.addEventListener("message", (e: MessageEvent) => {
-    if (e.source !== win.parent || !e.data || e.data.dq !== "hm") return;
+    if (!parent || e.source !== parent || !e.data || e.data.dq !== "hm") return;
     if (!origin) {
       // The handshake: the first message must be `init` from an allowed origin. It pins that origin.
-      if (e.data.t !== "init" || !ALLOWED_PARENT.test(e.origin)) return;
+      if (e.data.t !== "init" || !allowed.test(e.origin)) return;
       origin = e.origin;
       reindex();
       post({
