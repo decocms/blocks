@@ -200,10 +200,11 @@ export async function proxyToVtex(request: Request, options?: VtexProxyOptions):
 		}
 	}
 
-	if (typeof config.appKey === "string" && typeof config.appToken === "string") {
-		forwardHeaders.set("X-VTEX-API-AppKey", config.appKey);
-		forwardHeaders.set("X-VTEX-API-AppToken", config.appToken);
-	}
+	// Never attach the store's appKey/appToken here. This forwards an arbitrary
+	// browser request (every `/api/*` by default) to VTEX, so stamping app
+	// credentials on it let anyone hit e.g. `/api/dataentities/CL/search` on the
+	// storefront domain and read it as the store. Proxied traffic authenticates
+	// with the shopper's own cookies, exactly as it would on the VTEX domain.
 
 	const init: RequestInit = {
 		method: request.method,

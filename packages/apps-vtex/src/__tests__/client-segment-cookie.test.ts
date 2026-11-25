@@ -148,7 +148,8 @@ describe("vtexFetchResponse — vtex_segment cookie forwarding", () => {
 	it("preserves auth headers alongside the forwarded cookie", async () => {
 		configureVtex({ account: "testaccount", appKey: "k", appToken: "t" });
 		await withRequest("vtex_segment=abc123", async () => {
-			await vtexFetchResponse("/api/x");
+			// App credentials are only sent to private paths (see client-credentials.test.ts).
+			await vtexFetchResponse("/api/catalog_system/pvt/x");
 		});
 		expect(headerValue(lastInit, "X-VTEX-API-AppKey")).toBe("k");
 		expect(headerValue(lastInit, "X-VTEX-API-AppToken")).toBe("t");
