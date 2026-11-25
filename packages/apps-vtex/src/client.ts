@@ -280,13 +280,99 @@ function isUrl(): string {
 	return `https://${vtexHost()}/api/io/_v/api/intelligent-search`;
 }
 
-function authHeaders(): Record<string, string> {
+// ---------------------------------------------------------------------------
+// App credentials (appKey / appToken)
+//
+// The store's appKey/appToken used to be stamped on EVERY outbound call,
+// public ones included. Many of those calls are reachable anonymously
+// (`/deco/invoke`, server functions) and interpolate caller-controlled values
+// into the path, and `new URL()` collapses `../`. So an `orderFormId` like
+// `../../../dataentities/CL/search?_fields=email#` turned a public checkout
+// call into an authenticated Master Data read of the customer table.
+//
+// Two rules now, applied by every client entry point:
+//
+//   1. `assertNoDotSegments` refuses any path that `new URL()` would rewrite
+//      (`.`/`..`, their percent-encoded forms, `\`, tab/newline). With that in
+//      place the path VTEX receives is the path the code wrote.
+//   2. Credentials go only to the account's own VTEX hosts AND only to paths
+//      that need them: a `pvt` segment or Master Data (`/api/dataentities/`),
+//      plus two fixed VTEX IO paths kept as before (see
+//      MYVTEX_CREDENTIAL_PATH_RE). Public endpoints (checkout `pub`, catalog
+//      `pub`, IS, sessions, vtexid, `oms/user`) run on the shopper's cookies,
+//      as the browser would — VTEX resolves an API key before the session
+//      cookie, so sending one there was also wrong, not just risky.
+//
+// A caller that sets `X-VTEX-API-AppKey` itself still wins (caller headers
+// override framework headers), so an explicit opt-in remains possible.
+// ---------------------------------------------------------------------------
+
+const CREDENTIAL_PATH_RE = /(^|\/)pvt(\/|$)|^\/api\/dataentities(\/|$)/;
+
+/**
+ * VTEX IO (`{account}.myvtex.com`) endpoints that received credentials before
+ * this scoping and are kept that way until verified to work on the shopper's
+ * cookie alone. Both are fixed, code-owned paths (no caller value reaches the
+ * path), so keeping them does not reopen the traversal.
+ */
+const MYVTEX_CREDENTIAL_PATH_RE = /^\/(_v\/private\/graphql\/|reviews-and-ratings\/api\/)/;
+
+/**
+ * Throw if `raw`'s path contains anything the WHATWG URL parser would
+ * normalize away — the precondition for "the path we checked is the path we
+ * send". Must run on the raw string, before any `new URL()`.
+ */
+export function assertNoDotSegments(raw: string): void {
+	const afterOrigin = raw.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "");
+	const pathPart = afterOrigin.split(/[?#]/, 1)[0] ?? "";
+	// `\` is a path separator for http(s) and tab/CR/LF are silently stripped,
+	// so `..\` or `.\t.` would still traverse.
+	if (/[\\\t\r\n]/.test(pathPart)) {
+		throw new Error("vtex: refusing request path with unsafe characters");
+	}
+	for (const segment of pathPart.split("/")) {
+		const decoded = segment.replace(/%2e/gi, ".");
+		if (decoded === "." || decoded === "..") {
+			throw new Error("vtex: refusing request path with dot-segments");
+		}
+	}
+}
+
+/**
+ * Whether the store's app credentials belong on a request to `url`: only the
+ * account's own VTEX hosts, and only paths that require them. Anything else —
+ * including a host a caller-supplied absolute URL points at — goes without.
+ */
+export function needsAppCredentials(url: string, config?: VtexConfig): boolean {
+	const c = config ?? getVtexConfig();
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	if (parsed.protocol !== "https:") return false;
+	const domain = c.domain ?? "com.br";
+	const { hostname, pathname } = parsed;
+	if (
+		hostname === `${c.account}.vtexcommercestable.${domain}` ||
+		hostname === `${c.account}.vtexcommercebeta.${domain}`
+	) {
+		return CREDENTIAL_PATH_RE.test(pathname);
+	}
+	if (hostname === `${c.account}.myvtex.com`) {
+		return CREDENTIAL_PATH_RE.test(pathname) || MYVTEX_CREDENTIAL_PATH_RE.test(pathname);
+	}
+	return false;
+}
+
+function authHeaders(url: string): Record<string, string> {
 	const c = getVtexConfig();
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 		Accept: "application/json",
 	};
-	if (c.appKey && c.appToken) {
+	if (c.appKey && c.appToken && needsAppCredentials(url, c)) {
 		headers["X-VTEX-API-AppKey"] = c.appKey;
 		headers["X-VTEX-API-AppToken"] = c.appToken;
 	}
@@ -376,6 +462,7 @@ export async function vtexFetchResponse(
 	init?: InstrumentedFetchInit,
 ): Promise<Response> {
 	const raw = path.startsWith("http") ? path : `${baseUrl()}${path}`;
+	assertNoDotSegments(raw);
 	const url = sanitizeUrl(raw);
 
 	// Forward the incoming `vtex_segment` cookie on outgoing calls when
@@ -389,7 +476,7 @@ export async function vtexFetchResponse(
 
 	const response = await _fetch(url, {
 		...init,
-		headers: mergeHeaders(authHeaders(), segmentCookie, init?.headers),
+		headers: mergeHeaders(authHeaders(url), segmentCookie, init?.headers),
 	});
 	if (!response.ok) {
 		// Include the response body: VTEX returns actionable detail here
@@ -459,6 +546,7 @@ export async function vtexCachedFetch<T>(
 	if (method !== "GET") return vtexFetch<T>(path, init);
 
 	const raw = path.startsWith("http") ? path : `${baseUrl()}${path}`;
+	assertNoDotSegments(raw);
 	const url = sanitizeUrl(raw);
 	const opts: FetchCacheOptions | undefined = cacheOpts?.cacheTTL
 		? { ttl: cacheOpts.cacheTTL }
@@ -479,7 +567,7 @@ export async function vtexCachedFetch<T>(
 		() =>
 			_fetch(url, {
 				...init,
-				headers: mergeHeaders(authHeaders(), segmentCookie, init?.headers),
+				headers: mergeHeaders(authHeaders(url), segmentCookie, init?.headers),
 			}),
 		opts,
 	);
@@ -560,7 +648,9 @@ export async function intelligentSearch<T>(
 	params?: Record<string, string>,
 	opts?: { cookieHeader?: string; locale?: string; regionId?: string },
 ): Promise<T> {
-	const url = new URL(`${isUrl()}${path}`);
+	const rawUrl = `${isUrl()}${path}`;
+	assertNoDotSegments(rawUrl);
+	const url = new URL(rawUrl);
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
 			url.searchParams.set(k, v);
@@ -579,7 +669,9 @@ export async function intelligentSearch<T>(
 		url.searchParams.set("regionId", regionId);
 	}
 
-	const headers: Record<string, string> = { ...authHeaders() };
+	// Intelligent Search is public: `authHeaders` never attaches app
+	// credentials to it (not a `pvt` / Master Data path).
+	const headers: Record<string, string> = { ...authHeaders(url.toString()) };
 	if (opts?.cookieHeader) {
 		headers.cookie = opts.cookieHeader;
 	} else {
