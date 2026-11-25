@@ -10,8 +10,10 @@
  *  (`https://*.decocms.com`, localhost for development) sends `init`. From then on that one
  *  origin is pinned: every outgoing message is addressed to it, every incoming one must come from
  *  it and from the parent: `window.parent` when framed, else `window.opener` (a store whose
- *  `frame-ancestors` cannot list Studio is opened in a window). Protocol, versioned:
- *  docs/RUNTIME_API.md -> "View mode".
+ *  `frame-ancestors` cannot list Studio is opened in a window). An opener must be Studio itself:
+ *  a window carries the visitor's cookies and needs nothing from the store's `frame-ancestors`,
+ *  so the wildcard that frames allow would let any page on `*.decocms.com` (sandbox previews
+ *  included) read a logged-in store. Protocol, versioned: docs/RUNTIME_API.md -> "View mode".
  *
  *  The drawing is the insights-mcp PAGE_HEATMAP viewer's (heat-core.ts ported verbatim, heat-child
  *  adapted from a static snapshot to a live page): Gaussian density with p99 normalisation, the
@@ -23,6 +25,8 @@ import { heatCore } from "./heat-core.ts";
 export const VIEW_PROTOCOL = 1;
 export const ALLOWED_PARENT =
   /^(https:\/\/([a-z0-9-]+\.)*decocms\.com|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+export const ALLOWED_OPENER =
+  /^(https:\/\/studio(-stg)?\.decocms\.com|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 
 type Row = Record<string, unknown>;
 type Mode = "clicks" | "scroll" | "attention" | "sections";
@@ -65,7 +69,9 @@ export function startView(win: Window = window) {
   const doc = win.document,
     root = doc.documentElement;
   let origin = "";
-  const parent: Window | null = win.parent !== win ? win.parent : win.opener;
+  const framed = win.parent !== win;
+  const parent: Window | null = framed ? win.parent : win.opener;
+  const allowed = framed ? ALLOWED_PARENT : ALLOWED_OPENER;
   const post = (m: Row) => {
     if (origin) parent?.postMessage({ dq: "hm", v: VIEW_PROTOCOL, ...m }, origin);
   };
@@ -543,7 +549,7 @@ export function startView(win: Window = window) {
     if (!parent || e.source !== parent || !e.data || e.data.dq !== "hm") return;
     if (!origin) {
       // The handshake: the first message must be `init` from an allowed origin. It pins that origin.
-      if (e.data.t !== "init" || !ALLOWED_PARENT.test(e.origin)) return;
+      if (e.data.t !== "init" || !allowed.test(e.origin)) return;
       origin = e.origin;
       reindex();
       post({
