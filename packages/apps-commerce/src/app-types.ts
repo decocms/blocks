@@ -36,6 +36,12 @@ export interface AppDefinition<TState = unknown> {
 	state: TState;
 	middleware?: AppMiddleware;
 	dependencies?: AppDefinition[];
+	/**
+	 * Manifest keys (module or `module/fn`) that setupApps() must not expose via
+	 * `/deco/invoke` or the CMS resolver. Use for anything that runs with the
+	 * app's admin credentials on caller-supplied input.
+	 */
+	serverOnly?: readonly string[];
 	resolvables?: Record<string, { __resolveType: string; [key: string]: unknown }>;
 }
 

@@ -127,6 +127,25 @@ export const vtexMiddleware: AppMiddleware = async (request, next) => {
 };
 
 // -------------------------------------------------------------------------
+// Server-only manifest entries
+// -------------------------------------------------------------------------
+
+/**
+ * Manifest keys setupApps() must never expose over HTTP.
+ *
+ * Generic MasterData CRUD takes a caller-supplied entity/where/fields and runs
+ * with the store's appKey/appToken, so registering it as a `/deco/invoke`
+ * handler (or a CMS-resolvable `__resolveType`) lets any anonymous caller read
+ * and write arbitrary MasterData — e.g. `searchDocumentsFull({ acronym: "CL" })`
+ * dumps customer PII. Same reasoning as PRIVILEGED_ACTIONS in blocks-cli's
+ * generate-invoke.ts, which guards the `/_serverFn` path.
+ *
+ * The functions stay exported from ./actions/masterData for server-side use: a
+ * site that needs MasterData wraps them in a narrow, entity-pinned action.
+ */
+export const VTEX_SERVER_ONLY = ["vtex/actions/masterData"] as const;
+
+// -------------------------------------------------------------------------
 // Configure
 // -------------------------------------------------------------------------
 
@@ -168,6 +187,7 @@ export async function configure(
 		manifest,
 		state: { config },
 		middleware: vtexMiddleware,
+		serverOnly: VTEX_SERVER_ONLY,
 	};
 }
 

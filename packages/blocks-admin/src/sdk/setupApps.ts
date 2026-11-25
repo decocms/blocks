@@ -48,6 +48,16 @@ export interface AppDefinition<TState = unknown> {
   state: TState;
   middleware?: AppMiddleware;
   dependencies?: AppDefinition[];
+  /**
+   * Manifest keys that must stay server-side. Each entry is a module key
+   * (e.g. "vtex/actions/masterData") or a single function key
+   * (e.g. "vtex/actions/masterData/searchDocumentsFull"); a module key covers
+   * every export under it. Matching exports are NOT registered as
+   * `/deco/invoke` handlers nor in the CMS resolver map (which `/deco/render`
+   * resolves caller-supplied `__resolveType` against) — both are reachable by
+   * anonymous HTTP callers. Site code can still import and call them directly.
+   */
+  serverOnly?: readonly string[];
 }
 
 /**
@@ -179,6 +189,41 @@ function registerAppCommerceHandlers(
 }
 
 // ---------------------------------------------------------------------------
+// Server-only filtering
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a key the way the two lookup paths do: `/deco/invoke` matches the
+ * exact key (with or without `.ts`), the CMS resolver strips `.ts`/`.tsx`.
+ */
+function normalizeKey(key: string): string {
+  return key.replace(/\.tsx?$/, "");
+}
+
+/** True when `key` equals a serverOnly entry or sits under one as a prefix. */
+export function isServerOnlyKey(
+  key: string,
+  serverOnly: readonly string[] | undefined,
+): boolean {
+  if (!serverOnly?.length) return false;
+  const k = normalizeKey(key);
+  return serverOnly.some((entry) => {
+    const e = normalizeKey(entry);
+    return k === e || k.startsWith(`${e}/`);
+  });
+}
+
+function omitServerOnly<T>(
+  handlers: Record<string, T>,
+  serverOnly: readonly string[] | undefined,
+): Record<string, T> {
+  if (!serverOnly?.length) return handlers;
+  return Object.fromEntries(
+    Object.entries(handlers).filter(([key]) => !isServerOnlyKey(key, serverOnly)),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
 
@@ -205,8 +250,9 @@ export async function setupApps(
     //    These also go into the commerce-loaders map so the CMS resolve path
     //    (src/cms/resolve.ts) can dispatch to them by __resolveType.
     if (appWithHandlers.handlers) {
-      registerInvokeHandlers(appWithHandlers.handlers);
-      registerAppCommerceHandlers(appWithHandlers.handlers);
+      const handlers = omitServerOnly(appWithHandlers.handlers, app.serverOnly);
+      registerInvokeHandlers(handlers);
+      registerAppCommerceHandlers(handlers);
     }
 
     // 2. Flatten manifest modules → individual invoke handlers.
@@ -231,6 +277,9 @@ export async function setupApps(
           const key = fnName === "default"
             ? moduleKey
             : `${moduleKey}/${fnName}`;
+          // Privileged exports (e.g. admin-credentialed MasterData CRUD) stay
+          // importable server-side but never become HTTP-reachable.
+          if (isServerOnlyKey(key, app.serverOnly)) continue;
           const handler = (props: any, req: Request) =>
             (fn as Function)(props, req);
           registerInvokeHandlers({
