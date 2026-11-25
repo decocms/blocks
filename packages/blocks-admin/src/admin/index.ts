@@ -22,6 +22,7 @@ export {
   type InvokeAction,
   type InvokeLoader,
   registerInvokeHandlers,
+  registerServerOnlyInvokeKeys,
   setInvokeActions,
   setInvokeLoaders,
 } from "./invoke";

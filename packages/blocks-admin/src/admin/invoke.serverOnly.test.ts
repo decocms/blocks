@@ -9,9 +9,12 @@
  * with `{ acronym: "CL" }` read the customer table with the store's appKey.
  */
 
+import { registerSection, resolveValue, setBlocks } from "@decocms/blocks/cms";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupApps } from "../sdk/setupApps";
 import { clearInvokeHandlers, handleInvoke, registerInvokeHandlers } from "./invoke";
+import { resolvePreviewRequest } from "./resolvePreview";
 
 const secretRead = vi.fn(async () => ({ leaked: true }));
 const secretWrite = vi.fn(async () => ({ written: true }));
@@ -105,5 +108,90 @@ describe("serverOnly handlers server-side", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ leaked: true });
     expect(secretRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("serverOnly handlers in preview/render request input", () => {
+  const SECTION = "site/sections/Probe.tsx";
+
+  beforeEach(() => {
+    setBlocks({});
+    registerSection(SECTION, async () => ({
+      default: ({ title }: { title?: unknown }) => createElement("p", null, JSON.stringify(title)),
+    }));
+  });
+
+  const previewPost = (body: unknown) =>
+    new Request(`http://localhost/live/previews/${encodeURIComponent(SECTION)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const run = (req: Request) => resolvePreviewRequest(req).catch((e: unknown) => e);
+
+  it("a public commerce handler nested in props still resolves (control)", async () => {
+    const result: any = await run(
+      previewPost({ title: { __resolveType: "fake/actions/cart/ping" } }),
+    );
+    expect(result.sections?.[0]?.props?.title).toEqual({ pong: true });
+    expect(publicPing).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["nested in POST props", { title: { __resolveType: "fake/actions/masterData/write" } }],
+    ["with a .ts suffix", { title: { __resolveType: "fake/actions/masterData/write.ts" } }],
+    [
+      "deeply nested",
+      { title: { a: [{ b: { __resolveType: "fake/actions/masterData/write" } }] } },
+    ],
+    [
+      "through an injected __decofile block",
+      {
+        __decofile: { Evil: { __resolveType: "fake/actions/masterData/write" } },
+        __props: { __resolveType: SECTION, title: { __resolveType: "Evil" } },
+      },
+    ],
+  ])("is refused %s", async (_label, body) => {
+    await run(previewPost(body));
+    expect(secretWrite).not.toHaveBeenCalled();
+  });
+
+  it("is refused from ?props= on GET", async () => {
+    const props = encodeURIComponent(
+      JSON.stringify({ title: { __resolveType: "fake/actions/masterData/read" } }),
+    );
+    await run(
+      new Request(`http://localhost/live/previews/${encodeURIComponent(SECTION)}?props=${props}`),
+    );
+    expect(secretRead).not.toHaveBeenCalled();
+  });
+
+  it("server-side resolution (published content) still reaches them", async () => {
+    const value = await resolveValue({ __resolveType: "fake/actions/masterData/read" });
+    expect(value).toEqual({ leaked: true });
+    expect(secretRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("serverOnly entry normalization", () => {
+  it.each([
+    ["fake/actions/masterData.ts"],
+    ["fake/actions/masterData/"],
+  ])("entry %s still marks the module", async (entry) => {
+    clearInvokeHandlers();
+    await setupApps([{ ...app, serverOnly: [entry] } as any]);
+    expect((await handleInvoke(post("/fake/actions/cart/ping"))).status).toBe(200);
+    expect((await handleInvoke(post("/fake/actions/masterData/read"))).status).toBe(404);
+  });
+
+  it("covers keys from an app's explicit handlers map", async () => {
+    clearInvokeHandlers();
+    const explicit = vi.fn(async () => ({ explicit: true }));
+    await setupApps([
+      { ...app, handlers: { "fake/actions/masterData/explicit": explicit } } as any,
+    ]);
+    expect((await handleInvoke(post("/fake/actions/masterData/explicit"))).status).toBe(404);
+    expect(explicit).not.toHaveBeenCalled();
   });
 });

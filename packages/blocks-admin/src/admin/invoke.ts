@@ -18,6 +18,9 @@
 
 import {
   buildSectionLoaderContext,
+  clearServerOnlyResolveTypes,
+  isServerOnlyResolveType,
+  registerServerOnlyResolveTypes,
   resolveDraftForRequest,
   type SectionLoaderContext,
   withDraftBlocks,
@@ -58,34 +61,28 @@ export function registerInvokeHandlers(
 }
 
 /**
- * Handler keys that exist for server-side use only and must never be
- * dispatched from an HTTP `/deco/invoke` request (single or batch). The
- * handlers stay in the registry, so CMS resolution and the in-process
- * `ctx.invoke` proxy keep working. Stored without a `.ts` suffix.
- */
-const serverOnlyKeys = new Set<string>();
-
-const stripTs = (key: string) => (key.endsWith(".ts") ? key.slice(0, -3) : key);
-
-/**
- * Mark handler keys as server-only (see {@link serverOnlyKeys}). setupApps()
- * calls this for every key an app lists in `AppDefinition.serverOnly`.
+ * Mark handler keys as server-only: never dispatched from an HTTP
+ * `/deco/invoke` request (single or batch) nor resolvable from preview/render
+ * request input. The handlers stay registered, so CMS resolution and the
+ * in-process `ctx.invoke` proxy keep working. setupApps() calls this for
+ * every key an app lists in `AppDefinition.serverOnly`; sites that register
+ * handlers without setupApps (setInvokeActions, createAdminSetup
+ * getCommerceLoaders) call it directly. The set lives in `@decocms/blocks/cms`
+ * so both surfaces read the same source.
  */
 export function registerServerOnlyInvokeKeys(keys: string[]): void {
-  for (const key of keys) serverOnlyKeys.add(stripTs(key));
+  registerServerOnlyResolveTypes(keys);
 }
 
-function isServerOnlyKey(key: string): boolean {
-  return serverOnlyKeys.has(stripTs(key));
-}
+const isServerOnlyKey = isServerOnlyResolveType;
 
 /**
- * Clear all registered invoke handlers.
+ * Clear all registered invoke handlers (and their server-only marks).
  * Called by setupApps() before re-registering on hot-reload.
  */
 export function clearInvokeHandlers(): void {
   handlerRegistry.clear();
-  serverOnlyKeys.clear();
+  clearServerOnlyResolveTypes();
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;

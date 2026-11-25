@@ -215,10 +215,24 @@ export async function setupApps(
   for (const app of flattenDependencies(apps as AppDefinition[])) {
     const appWithHandlers = app as AppDefinitionWithHandlers;
 
+    // Server-only entries are module keys or full handler keys; tolerate a
+    // `.ts`/`.tsx` suffix or trailing `/` in what the app wrote, since a
+    // non-matching entry would silently leave the handler exposed.
+    const serverOnly = (app.serverOnly ?? []).map((entry) =>
+      entry.replace(/\/+$/, "").replace(/\.tsx?$/, "")
+    );
+    const isServerOnly = (key: string) => {
+      const k = key.replace(/\.tsx?$/, "");
+      return serverOnly.some((entry) => k === entry || k.startsWith(`${entry}/`));
+    };
+
     // 1. Register explicit handlers (pre-unwrapped by the app, e.g. resend)
     //    These also go into the commerce-loaders map so the CMS resolve path
     //    (src/cms/resolve.ts) can dispatch to them by __resolveType.
     if (appWithHandlers.handlers) {
+      registerServerOnlyInvokeKeys(
+        Object.keys(appWithHandlers.handlers).filter(isServerOnly),
+      );
       registerInvokeHandlers(appWithHandlers.handlers);
       registerAppCommerceHandlers(appWithHandlers.handlers);
     }
@@ -233,8 +247,6 @@ export async function setupApps(
     //         → keys "vtex/actions/checkout/getOrCreateCart", ".../addItemsToCart"
     //     - Each key also gets a `.ts` sibling for callers that include the
     //       extension (admin invoke path, some __resolveType producers).
-    const serverOnly = new Set(app.serverOnly ?? []);
-
     for (const category of ["loaders", "actions"] as const) {
       const modules = app.manifest[category];
       if (!modules) continue;
@@ -248,8 +260,9 @@ export async function setupApps(
             ? moduleKey
             : `${moduleKey}/${fnName}`;
           // Still registered (server-side resolve + in-process ctx.invoke need
-          // it), but refused when the call comes in over HTTP /deco/invoke.
-          if (serverOnly.has(moduleKey) || serverOnly.has(key)) {
+          // it), but refused when a request names it (HTTP /deco/invoke,
+          // preview/render input).
+          if (isServerOnly(key)) {
             registerServerOnlyInvokeKeys([key]);
           }
           const handler = (props: any, req: Request) =>

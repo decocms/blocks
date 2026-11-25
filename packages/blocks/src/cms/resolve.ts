@@ -1,3 +1,4 @@
+import * as asyncHooks from "node:async_hooks";
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { cacheBackground, createCacheStore } from "../sdk/cacheStorage";
@@ -30,6 +31,7 @@ if (!G.__deco) G.__deco = {};
 if (!G.__deco.commerceLoaders) G.__deco.commerceLoaders = {};
 if (!G.__deco.customMatchers) G.__deco.customMatchers = {};
 if (!G.__deco.eagerSectionKeys) G.__deco.eagerSectionKeys = new Set<string>();
+if (!G.__deco.serverOnlyResolveTypes) G.__deco.serverOnlyResolveTypes = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // onBeforeResolveProps helper — eagerly loads the section module if needed
@@ -694,6 +696,56 @@ export function getCommerceLoader(resolveType: string): CommerceLoader | undefin
 }
 
 // ---------------------------------------------------------------------------
+// Server-only resolve types
+//
+// Some registered loaders/actions are privileged: generic operations that run
+// with an app's credentials and have no per-caller authorization (e.g. VTEX
+// Master Data CRUD with a caller-chosen entity). Server code and the published
+// decofile may use them; a request must never be able to name one. Two HTTP
+// surfaces take resolvables from the request: `/deco/invoke` (by key) and the
+// preview/render endpoints (props, `?props=`, `__decofile` override). The
+// first checks `isServerOnlyResolveType` directly; the second runs its resolve
+// inside `withUntrustedResolveInput`, where the commerce-loader dispatch below
+// refuses these keys at any depth.
+// ---------------------------------------------------------------------------
+
+const serverOnlyResolveTypes: Set<string> = G.__deco.serverOnlyResolveTypes;
+
+const stripResolveTypeExt = (key: string) => key.replace(/\.tsx?$/, "");
+
+/** Mark resolve types as server-only. Matching ignores a `.ts`/`.tsx` suffix. */
+export function registerServerOnlyResolveTypes(keys: Iterable<string>): void {
+  for (const key of keys) serverOnlyResolveTypes.add(stripResolveTypeExt(key));
+}
+
+export function clearServerOnlyResolveTypes(): void {
+  serverOnlyResolveTypes.clear();
+}
+
+export function isServerOnlyResolveType(key: string): boolean {
+  return serverOnlyResolveTypes.has(stripResolveTypeExt(key));
+}
+
+interface UntrustedALSLike {
+  getStore(): true | undefined;
+  run<R>(store: true, fn: () => R): R;
+}
+
+const UntrustedALS = (asyncHooks as any).AsyncLocalStorage;
+const untrustedResolveStorage: UntrustedALSLike = UntrustedALS
+  ? new UntrustedALS()
+  : { getStore: () => undefined, run: (_s: true, fn: any) => fn() };
+
+/**
+ * Run `fn` with resolution marked as driven by request input: any server-only
+ * resolve type reached while it runs (including inside nested props or an
+ * injected decofile) throws instead of executing.
+ */
+export function withUntrustedResolveInput<T>(fn: () => T): T {
+  return untrustedResolveStorage.run(true, fn);
+}
+
+// ---------------------------------------------------------------------------
 // Custom matchers
 // ---------------------------------------------------------------------------
 
@@ -1073,6 +1125,9 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
   // Commerce loaders
   const commerceLoader = getCommerceLoader(resolveType);
   if (commerceLoader) {
+    if (untrustedResolveStorage.getStore() && isServerOnlyResolveType(resolveType)) {
+      throw new Error(`"${resolveType}" is server-only and cannot be resolved from request input`);
+    }
     const { __resolveType: _, ...loaderProps } = obj;
     const resolvedProps = await resolveProps(loaderProps, childCtx);
 
