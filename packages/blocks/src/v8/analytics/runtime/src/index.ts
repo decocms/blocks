@@ -476,7 +476,9 @@ function boot() {
   // pageview, no module, no beacon -- and the overlay is a separate chunk that only this branch
   // downloads; every other visitor pays for this test and nothing else. The chunk does the
   // origin handshake: until an allow-listed parent speaks first, it does nothing at all.
-  if (/[?&]dq_view=1(&|$)/.test(location.search) && w.top !== w.self) {
+  // Opened by Studio as a window instead of framed: a site whose `frame-ancestors` cannot list
+  // Studio (the commerce platform fixes it to the store's own domain) still gets its heatmap.
+  if (/[?&]dq_view=1(&|$)/.test(location.search) && (w.top !== w.self || w.opener)) {
     skipped = true;
     const s = document.createElement("script");
     s.src = ENDPOINT.replace(/\/_dq\/e$/, "/_dq/v.js");
