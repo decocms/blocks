@@ -307,7 +307,10 @@ function isUrl(): string {
 // override framework headers), so an explicit opt-in remains possible.
 // ---------------------------------------------------------------------------
 
-const CREDENTIAL_PATH_RE = /(^|\/)pvt(\/|$)|^\/api\/dataentities(\/|$)/;
+// `pvt` is anchored to the third segment (`/api/<service>/pvt/...`, where every
+// private VTEX path in this package has it) so a caller value further down the
+// path — e.g. `orderFormId: "<id>/pvt"` — can't switch credentials on.
+const CREDENTIAL_PATH_RE = /^\/api\/[^/]+\/pvt(\/|$)|^\/api\/dataentities(\/|$)/;
 
 /**
  * VTEX IO (`{account}.myvtex.com`) endpoints that received credentials before
@@ -323,9 +326,14 @@ const MYVTEX_CREDENTIAL_PATH_RE = /^\/(_v\/private\/graphql\/|reviews-and-rating
  * send". Must run on the raw string, before any `new URL()`.
  */
 export function assertNoDotSegments(raw: string): void {
-	const afterOrigin = raw.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "");
+	// Mirror the URL parser's pre-processing: C0 controls and space are trimmed
+	// from both ends of the input, so a trailing `.. ` or `..\x00` becomes `..`.
+	// Interior spaces are only percent-encoded, so they stay allowed.
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: trimming control characters is the point
+	const trimmed = raw.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "");
+	const afterOrigin = trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "");
 	const pathPart = afterOrigin.split(/[?#]/, 1)[0] ?? "";
-	// `\` is a path separator for http(s) and tab/CR/LF are silently stripped,
+	// `\` is a path separator for http(s) and tab/CR/LF are stripped anywhere,
 	// so `..\` or `.\t.` would still traverse.
 	if (/[\\\t\r\n]/.test(pathPart)) {
 		throw new Error("vtex: refusing request path with unsafe characters");

@@ -2,7 +2,14 @@
  * VTEX MasterData v2 API actions.
  * Generic CRUD operations on data entities.
  */
-import { getVtexConfig, getVtexFetch, vtexFetch, vtexFetchResponse } from "../client";
+import {
+	assertNoDotSegments,
+	getVtexConfig,
+	getVtexFetch,
+	needsAppCredentials,
+	vtexFetch,
+	vtexFetchResponse,
+} from "../client";
 
 function removeEmptyFields(obj: Record<string, any>): Record<string, any> {
 	return Object.fromEntries(
@@ -137,7 +144,14 @@ export interface UploadAttachmentOpts {
 export async function uploadAttachment(opts: UploadAttachmentOpts): Promise<{ ok: true }> {
 	const { entity, documentId, field, fileName, fileBase64, contentType } = opts;
 	const config = getVtexConfig();
-	const url = `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}/api/dataentities/${entity}/documents/${documentId}/${field}/attachments`;
+	// This path bypasses vtexFetchResponse (FormData upload), so it applies the
+	// client's guards itself: each caller value is one encoded segment, and the
+	// result must not contain anything `new URL()` would rewrite — otherwise a
+	// `documentId` like `../../../oms/pvt/orders/<id>/cancel#` became an
+	// authenticated POST to an arbitrary private API.
+	const seg = encodeURIComponent;
+	const url = `https://${config.account}.vtexcommercestable.${config.domain ?? "com.br"}/api/dataentities/${seg(entity)}/documents/${seg(documentId)}/${seg(field)}/attachments`;
+	assertNoDotSegments(url);
 
 	const binary = atob(fileBase64);
 	const bytes = new Uint8Array(binary.length);
@@ -148,7 +162,7 @@ export async function uploadAttachment(opts: UploadAttachmentOpts): Promise<{ ok
 	formData.append("file", blob, fileName);
 
 	const headers: Record<string, string> = {};
-	if (config.appKey && config.appToken) {
+	if (config.appKey && config.appToken && needsAppCredentials(url, config)) {
 		headers["X-VTEX-API-AppKey"] = config.appKey;
 		headers["X-VTEX-API-AppToken"] = config.appToken;
 	}

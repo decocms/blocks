@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getOrCreateCart } from "../actions/checkout";
+import { uploadAttachment } from "../actions/masterData";
 import {
 	assertNoDotSegments,
 	configureVtex,
@@ -77,8 +78,12 @@ describe("needsAppCredentials", () => {
 		["https://evil.example.com/api/catalog_system/pvt/x", false],
 		[`https://other.vtexcommercestable.com.br/api/dataentities/CL/search`, false],
 		[`http://${ACCOUNT}.vtexcommercestable.com.br/api/dataentities/CL/search`, false],
-		// `pvt` must be a whole segment.
+		// `pvt` must be a whole segment, and only as `/api/<service>/pvt`: a caller
+		// value deeper in the path can't switch credentials on.
 		[`${STABLE}/api/catalog_system/pub/pvtx`, false],
+		[`${STABLE}/api/checkout/pub/orderForm/abc/pvt`, false],
+		[`${STABLE}/api/checkout/pub/orderForm/pvt/x`, false],
+		[`${STABLE}/api/oms/pvt/orders/1`, true],
 	])("%s → %s", (url, expected) => {
 		expect(needsAppCredentials(url)).toBe(expected);
 	});
@@ -94,6 +99,10 @@ describe("assertNoDotSegments", () => {
 		`${STABLE}/api/checkout/pub/orderForm/..\\..\\x`,
 		`${STABLE}/api/checkout/pub/orderForm/.\t./x`,
 		`/api/checkout/pub/orderForm/..`,
+		// The URL parser trims C0 controls / space from the ends first.
+		`${STABLE}/api/checkout/pub/orderForm/x/.. `,
+		`${STABLE}/api/checkout/pub/orderForm/x/..\u0000`,
+		`${STABLE}/api/checkout/pub/orderForm/x/.%2E\u001f`,
 	])("rejects %s", (raw) => {
 		expect(() => assertNoDotSegments(raw)).toThrow(/vtex: refusing/);
 	});
@@ -103,6 +112,8 @@ describe("assertNoDotSegments", () => {
 		`${STABLE}/api/catalog_system/pub/products/search/anel...ouro/p`,
 		`${STABLE}/api/catalog_system/pub/products/search/?fq=a/../b`,
 		`${STABLE}/api/checkout/pub/orderForm/x#../../y`,
+		// Interior spaces are only percent-encoded, never normalized away.
+		`${STABLE}/api/catalog_system/pub/products/search/anel ouro/p`,
 	])("accepts %s", (raw) => {
 		expect(() => assertNoDotSegments(raw)).not.toThrow();
 	});
@@ -140,6 +151,37 @@ describe("client entry points", () => {
 			headers: { "X-VTEX-API-AppKey": "explicit" },
 		});
 		expect(appKeyOf(fetchMock.mock.calls[0][1])).toBe("explicit");
+	});
+});
+
+describe("uploadAttachment (FormData path outside vtexFetchResponse)", () => {
+	const base = {
+		entity: "NL",
+		field: "file",
+		fileName: "a.txt",
+		fileBase64: btoa("x"),
+		contentType: "text/plain",
+	};
+
+	it("keeps a traversal documentId inside its own segment", async () => {
+		await uploadAttachment({ ...base, documentId: "../../../oms/pvt/orders/1/cancel#" });
+		const url = new URL(String(fetchMock.mock.calls[0][0]));
+		expect(url.pathname.startsWith("/api/dataentities/NL/documents/")).toBe(true);
+		expect(url.pathname).not.toContain("/oms/");
+	});
+
+	it("refuses a bare dot-segment documentId before any request", async () => {
+		await expect(uploadAttachment({ ...base, documentId: ".." })).rejects.toThrow(
+			/vtex: refusing/,
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("encodes each caller value as a single segment", async () => {
+		await uploadAttachment({ ...base, documentId: "a/b?c" });
+		const url = String(fetchMock.mock.calls[0][0]);
+		expect(url).toBe(`${STABLE}/api/dataentities/NL/documents/a%2Fb%3Fc/file/attachments`);
+		expect(appKeyOf(fetchMock.mock.calls[0][1])).toBe("key");
 	});
 });
 
