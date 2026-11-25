@@ -37,6 +37,16 @@ export interface AppDefinition<TState = unknown> {
 	middleware?: AppMiddleware;
 	dependencies?: AppDefinition[];
 	resolvables?: Record<string, { __resolveType: string; [key: string]: unknown }>;
+	/**
+	 * Manifest keys that must never be callable over HTTP (`/deco/invoke`,
+	 * single or batch). Either a module key (`"vtex/actions/masterData"`, covers
+	 * every export) or a full handler key (`"vtex/actions/masterData/getDocument"`).
+	 * They stay available to server-side code: CMS `__resolveType` resolution
+	 * and the in-process `ctx.invoke` proxy. Use for generic, privileged
+	 * operations (e.g. Master Data CRUD with a caller-chosen entity) that run
+	 * with the app's credentials and have no per-caller authorization.
+	 */
+	serverOnly?: string[];
 }
 
 export type ResolveSecretFn = (value: unknown, envKey: string) => Promise<string | null>;

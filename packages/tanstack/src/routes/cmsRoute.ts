@@ -41,6 +41,7 @@ import {
   resolveDeferredSectionFull,
   runSectionLoaders,
   runSingleSectionLoader,
+  withUntrustedResolveInput,
 } from "@decocms/blocks/cms";
 import { withTracing } from "@decocms/blocks/middleware/observability";
 import {
@@ -494,9 +495,14 @@ export const loadDeferredSection = createServerFn({ method: "POST" })
       return null;
     }
 
+    // `clientRawProps` arrive in the (public) server-fn request body, so they
+    // resolve as untrusted input: a server-only resolve type in them throws
+    // instead of running with the app's credentials. Props from the deferred
+    // cache or re-extracted from the published page stay trusted.
+    const resolve = () => resolveDeferredSection(component, rawProps, pagePath, matcherCtx);
     const section = await withTracing(
       "deco.section.deferred.load",
-      () => resolveDeferredSection(component, rawProps, pagePath, matcherCtx),
+      () => (clientRawProps ? withUntrustedResolveInput(resolve) : resolve()),
       {
         "section.name": component,
         "page.path": pagePath,

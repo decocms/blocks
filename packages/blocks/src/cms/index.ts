@@ -101,6 +101,7 @@ export type {
   PageSeo,
   ResolvedSection,
   ResolveErrorHandler,
+  ServerOnlyScope,
 } from "./resolve";
 export {
   addSkipResolveType,
@@ -108,6 +109,7 @@ export {
   BOT_UA_SUBSTRINGS,
   cacheDeferredRawProps,
   clearCommerceLoaders,
+  clearServerOnlyResolveTypes,
   evaluateMatcher,
   extractSeoFromProps,
   extractSeoFromSections,
@@ -117,6 +119,7 @@ export {
   isDeferred,
   isEagerRequest,
   isSeoSection,
+  isServerOnlyResolveType,
   onBeforeResolve,
   readDeferredRawProps,
   reExtractRawProps,
@@ -128,6 +131,7 @@ export {
   registerMatcher,
   registerNeverDeferSections,
   registerSeoSections,
+  registerServerOnlyResolveTypes,
   resolveDecoPage,
   resolveDeferred,
   resolveDeferredSection,
@@ -140,6 +144,7 @@ export {
   setResolveErrorHandler,
   unregisterCommerceLoader,
   WELL_KNOWN_TYPES,
+  withUntrustedResolveInput,
 } from "./resolve";
 export type {
   ActionConfig,

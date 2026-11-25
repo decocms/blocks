@@ -8,6 +8,7 @@ import {
   runSingleSectionLoader,
   WELL_KNOWN_TYPES,
   withBlocksOverride,
+  withUntrustedResolveInput,
 } from "@decocms/blocks/cms";
 
 export type PreviewResolution =
@@ -176,5 +177,10 @@ export async function resolvePreviewRequest(request: Request): Promise<PreviewRe
     };
   };
 
-  return input.decofileOverride ? withBlocksOverride(input.decofileOverride, resolve) : resolve();
+  // Props, `?props=` and `__decofile` all come from the (unauthenticated)
+  // request, so server-only resolve types must not run here — see
+  // withUntrustedResolveInput in @decocms/blocks/cms.
+  return withUntrustedResolveInput(() =>
+    input.decofileOverride ? withBlocksOverride(input.decofileOverride, resolve) : resolve(),
+  );
 }

@@ -18,6 +18,9 @@
 
 import {
   buildSectionLoaderContext,
+  clearServerOnlyResolveTypes,
+  isServerOnlyResolveType,
+  registerServerOnlyResolveTypes,
   resolveDraftForRequest,
   type SectionLoaderContext,
   withDraftBlocks,
@@ -58,11 +61,36 @@ export function registerInvokeHandlers(
 }
 
 /**
- * Clear all registered invoke handlers.
+ * Mark handler keys as server-only: never dispatched from an HTTP
+ * `/deco/invoke` request (single or batch) nor resolvable from preview/render
+ * request input. The handlers stay registered, so CMS resolution and the
+ * in-process `ctx.invoke` proxy keep working. setupApps() calls this for
+ * every key an app lists in `AppDefinition.serverOnly`; sites that register
+ * handlers without setupApps (setInvokeActions, createAdminSetup
+ * getCommerceLoaders) call it directly. The set lives in `@decocms/blocks/cms`
+ * so both surfaces read the same source.
+ */
+export function registerServerOnlyInvokeKeys(keys: string[]): void {
+  // Persistent scope: survives clearInvokeHandlers() / setupApps() reinit.
+  registerServerOnlyResolveTypes(keys, "persistent");
+}
+
+/** setupApps-only: marks derived from AppDefinition.serverOnly, rebuilt on reinit. */
+export function markAppServerOnlyKeys(keys: string[]): void {
+  registerServerOnlyResolveTypes(keys, "app");
+}
+
+const isServerOnlyKey = isServerOnlyResolveType;
+
+/**
+ * Clear all registered invoke handlers and the app-derived server-only marks
+ * (setupApps() re-adds both). Marks a site registered via
+ * registerServerOnlyInvokeKeys() are kept.
  * Called by setupApps() before re-registering on hot-reload.
  */
 export function clearInvokeHandlers(): void {
   handlerRegistry.clear();
+  clearServerOnlyResolveTypes("app");
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
@@ -329,7 +357,9 @@ async function dispatchInvoke(request: Request): Promise<Response> {
 
   // Single invoke by key
   if (invokeKey) {
-    const found = findHandler(invokeKey);
+    // Server-only handlers answer exactly like a missing one, so the HTTP
+    // surface doesn't reveal they exist.
+    const found = isServerOnlyKey(invokeKey) ? null : findHandler(invokeKey);
     if (!found) {
       warnMissingHandlerOnce(invokeKey);
       return errorResponse(unknownHandlerMessage(invokeKey), 404);
@@ -362,7 +392,7 @@ async function dispatchInvoke(request: Request): Promise<Response> {
     await Promise.all(
       entries.map(async ([key, payload]) => {
         const resolveType = (payload as any)?.__resolveType || key;
-        const found = findHandler(resolveType);
+        const found = isServerOnlyKey(resolveType) ? null : findHandler(resolveType);
 
         if (found) {
           try {

@@ -19,7 +19,11 @@
  * ```
  */
 
-import { clearInvokeHandlers, registerInvokeHandlers } from "../admin/invoke";
+import {
+  clearInvokeHandlers,
+  markAppServerOnlyKeys,
+  registerInvokeHandlers,
+} from "../admin/invoke";
 import {
   registerSections,
   registerCommerceLoaders,
@@ -48,6 +52,16 @@ export interface AppDefinition<TState = unknown> {
   state: TState;
   middleware?: AppMiddleware;
   dependencies?: AppDefinition[];
+  /**
+   * Manifest keys that must never be callable over HTTP (`/deco/invoke`,
+   * single or batch). Either a module key (`"vtex/actions/masterData"`, covers
+   * every export) or a full handler key (`"vtex/actions/masterData/getDocument"`).
+   * They stay available to server-side code: CMS `__resolveType` resolution
+   * and the in-process `ctx.invoke` proxy. Use for generic, privileged
+   * operations (e.g. Master Data CRUD with a caller-chosen entity) that run
+   * with the app's credentials and have no per-caller authorization.
+   */
+  serverOnly?: string[];
 }
 
 /**
@@ -201,10 +215,24 @@ export async function setupApps(
   for (const app of flattenDependencies(apps as AppDefinition[])) {
     const appWithHandlers = app as AppDefinitionWithHandlers;
 
+    // Server-only entries are module keys or full handler keys; tolerate a
+    // `.ts`/`.tsx` suffix or trailing `/` in what the app wrote, since a
+    // non-matching entry would silently leave the handler exposed.
+    const serverOnly = (app.serverOnly ?? []).map((entry) =>
+      entry.replace(/\/+$/, "").replace(/\.tsx?$/, "")
+    );
+    const isServerOnly = (key: string) => {
+      const k = key.replace(/\.tsx?$/, "");
+      return serverOnly.some((entry) => k === entry || k.startsWith(`${entry}/`));
+    };
+
     // 1. Register explicit handlers (pre-unwrapped by the app, e.g. resend)
     //    These also go into the commerce-loaders map so the CMS resolve path
     //    (src/cms/resolve.ts) can dispatch to them by __resolveType.
     if (appWithHandlers.handlers) {
+      markAppServerOnlyKeys(
+        Object.keys(appWithHandlers.handlers).filter(isServerOnly),
+      );
       registerInvokeHandlers(appWithHandlers.handlers);
       registerAppCommerceHandlers(appWithHandlers.handlers);
     }
@@ -231,6 +259,12 @@ export async function setupApps(
           const key = fnName === "default"
             ? moduleKey
             : `${moduleKey}/${fnName}`;
+          // Still registered (server-side resolve + in-process ctx.invoke need
+          // it), but refused when a request names it (HTTP /deco/invoke,
+          // preview/render input).
+          if (isServerOnly(key)) {
+            markAppServerOnlyKeys([key]);
+          }
           const handler = (props: any, req: Request) =>
             (fn as Function)(props, req);
           registerInvokeHandlers({

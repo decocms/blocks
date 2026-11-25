@@ -1,3 +1,4 @@
+import * as asyncHooks from "node:async_hooks";
 import { getMatchersOverride, getRuleOverrideId, hasMatchersOverride } from "../matchers/override";
 import { getMeter, MetricNames, withTracing } from "../middleware/observability";
 import { cacheBackground, createCacheStore } from "../sdk/cacheStorage";
@@ -30,6 +31,9 @@ if (!G.__deco) G.__deco = {};
 if (!G.__deco.commerceLoaders) G.__deco.commerceLoaders = {};
 if (!G.__deco.customMatchers) G.__deco.customMatchers = {};
 if (!G.__deco.eagerSectionKeys) G.__deco.eagerSectionKeys = new Set<string>();
+if (!G.__deco.serverOnlyResolveTypes) G.__deco.serverOnlyResolveTypes = new Set<string>();
+if (!G.__deco.serverOnlyResolveTypesPersistent)
+  G.__deco.serverOnlyResolveTypesPersistent = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // onBeforeResolveProps helper — eagerly loads the section module if needed
@@ -694,6 +698,84 @@ export function getCommerceLoader(resolveType: string): CommerceLoader | undefin
 }
 
 // ---------------------------------------------------------------------------
+// Server-only resolve types
+//
+// Some registered loaders/actions are privileged: generic operations that run
+// with an app's credentials and have no per-caller authorization (e.g. VTEX
+// Master Data CRUD with a caller-chosen entity). Server code and the published
+// decofile may use them; a request must never be able to name one. Two HTTP
+// surfaces take resolvables from the request: `/deco/invoke` (by key) and the
+// preview/render endpoints (props, `?props=`, `__decofile` override). The
+// first checks `isServerOnlyResolveType` directly; the second runs its resolve
+// inside `withUntrustedResolveInput`, where the commerce-loader dispatch below
+// refuses these keys at any depth.
+// ---------------------------------------------------------------------------
+
+/**
+ * Two scopes, so a reload can't drop a mark nobody re-adds:
+ * - `"app"`: derived from `AppDefinition.serverOnly`; cleared and rebuilt by
+ *   setupApps() on every (re)configure.
+ * - `"persistent"`: registered by site code directly; never cleared by app
+ *   reconfiguration.
+ */
+export type ServerOnlyScope = "app" | "persistent";
+
+const serverOnlyResolveTypes: Record<ServerOnlyScope, Set<string>> = {
+  app: G.__deco.serverOnlyResolveTypes,
+  persistent: G.__deco.serverOnlyResolveTypesPersistent,
+};
+
+const stripResolveTypeExt = (key: string) => key.replace(/\.tsx?$/, "");
+
+/** Mark resolve types as server-only. Matching ignores a `.ts`/`.tsx` suffix. */
+export function registerServerOnlyResolveTypes(
+  keys: Iterable<string>,
+  scope: ServerOnlyScope = "persistent",
+): void {
+  for (const key of keys) serverOnlyResolveTypes[scope].add(stripResolveTypeExt(key));
+}
+
+/** Clear one scope's marks (default: the app-derived ones setupApps rebuilds). */
+export function clearServerOnlyResolveTypes(scope: ServerOnlyScope = "app"): void {
+  serverOnlyResolveTypes[scope].clear();
+}
+
+export function isServerOnlyResolveType(key: string): boolean {
+  const k = stripResolveTypeExt(key);
+  return serverOnlyResolveTypes.app.has(k) || serverOnlyResolveTypes.persistent.has(k);
+}
+
+interface UntrustedALSLike {
+  getStore(): true | undefined;
+  run<R>(store: true, fn: () => R): R;
+}
+
+const UntrustedALS = (asyncHooks as any).AsyncLocalStorage;
+const untrustedResolveStorage: UntrustedALSLike = UntrustedALS
+  ? new UntrustedALS()
+  : { getStore: () => undefined, run: (_s: true, fn: any) => fn() };
+
+/**
+ * Run `fn` with resolution marked as driven by request input: any server-only
+ * resolve type reached while it runs (including inside nested props or an
+ * injected decofile) throws instead of executing.
+ */
+let warnedNoUntrustedALS = false;
+
+export function withUntrustedResolveInput<T>(fn: () => T): T {
+  if (!UntrustedALS && !warnedNoUntrustedALS) {
+    // Without AsyncLocalStorage the scope can't be tracked, so server-only
+    // resolve types are NOT refused for request input. Workers need
+    // `nodejs_compat` (the decofile loader already depends on it).
+    warnedNoUntrustedALS = true;
+    console.warn(
+      "[deco] AsyncLocalStorage unavailable: server-only resolve types are not enforced for request input",
+    );
+  }
+  return untrustedResolveStorage.run(true, fn);
+}
+
+// ---------------------------------------------------------------------------
 // Custom matchers
 // ---------------------------------------------------------------------------
 
@@ -1021,6 +1103,13 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
   if (resolveType === "resolved") {
     if (obj.deferred === true) {
       const raw = obj.data;
+      // The thunk runs later (a section loader calling resolveDeferred), often
+      // outside the scope that created it — a plain closure does not carry the
+      // AsyncLocalStorage store. Re-enter the untrusted scope explicitly so
+      // request-supplied data can't reach a server-only resolve type that way.
+      if (untrustedResolveStorage.getStore()) {
+        return () => untrustedResolveStorage.run(true, () => internalResolve(raw, childCtx));
+      }
       return () => internalResolve(raw, childCtx);
     }
     return obj.data ?? null;
@@ -1073,6 +1162,9 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
   // Commerce loaders
   const commerceLoader = getCommerceLoader(resolveType);
   if (commerceLoader) {
+    if (untrustedResolveStorage.getStore() && isServerOnlyResolveType(resolveType)) {
+      throw new Error(`"${resolveType}" is server-only and cannot be resolved from request input`);
+    }
     const { __resolveType: _, ...loaderProps } = obj;
     const resolvedProps = await resolveProps(loaderProps, childCtx);
 
