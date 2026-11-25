@@ -21,6 +21,61 @@ import {
   type VtexCartProjectionResult,
 } from "../utils/cartProjection";
 
+// ---------------------------------------------------------------------------
+// Path-parameter validation (security)
+//
+// Every function here is reachable anonymously through `/deco/invoke` with a
+// caller-controlled props object, and the values below are interpolated raw
+// into the VTEX request path. `client.ts` then builds the URL with `new URL()`,
+// which COLLAPSES `../` segments — so an `orderFormId` like
+// `../../../dataentities/CL/search?_fields=email#` escapes `/checkout/pub/` and
+// reaches arbitrary admin endpoints with the store's AppKey/AppToken attached
+// (path traversal → SSRF to Master Data / OMS). Validate every path segment
+// before it is interpolated and fail closed. See v8 `vtexClient.ts#pathSegments`
+// for the same guard on the v8 line.
+// ---------------------------------------------------------------------------
+
+/** VTEX orderForm ids are 32 lowercase hex chars. Anything else is rejected. */
+const ORDER_FORM_ID_RE = /^[a-f0-9]{32}$/i;
+
+/**
+ * Non-id path segments (attachment names, offering/gift ids). Allows the
+ * characters VTEX actually uses in these ids and nothing that could break out
+ * of the segment: no `/`, `?`, `#`, `%`, whitespace, and never a pure-dot
+ * (`.`, `..`) traversal segment.
+ */
+const PATH_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+
+/** Validate a required orderFormId; throws on traversal or malformed input. */
+function assertOrderFormId(orderFormId: string | undefined): string {
+  if (!orderFormId || !ORDER_FORM_ID_RE.test(orderFormId)) {
+    throw new Error("vtex: invalid orderFormId");
+  }
+  return orderFormId;
+}
+
+/** Validate an optional orderFormId (absent means "create a new cart"). */
+function assertOptionalOrderFormId(orderFormId: string | undefined): string | undefined {
+  return orderFormId ? assertOrderFormId(orderFormId) : undefined;
+}
+
+/** Validate a free-form path segment (attachment name, offering/gift id). */
+function assertPathSegment(value: string | number, label: string): string {
+  const segment = String(value);
+  if (!PATH_SEGMENT_RE.test(segment) || /^\.+$/.test(segment)) {
+    throw new Error(`vtex: invalid ${label}`);
+  }
+  return segment;
+}
+
+/** Validate a numeric item index used in the path. */
+function assertItemIndex(itemIndex: number): number {
+  if (!Number.isInteger(itemIndex) || itemIndex < 0) {
+    throw new Error("vtex: invalid itemIndex");
+  }
+  return itemIndex;
+}
+
 /**
  * Legacy full-section default. Kept as an exported symbol (loaders/cart.ts and
  * older callers import it), but sourced from the agnostic `SECTIONS_FULL`
@@ -72,7 +127,7 @@ export interface GetOrCreateCartProps {
 }
 
 export async function getOrCreateCart(props: GetOrCreateCartProps): Promise<OrderForm> {
-  const { orderFormId } = props;
+  const orderFormId = assertOptionalOrderFormId(props.orderFormId);
   const sc = scParam();
 
   if (orderFormId) {
@@ -106,7 +161,8 @@ export interface AddItemsToCartProps {
 }
 
 export async function addItemsToCart(props: AddItemsToCartProps): Promise<OrderForm> {
-  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"] } = props;
+  const { orderItems, allowedOutdatedData = ["paymentData"] } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const params = appendSc(new URLSearchParams());
   for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
   const result = await vtexFetchWithCookies<OrderForm>(
@@ -124,7 +180,8 @@ export interface UpdateCartItemsProps {
 }
 
 export async function updateCartItems(props: UpdateCartItemsProps): Promise<OrderForm> {
-  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
+  const { orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const params = appendSc(new URLSearchParams());
   for (const d of allowedOutdatedData) {
     params.append("allowedOutdatedData", d);
@@ -147,7 +204,7 @@ export interface RemoveAllItemsProps {
 }
 
 export async function removeAllItems(props: RemoveAllItemsProps): Promise<OrderForm> {
-  const { orderFormId } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/items/removeAll${sc ? `?${sc}` : ""}`,
@@ -162,7 +219,8 @@ export interface AddCouponToCartProps {
 }
 
 export async function addCouponToCart(props: AddCouponToCartProps): Promise<OrderForm> {
-  const { orderFormId, text } = props;
+  const { text } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/coupons${sc ? `?${sc}` : ""}`,
@@ -219,12 +277,9 @@ export interface AddOfferingProps {
 }
 
 export async function addOffering(props: AddOfferingProps): Promise<OrderForm> {
-  const {
-    orderFormId,
-    itemIndex,
-    offeringId,
-    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-  } = props;
+  const { offeringId, expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const itemIndex = assertItemIndex(props.itemIndex);
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/offerings`,
     {
@@ -247,12 +302,10 @@ export interface RemoveOfferingProps {
 }
 
 export async function removeOffering(props: RemoveOfferingProps): Promise<OrderForm> {
-  const {
-    orderFormId,
-    itemIndex,
-    offeringId,
-    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-  } = props;
+  const { expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const itemIndex = assertItemIndex(props.itemIndex);
+  const offeringId = assertPathSegment(props.offeringId, "offeringId");
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/offerings/${offeringId}/remove`,
     {
@@ -277,13 +330,9 @@ export interface UpdateOrderFormAttachmentProps {
 export async function updateOrderFormAttachment(
   props: UpdateOrderFormAttachmentProps,
 ): Promise<OrderForm> {
-  const {
-    orderFormId,
-    attachment,
-    body,
-    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-  } = props;
-  if (!orderFormId) throw new Error("Order form ID is required");
+  const { body, expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const attachment = assertPathSegment(props.attachment, "attachment");
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/attachments/${attachment}${sc ? `?${sc}` : ""}`,
@@ -306,13 +355,13 @@ export interface UpdateItemAttachmentProps {
 
 export async function updateItemAttachment(props: UpdateItemAttachmentProps): Promise<OrderForm> {
   const {
-    orderFormId,
-    itemIndex,
-    attachment,
     content,
     noSplitItem = true,
     expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
   } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const itemIndex = assertItemIndex(props.itemIndex);
+  const attachment = assertPathSegment(props.attachment, "attachment");
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}${
@@ -341,13 +390,13 @@ export interface RemoveItemAttachmentProps {
 
 export async function removeItemAttachment(props: RemoveItemAttachmentProps): Promise<OrderForm> {
   const {
-    orderFormId,
-    itemIndex,
-    attachment,
     content,
     noSplitItem = true,
     expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
   } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const itemIndex = assertItemIndex(props.itemIndex);
+  const attachment = assertPathSegment(props.attachment, "attachment");
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/attachments/${attachment}${
@@ -376,7 +425,9 @@ export interface UpdateItemPriceProps {
 }
 
 export async function updateItemPrice(props: UpdateItemPriceProps): Promise<OrderForm> {
-  const { orderFormId, itemIndex, price } = props;
+  const { price } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const itemIndex = assertItemIndex(props.itemIndex);
   const sc = scParam();
   return vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/items/${itemIndex}/price${sc ? `?${sc}` : ""}`,
@@ -396,12 +447,9 @@ export interface UpdateSelectableGiftsProps {
 }
 
 export async function updateSelectableGifts(props: UpdateSelectableGiftsProps): Promise<OrderForm> {
-  const {
-    orderFormId,
-    giftId,
-    selectedGifts,
-    expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
-  } = props;
+  const { selectedGifts, expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
+  const giftId = assertPathSegment(props.giftId, "giftId");
   const result = await vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/selectable-gifts/${giftId}`,
     {
@@ -426,7 +474,8 @@ export interface GetInstallmentsProps {
 }
 
 export async function getInstallments(props: GetInstallmentsProps) {
-  const { orderFormId, paymentSystem } = props;
+  const { paymentSystem } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const params = new URLSearchParams({ paymentSystem: String(paymentSystem) });
   appendSc(params);
   return vtexFetchWithCookies<any>(
@@ -447,7 +496,8 @@ export interface UpdateOrderFormProfileProps {
 export async function updateOrderFormProfile(
   props: UpdateOrderFormProfileProps,
 ): Promise<OrderForm> {
-  const { orderFormId, fields, ignoreProfileData } = props;
+  const { fields, ignoreProfileData } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const body = ignoreProfileData ? { ...fields, ignoreProfileData: true } : fields;
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
@@ -462,7 +512,7 @@ export interface ChangeToAnonymousUserProps {
 }
 
 export async function changeToAnonymousUser(props: ChangeToAnonymousUserProps): Promise<OrderForm> {
-  const { orderFormId } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   // This endpoint rotates the orderForm ownership cookies — must use
   // vtexFetchWithCookies so the new cookies reach the browser.
   return vtexFetchWithCookies<OrderForm>(`/api/checkout/changeToAnonymousUser/${orderFormId}`);
@@ -475,7 +525,7 @@ export interface ClearOrderFormMessagesProps {
 export async function clearOrderFormMessages(
   props: ClearOrderFormMessagesProps,
 ): Promise<OrderForm> {
-  const { orderFormId } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   return vtexFetchWithCookies<OrderForm>(
     `/api/checkout/pub/orderForm/${orderFormId}/messages/clear`,
     {
@@ -522,7 +572,8 @@ export interface SetShippingPostalCodeProps {
 }
 
 export async function setShippingPostalCode(props: SetShippingPostalCodeProps): Promise<boolean> {
-  const { orderFormId, postalCode, country = "BRA" } = props;
+  const { postalCode, country = "BRA" } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   try {
     // VTEX docs note that /attachments/shippingData can rotate the
     // CheckoutOrderFormOwnership cookie. vtexFetchWithCookies ensures
@@ -586,7 +637,7 @@ export interface GetOrCreateCartV2Props extends CartV2Options {
 export async function getOrCreateCartV2(
   props: GetOrCreateCartV2Props,
 ): Promise<VtexCartProjectionResult> {
-  const { orderFormId } = props;
+  const orderFormId = assertOptionalOrderFormId(props.orderFormId);
   const { sections, projection } = resolveFragmentation(props);
   const sc = scParam();
   const body = JSON.stringify({ expectedOrderFormSections: sections });
@@ -619,7 +670,8 @@ export interface AddItemsToCartV2Props extends CartV2Options {
 export async function addItemsToCartV2(
   props: AddItemsToCartV2Props,
 ): Promise<VtexCartProjectionResult> {
-  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"] } = props;
+  const { orderItems, allowedOutdatedData = ["paymentData"] } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const { sections, projection } = resolveFragmentation(props);
   const params = appendSc(new URLSearchParams());
   for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
@@ -644,7 +696,8 @@ export interface UpdateCartItemsV2Props extends CartV2Options {
 export async function updateCartItemsV2(
   props: UpdateCartItemsV2Props,
 ): Promise<VtexCartProjectionResult> {
-  const { orderFormId, orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
+  const { orderItems, allowedOutdatedData = ["paymentData"], noSplitItem } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const { sections, projection } = resolveFragmentation(props);
   const params = appendSc(new URLSearchParams());
   for (const d of allowedOutdatedData) params.append("allowedOutdatedData", d);
@@ -671,7 +724,8 @@ export interface AddCouponToCartV2Props extends CartV2Options {
 export async function addCouponToCartV2(
   props: AddCouponToCartV2Props,
 ): Promise<VtexCartProjectionResult> {
-  const { orderFormId, text } = props;
+  const { text } = props;
+  const orderFormId = assertOrderFormId(props.orderFormId);
   const { sections, projection } = resolveFragmentation(props);
   const sc = scParam();
   const result = await vtexFetchWithCookies<OrderForm>(
