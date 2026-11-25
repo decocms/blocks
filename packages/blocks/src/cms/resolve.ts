@@ -1103,6 +1103,13 @@ async function internalResolve(value: unknown, rctx: ResolveContext): Promise<un
   if (resolveType === "resolved") {
     if (obj.deferred === true) {
       const raw = obj.data;
+      // The thunk runs later (a section loader calling resolveDeferred), often
+      // outside the scope that created it — a plain closure does not carry the
+      // AsyncLocalStorage store. Re-enter the untrusted scope explicitly so
+      // request-supplied data can't reach a server-only resolve type that way.
+      if (untrustedResolveStorage.getStore()) {
+        return () => untrustedResolveStorage.run(true, () => internalResolve(raw, childCtx));
+      }
       return () => internalResolve(raw, childCtx);
     }
     return obj.data ?? null;

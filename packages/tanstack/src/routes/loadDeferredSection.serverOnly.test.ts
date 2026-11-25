@@ -34,7 +34,9 @@ import {
   clearServerOnlyResolveTypes,
   registerCommerceLoaders,
   registerSection,
+  registerSectionLoaders,
   registerServerOnlyResolveTypes,
+  resolveDeferred,
   setBlocks,
 } from "@decocms/blocks/cms";
 import { loadDeferredSection } from "./cmsRoute";
@@ -54,7 +56,7 @@ beforeEach(() => {
   setBlocks({});
   registerSection(SECTION, async () => ({ default: () => null }));
   registerCommerceLoaders({ "fake/actions/secret": secret, "fake/loaders/public": pub });
-  clearServerOnlyResolveTypes();
+  clearServerOnlyResolveTypes("persistent");
   registerServerOnlyResolveTypes(["fake/actions/secret"]);
 });
 
@@ -79,5 +81,43 @@ describe("loadDeferredSection client rawProps", () => {
     const section = await call({ index: 3 });
     expect(secret).toHaveBeenCalledTimes(1);
     expect(section?.props?.x).toEqual({ leaked: true });
+  });
+});
+
+describe("loadDeferredSection deferred-prop thunks", () => {
+  const THUNK_SECTION = "site/sections/ThunkProbe.tsx";
+
+  beforeEach(() => {
+    registerSection(THUNK_SECTION, async () => ({ default: () => null }));
+    // The documented asResolved(…, true) pattern: the section loader resolves
+    // the deferred prop itself — after loadDeferredSection's resolve returned.
+    registerSectionLoaders({
+      [THUNK_SECTION]: async (props: any) => ({ ...props, d: await resolveDeferred(props.d) }),
+    });
+  });
+
+  const thunk = (resolveType: string) => ({
+    d: { __resolveType: "resolved", deferred: true, data: { __resolveType: resolveType } },
+  });
+
+  it("still resolves a public loader through a thunk (control)", async () => {
+    const section = await call({
+      component: THUNK_SECTION,
+      rawProps: thunk("fake/loaders/public"),
+    });
+    expect(pub).toHaveBeenCalledTimes(1);
+    expect(section?.props?.d).toEqual({ ok: true });
+  });
+
+  it("refuses a server-only type smuggled through a client thunk", async () => {
+    await call({ component: THUNK_SECTION, rawProps: thunk("fake/actions/secret") });
+    expect(secret).not.toHaveBeenCalled();
+  });
+
+  it("trusted (cached page) thunks still reach server-only types", async () => {
+    cacheDeferredRawProps("/", THUNK_SECTION, 7, thunk("fake/actions/secret"));
+    const section = await call({ component: THUNK_SECTION, index: 7 });
+    expect(secret).toHaveBeenCalledTimes(1);
+    expect(section?.props?.d).toEqual({ leaked: true });
   });
 });
