@@ -12,8 +12,6 @@ export {
   loadDeferredSection,   // Server function for on-scroll section loading
   CmsPage,               // Generic CMS page component
   NotFoundPage,          // Generic 404 component
-  decoMetaRouteConfig,   // Admin meta route config factory (7.10.0+)
-  decoRenderRouteConfig, // Admin render route config factory (7.10.0+)
   decoInvokeRouteConfig, // Admin invoke route config factory (7.10.0+)
   withSiteGlobals,       // Site-wide global sections merge helper
   DecoPageRenderer,      // Section-list renderer (+ deferred-section loading)

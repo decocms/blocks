@@ -15,13 +15,12 @@ vi.mock("node:child_process", () => {
 });
 
 /**
- * The isolate keeps the composed admin schema on globalThis, which outlives
- * the meta.gen.json module the plugin invalidates after a dev regen. Without a
- * decofile reload (the only caller of invalidateMetaCache), `/live/_meta` kept
- * serving the boot-time schema, so a changed section's props never reached the
- * admin form until the dev server restarted.
+ * The staff-only admin routes (`/live/_meta`, `/.decofile`, `/live/previews`)
+ * were hard-removed from the TanStack worker entry. The dev plugin must not
+ * keep talking to them: no POST to `/.decofile` after a regen, and no CORS
+ * preflight shim answering for those paths in front of Vite.
  */
-describe("decoVitePlugin — dev admin reads from Studio", () => {
+describe("decoVitePlugin — dev server no longer talks to removed admin routes", () => {
   let tmp;
   let cwdSpy;
   let fetchSpy;
@@ -65,20 +64,15 @@ describe("decoVitePlugin — dev admin reads from Studio", () => {
   const decofilePosts = () =>
     fetchSpy.mock.calls.filter(([url]) => String(url).endsWith("/.decofile"));
 
-  it("posts an empty decofile delta after meta.gen.json is regenerated", async () => {
+  it("does not POST to /.decofile after meta.gen.json is regenerated", async () => {
     const server = startServer();
     server.watcher.emit("change", path.join(tmp, "src", "sections", "Foo.tsx"));
     await vi.advanceTimersByTimeAsync(600);
 
-    const posts = decofilePosts();
-    expect(posts).toHaveLength(1);
-    const [url, init] = posts[0];
-    expect(url).toBe("http://localhost:4321/.decofile");
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({ blocks: {} });
+    expect(decofilePosts()).toHaveLength(0);
   });
 
-  it("does not post when schema generation fails", async () => {
+  it("does not POST when schema generation fails either", async () => {
     schemaGenError = new Error("ts-morph exploded");
     const server = startServer();
     server.watcher.emit("change", path.join(tmp, "src", "sections", "Foo.tsx"));
@@ -87,40 +81,9 @@ describe("decoVitePlugin — dev admin reads from Studio", () => {
     expect(decofilePosts()).toHaveLength(0);
   });
 
-  /** Runs a request through the front of the stack, ahead of Vite's CORS. */
-  function preflight(method, url, origin) {
+  it("installs no admin preflight middleware in front of Vite", () => {
     startServer();
-    const res = {
-      statusCode: 200,
-      headers: {},
-      ended: false,
-      setHeader(name, value) {
-        this.headers[name] = value;
-      },
-      end() {
-        this.ended = true;
-      },
-    };
-    let passed = false;
-    middlewares[0].handle({ method, url, headers: { origin } }, res, () => {
-      passed = true;
-    });
-    return { res, passed };
-  }
-
-  it("answers an admin preflight from Studio before Vite's CORS ends it", () => {
-    const { res, passed } = preflight("OPTIONS", "/live/_meta?x=1", "https://studio.decocms.com");
-    expect(passed).toBe(false);
-    expect(res.ended).toBe(true);
-    expect(res.statusCode).toBe(204);
-    expect(res.headers["Access-Control-Allow-Origin"]).toBe("https://studio.decocms.com");
-    expect(res.headers["Access-Control-Allow-Headers"]).toContain("If-None-Match");
-  });
-
-  it("leaves other requests to Vite", () => {
-    expect(preflight("GET", "/live/_meta", "https://studio.decocms.com").passed).toBe(true);
-    expect(preflight("OPTIONS", "/src/main.tsx", "https://studio.decocms.com").passed).toBe(true);
-    expect(preflight("OPTIONS", "/live/previews/", "https://studio.decocms.com").passed).toBe(true);
+    expect(middlewares).toHaveLength(0);
   });
 
   it("still starts when the middleware stack isn't connect's array", () => {
