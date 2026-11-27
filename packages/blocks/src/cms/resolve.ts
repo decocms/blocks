@@ -1034,21 +1034,85 @@ function applySelect(value: unknown, select?: string[]): unknown {
 // Core resolution
 // ---------------------------------------------------------------------------
 
+/*
+  Static-subtree fast path. Most of a page's props are plain content (texts, images, menus)
+  with no `__resolveType` anywhere below. Walking them through the async resolver cost a
+  Promise + entries array + object per node, on every request. The decofile objects are the
+  same across requests, so "is this subtree static?" is memoized per object in a WeakMap; a
+  static subtree is then copied synchronously. It is still a COPY (same shape the async path
+  produced): handing out the shared decofile object would let one request mutate another's.
+*/
+const staticMemo = new WeakMap<object, boolean>();
+
+function isStatic(value: unknown): boolean {
+  if (!value || typeof value !== "object") return true;
+  const obj = value as Record<string, unknown>;
+  const memo = staticMemo.get(obj);
+  if (memo !== undefined) return memo;
+  let result = true;
+  if (Array.isArray(obj)) {
+    for (const item of obj)
+      if (!isStatic(item)) {
+        result = false;
+        break;
+      }
+  } else if (obj.__resolveType !== undefined) {
+    result = false;
+  } else {
+    for (const k of Object.keys(obj))
+      if (!isStatic(obj[k])) {
+        result = false;
+        break;
+      }
+  }
+  staticMemo.set(obj, result);
+  return result;
+}
+
+function cloneStatic(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    // Same as the async path: `undefined` items are dropped from arrays.
+    for (const item of value) if (item !== undefined) out.push(cloneStatic(item));
+    return out;
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(value)) out[k] = cloneStatic((value as Record<string, unknown>)[k]);
+  return out;
+}
+
 async function resolveProps(
   obj: Record<string, unknown>,
   rctx: ResolveContext,
 ): Promise<Record<string, unknown>> {
-  const entries = Object.entries(obj);
-  const resolvedEntries = await Promise.all(
-    entries.map(async ([k, v]) => [k, await internalResolve(v, rctx)] as const),
-  );
-  return Object.fromEntries(resolvedEntries);
+  const out: Record<string, unknown> = {};
+  let pending: Promise<void>[] | undefined;
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (isStatic(v)) {
+      out[k] = cloneStatic(v);
+    } else {
+      out[k] = undefined; // reserve the slot: key order feeds loader cache keys
+      pending ??= [];
+      pending.push(
+        internalResolve(v, rctx).then((r) => {
+          out[k] = r;
+        }),
+      );
+    }
+  }
+  if (pending) await Promise.all(pending);
+  return out;
 }
 
 async function internalResolve(value: unknown, rctx: ResolveContext): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
+  if (isStatic(value)) return cloneStatic(value);
   if (Array.isArray(value)) {
-    const resolved = await Promise.all(value.map((item) => internalResolve(item, rctx)));
+    const resolved = await Promise.all(
+      value.map((item) => (isStatic(item) ? cloneStatic(item) : internalResolve(item, rctx))),
+    );
     // Drop items that resolved to "not present" (`undefined`) — e.g. a hidden
     // array item (a multivariate wrapped in a `never` matcher, see the admin's
     // hideArrayItem) where no variant matched. A `never`-gated item must vanish

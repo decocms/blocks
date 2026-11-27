@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearLoaderCache, createCachedLoader } from "./cachedLoader";
 import {
   bindCacheStorage,
+  type CacheKVNamespace,
   type CacheStorage,
   createCacheStore,
   createKVCacheStorage,
@@ -141,7 +142,7 @@ it("data stores key by dataScope and survive a deploy; build stores do not", asy
 
 it("cachedLoader with dataVersion survives a deploy/publish; without it, it does not", async () => {
   const storage = createKVCacheStorage(fakeKV());
-  const bind = <T,>(build: string, fn: () => T): T =>
+  const bind = <T>(build: string, fn: () => T): T =>
     RequestContext.run(new Request("https://site.test/"), () => {
       bindCacheStorage({
         storage,
@@ -346,5 +347,88 @@ it("bounds SWR separately from stale-if-error and stops serving at the final TTL
     expect(origin).toHaveBeenCalledTimes(3); // foreground retry once SWR has elapsed
     vi.advanceTimersByTime(150);
     await expect(loader({})).rejects.toThrow("origin down");
+  });
+});
+
+describe("binary response path (getBytes/setBytes)", () => {
+  // Real KV returns an ArrayBuffer for get(key, "arrayBuffer").
+  function binaryKV() {
+    const values = new Map<string, string | Uint8Array>();
+    return {
+      values,
+      get: vi.fn(async (key: string, type?: string) => {
+        const v = values.get(key);
+        if (v === undefined) return null;
+        if (type === "arrayBuffer") return v instanceof Uint8Array ? v.slice().buffer : null;
+        return typeof v === "string" ? v : null;
+      }),
+      put: vi.fn(async (key: string, value: string | Uint8Array) => {
+        values.set(key, value instanceof Uint8Array ? value.slice() : value);
+      }),
+      delete: vi.fn(async (key: string) => {
+        values.delete(key);
+      }),
+    } as unknown as CacheKVNamespace & { values: Map<string, string | Uint8Array> };
+  }
+  const html = `<html>${'çã "aspas" '.repeat(2000)}</html>`;
+  const cacheable = () =>
+    new Response(html, {
+      headers: { "content-type": "text/html", "cache-control": "public, max-age=60", "x-a": "1" },
+    });
+
+  it("stores the body as bytes, without base64 or JSON around it", async () => {
+    const kv = binaryKV();
+    const cache = createResponseCache(createKVCacheStorage(kv), "site:build");
+    expect(await cache.put(new Request("https://site.test/p"), cacheable())).toBe("stored");
+    const [[key, value]] = [...kv.values];
+    expect(key.startsWith("b:")).toBe(true);
+    expect(value).toBeInstanceOf(Uint8Array);
+    // 8-byte expiry + 4-byte head length + head + body: no base64 expansion of the body.
+    expect((value as Uint8Array).byteLength).toBeLessThan(
+      new TextEncoder().encode(html).byteLength + 1024,
+    );
+  });
+
+  it("round-trips through KV and the Web Cache adapter", async () => {
+    const store = new Map<string, Response>();
+    const web = {
+      match: async (r: Request) => store.get(r.url)?.clone(),
+      put: async (r: Request, res: Response) =>
+        void store.set(r.url, new Response(await res.arrayBuffer(), res)),
+      delete: async (r: Request) => store.delete(r.url),
+    };
+    for (const storage of [
+      createKVCacheStorage(binaryKV()),
+      createWebCacheStorage(web, "https://site.test"),
+    ]) {
+      const cache = createResponseCache(storage, "site:build");
+      const req = new Request("https://site.test/p");
+      await cache.put(req, cacheable());
+      const hit = await cache.match(req);
+      expect(hit?.status).toBe(200);
+      expect(hit?.headers.get("x-a")).toBe("1");
+      expect(await hit?.text()).toBe(html);
+    }
+  });
+
+  it("purge deletes the binary entry too", async () => {
+    const kv = binaryKV();
+    const cache = createResponseCache(createKVCacheStorage(kv), "site:build");
+    const req = new Request("https://site.test/p");
+    await cache.put(req, cacheable());
+    await cache.delete(req);
+    expect(kv.values.size).toBe(0);
+    expect(await cache.match(req)).toBeUndefined();
+  });
+
+  it("ignores an expired binary entry", async () => {
+    const kv = binaryKV();
+    const storage = createKVCacheStorage(kv);
+    await storage.setBytes!("k", new Uint8Array([1, 2, 3]), Date.now() + 1000);
+    expect(await storage.getBytes!("k")).toEqual(new Uint8Array([1, 2, 3]));
+    const [[key, packed]] = [...kv.values];
+    new DataView((packed as Uint8Array).buffer).setFloat64(0, Date.now() - 1, true);
+    kv.values.set(key, packed);
+    expect(await storage.getBytes!("k")).toBeNull();
   });
 });
