@@ -139,6 +139,34 @@ describe("createVtexSitemapProxy", () => {
 		expect(res!.status).toBe(502);
 	});
 
+	it("forwards a VTEX 4xx with its status and body instead of a 502", async () => {
+		const fetchImpl = vi.fn(
+			async () =>
+				new Response("Error fetching sitemap data", {
+					status: 404,
+					headers: { "content-type": "text/plain; charset=utf-8" },
+				}),
+		) as unknown as typeof fetch;
+		const proxy = createVtexSitemapProxy({ fetchImpl });
+		const url = new URL("https://www.mystore.com/sitemap/product-99.xml");
+		const res = await proxy(new Request(url), url);
+		expect(res!.status).toBe(404);
+		expect(await res!.text()).toBe("Error fetching sitemap data");
+		expect(res!.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+		// An error must not be pinned at the edge for the sitemap's TTL.
+		expect(res!.headers.get("cache-control")).toBe("no-store");
+	});
+
+	it("forwards a VTEX 400 for an unknown sub-sitemap", async () => {
+		const proxy = createVtexSitemapProxy({
+			fetchImpl: makeFetch("Error fetching sitemap data", { status: 400 }),
+		});
+		const url = new URL("https://www.mystore.com/sitemap/xyz.xml");
+		const res = await proxy(new Request(url), url);
+		expect(res!.status).toBe(400);
+		expect(await res!.text()).toBe("Error fetching sitemap data");
+	});
+
 	it("returns 502 when fetch throws", async () => {
 		const fetchImpl = vi.fn(async () => {
 			throw new Error("network down");
