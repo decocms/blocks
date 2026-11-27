@@ -36,6 +36,7 @@ import {
   pickFallbackProps,
   reExtractRawProps,
   registerCommerceLoader,
+  registerCommerceLoaders,
   registerMatcher,
   resolveDeferred,
   registerEagerSections,
@@ -424,6 +425,74 @@ describe("commerce loader auto-injects URL search params as props", () => {
 
     expect(calls[0]?.count).toBe(24);
     expect(calls[0]?.pageOffset).toBe(2);
+  });
+});
+
+describe("commerce loader registered with injectUrlParams: false", () => {
+  const KEY = "site/loaders/__test/noInjectLoader";
+
+  beforeEach(() => clearCommerceLoaders());
+  afterEach(() => clearCommerceLoaders());
+
+  it("gets the block's props and __pageUrl, never the address bar's params", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoaders(
+      {
+        [KEY]: async (props: Record<string, unknown>) => {
+          calls.push({ ...props });
+          return null;
+        },
+      },
+      { injectUrlParams: false },
+    );
+
+    await resolveValue({ __resolveType: KEY, slug: "camisas" }, undefined, {
+      url: "https://store.com/roupas/camisas?pathname=/off&query=bermuda&count=3&utm_source=x",
+      path: "/roupas/camisas",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      slug: "camisas",
+      __pagePath: "/roupas/camisas",
+      __pageUrl: "https://store.com/roupas/camisas?pathname=%2Foff&query=bermuda&count=3",
+    });
+  });
+
+  it("applies to the .ts-suffixed resolveType of a key registered without it", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    registerCommerceLoader(
+      KEY,
+      async (props: Record<string, unknown>) => {
+        calls.push({ ...props });
+        return null;
+      },
+      { injectUrlParams: false },
+    );
+
+    await resolveValue({ __resolveType: `${KEY}.ts` }, undefined, {
+      url: "https://store.com/?pathname=/off",
+      path: "/",
+    });
+
+    expect(calls[0]).not.toHaveProperty("pathname");
+  });
+
+  it("injects again when the key is re-registered without the option", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const loader = async (props: Record<string, unknown>) => {
+      calls.push({ ...props });
+      return null;
+    };
+    registerCommerceLoader(KEY, loader, { injectUrlParams: false });
+    registerCommerceLoader(KEY, loader);
+
+    await resolveValue({ __resolveType: KEY }, undefined, {
+      url: "https://store.com/p?skuId=12345",
+      path: "/p",
+    });
+
+    expect(calls[0]?.skuId).toBe("12345");
   });
 });
 
