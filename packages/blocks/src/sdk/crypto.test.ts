@@ -8,7 +8,7 @@
 
 import { webcrypto } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { resolveSecret } from "./crypto";
+import { decryptSecret, encryptSecret, resolveSecret } from "./crypto";
 import { setRuntimeEnv } from "./otelAdapters";
 import { RequestContext } from "./requestContext";
 
@@ -62,4 +62,51 @@ describe("resolveSecret in CF Workers (no process.env / no .dev.vars)", () => {
 
     expect(resolved).toBe(plaintext);
   });
+});
+
+describe("encryptSecret", () => {
+	const inRequest = <T>(env: Record<string, string>, fn: () => Promise<T>) =>
+		RequestContext.run(new Request("https://site.example/"), async () => {
+			setRuntimeEnv(env);
+			return fn();
+		});
+
+	it("produces the same hex as a plain AES-CBC encrypt with the site key (Fresh's encryptToHex)", async () => {
+		const plaintext = "moengage-api-secret";
+		const { decoCryptoKey, encryptedHex } = await makeKeyAndCiphertext(plaintext);
+
+		const hex = await inRequest({ DECO_CRYPTO_KEY: decoCryptoKey }, () =>
+			encryptSecret(plaintext),
+		);
+
+		expect(hex).toBe(encryptedHex);
+	});
+
+	it("round-trips through decryptSecret", async () => {
+		const { decoCryptoKey } = await makeKeyAndCiphertext("unused");
+
+		const decrypted = await inRequest({ DECO_CRYPTO_KEY: decoCryptoKey }, async () =>
+			decryptSecret(await encryptSecret("çãõ 🔑 secret")),
+		);
+
+		expect(decrypted).toBe("çãõ 🔑 secret");
+	});
+
+	it("uses the current DECO_CRYPTO_KEY, not the first one it imported", async () => {
+		const a = await makeKeyAndCiphertext("same");
+		const b = await makeKeyAndCiphertext("same");
+
+		expect(
+			await inRequest({ DECO_CRYPTO_KEY: a.decoCryptoKey }, () => encryptSecret("same")),
+		).toBe(a.encryptedHex);
+		expect(
+			await inRequest({ DECO_CRYPTO_KEY: b.decoCryptoKey }, () => encryptSecret("same")),
+		).toBe(b.encryptedHex);
+	});
+
+	it("throws without DECO_CRYPTO_KEY instead of returning the plaintext", async () => {
+		await expect(inRequest({}, () => encryptSecret("x"))).rejects.toThrow(
+			/DECO_CRYPTO_KEY/,
+		);
+	});
 });
