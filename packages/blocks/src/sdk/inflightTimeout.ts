@@ -1,3 +1,5 @@
+import { RequestContext } from "./requestContext";
+
 /**
  * Inflight-Promise timeout guard for module-level dedup caches.
  *
@@ -90,8 +92,31 @@ export function joinInflight<T>(
       },
       (error) => {
         clearTimeout(timer);
+        // The owner was cancelled, not the upstream: its fetch is bound to ITS request's
+        // signal (client disconnect / SSR deadline), so the shared flight rejects for
+        // every joiner. A joiner whose own request is still alive runs the work itself.
+        if (isOwnerCancellation(error) && !RequestContext.current?.signal?.aborted) {
+          console.warn(
+            "[inflight] owner cancelled",
+            JSON.stringify({ label: label?.slice(0, 200) ?? null }),
+          );
+          Promise.resolve().then(onStall).then(resolve, reject);
+          return;
+        }
         reject(error);
       },
     );
   });
+}
+
+/**
+ * Errors a flight gets when the REQUEST that started it goes away rather than when the
+ * upstream fails: an abort from its signal, or workerd cutting that request's sockets
+ * ("Network connection lost."). Retrying those in a live joiner is one extra call, and
+ * the upstream breaker still guards against a real outage.
+ */
+function isOwnerCancellation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { name, message } = error as { name?: string; message?: string };
+  return name === "AbortError" || message === "Network connection lost.";
 }
