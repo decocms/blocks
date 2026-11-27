@@ -1,6 +1,6 @@
 # CMS page routes — catch-all (`$.tsx`), homepage (`index.tsx`), root (`__root.tsx`)
 
-The two CMS page factories from `@decocms/tanstack` and the site-owned root route. Spread the factory output; the site only supplies `component` (and `notFoundComponent`).
+The two CMS page factories from `@decocms/tanstack` and the site-owned root route. Spread the factory output; the site only supplies `component`. The 404 (`notFoundComponent`) comes with the factory — see [404 page](#404-page--branded-with-header-and-footer).
 
 ## Catch-All CMS Route (`$.tsx`)
 
@@ -11,11 +11,7 @@ The catch-all route handles all CMS-managed pages (PDP, PLP, institutional pages
 ```typescript
 // src/routes/$.tsx
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  cmsRouteConfig,
-  DecoPageRenderer,
-  NotFoundPage,
-} from "@decocms/tanstack";
+import { cmsRouteConfig, DecoPageRenderer } from "@decocms/tanstack";
 import { deferredSectionLoader } from "@decocms/tanstack/sdk/deferredSectionLoader";
 import type { ResolvedSection, DeferredSection } from "@decocms/blocks/cms";
 
@@ -32,20 +28,17 @@ type PageData = {
   name: string;
   path: string;
   params: Record<string, string>;
-} | null;
+};
 
 export const Route = createFileRoute("/$")({
-  ...routeConfig,
+  ...routeConfig, // includes notFoundComponent: CmsNotFoundPage
   component: CmsPage,
-  notFoundComponent: NotFoundPage,
 });
 
 function CmsPage() {
   const data = Route.useLoaderData() as PageData;
   const { _splat } = Route.useParams();
   const actualPath = `/${_splat ?? ""}`;
-
-  if (!data) return <NotFoundPage />;
 
   return (
     <DecoPageRenderer
@@ -74,10 +67,29 @@ interface CmsRouteOptions {
   errorComponent?: (props: { error: Error; reset: () => void }) => any; // default CmsPageErrorFallback
   ssr?: boolean | "data-only";   // Route SSR mode (default: full SSR)
   resolveGlobals?: boolean;      // Merge the CMS `Site` block (theme/global/pageSections); default true
+  notFoundPath?: string | false; // CMS page rendered with status 404 on a miss (default "/404")
 }
 ```
 
 `pendingComponent` has no default on purpose: without one, TanStack keeps the previous page on screen until the new one commits, which at sub-second latencies feels better than a page → skeleton → page swap — and this is a catch-all route, so one skeleton shape would have to serve PDP, PLP, search and institutional pages alike. Prefer a per-shape skeleton or `NavigationProgress` (`@decocms/tanstack`), which gives feedback without replacing the page. `CmsPagePendingFallback` exists in the package as a starting point but is not exported from the public root (see `exports.md`). `errorComponent` defaults to a branded "instability" page with a retry button so an outage degrades instead of a raw 500. Verify the full list against `CmsRouteOptions` in `packages/tanstack/src/routes/cmsRoute.ts`.
+
+### 404 page — branded, with Header and Footer
+
+A URL no CMS page matches answers **HTTP 404** and renders, in order:
+
+1. the CMS page at `notFoundPath` (default `/404`) — the branded 404. Create it in the CMS like any page: the site's Header, a message section (title, a link home, ideally a search box that submits to the site's search), the Footer;
+2. without that page, a neutral "Page not found" message (inherits the site's font and colors) wrapped in the homepage's layout sections — the sections marked `export const layout = true` (Header, Footer). Only those are resolved, never the homepage content.
+
+The loader throws `notFound({ data })`, so the status is a real 404 (not a 200 soft-404 crawlers index), the response is uncached (`cacheHeaders("none")`) and `head()` emits `noindex`. Visiting `/404` itself also answers 404.
+
+**Setup step (every new or migrated site):**
+
+- Mark the Header and Footer sections `export const layout = true` (also caches their loaders).
+- Create the `/404` page in the CMS with Header, a message, and Footer. A page migrated from Fresh with path `/*` (the old catch-all "not found" page) answers **200** for every unknown URL — move it to `/404`.
+- Don't set `notFoundComponent` in `$.tsx` unless the site needs a code-owned 404; if it does, keep the Header/Footer and keep throwing `notFound()` (never return a "not found" page from `component`, that is a 200).
+- Verify: `curl -s -o /dev/null -w "%{http_code}" https://<site>/this-page-does-not-exist-123` prints `404`, and the page shows the site's Header, message and Footer (in dev, the default message adds a hint pointing at `/404`).
+
+`notFoundPath: false` restores the pre-404 contract (loader resolves `null`, the site's `component` decides) for a site that handles misses itself.
 
 ### `ignoreSearchParams` — Critical for Variants
 
@@ -251,12 +263,12 @@ export const Route = createRootRoute({
 
 ### `Property 'resolvedSections' does not exist on type 'never'`
 
-TypeScript inference limitation with `createServerFn` + `useLoaderData()`. The `page` could be `null`. Add a null check:
+TypeScript inference limitation with `createServerFn` + `useLoaderData()`: the server fn's type includes `null`. A miss never reaches `component` (the loader throws `notFound()`), so the check only narrows the type:
 
 ```typescript
 function CmsPage() {
   const page = Route.useLoaderData();
-  if (!page) return <NotFoundPage />;
+  if (!page) return null;
   return <DecoPageRenderer sections={page.resolvedSections} />;
 }
 ```

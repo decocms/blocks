@@ -6,17 +6,19 @@ export {
   decoRenderRouteConfig,
 } from "./adminRoutes";
 export {
+  type CmsNotFoundData,
   CmsPagePendingFallback,
   type CmsRouteOptions,
   cmsHomeRouteConfig,
   cmsRouteConfig,
   loadCmsHomePage,
+  loadCmsNotFoundPage,
   loadCmsPage,
   loadDeferredSection,
   setSectionChunkMap,
 } from "./cmsRoute";
 export { deferredSectionLoader } from "../sdk/deferredSectionLoader";
-export { CmsPage, NotFoundPage } from "./components";
+export { CmsNotFoundPage, CmsPage, NotFoundPage } from "./components";
 export {
   resolveSiteGlobals,
   type SiteGlobalsLoaderData,

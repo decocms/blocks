@@ -118,6 +118,7 @@ export {
   isBot,
   isDeferred,
   isEagerRequest,
+  isLayoutRawSection,
   isSeoSection,
   isServerOnlyResolveType,
   onBeforeResolve,

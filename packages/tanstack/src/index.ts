@@ -1,11 +1,13 @@
 export {
   cmsHomeRouteConfig,
   cmsRouteConfig,
+  CmsNotFoundPage,
   CmsPage,
   decoInvokeRouteConfig,
   decoMetaRouteConfig,
   decoRenderRouteConfig,
   loadCmsHomePage,
+  loadCmsNotFoundPage,
   loadCmsPage,
   loadDeferredSection,
   NotFoundPage,
