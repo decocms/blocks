@@ -73,6 +73,19 @@ describe("parseDraftPointer", () => {
     expect(parseDraftPointer("a.example/x y@v1")).toBeNull();
   });
 
+  it("rejects a protocol-relative path — the path must not carry a new authority (SSRF)", () => {
+    // `a.decocms.com//attacker.example/decofile.json` parses to host
+    // `a.decocms.com` (on the allowlist) but path `//attacker.example/...`.
+    // `new URL("//host/x", origin)` keeps the scheme and SWAPS the authority,
+    // so an accepted pointer here would steer the fetch to `attacker.example`.
+    expect(
+      parseDraftPointer(
+        "a.decocms.com//deco-draft-poc.edgie.workers.dev/decofile.json@1",
+      ),
+    ).toBeNull();
+    expect(parseDraftPointer("a.decocms.com//evil.example/x@v1")).toBeNull();
+  });
+
   it("validates the version charset — it becomes a cache key", () => {
     expect(parseDraftPointer("a.example/x@")).toBeNull();
     expect(parseDraftPointer(`a.example/x@${"x".repeat(65)}`)).toBeNull();
@@ -170,6 +183,24 @@ describe("resolveDraftDecofile", () => {
     expect(calls).toEqual([
       "https://studio.decocms.com/api/acme/decofile/vm-1/main?token=tok.abc&v=v1",
     ]);
+  });
+
+  it("never fetches off the validated origin — protocol-relative pointer is refused (SSRF)", async () => {
+    // End-to-end on the live PoC: an allowlisted host with a `//attacker` path.
+    // The fetch must stay on the allowlisted origin (here: no fetch at all,
+    // since the pointer is rejected) and never reach the attacker authority.
+    let target: string | null = null;
+    const blocks = await resolveDraftDecofile({
+      pointer:
+        "a.decocms.com//deco-draft-poc.edgie.workers.dev/decofile.json@1",
+      env: ENV_ON,
+      fetchImpl: (async (url: string) => {
+        target = String(url);
+        return jsonResponse({ pwned: true });
+      }) as unknown as typeof fetch,
+    });
+    expect(blocks).toBeNull();
+    expect(target).toBeNull();
   });
 
   it("is inert without a host allowlist — no fetch at all", async () => {

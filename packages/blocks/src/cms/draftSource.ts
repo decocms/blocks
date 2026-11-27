@@ -71,6 +71,15 @@ export function parseDraftPointer(
   const authority = authorityAndPath.slice(0, slash).toLowerCase();
   const path = authorityAndPath.slice(slash);
   if (!PATH_RE.test(path)) return null;
+  // A path is a rooted path ON the validated authority, never a new authority.
+  // `//host/x` is a protocol-relative URL: `new URL("//host/x", origin)` keeps
+  // the scheme but REPLACES the authority, so the validated host would be
+  // discarded and the fetch would hit `host` — an SSRF allowlist bypass
+  // (`a.decocms.com//attacker.example/decofile.json@1`). Reject a second
+  // leading slash here; `resolveDraftDecofile` re-checks the derived origin as
+  // the authoritative guard. (A `\` second char can't reach this: it is outside
+  // PATH_RE's charset and already failed above.)
+  if (path.startsWith("//")) return null;
 
   const [host, port, extra] = authority.split(":");
   if (extra !== undefined) return null;
@@ -340,6 +349,13 @@ export async function resolveDraftDecofile(
   // (a CDN worker checking the token per request, keyed on path+version)
   // without another runtime deploy.
   const url = new URL(parsed.path, origin);
+  // Authoritative SSRF guard: the fetch URL's origin MUST equal the origin the
+  // allowlist derived from the validated host. `new URL(path, origin)` can be
+  // steered off that origin by an authority-overriding path (protocol-relative
+  // `//host`, backslash tricks, an embedded scheme) — whatever slips past the
+  // charset/parse checks lands here. The token proposes a path; configuration
+  // disposes the origin, and it must not move.
+  if (url.origin !== origin) return null;
   url.searchParams.append("v", parsed.version);
   let res: Response;
   try {
