@@ -386,6 +386,36 @@ describe("deco-hosted preview domains (setDecoSiteHost)", () => {
     }
   });
 
+  it("infers the <site>-pr-<n>-site.deco.site pull request preview host", () => {
+    setDecoSiteHost("acme-storefront");
+    try {
+      expect(isDraftHostAllowed("acme-storefront-pr-298-site.deco.site", {})).toBe(true);
+      expect(isDraftHostAllowed("acme-storefront-pr-1-site.deco.site", {})).toBe(true);
+      // Another site's pull request.
+      expect(isDraftHostAllowed("other-site-pr-298-site.deco.site", {})).toBe(false);
+      // The number is a positive integer: no label, no leading zero, not 0, empty or dotted.
+      expect(isDraftHostAllowed("acme-storefront-pr-abc-site.deco.site", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-storefront-pr-012-site.deco.site", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-storefront-pr-0-site.deco.site", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-storefront-pr--site.deco.site", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-storefront-pr-1.x-site.deco.site", {})).toBe(false);
+      // Missing the `-site` suffix, or off deco's apex.
+      expect(isDraftHostAllowed("acme-storefront-pr-298.deco.site", {})).toBe(false);
+      expect(isDraftHostAllowed("acme-storefront-pr-298-site.example.com", {})).toBe(false);
+      expect(
+        isDraftHostAllowed("acme-storefront-pr-298-site.deco.site.evil.com", {}),
+      ).toBe(false);
+      // The kill switch turns it off too.
+      expect(
+        isDraftHostAllowed("acme-storefront-pr-298-site.deco.site", {
+          DECO_ALLOWED_PREVIEW_HOSTS: "none",
+        }),
+      ).toBe(false);
+    } finally {
+      setDecoSiteHost(null);
+    }
+  });
+
   it("is merged ON TOP of the site block, not replacing it", () => {
     setDraftPreviewHosts(["acme.vtex.app"]);
     setDecoSiteHost("acme");

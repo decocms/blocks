@@ -184,13 +184,15 @@ export function setDraftPreviewHosts(hosts: readonly unknown[]): void {
 /**
  * Register the resolved site name (`DECO_SITE_NAME` / an explicit setup
  * option, resolved by the framework binding at setup). deco-operated preview
- * hosts are derived from it, both exact:
+ * hosts are derived from it:
  *
- *   - `<site>.deco.site` — the stable deco-hosted domain.
+ *   - `<site>.deco.site` — the stable deco-hosted domain (exact).
  *   - `<site>.deco-cx.workers.dev` — the workers.dev deploy URL
- *     (e.g. `acme-tanstack.deco-cx.workers.dev`).
+ *     (e.g. `acme-tanstack.deco-cx.workers.dev`; exact).
+ *   - `<site>-pr-<number>-site.deco.site` — a pull request's preview
+ *     environment, one per pull request (matched as a pattern).
  *
- * Both are MERGED with the site-block/env list rather than replacing it: they
+ * All are MERGED with the site-block/env list rather than replacing it: they
  * are deco-operated infra, so a signed draft grant can preview there out of the
  * box, while a custom production domain — never inferred here — stays inert.
  * Fed from the trusted setup-time site name, never from the request or a draft.
@@ -224,10 +226,7 @@ export function setDecoSiteHost(site: string | null | undefined): void {
  * rollout can be stopped without a deploy. It must win over every other source.
  */
 function readAllowedHosts(env: Record<string, string | undefined>): string[] {
-  const fromEnv = (env.DECO_ALLOWED_PREVIEW_HOSTS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+  const fromEnv = readEnvHosts(env);
   if (fromEnv.includes("none")) return [];
   const configured = fromEnv.length > 0 ? fromEnv : (G.__decoDraftHosts ?? []);
   const site = G.__decoSite;
@@ -238,11 +237,43 @@ function readAllowedHosts(env: Record<string, string | undefined>): string[] {
   return inferred.length > 0 ? [...configured, ...inferred] : configured;
 }
 
+function readEnvHosts(env: Record<string, string | undefined>): string[] {
+  return (env.DECO_ALLOWED_PREVIEW_HOSTS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Suffix of a pull request's preview environment (`<site>-pr-<n>-site.deco.site`). */
+const PULL_REQUEST_PREVIEW_SUFFIX = "-site.deco.site";
+/** A pull request number: digits only, no leading zero. */
+const PULL_REQUEST_NUMBER_RE = /^[1-9][0-9]*$/;
+
+/**
+ * Whether `host` is one of the site's pull request preview environments,
+ * `<site>-pr-<number>-site.deco.site`. The number is digits only, so the match
+ * stays a single label under deco's own `deco.site`. Off under the kill switch.
+ */
+function matchesPullRequestPreview(
+  host: string,
+  env: Record<string, string | undefined>,
+): boolean {
+  const site = G.__decoSite;
+  if (!site || readEnvHosts(env).includes("none")) return false;
+  const prefix = `${site}-pr-`;
+  if (!host.startsWith(prefix) || !host.endsWith(PULL_REQUEST_PREVIEW_SUFFIX)) {
+    return false;
+  }
+  const number = host.slice(prefix.length, -PULL_REQUEST_PREVIEW_SUFFIX.length);
+  return PULL_REQUEST_NUMBER_RE.test(number);
+}
+
 /**
  * Whether `host` (as seen on the request) may render drafts.
  *
  * Compared against the allowlist verbatim, port included — local dev is
- * `localhost:3100`, not `localhost`. The header is spoofable by a
+ * `localhost:3100`, not `localhost` — then against the pull request preview
+ * pattern. The header is spoofable by a
  * direct-to-origin request, but the draft id is the actual capability;
  * host-scoping bounds blast radius (production domains stay inert), it is not
  * a secret.
@@ -252,9 +283,9 @@ export function isDraftHostAllowed(
   env?: Record<string, string | undefined>,
 ): boolean {
   if (!host) return false;
-  return readAllowedHosts(envOrProcess(env)).includes(
-    host.trim().toLowerCase(),
-  );
+  const e = envOrProcess(env);
+  const h = host.trim().toLowerCase();
+  return readAllowedHosts(e).includes(h) || matchesPullRequestPreview(h, e);
 }
 
 /**
